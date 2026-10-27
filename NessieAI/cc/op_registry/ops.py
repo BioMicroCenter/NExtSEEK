@@ -462,6 +462,36 @@ OPS: list[OpSpec] = [
         ),
     ),
     _subcmd(
+        op_id="evidence-search",
+        bin_name="nextseek-evidence-search",
+        runner_key="evidence-search",
+        argv=[
+            ArgSpec(flag="--query"),
+            ArgSpec(flag="--id"),
+            ArgSpec(flag="--limit"),
+        ],
+        skill_name="paper-curation",
+        skill_row=_row(
+            "Search the run's evidence items by words or ID.",
+            "[--query] [--id] [--limit]",
+            "{count, items[{id, source, text}]}",
+        ),
+    ),
+    _subcmd(
+        op_id="curation-check",
+        bin_name="nextseek-curation-check",
+        runner_key="curation-check",
+        argv=[
+            ArgSpec(flag="--file"),
+        ],
+        skill_name="paper-curation",
+        skill_row=_row(
+            "Run stage 4's checks on curation.json.",
+            "[--file]",
+            "{errors, warnings, findings}",
+        ),
+    ),
+    _subcmd(
         op_id="extract",
         bin_name="nextseek-extract-text",
         runner_key="extract",

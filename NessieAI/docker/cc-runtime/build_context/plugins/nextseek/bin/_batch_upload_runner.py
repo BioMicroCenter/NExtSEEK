@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import pathlib
 import os
 import shutil
@@ -569,8 +570,65 @@ def _blank(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _paper_inputs() -> pathlib.Path:
+    """The curation run's read-only inputs (/data/input); the override exists for tests."""
+    return pathlib.Path(os.environ.get("NEXTSEEK_PAPER_INPUT_DIR", "/data/input"))
+
+
+def _cmd_evidence_search(argv: list[str], *, transport=None) -> int:
+    del transport
+    parser = argparse.ArgumentParser(prog="nextseek-evidence-search")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--query")
+    group.add_argument("--id")
+    parser.add_argument("--limit", type=int, default=20)
+    args = parser.parse_args(argv)
+    items = json.loads((_paper_inputs() / "evidence.json").read_text(encoding="utf-8")).get("items") or []
+    if args.id:
+        hits = [i for i in items if i.get("id") == args.id]
+    else:
+        words = [w for w in args.query.casefold().split() if w]
+        hits = [i for i in items if all(w in (i.get("text") or "").casefold() or w in i.get("id", "").casefold()
+                                        for w in words)]
+    limit = max(1, min(args.limit, 200))
+    shown = [{"id": i["id"], "source": i.get("source", ""), "text": i["text"] if args.id else i["text"][:600]}
+             for i in hits[:limit]]
+    print(orjson.dumps({"count": len(hits), "items": shown}).decode())
+    return 0
+
+
+def _cmd_curation_check(argv: list[str], *, transport=None) -> int:
+    del transport
+    parser = argparse.ArgumentParser(prog="nextseek-curation-check")
+    parser.add_argument("--file", default="/data/scratch/curation.json")
+    args = parser.parse_args(argv)
+    from _paper_curation_check import check_all  # the server's own checks, copied byte for byte
+
+    inputs = _paper_inputs()
+
+    def load(name: str):
+        return json.loads((inputs / name).read_text(encoding="utf-8"))
+
+    try:
+        curation = json.loads(pathlib.Path(args.file).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        findings = [{"code": "shape", "severity": "error", "detail": f"{args.file} does not exist yet"}]
+    except ValueError as exc:
+        findings = [{"code": "shape", "severity": "error", "detail": f"{args.file} is not JSON: {exc}"}]
+    else:
+        context = load("context.json")
+        chosen = (context.get("project") or {}).get("chosen")
+        findings = check_all(curation, load("evidence.json"), context, load("rulebook.json"),
+                             project_id=chosen["project_id"] if chosen else None)
+    errors = sum(1 for f in findings if f["severity"] == "error")
+    print(orjson.dumps({"errors": errors, "warnings": len(findings) - errors, "findings": findings[:200]}).decode())
+    return 0
+
+
 _CMDS = {
     "attrs": _cmd_attrs,
+    "curation-check": _cmd_curation_check,
+    "evidence-search": _cmd_evidence_search,
     "extract": _cmd_extract,
     "project-resolve": _cmd_project_resolve,
     "assay-resolve": _cmd_assay_resolve,

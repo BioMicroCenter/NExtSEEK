@@ -29,7 +29,9 @@ nextseek-api-write	api-write	Refused: the server refuses every create, update an
 nextseek-assay-resolve	assay-resolve	Resolve assay titles against the selected project.
 nextseek-build-payload	build-payload	Build staged upload payloads from source rows.
 nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. Re-run with --answers to apply the curator's rulings on flagged cells (fill), ambiguous files (choose) and uncovered keys (place); measured cells are refused.
+nextseek-curation-check	curation-check	Run stage 4's checks on curation.json.
 nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
+nextseek-evidence-search	evidence-search	Search the run's evidence items by words or ID.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
 nextseek-graph	graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.
@@ -58,6 +60,7 @@ The `nextseek` plugin ships three skills. None writes to NExtSEEK without the us
 <!-- BEGIN PLAN005-GEN:skills -->
 nextseek	nextseek
 nextseek	nextseek-batch-upload
+nextseek	paper-curation
 <!-- END PLAN005-GEN:skills -->
 
 - **`nextseek`** — `skills/nextseek/SKILL.md`. Answer questions about existing NExtSEEK data (query, find, list, count, look up samples, projects, studies), **launch** an nf-core pipeline on the cluster (`nextseek-pipeline`), and **reingest** a finished pipeline run's outputs into reviewable upload workbooks (`nextseek-run-harvest` + `nextseek-build-upload-xlsx`), then upload them with `nextseek-upload-reingest` once the user confirms.

@@ -1,0 +1,20 @@
+#!/bin/sh
+# nextseek-curation-check: Run the server's stage 4 checks on curation.json; prints {errors, warnings, findings}. Read-only.
+# Runs only on the curation run's own files; cannot upload or write.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+for arg in "$@"; do
+  case "$arg" in
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$arg is forbidden: this tool is read-only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-curation-check [--file /data/scratch/curation.json]"
+      echo ""
+      echo "Run the server's stage 4 checks on curation.json; prints {errors, warnings, findings}."
+      exit 0 ;;
+  esac
+done
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" curation-check "$@"

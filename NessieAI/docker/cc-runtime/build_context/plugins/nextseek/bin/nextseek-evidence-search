@@ -1,0 +1,20 @@
+#!/bin/sh
+# nextseek-evidence-search: Search the paper reingest run's evidence items (/data/input/evidence.json) by words or by ID. Read-only.
+# Runs only on the curation run's own files; cannot upload or write.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+for arg in "$@"; do
+  case "$arg" in
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$arg is forbidden: this tool is read-only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-evidence-search --query "<words>" | --id <evidence id> [--limit N]"
+      echo ""
+      echo "Search the paper reingest run's evidence items (/data/input/evidence.json) by words or by ID."
+      exit 0 ;;
+  esac
+done
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" evidence-search "$@"

@@ -83,4 +83,6 @@ You have no internet and no NExtSEEK access. Your only tools are reading files a
 ```
 
 <!-- BEGIN PLAN005-GEN:skill-ops -->
+curation-check	nextseek-curation-check	Run stage 4's checks on curation.json.	local_subcommand	read	true	false
+evidence-search	nextseek-evidence-search	Search the run's evidence items by words or ID.	local_subcommand	read	true	false
 <!-- END PLAN005-GEN:skill-ops -->

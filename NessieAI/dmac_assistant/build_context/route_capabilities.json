@@ -182,6 +182,8 @@
         "nextseek-upload-reingest",
         "nextseek-paper-reingest-start",
         "nextseek-sampletype-attrs",
+        "nextseek-evidence-search",
+        "nextseek-curation-check",
         "nextseek-extract-text",
         "nextseek-project-resolve",
         "nextseek-assay-resolve",

@@ -28,6 +28,8 @@ ALLOW='[
   "Bash(nextseek-build-upload-xlsx:*)",
   "Bash(nextseek-project-resolve:*)",
   "Bash(nextseek-sampletype-attrs:*)",
+  "Bash(nextseek-evidence-search:*)",
+  "Bash(nextseek-curation-check:*)",
   "Bash(nextseek-sample-search:*)",
   "Bash(nextseek-assay-resolve:*)",
   "Bash(nextseek-build-payload:*)",
