@@ -56,6 +56,9 @@ class EntityAgentOutput(BaseModel):
     #: Written by code: a category word of the question -> every catalog type whose Tags carry it
     #: (``agents/entity.expand_category_types``). The sample types of those codes are all in ``sampletypes``.
     category_types: dict[str, list[str]] = Field(default_factory=dict)
+    #: Written by code: a house-list word the question used -> the sample type the lab's own convention gives it
+    #: (``agents/entity.apply_house_sample_types``). The type is in ``sampletypes`` whether code or the agent put it there.
+    house_types: dict[str, str] = Field(default_factory=dict)
     #: Overwritten after the LLM returns, like ``lab_codes``.
     lab_matches: list[LabMatch] = Field(default_factory=list)
     #: Also written by code, and deliberately not acted on. See ``LabNearMiss``.

@@ -123,3 +123,37 @@ def test_a_question_about_a_paper_or_study_is_left_to_the_agent(query):
     apply_house_sample_types(query, out, CATALOG)
     assert [i.code for i in out.sampletypes] == ["TIS"]
     assert out.keywords == ["fate maps"]
+
+
+# dtd3 G2: the result records which house word gave which type, so the graph agent can anchor it.
+def test_house_types_records_the_word_and_code_when_code_added_the_type():
+    out = EntityAgentOutput()
+    apply_house_sample_types("how many PBMCs were sequenced", out, CATALOG)
+    assert out.house_types == {"PBMC": "TIS"}
+
+
+def test_house_types_records_the_word_when_the_agent_had_already_chosen_the_type():
+    out = EntityAgentOutput(sampletypes=[EntityItem(code="TIS", name="Tissue")])
+    apply_house_sample_types("PBMC samples", out, CATALOG)
+    assert out.house_types == {"PBMC": "TIS"}
+
+
+def test_house_types_is_empty_by_default_and_for_a_quoted_or_paper_question():
+    assert EntityAgentOutput().house_types == {}
+    out = EntityAgentOutput()
+    apply_house_sample_types('samples of "Neutrophil trails in a made-up fin"', out, CATALOG)
+    apply_house_sample_types("which samples are in this paper: Macrophage maps of a made-up sponge", out, CATALOG)
+    assert out.house_types == {}
+
+
+def test_house_types_is_code_owned_so_a_paper_question_clears_a_model_written_map():
+    # house_types is a field of the entity model's own output schema: a value the model wrote never survives.
+    out = EntityAgentOutput(house_types={"WORD_X": "TIS"})
+    apply_house_sample_types("which samples are in this paper: Macrophage maps of a made-up sponge", out, CATALOG)
+    assert out.house_types == {}
+
+
+def test_house_types_skips_a_code_the_catalog_does_not_hold():
+    out = EntityAgentOutput()
+    apply_house_sample_types("PBMC samples", out, [{"SampleType": "CEL"}])
+    assert out.house_types == {}
