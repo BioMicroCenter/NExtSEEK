@@ -57,6 +57,8 @@ docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_
 - The run writes a run folder (`summary.json`, one file per story, the HTML report from `report.py`) to
   `--out`, which defaults to `outputs/<timestamp>_pipeline_scenarios`.
 - `DEPLOYMENT.md` §1 says when a prod deploy needs an accepted run.
+- Unlike production, the agent sees the cohort's person fields (Scientist, Lab, PrepUser and the rest of
+  `scrub.PERSON_NAMES`) as `REDACTED`. No story asks to group by them, so no grade depends on it.
 - Run it on a stack built from a commit whose fingerprint inputs (`fingerprint.INPUTS`) equal the branch's:
   deploy the branch itself, not a `merge(local)` that also carries other branches' changes to those files.
   `record.py` refuses a run made under any other fingerprint, so a run on the wrong commit is paid for and
@@ -107,8 +109,10 @@ The variants drive the real chat as far as a built launch, so they are fenced:
 
 - Each one runs only with `NESSIE_PIPELINE_SCENARIOS_E2E` set (`requires_env`); without it the harness
   records it skipped, so a `--scope all` run never draws them by accident.
-- Run them only on a stack whose Luria env is unset: no `LURIA_*` variable in the `nextseek` container
-  (`docker exec nextseek env | grep '^LURIA_'` prints nothing). Never on dev or prod. The build turn says
+- Run them only on a stack whose Luria env is unset: no `LURIA*` variable (`LURIA_USER`, `LURIAKEY`, ...)
+  in the `nextseek` container, so `docker exec nextseek env | grep -E '^LURIA'` prints nothing. Unsetting
+  them means editing `docker/nextseek.env` and recreating the container, which needs the owner's go.
+  Never on dev or prod. The build turn says
   "Build the run, but do not submit anything yet." and no turn confirms a submit, but a stack that cannot
   submit is the guard, not the wording.
 - The cohorts they search exist only on the local stack (the `test::` cohorts and the local UIDs of the real
