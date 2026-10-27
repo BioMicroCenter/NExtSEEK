@@ -46,3 +46,23 @@ def test_the_harness_skips_the_variants_without_the_opt_in(monkeypatch):
     for v in ours:
         entry = runner.run_case(v, tier="full", post_query=never, get_progress=never)
         assert entry.status == "skipped" and "NESSIE_PIPELINE_SCENARIOS_E2E" in entry.reason, v.id
+
+
+def _push_turn():
+    (v,) = [v for v in build_e2e.variants()
+            if any(t["label"] == "push_to_build" for t in v["turns"])]
+    return next(t for t in v["turns"] if t["label"] == "push_to_build")
+
+
+def test_the_not_yet_push_turn_fails_when_the_agent_did_not_answer_it():
+    """Nothing built and nothing offered is also what a turn the pipeline agent never saw looks like:
+    the push turn passes only on the agent's own snapshot of the chat."""
+    from NessieAI.tests.e2e.criteria import check_pass
+    criteria = _push_turn()["pass_criteria"]
+    assert check_pass({}, criteria)[0] is False                         # no snapshot on the turn
+    assert check_pass({"pipeline_agent": {}}, criteria)[0] is False     # an empty agent state
+    declined = {"pipeline_agent": {"active": True, "pipeline_key": None, "message_count": 4,
+                                   "selection": {"verdict": "refused", "pipelines": []}}}
+    assert check_pass(declined, criteria)[0] is True
+    built = {"pipeline_agent": {**declined["pipeline_agent"], "pipeline_key": "chipseq"}}
+    assert check_pass(built, criteria)[0] is False

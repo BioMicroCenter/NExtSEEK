@@ -52,11 +52,29 @@ docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_
 
 - `--ids a,b` runs those stories; `--family <name>` runs one family. Only ruled stories run, and only those
   whose cohort has UIDs on this stack.
-- `--per-story-usd` is the per-story cost used for the printed estimate. Nothing caps spend, so approve
-  each run on that estimate.
+- `--per-story-usd` is the per-story cost used for the printed estimate. Approve each run on that estimate.
+- Each story's row records what it spent (`spend`: the router's calls, priced by the router itself, and the
+  agent's, the loop's and the selection model's calls, priced by `turn_spend`, both on
+  `NessieAI/chat_nextseek/model_prices.json`), and `summary.json` the run's total. `partial` means some call
+  went unpriced or unseen, so the true cost is higher than `usd`. A selection call the tool stopped waiting
+  for is still billed: it is charged its prompt at the input rate (`estimated`), and its late answer is
+  not counted again.
+- `--max-usd <n>` stops the run before the next story once the counted total (`cap_usd`) reaches `n`;
+  `summary.json` lists the stories it did not run in `not_run`. A story with spend that cannot be priced
+  (no price row for a model, or no total) counts `--per-story-usd` more. A story already started runs to
+  its end, so a run can pass the cap by one story's cost.
+- A provider outage (`LLMFatalError`) fails its story and the run goes on; an interrupt stops the run,
+  and `summary.json` is written either way.
 - The run writes a run folder (`summary.json`, one file per story, the HTML report from `report.py`) to
   `--out`, which defaults to `outputs/<timestamp>_pipeline_scenarios`.
 - `DEPLOYMENT.md` §1 says when a prod deploy needs an accepted run.
+- The agent starts as production starts it on the nf-core report branch (`run.parser_plan`). A story with
+  `history` is a follow-up: the plan names the cohort's search, so the chat's earlier turns reach the
+  agent's first message. A story without one stands on its own and names no result. No story has
+  `history` yet.
+- The first paid run is also the first measure of a tape's size, not yet known. A fetched nf-core schema is
+  kept as a sha only when it is byte for byte a committed fixture; otherwise its bytes go on the tape as
+  base64 (about 65 KB a schema). Check the size of `recorded/` before committing it.
 - Unlike production, the agent sees the cohort's person fields (Scientist, Lab, PrepUser and the rest of
   `scrub.PERSON_NAMES`) as `REDACTED`. No story asks to group by them, so no grade depends on it.
 - Run it on a stack built from a commit whose fingerprint inputs (`fingerprint.INPUTS`) equal the branch's:
@@ -83,8 +101,9 @@ It writes `recorded/<id>.json` for each story and refuses (writing nothing) when
 A story the runner failed on (`error`), or whose tape was refused (`unrecorded`), is skipped. Review the diff of `recorded/` before committing it.
 
 CI demands a re-record whenever `fingerprint.current()` changes. `fingerprint.INPUTS` lists what it covers
-(the router's BAML and code, the selection and agent code and prompts, the atlases, the param atlas, the
-nf-core templates, the pinned schemas, the catalog, and the corpus families' projection); read that file
+(the router's BAML and code, the selection and agent code and prompts, what builds the agent's first
+message including `run.py`, the atlases, the param atlas, the nf-core templates, the pinned schemas, the
+catalog, and the corpus families' projection); read that file
 for the list. A change to any of these fails the replay until a paid re-record; the failure names the
 files that changed, from the per-input hashes each fixture keeps (`fingerprint_files`). A change to a story's own
 fields, or a tool call the tape never saw, fails it the same way.

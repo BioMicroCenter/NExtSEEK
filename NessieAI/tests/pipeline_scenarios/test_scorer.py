@@ -142,3 +142,42 @@ def test_must_match_includes_reads_a_list_and_ignores_case():
     assert score(st, _built("sarek", {"tools": " haplotypecaller , STRELKA "})).grade == "PASS"
     s = score(st, _built("sarek", {"tools": ["haplotypecaller"]}))
     assert s.grade == "PARTIAL" and "strelka" in s.reasons[0].lower()
+
+
+# ---- the offer-only path (no launch expected), pinned as it grades today ----------------------
+# The spec says only that matching any one acceptable set passes; it does not say whether an offer
+# is held to the built path's fork check. T7-m1: these pin today's looser grading until the owner rules.
+
+def _offer_only(**kw):
+    return _story(launch={"built": False, "must_match": {}}, **kw)
+
+
+def _offered(*pipelines, verdict=None, dropped=()):
+    verdict = verdict or ("fork" if len(pipelines) > 1 else "chosen")
+    return Outcome(route="nextseek_query",
+                   selection={"verdict": verdict, "pipelines": list(pipelines), "dropped": list(dropped)})
+
+
+def test_offer_only_passes_an_offer_equal_to_an_acceptable_set():
+    assert score(_offer_only(), _offered("rnaseq")).grade == "PASS"
+
+
+def test_offer_only_passes_a_fork_that_overlaps_a_single_choice_unlike_the_built_path():
+    """The built path grades this same fork PARTIAL (test_asking_first_when_a_single_choice_was_expected_is_partial)."""
+    assert score(_offer_only(), _offered("rnaseq", "rnasplice")).grade == "PASS"
+
+
+def test_offer_only_passes_a_pipeline_named_only_as_not_launchable_here():
+    st = _offer_only(acceptable=[["differentialabundance"]], must_not=[])
+    o = _offered(verdict="out_of_scope", dropped=["differentialabundance"])
+    assert score(st, o).grade == "PASS"
+
+
+def test_offer_only_is_partial_on_an_offer_outside_every_acceptable_set():
+    s = score(_offer_only(), _offered("rnasplice"))
+    assert s.grade == "PARTIAL" and "rnasplice" in s.reasons[0]
+
+
+def test_offer_only_is_partial_when_nothing_is_offered():
+    s = score(_offer_only(), Outcome(route="nextseek_query", selection={"verdict": "out_of_scope", "pipelines": []}))
+    assert s.grade == "PARTIAL" and "offered []" in s.reasons[0]

@@ -16141,6 +16141,11 @@
               "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
+                  "field": "pipeline_agent.message_count",
+                  "op": "gte",
+                  "value": 1
+                },
+                {
                   "field": "pipeline_agent.pipeline_key",
                   "op": "eq",
                   "value": null

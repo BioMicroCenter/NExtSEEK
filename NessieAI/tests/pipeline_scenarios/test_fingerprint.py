@@ -122,3 +122,12 @@ def test_the_real_inputs_have_per_file_hashes():
     files = fp.files()
     assert fp.CORPUS_KEY in files
     assert "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py" in files
+
+
+def test_what_builds_the_agents_first_message_is_an_input():
+    """start() reads the chat (chat_memory) and the pinned search (helpers/results), and the runner
+    decides the session and parser plan they read from."""
+    for path in ("NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py",
+                 "NessieAI/chat_nextseek/src/chat_nextseek/helpers/results.py",
+                 "NessieAI/tests/pipeline_scenarios/run.py"):
+        assert path in fp.INPUTS, path
