@@ -60,7 +60,7 @@ def test_chunk_paragraphs_splits_long_text_at_sentences():
     assert all(c.endswith(".") for c in chunks)
 
 
-def test_pdf_to_text_joins_pages(monkeypatch):
+def test_pdf_to_text_joins_pages_with_a_form_feed(monkeypatch):
     class Page:
         def __init__(self, text):
             self.text = text
@@ -73,4 +73,5 @@ def test_pdf_to_text_joins_pages(monkeypatch):
             self.pages = [Page("a"), Page(None), Page("b")]
 
     monkeypatch.setitem(sys.modules, "pypdf", types.SimpleNamespace(PdfReader=Reader))
-    assert pdf_to_text(b"%PDF-1.4") == "a\n\nb"
+    text = pdf_to_text(b"%PDF-1.4")
+    assert text == "a\f\fb" and text.splitlines() == ["a", "", "b"]

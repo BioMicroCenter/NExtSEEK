@@ -17,9 +17,9 @@ proposing rows is a later piece.
 | `fetch.py` | `Fetcher`, the only way the package reaches the internet, and `ALLOWED_HOSTS` |
 | `europepmc.py` | `resolve` (metadata), `full_text_xml` (open-access JATS) and `supplementary_zip` |
 | `jats.py` | `parse_jats`: sections, captions and the supplement list, with evidence IDs |
-| `pdftext.py` | `pdf_to_text` and `split_sections`: an attached PDF to the same sections and IDs. `pypdf` is imported lazily, only here |
+| `pdftext.py` | `pdf_to_text` and `split_sections`: an attached PDF to the same sections and IDs, pages joined by a form feed. `pypdf` is imported lazily, only here |
 | `accessions.py` | `find_accessions`: deposit accessions and repository links in paper text |
-| `launch.py` | `launch_check` and `LaunchSeams`: stage 0, seconds, inside the op. Methods must be readable, and either a Data Availability section or at least one accession; a DOI already on a sample puts the paper in `update` mode |
+| `launch.py` | `launch_check` and `LaunchSeams`: stage 0, seconds, inside the op. Methods must be readable, and either a Data Availability section or at least one accession; a DOI already on a sample puts the paper in `update` mode. A PDF's DOI is used only when Europe PMC's title for it is on the PDF's first page (`_own_ref`, at most `MAX_PDF_DOI_LOOKUPS` lookups, a DOI glued to the next word also tried without it); with none, the paper has no DOI and starts in `new` mode |
 | `start.py` | `start`: the body of `paper-reingest-start`. Curators only (`is_superuser`), only when the feature flag is on, and it turns each launch failure into a `StartRefused` with an `error_type` |
 | `deposits/` | one adapter per repository, `ADAPTERS[repo](accession, fetcher) -> list[DepositRecord]`: `geo.py`, `ena.py`, `pride.py`, and `repos.py` for Zenodo, figshare and the Stanford Digital Repository (`sdr`) |
 | `si.py` | `supplement_items`: the supplementary zip to evidence items, and gaps for what could not be read |

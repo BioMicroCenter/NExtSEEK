@@ -2,10 +2,14 @@
 
 Nothing is queued unless the Methods can be read, and either a Data Availability section
 or at least one accession (spec delta 2). A paper already in NExtSEEK (its DOI on a
-sample) starts in update mode (spec §6.3).
+sample) starts in update mode (spec §6.3). A DOI read from an attached PDF is the paper's
+own only when Europe PMC's title for it is on the PDF's first page; the first DOI there can
+be a cited paper's.
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -16,6 +20,11 @@ from NessieAI.ns.paper.identify import DOI_RE, clean_doi, identify
 from NessieAI.ns.paper.jats import parse_jats
 from NessieAI.ns.paper.models import PaperArtifact, PaperInput, PaperRef, PaperText, _Strict
 from NessieAI.ns.paper.pdftext import pdf_to_text, split_sections
+
+
+MAX_PDF_DOI_LOOKUPS = 3  # Europe PMC calls per PDF, inside the op's one launch deadline
+_MIN_TITLE_CHARS = 10  # a shorter squashed title could be found on any page
+_GLUED_WORD = re.compile(r"(?<=\d)[a-z]{3,}$")  # pypdf can join a DOI to the next word
 
 
 class AttachmentTooLarge(ValueError):
@@ -104,13 +113,28 @@ def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
     except Exception as exc:  # pypdf raises its own errors, and others, on a damaged or non-PDF file
         raise AttachmentUnreadable(f"{name} is not a PDF I can read") from exc
     text = split_sections(raw_text)
-    head = " ".join(text.all_text()[:5])
-    ref, doi = None, None
-    if match := DOI_RE.search(head):
-        doi = clean_doi(match.group(0))
-        ref = europepmc.resolve(PaperInput(kind="doi", value=doi), seams.fetcher)
+    ref = _own_ref(raw_text.split("\f", 1)[0], seams.fetcher)
     if ref is None:
         first = text.all_text()[0][:300] if text.all_text() else name
-        ref = PaperRef(title=first, doi=doi)
+        ref = PaperRef(title=first)
     ref.source_file = name
     return ref, text, "pdf"
+
+
+def _own_ref(first_page: str, fetcher: Fetcher) -> PaperRef | None:
+    """Europe PMC's record for the first DOI on the first page whose title is on that page too."""
+    page = _squash(first_page)
+    found = [clean_doi(m.group(0)) for m in DOI_RE.finditer(first_page)]
+    dois = list(dict.fromkeys(d for doi in found for d in (doi, _GLUED_WORD.sub("", doi))))
+    for doi in dois[:MAX_PDF_DOI_LOOKUPS]:
+        ref = europepmc.resolve(PaperInput(kind="doi", value=doi), fetcher)
+        title = _squash(ref.title) if ref else ""
+        if len(title) >= _MIN_TITLE_CHARS and title in page:
+            return ref
+    return None
+
+
+def _squash(text: str) -> str:
+    """Letters and digits only, case-folded: survives markup, line breaks and hyphenation."""
+    text = unicodedata.normalize("NFKD", re.sub(r"<[^>]+>", "", text)).casefold()
+    return "".join(ch for ch in text if ch.isalnum())

@@ -133,13 +133,82 @@ def test_pdf_without_doi_uses_first_paragraph_as_title(monkeypatch):
     assert out.paper.mode == "new"
 
 
-def test_pdf_doi_not_in_europepmc_is_kept_on_the_ref(monkeypatch):
+def _never(doi):
+    raise AssertionError("an unconfirmed DOI must not be looked up in NExtSEEK")
+
+
+def test_pdf_doi_not_in_europepmc_is_not_used(monkeypatch):
     monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: PDF_TEXT)
-    seams = _seams({_search('DOI:"10.1000/xyz123"'): js(epmc_search([]))}, projects=[3], files={"paper.pdf": b"%PDF"})
+    seams = _seams({_search('DOI:"10.1000/xyz123"'): js(epmc_search([]))}, files={"paper.pdf": b"%PDF"})
+    seams.doi_project_ids = _never
     out = launch_check("paper.pdf", seams)
-    assert out.status == "ok" and out.paper.ref.doi == "10.1000/xyz123"
+    assert out.status == "ok" and out.paper.ref.doi is None and out.paper.ref.pmid is None
     assert out.paper.ref.source_file == "paper.pdf"
+    assert out.paper.mode == "new" and out.paper.existing_project_ids == []
+
+
+CITED_HIT = {**EPMC_HIT, "pmid": "12345", "pmcid": "PMC12345", "doi": "10.2000/cited", "title": "An older paper."}
+CITED_FIRST = PDF_TEXT.replace("J Test 2024 doi:10.1000/xyz123\n",
+                               "As shown before (doi:10.2000/cited).\nJ Test 2024 doi:10.1000/xyz123\n")
+
+
+def test_pdf_skips_a_cited_doi_whose_title_is_not_on_the_first_page(monkeypatch):
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: CITED_FIRST)
+    seams = _seams({_search('DOI:"10.2000/cited"'): js(epmc_search([CITED_HIT])),
+                    _search('DOI:"10.1000/xyz123"'): js(epmc_search([EPMC_HIT]))},
+                   projects=[3], files={"paper.pdf": b"%PDF"})
+    out = launch_check("paper.pdf", seams)
+    assert out.status == "ok" and out.paper.ref.doi == "10.1000/xyz123" and out.paper.ref.pmid == "38000001"
     assert out.paper.mode == "update" and out.paper.existing_project_ids == [3]
+
+
+def test_pdf_with_only_a_cited_doi_has_no_doi(monkeypatch):
+    text = CITED_FIRST.replace("J Test 2024 doi:10.1000/xyz123\n", "J Test 2024\n")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.2000/cited"'): js(epmc_search([CITED_HIT]))}, files={"paper.pdf": b"%PDF"})
+    seams.doi_project_ids = _never
+    out = launch_check("paper.pdf", seams)
+    assert out.status == "ok" and out.paper.ref.doi is None and out.paper.ref.pmid is None
+    assert out.paper.ref.title.startswith("As shown before") and out.paper.mode == "new"
+
+
+def test_pdf_title_match_ignores_case_markup_and_line_breaks(monkeypatch):
+    hit = {**EPMC_HIT, "title": "<i>Mice</i> and single-cell RNA."}
+    text = PDF_TEXT.replace("Mice and RNA.\n", "MICE AND SINGLE-\nCELL RNA\n")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.1000/xyz123"'): js(epmc_search([hit]))}, files={"paper.pdf": b"%PDF"})
+    out = launch_check("paper.pdf", seams)
+    assert out.paper.ref.pmid == "38000001" and out.paper.ref.doi == "10.1000/xyz123"
+
+
+def test_pdf_title_must_be_on_the_first_page(monkeypatch):
+    text = PDF_TEXT.replace("J Test 2024 doi:10.1000/xyz123\nMice and RNA.\n",
+                            "J Test 2024 doi:10.1000/xyz123\nA cover page.\n\fMice and RNA.\n")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.1000/xyz123"'): js(epmc_search([EPMC_HIT]))}, files={"paper.pdf": b"%PDF"})
+    seams.doi_project_ids = _never
+    out = launch_check("paper.pdf", seams)
+    assert out.status == "ok" and out.paper.ref.doi is None
+
+
+def test_pdf_doi_glued_to_the_next_word_is_tried_without_it(monkeypatch):
+    text = PDF_TEXT.replace("doi:10.1000/xyz123", "doi:10.1000/xyz123drugdelivery")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.1000/xyz123drugdelivery"'): js(epmc_search([])),
+                    _search('DOI:"10.1000/xyz123"'): js(epmc_search([EPMC_HIT]))}, files={"paper.pdf": b"%PDF"})
+    out = launch_check("paper.pdf", seams)
+    assert out.paper.ref.doi == "10.1000/xyz123" and out.paper.ref.pmid == "38000001"
+
+
+def test_pdf_looks_up_at_most_three_dois(monkeypatch):
+    dois = [f"10.3000/c{i}" for i in range(5)]
+    text = "".join(f"see doi:{d}\n" for d in dois) + PDF_TEXT.replace("doi:10.1000/xyz123", "")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    f, session = fetcher({_search(f'DOI:"{d}"'): js(epmc_search([])) for d in dois})
+    seams = LaunchSeams(fetcher=f, input_files={"paper.pdf"}, read_input_file=lambda n: b"%PDF",
+                        doi_project_ids=_never)
+    out = launch_check("paper.pdf", seams)
+    assert out.status == "ok" and out.paper.ref.doi is None and len(session.calls) == 3
 
 
 def test_unrecognisable_input_raises():

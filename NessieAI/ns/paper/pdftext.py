@@ -29,7 +29,9 @@ def pdf_to_text(data: bytes) -> str:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+    # A form feed between pages: splitlines() reads it as a line break, and the launch check
+    # finds the first page by it.
+    return "\f".join((page.extract_text() or "") for page in reader.pages)
 
 
 def chunk_paragraphs(lines: list[str], limit: int = 1000) -> list[str]:
