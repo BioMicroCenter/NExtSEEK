@@ -1134,6 +1134,9 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_PAPER_REINGEST_DIR` | nextseek.env | outputs/paper_reingest |  |  | Paper reingest: folder of the runs' artifacts, one subfolder per run. It sits on the outputs bind mount unless moved. |
 | `PAPER_REINGEST_PAUSE_S` | nextseek.env | 600 |  |  | Paper reingest: seconds a paused run waits, after a source did not answer, before stage 1 tries again. |
 | `PAPER_REINGEST_PAUSE_RETRIES` | nextseek.env | 12 |  |  | Paper reingest: how many times a paused run retries before it fails at acquire. |
+| `PAPER_REINGEST_CURATION_TIMEOUT_S` | nextseek.env | 1800 |  |  | Paper reingest: seconds one curation agent run may take before the web loop stops it. |
+| `PAPER_REINGEST_CURATION_MAX_TURNS` | nextseek.env | 200 |  |  | Paper reingest: agent turns one curation run may take (at most NEXTSEEK_CC_MAX_TURNS_CEILING). |
+| `PAPER_REINGEST_CURATION_BUDGET_USD` | nextseek.env | 15 |  |  | Paper reingest: model spend cap in USD for one curation agent run (at most 100). |
 | `DMAC_CC_MEMORY_SUMMARY_MODEL` | nextseek.env | gemini-flash |  |  | Container-CC memory: summary model. |
 | `STEP7_LLM_LEDGER` | nextseek.env |  |  |  | Container-CC: write the per-call LLM cost ledger when 1. |
 | `DJANGO_BASE_DIR` | nextseek.env | /app |  |  | App root the LLM cost ledger writes under. |
