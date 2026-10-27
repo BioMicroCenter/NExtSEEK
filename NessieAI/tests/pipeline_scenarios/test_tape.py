@@ -1,5 +1,6 @@
 import dataclasses
 import hashlib
+import json
 import threading
 import types
 
@@ -423,12 +424,19 @@ def test_bytes_round_trip_through_json_without_a_slash():
     assert tp.decode(json.loads(json.dumps(enc))) == {"b": raw}
 
 
-def test_the_schema_fetcher_is_taped():
-    assert "chat_nextseek.seqera.nfcore_schema._default_fetcher" in tp.TAPED
+def test_the_schema_fetcher_is_a_url_map_not_an_ordered_source():
+    import importlib
+    assert "chat_nextseek.seqera.nfcore_schema._default_fetcher" not in tp.TAPED
+    module, _, attr = tp.SCHEMA_FETCHER.rpartition(".")
+    assert hasattr(importlib.import_module(module), attr)
 
 
-def _schema_world(monkeypatch):
-    """A fetcher that serves two documents and 404s the optional one, and counts its calls."""
+FETCH_404 = ("404 Client Error: Not Found for url: "
+             "https://raw.githubusercontent.com/nf-core/fetchngs/1.12.0/assets/schema_input.json")
+
+
+def _schema_world(monkeypatch, bodies=None):
+    """A fetcher that serves nextflow_schema.json, 404s the optional schema_input.json, counts its calls."""
     import requests
     from chat_nextseek.seqera import nfcore_schema as ns
     calls = []
@@ -436,8 +444,8 @@ def _schema_world(monkeypatch):
     def fetch(url):
         calls.append(url)
         if url.endswith("/nextflow_schema.json"):
-            return b'{"title": "a", "definitions": {}}'
-        raise requests.HTTPError("404 Client Error: Not Found", response=types.SimpleNamespace(status_code=404))
+            return (bodies or {}).get(url, b'{"title": "a", "definitions": {}}')
+        raise requests.HTTPError(FETCH_404, response=types.SimpleNamespace(status_code=404))
     ns.clear_cache()
     monkeypatch.setattr(ns, "_default_fetcher", fetch)
     return ns, calls
@@ -449,23 +457,78 @@ def test_schema_fetches_replay_by_url_with_their_404s_and_never_touch_the_networ
     with tp.taped(t, _scrubber):
         recorded = ns.get_schema("rnaseq", "3.18.0")
     assert recorded == {"nextflow_schema": {"title": "a", "definitions": {}}} and len(calls) == 2
-    assert len(t.entries["_default_fetcher"]) == 2
+    assert "_default_fetcher" not in t.entries and len(t.entries["schemas"]) == 2
+    assert t.refused == [] and "https://" not in json.dumps(t.to_json())      # no URL on the tape
     r = tp.Tape.from_json(t.to_json())
     monkeypatch.setattr(ns, "_default_fetcher", lambda url: (_ for _ in ()).throw(AssertionError("network")))
     with tp.taped(r):
         assert ns.get_schema("rnaseq", "3.18.0") == recorded
+    assert r.mismatches == []
     ns.clear_cache()
 
 
-def test_a_schema_the_tape_never_fetched_fails_the_replay(fakes, monkeypatch):
+def test_the_schema_map_ignores_order_and_the_unplayed_check(fakes, monkeypatch):
+    ns, _ = _schema_world(monkeypatch)
+    t = tp.Tape(mode="record")
+    with tp.taped(t, _scrubber):
+        ns.get_schema("rnaseq", "3.18.0")
+        ns.get_schema("sarek", "3.5.1")
+    r = tp.Tape.from_json(t.to_json())
+    with tp.taped(r):                       # the reverse order, and sarek's twin documents never fetched
+        ns.get_schema("sarek", "3.5.1")
+    assert r.unplayed() == {}
+    ns.clear_cache()
+
+
+def test_a_schema_the_tape_never_fetched_is_collected_as_a_mismatch(fakes, monkeypatch):
     ns, _ = _schema_world(monkeypatch)
     t = tp.Tape(mode="record")
     with tp.taped(t, _scrubber):
         ns.get_schema("rnaseq", "3.18.0")
     r = tp.Tape.from_json(t.to_json())
-    with pytest.raises(tp.TapeMismatch, match="other arguments"):
+    with pytest.raises(tp.TapeMismatch, match="never fetched"):
         with tp.taped(r):
-            ns.get_schema("rnaseq", "3.19.0")      # another revision: another URL
+            with pytest.raises(ns.SchemaFetchError):          # get_schema swallows it into its own error...
+                ns.get_schema("rnaseq", "3.19.0")             # ...another revision: another URL
+    assert any("never fetched" in m for m in r.mismatches)    # ...but the tape remembered it
+    ns.clear_cache()
+
+
+def test_a_404_message_with_a_url_does_not_reach_refused_and_still_reads_as_not_found(fakes, monkeypatch):
+    ns, _ = _schema_world(monkeypatch)
+    t = tp.Tape(mode="record")
+    with tp.taped(t, _scrubber):
+        ns.get_schema("fetchngs", "1.12.0")
+    assert t.refused == []
+    answers = list(t.entries["schemas"].values())
+    errors = [a for a in answers if isinstance(a, dict) and "raise" in a]
+    assert len(errors) == 1 and errors[0]["status_code"] == 404 and "https://" not in errors[0]["message"]
+    r = tp.Tape.from_json(t.to_json())
+    with tp.taped(r):
+        assert ns.get_schema("fetchngs", "1.12.0") == {"nextflow_schema": {"title": "a", "definitions": {}}}
+    ns.clear_cache()
+
+
+def test_bytes_equal_to_a_committed_fixture_are_kept_as_a_sha_and_served_from_the_fixture(fakes, monkeypatch):
+    fixture = tp.FIXTURES / "rnaseq.nextflow_schema.json"
+    ns, _ = _schema_world(monkeypatch)
+    nf_url, input_url = ns.schema_urls("rnaseq", "3.18.0")
+    served = {nf_url: fixture.read_bytes(), input_url: (tp.FIXTURES / "rnaseq.schema_input.json").read_bytes()}
+    monkeypatch.setattr(ns, "_default_fetcher", lambda u: served[u])
+    t = tp.Tape(mode="record")
+    with tp.taped(t, _scrubber):
+        ns.get_schema("rnaseq", "3.18.0")
+    answer = t.entries["schemas"]["rnaseq/3.18.0/nextflow_schema.json"]
+    assert answer == {"sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(), "fixture": "rnaseq.nextflow_schema.json"}
+    r = tp.Tape.from_json(t.to_json())
+    with tp.taped(r):
+        assert ns.get_schema("rnaseq", "3.18.0")["nextflow_schema"] == ns.normalise(json.loads(fixture.read_bytes()))
+    # a fixture edited since the recording no longer matches its sha: re-record
+    r2 = tp.Tape.from_json(t.to_json())
+    r2.entries["schemas"]["rnaseq/3.18.0/nextflow_schema.json"]["sha256"] = "0" * 64
+    with pytest.raises(tp.TapeMismatch, match="fixture"):
+        with tp.taped(r2):
+            ns.get_schema("rnaseq", "3.18.0")
     ns.clear_cache()
 
 

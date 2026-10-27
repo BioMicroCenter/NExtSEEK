@@ -17,6 +17,8 @@ import dataclasses
 import hashlib
 import importlib
 import json
+import re
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -29,10 +31,15 @@ TAPED: tuple[str, ...] = (
     "chat_nextseek.pipeline.agent_tools.expand_uid_prefixes",
     "chat_nextseek.pipeline.agent_tools.lookup_run_sizes",
     "chat_nextseek.pipeline.agent_tools.resolve_accessions",
-    # Public nf-core JSON, taped by URL so a replay serves exactly what the recording fetched,
-    # at the revision it fetched.
-    "chat_nextseek.seqera.nfcore_schema._default_fetcher",
 )
+
+#: The nf-core document fetcher is taped as a URL -> answer map (entries["schemas"]), not as an
+#: ordered source: which fetches happen depends on caches and on the selection payload, which a
+#: replay stubs, so the map has no order and no "unplayed" check, only "never fetched".
+SCHEMA_FETCHER = "chat_nextseek.seqera.nfcore_schema._default_fetcher"
+SCHEMAS = "schemas"
+#: Committed copies of the pinned nf-core documents; a fetch equal to one is taped as a sha, not as bytes.
+FIXTURES = Path(__file__).resolve().parents[1] / "chat_nextseek" / "fixtures" / "nfcore"
 
 
 #: Sources replayed by order only. Their arguments legitimately differ between recording and
@@ -94,6 +101,34 @@ def encode(value):
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     raise TypeError(f"cannot tape a {type(value).__name__}")
+
+
+_URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>]*")
+
+
+def _fixture_name(url: str) -> str | None:
+    """The committed fixture a fetched nf-core document would be, by its URL: <pipeline>.<file>."""
+    try:
+        pipeline = url.split("/nf-core/", 1)[1].split("/")[0]
+    except IndexError:
+        return None
+    name = f"{pipeline}.{url.rsplit('/', 1)[-1].lower()}"
+    return name if (FIXTURES / name).is_file() else None
+
+
+def schema_answer(url: str, data: bytes) -> dict:
+    """A fetched document, as small as it can be: the sha of the committed fixture it equals, else its bytes."""
+    name = _fixture_name(url)
+    if name and (FIXTURES / name).read_bytes() == data:
+        return {"sha256": hashlib.sha256(data).hexdigest(), "fixture": name}
+    return encode(data)
+
+
+def schema_error_answer(exc: BaseException) -> dict:
+    """A failed fetch: the class and the HTTP status, with the message stripped of every URL."""
+    spec = exception_spec(exc)
+    spec["message"] = _URL.sub("<url>", spec["message"])
+    return spec
 
 
 def decode(value):
@@ -185,13 +220,32 @@ class Tape:
         entry = queue[-1] if queue else self.reserve(source)
         self.fill(entry, exception_spec(TimeoutError(f"{source} timed out"), waiting=True), final=True)
 
+    def schema_key(self, url: str) -> str:
+        """The map key for a fetched URL: its path under nf-core, never the URL itself (a committed
+        tape must hold no URL)."""
+        prefix = "https://raw.githubusercontent.com/nf-core/"
+        if url.startswith(prefix):
+            return url[len(prefix):]
+        return "other/" + hashlib.sha256(url.encode()).hexdigest()[:16]
+
+    def record_schema(self, url: str, answer: dict) -> None:
+        self.entries.setdefault(SCHEMAS, {})[self.schema_key(url)] = answer
+
+    def play_schema(self, url: str):
+        """The recorded answer for this URL, in no particular order and any number of times."""
+        answer = (self.entries.get(SCHEMAS) or {}).get(self.schema_key(url))
+        if answer is None:
+            return self._mismatch(f"{url} was never fetched by the recording")
+        return answer
+
     def _mismatch(self, message: str):
         self.mismatches.append(message)
         raise TapeMismatch(message)
 
     def unplayed(self) -> dict[str, int]:
         """Source -> how many recorded entries were never played."""
-        left = {source: len(queue) - self._cursor.get(source, 0) for source, queue in self.entries.items()}
+        left = {source: len(queue) - self._cursor.get(source, 0) for source, queue in self.entries.items()
+                if source != SCHEMAS}
         return {source: n for source, n in left.items() if n > 0}
 
     def to_json(self) -> dict:
@@ -356,6 +410,36 @@ def taped(tape: Tape, scrubber=None):
                 raise rebuild_exception(answer)
             return answer
         return recording if tape.mode == "record" else replaying
+
+    fetcher_module, fetcher_attr = _resolve(SCHEMA_FETCHER)
+    real_fetch = getattr(fetcher_module, fetcher_attr)
+
+    def fetch_recording(url):
+        try:
+            data = real_fetch(url)
+        except Exception as exc:
+            answer = schema_error_answer(exc)
+            hits = scrub_module.refusals_in(answer)
+            if hits:
+                tape.refused.append(f"schema fetch: {'; '.join(hits)}")
+            else:
+                tape.record_schema(url, answer)
+            raise
+        tape.record_schema(url, schema_answer(url, data))
+        return data
+
+    def fetch_replaying(url):
+        answer = tape.play_schema(url)
+        if is_raise(answer):
+            raise rebuild_exception(answer)
+        if "fixture" in answer:
+            data = (FIXTURES / answer["fixture"]).read_bytes()
+            if hashlib.sha256(data).hexdigest() != answer["sha256"]:
+                return tape._mismatch(f"fixture {answer['fixture']} changed since the recording")
+            return data
+        return decode(answer)
+    patches.append(mock.patch.object(fetcher_module, fetcher_attr,
+                                     fetch_recording if tape.mode == "record" else fetch_replaying))
 
     for target in TAPED:
         module, attr = _resolve(target)
