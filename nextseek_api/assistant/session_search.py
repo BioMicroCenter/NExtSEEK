@@ -36,6 +36,7 @@ SNIPPET_WIDTH = 160
 _LEAD = 40  # characters of context kept before the first hit in a snippet
 _EDGE = string.punctuation + "“”‘’"
 _MARKDOWN = re.compile(r"[*#|`>]+|-{3,}|={3,}")
+_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")  # [text](url) and ![alt](src): the text stays
 _SPACE = re.compile(r"\s+")
 
 TITLE, QUESTION, ANSWER, RECORD, STEPS = 5, 4, 3, 2, 1
@@ -67,8 +68,8 @@ def _all(patterns: list[re.Pattern], text: str) -> bool:
 
 
 def make_snippet(text: str, terms: list[str], width: int = SNIPPET_WIDTH) -> str:
-    """Plain text around the first hit: markdown marks dropped, whitespace collapsed, ``…`` on a cut end."""
-    clean = _SPACE.sub(" ", _MARKDOWN.sub(" ", text or "")).strip()
+    """Plain text around the first hit: markdown marks and link targets dropped, whitespace collapsed, ``…`` on a cut end."""
+    clean = _SPACE.sub(" ", _MARKDOWN.sub(" ", _LINK.sub(r"\1", text or ""))).strip()
     if len(clean) <= width:
         return clean
     hits = [m.start() for p in _patterns(terms) if (m := p.search(clean))]

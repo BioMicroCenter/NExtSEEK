@@ -55,6 +55,10 @@ class ParseTests(TestCase):
     def test_snippet_short_text_whole(self):
         self.assertEqual(make_snippet("Find **NDMA** mice", ["ndma"]), "Find NDMA mice")
 
+    def test_snippet_markdown_links_keep_their_text(self):
+        text = "Found [D.SEQ-231101GRI-1-PUB](/seek/samples/D.SEQ-231101GRI-1-PUB/) and ![plot](/m/x.png) here"
+        self.assertEqual(make_snippet(text, ["d.seq"]), "Found D.SEQ-231101GRI-1-PUB and plot here")
+
 
 class SearchTests(SearchBase):
     def test_other_users_chats_never_returned(self):
