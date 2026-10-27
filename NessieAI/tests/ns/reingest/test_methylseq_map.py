@@ -86,3 +86,36 @@ def test_every_a_mseq_rule_is_one_alternative_group():
     assert groups == {"aln": None, "mseq_bismark": "methylation_calls",
                       "mseq_methyldackel": "methylation_calls",
                       "mseq_methyldackel_methylkit": "methylation_calls"}
+
+
+def test_the_alternative_rows_are_carried_for_the_curator():
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "methyldackel/S1.markdup.sorted_CpG.methylKit"])
+    assert result.alternative_rows == [{
+        "sample": "S1", "sample_type": "A.MSEQ",
+        "files": [{"rule_id": "mseq_methyldackel",
+                   "path": "methyldackel/S1.markdup.sorted_CpG.bedGraph"},
+                  {"rule_id": "mseq_methyldackel_methylkit",
+                   "path": "methyldackel/S1.markdup.sorted_CpG.methylKit"}],
+        "other_picks": []}]
+
+
+def test_a_reused_folder_also_names_the_alignment_rows_pick():
+    # Bismark then bwa-meth in one folder: the aln rule's tier order takes Bismark's
+    # BAM, which may be the stale one, so the curator is told to check it too.
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "bismark/deduplicated/S1.deduplicated.sorted.bam",
+                     "bismark/methylation_calls/methylation_coverage/"
+                     "S1.deduplicated.bismark.cov.gz"])
+    [entry] = result.alternative_rows
+    assert entry["other_picks"] == [{
+        "rule_id": "aln", "sample_type": "A.ALN",
+        "used": "bismark/deduplicated/S1.deduplicated.sorted.bam",
+        "also": ["bwameth/deduplicated/S1.markdup.sorted.bam"]}]
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert ("A.ALN row (aln) used bismark/deduplicated/S1.deduplicated.sorted.bam over "
+            "bwameth/deduplicated/S1.markdup.sorted.bam") in warning
+
+
+def test_one_launch_carries_no_alternative_rows():
+    assert _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph"]).alternative_rows == []

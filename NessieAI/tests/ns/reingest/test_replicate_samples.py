@@ -296,3 +296,21 @@ def test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row(tmp_pat
         ("WT", "WT.mRp.clN.sorted.bam", "D.SEQ-2")]
     assert "WT: replicate(s) WT_REP1 resolved to no D.SEQ; the group's aln row names only " \
            "the others as Parent" in result.warnings
+
+
+def test_alternatives_at_the_group_and_replicate_levels_are_flagged_on_the_group(tmp_path):
+    # An earlier --skip_merge_replicates launch left each replicate's broad peaks; this
+    # launch merged the replicates and called narrow peaks on the group. The rows sit
+    # under different names (WT, WT_REP1, WT_REP2) but belong to one replicate group.
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    paths = [p for p in _atac_paths()
+             if p != "bwa/merged_replicate/macs2/broad_peak/WT.mRp.clN_peaks.broadPeak"]
+    paths.append("bwa/merged_replicate/macs2/narrow_peak/WT.mRp.clN_peaks.narrowPeak")
+    result = mapper.apply(_harvest(tmp_path, paths, ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert warning.startswith("WT: 3 A.CHRM rows")
+    for path in ("WT.mRp.clN_peaks.narrowPeak", "WT_REP1.mLb.clN_peaks.broadPeak",
+                 "WT_REP2.mLb.clN_peaks.broadPeak"):
+        assert path in warning
+    assert [e["sample"] for e in result.alternative_rows] == ["WT"]

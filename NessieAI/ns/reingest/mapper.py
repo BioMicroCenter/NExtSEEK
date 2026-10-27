@@ -131,6 +131,13 @@ class MapResult(BaseModel):
     # the primary file is blank instead of asking for it (a data file is
     # never set from chat).
     missed_rules: list[dict] = Field(default_factory=list)
+    # One entry per sample, or replicate group, with rows from two or more
+    # rules of one `alternative_group`: {sample, sample_type, files: [{rule_id,
+    # path}], other_picks: [{rule_id, sample_type, used, also}]}, the last
+    # naming the sample's other rows whose file won over another candidate
+    # pattern's (the stale launch may have won there too). Also in `warnings`;
+    # this copy reaches the curator, who would otherwise upload both rows.
+    alternative_rows: list[dict] = Field(default_factory=list)
 
 
 _METRICS_REF = "$metrics."
@@ -310,36 +317,73 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
             if row is not None:
                 result.rows.append(row)
 
-    result.warnings.extend(_alternative_rows_warnings(result.rows, pipeline_map))
+    result.alternative_rows = _alternative_rows(result.rows, pipeline_map, run_manifest)
+    result.warnings.extend(_alternative_rows_warning(e) for e in result.alternative_rows)
     return result
 
 
-def _alternative_rows_warnings(rows: list[MappedRow],
-                               pipeline_map: maps.PipelineMap) -> list[str]:
-    """One warning per sample that got rows from two or more rules of one
-    ``alternative_group`` (see ``maps.OutputRule``). One launch writes only one
-    of those outputs, so the run folder also holds an earlier launch's files:
-    nf-core never deletes an old output. Every row is kept; the warning names
-    the files so whoever reads it can tell which one is stale. A row with no
-    primary file is no evidence of a stale file and is not counted."""
+def _alternative_rows(rows: list[MappedRow], pipeline_map: maps.PipelineMap,
+                      run_manifest: manifest.RunManifest) -> list[dict]:
+    """``MapResult.alternative_rows``: each sample that got rows from two or more
+    rules of one ``alternative_group`` (see ``maps.OutputRule``). One launch
+    writes only one of those outputs, so the run folder also holds an earlier
+    launch's files: nf-core never deletes an old output. Every row is kept.
+
+    Rows are keyed by replicate group where the run has them, so a group's own
+    row and its replicates' rows count together: a merged launch's narrow peaks
+    on WT and an earlier unmerged launch's broad peaks on WT_REP1 and WT_REP2
+    are one finding for WT. A row with no primary file is no evidence of a
+    stale file and is not counted.
+
+    ``other_picks`` names that sample's other rows whose file was taken over a
+    later candidate pattern's: tier order, not the launch, made that pick
+    (methylseq's aln rule prefers Bismark's BAM to bwa-meth's), so the stale
+    file may have won there too."""
     group_of = {r.id: r.alternative_group for r in pipeline_map.outputs if r.alternative_group}
+    rules = {r.id: r for r in pipeline_map.outputs}
+    replicate_group = {member: group
+                       for group, members in (run_manifest.replicate_groups or {}).items()
+                       for member in members}
     found: dict[tuple[str, str], list[MappedRow]] = {}
     for row in rows:
         group = group_of.get(row.rule_id)
         if group and "File_PrimaryData" in row.attributes:
-            found.setdefault((row.nfcore_sample, group), []).append(row)
-    warnings = []
-    for (sample, _group), group_rows in found.items():
+            key = replicate_group.get(row.nfcore_sample, row.nfcore_sample)
+            found.setdefault((key, group), []).append(row)
+    entries = []
+    for (sample, group), group_rows in found.items():
         if len({r.rule_id for r in group_rows}) < 2:
             continue
-        files = ", ".join(f"{r.attributes['File_PrimaryData'].source_file} ({r.rule_id})"
-                          for r in group_rows)
-        warnings.append(
-            f"{sample}: {len(group_rows)} {group_rows[0].sample_type} rows from outputs "
-            f"one launch writes only one of: {files}. The run folder likely also holds "
-            "files from an earlier launch (nf-core does not delete old outputs). Every "
-            "row is kept; check which file belongs to this run.")
-    return warnings
+        names = {sample} | {m for m, g in replicate_group.items() if g == sample}
+        other_picks = []
+        for row in rows:
+            rule = rules.get(row.rule_id)
+            primary = row.attributes.get("File_PrimaryData")
+            if (rule is None or rule.alternative_group == group or primary is None
+                    or not row.nfcore_sample or row.nfcore_sample not in names):
+                continue
+            losers = _losing_candidates(rule, run_manifest, row.nfcore_sample)
+            if losers:
+                other_picks.append({"rule_id": rule.id, "sample_type": row.sample_type,
+                                    "used": primary.source_file,
+                                    "also": [o.path for o in losers]})
+        entries.append({
+            "sample": sample, "sample_type": group_rows[0].sample_type,
+            "files": [{"rule_id": r.rule_id, "path": r.attributes["File_PrimaryData"].source_file}
+                      for r in group_rows],
+            "other_picks": other_picks})
+    return entries
+
+
+def _alternative_rows_warning(entry: dict) -> str:
+    """The map note for one ``alternative_rows`` entry."""
+    files = ", ".join(f"{f['path']} ({f['rule_id']})" for f in entry["files"])
+    picks = "".join(f" The {p['sample_type']} row ({p['rule_id']}) used {p['used']} over "
+                    f"{', '.join(p['also'])}; check it too." for p in entry["other_picks"])
+    return (f"{entry['sample']}: {len(entry['files'])} {entry['sample_type']} rows from "
+            f"outputs one launch writes only one of: {files}. The run folder likely also "
+            "holds files from an earlier launch (nf-core does not delete old outputs). "
+            f"Every row is kept; check which file belongs to this run.{picks}")
 
 
 def _without_ruled_out_files(run_manifest: manifest.RunManifest,
