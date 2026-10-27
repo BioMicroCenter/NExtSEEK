@@ -836,7 +836,12 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     """The replicate group's own row for this rule, or None when the group owns
     no file that wins over its replicates' (see `_per_sample_rows`). Its parents
     are every replicate's; its replicates' files for the rule (candidates and
-    companions) become its losing candidates, so none is dropped unseen."""
+    companions) become its losing candidates, so none is dropped unseen.
+
+    A replicate with no D.SEQ to name (ambiguous or unresolved) is left out of
+    `Parent` with a warning, and the row still ships, by the owner's ruling
+    (NessieAI/ns/reingest/README.md "Invariants"): unlike a standalone ambiguous
+    sample (`_NO_CHILD_ROW`), the merged file is the group's own output."""
     own = _first_tier(rule, run_manifest, group)
     if own is None:
         return None

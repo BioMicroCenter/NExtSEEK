@@ -84,6 +84,13 @@ per-job path cannot be listed until the allowlist supports patterns.
 - **An unresolved sample's child ships with no `Parent` key at all** — never an empty string.
   The QA gate distinguishes absent (soft, ships) from blank (hard reject) and can only do so
   because this package never emits the latter.
+- **An ambiguous sample gets no child row, but a merged replicate group with an ambiguous
+  replicate still gets its row** (the owner's ruling). Guessing between candidate parents would
+  write a wrong lineage, so a standalone ambiguous sample ships nothing (`mapper._NO_CHILD_ROW`).
+  A group's merged file is the group's own output and its other replicates' parents are
+  certain, so the row ships, `Parent` names only the replicates that resolved, and a map note
+  names the one left out. See `test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row`
+  in `NessieAI/tests/ns/reingest/test_replicate_samples.py`.
 
 ## Running and testing
 

@@ -239,3 +239,60 @@ def test_narrow_and_broad_peaks_in_one_folder_are_flagged(tmp_path):
     [warning] = [w for w in result.warnings if "earlier launch" in w]
     assert warning.startswith("WT: 2 A.CHRM rows")
     assert "WT.mRp.clN_peaks.narrowPeak" in warning and "WT.mRp.clN_peaks.broadPeak" in warning
+
+
+def test_a_cohort_naming_two_uids_for_one_replicate_is_ambiguous(tmp_path):
+    # Two launch-record entries for one (sample, fastq_1) disagree: never pick one,
+    # and never fall back to the fastq path, which would resolve it.
+    from nextseek_api.assistant.models_db import PipelineRun
+    _run(tmp_path, "chipseq", "2.1.0", CHIP_SHEET)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/chipseq", cohort=[
+        {"nfcore_sample": "SPT5", "fastq_1": _fq("spt5_a"), "d_seq_uid": "D.SEQ-11"},
+        {"nfcore_sample": "SPT5", "fastq_1": _fq("spt5_a"), "d_seq_uid": "D.SEQ-99"},
+        {"nfcore_sample": "SPT5", "fastq_1": _fq("spt5_b"), "d_seq_uid": "D.SEQ-12"}])
+    got = _harvest(tmp_path, [], CHIP_UIDS)
+    assert [(s.nfcore_sample, s.d_seq_uid, s.uid_resolution) for s in got.samples][:2] == [
+        ("SPT5_REP1", None, manifest.RESOLUTION_AMBIGUOUS),
+        ("SPT5_REP2", "D.SEQ-12", manifest.RESOLUTION_LAUNCH_RECORD)]
+
+
+def test_the_launch_record_resolves_each_lane_of_a_replicate(tmp_path):
+    # Lanes of one replicate are one multi-run sample; each lane's parent comes from
+    # its own cohort entry (by fastq_1 under the samplesheet's `sample`), not the path.
+    from nextseek_api.assistant.models_db import PipelineRun
+    sheet = ("sample,fastq_1,fastq_2,replicate\n"
+             f"WT,{_fq('wt_l1')},,1\nWT,{_fq('wt_l2')},,1\nWT,{_fq('wt_b')},,2\n")
+    _run(tmp_path, "atacseq", "2.1.2", sheet)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/atacseq", cohort=[
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_l1"), "d_seq_uid": "D.SEQ-21"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_l2"), "d_seq_uid": "D.SEQ-22"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-23"}])
+    got = _harvest(tmp_path, [], {_fq("wt_l1"): "D.SEQ-1", _fq("wt_l2"): "D.SEQ-9",
+                                  _fq("wt_b"): "D.SEQ-2"})
+    assert [(s.nfcore_sample, s.uid_resolution, s.d_seq_uid, s.d_seq_uid_multirun)
+            for s in got.samples] == [
+        ("WT_REP1", manifest.RESOLUTION_MULTIRUN, None, ["D.SEQ-21", "D.SEQ-22"]),
+        ("WT_REP2", manifest.RESOLUTION_LAUNCH_RECORD, "D.SEQ-23", [])]
+    assert got.replicate_groups == {"WT": ["WT_REP1", "WT_REP2"]}
+
+
+def test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row(tmp_path):
+    # Owner's ruling (2026-10-27): a merged group whose replicate is ambiguous still
+    # gets its row. The ambiguous replicate is left out of Parent and a warning names
+    # it; the other replicates parent the row. A standalone ambiguous sample, by
+    # contrast, gets no row (mapper._NO_CHILD_ROW); the group's merged file is the
+    # group's own output, and its other parents are certain.
+    from nextseek_api.assistant.models_db import PipelineRun
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/atacseq", cohort=[
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-1"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-99"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-2"}])
+    got = _harvest(tmp_path, _atac_paths(), ATAC_UIDS)
+    assert {s.nfcore_sample: s.uid_resolution for s in got.samples}["WT_REP1"] == (
+        manifest.RESOLUTION_AMBIGUOUS)
+    result = mapper.apply(got, maps.load("atacseq"), context=CONTEXT)
+    assert [row for row in _rows(result, "aln") if row[0] == "WT"] == [
+        ("WT", "WT.mRp.clN.sorted.bam", "D.SEQ-2")]
+    assert "WT: replicate(s) WT_REP1 resolved to no D.SEQ; the group's aln row names only " \
+           "the others as Parent" in result.warnings
