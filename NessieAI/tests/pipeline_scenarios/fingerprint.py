@@ -2,7 +2,8 @@
 
 Covered, as INPUTS groups them: the routing code (the BAML RouteQuery function and its client,
 the route capabilities, the router package, the family labels and taxonomy version the router reads from corpus.json, not its variants), the pipeline
-agent's prompt, tool schemas, loop and catalog, the selection prompt and atlases, and the code
+agent's prompt, tool schemas, loop and catalog, what builds its first message (the chat memory, the
+results helpers, and this runner's session and parser plan), the selection prompt and atlases, and the code
 that builds the selection payload (digest, metadata, protocols, schemas, param checks).
 The replay serves the recorded router decision and model answers, so this hash is the only
 guard on all of it. Not covered: the model id (it is kept in summary.json and each row, so a
@@ -49,6 +50,11 @@ INPUTS: tuple[str, ...] = (
     _CHAT + "pipeline/selection_context.py",
     _CHAT + "pipeline/agent_tools.py",
     _CHAT + "pipeline/agent.py",
+    # What start() puts in the agent's first message: the chat's earlier turns (chat_memory), the pinned
+    # search's summary (helpers/results), and the session and parser plan the runner builds them from.
+    _CHAT + "chat_memory.py",
+    _CHAT + "helpers/results.py",
+    "NessieAI/tests/pipeline_scenarios/run.py",
     _CHAT + "seqera/catalog.py",
     _CHAT + "seqera/nfcore_rna_atlas.json",
     _CHAT + "seqera/nfcore_dna_atlas.json",
