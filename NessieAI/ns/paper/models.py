@@ -104,7 +104,7 @@ class FileRef(_Strict):
     url: str
     size: int | None = None
     checksum: str | None = None
-    checksum_type: Literal["md5", "sha1"] | None = None
+    checksum_type: Literal["md5", "sha1", "sha256", "sha512"] | None = None
 
 
 class DepositRecord(_Strict):

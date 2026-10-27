@@ -13,21 +13,21 @@ proposing rows is a later piece.
 | Module | What it does |
 |---|---|
 | `models.py` | the artifacts: `PaperArtifact` (`paper.json`) and `EvidenceArtifact` (`evidence.json`), with `PaperRef`, `PaperText`, `DepositRecord`, `EvidenceItem`, `SkeletonRow` and `Gap`. Every model forbids unknown keys, so an artifact one version wrote and another reads fails loudly; `EvidenceArtifact` also refuses a duplicate item ID or a skeleton row citing an ID with no item |
-| `identify.py` | `identify`: the typed text to one `PaperInput` (`pmid`, `pmcid`, `doi` or `file`); raises `IdentifyError` for anything else |
-| `fetch.py` | `Fetcher`, the only way the package reaches the internet, and `ALLOWED_HOSTS` |
-| `europepmc.py` | `resolve` (metadata), `full_text_xml` (open-access JATS) and `supplementary_zip` |
-| `jats.py` | `parse_jats`: sections, captions and the supplement list, with evidence IDs |
-| `pdftext.py` | `pdf_to_text` and `split_sections`: an attached PDF to the same sections and IDs, pages joined by a form feed. `pypdf` is imported lazily, only here |
-| `accessions.py` | `find_accessions`: deposit accessions and repository links in paper text |
-| `launch.py` | `launch_check` and `LaunchSeams`: stage 0, seconds, inside the op. Methods must be readable, and either a Data Availability section or at least one accession; a DOI already on a sample puts the paper in `update` mode. A PDF's DOI is used only when Europe PMC's title for it is on the PDF's first page (`_own_ref`, at most `MAX_PDF_DOI_LOOKUPS` lookups, a DOI glued to the next word also tried without it); with none, the paper has no DOI and starts in `new` mode |
-| `start.py` | `start`: the body of `paper-reingest-start`. Curators only (`is_superuser`), only when the feature flag is on, and it turns each launch failure into a `StartRefused` with an `error_type` |
-| `deposits/` | one adapter per repository, `ADAPTERS[repo](accession, fetcher) -> list[DepositRecord]`: `geo.py`, `ena.py`, `pride.py`, and `repos.py` for Zenodo, figshare and the Stanford Digital Repository (`sdr`) |
-| `si.py` | `supplement_items`: the supplementary zip to evidence items, and gaps for what could not be read |
+| `identify.py` | `identify`: the typed text to one `PaperInput` (`pmid`, `pmcid`, `doi` or `file`), reading current and legacy PubMed, PMC and Europe PMC links; raises `IdentifyError` for anything else. `doi_candidates`: every DOI in raw PDF text, a DOI broken over two lines at a hyphen read both with and without that hyphen |
+| `fetch.py` | `Fetcher`, the only way the package reaches the internet, and `ALLOWED_HOSTS`. Retries only network errors (`requests.RequestException`) and 408, 429 and 5xx answers, waiting the backoff or a longer `Retry-After`; a wait past the deadline or `max_wait_s` is `SourceUnavailable` at once |
+| `europepmc.py` | `resolve` (metadata), `full_text_xml` (open-access JATS) and `supplementary_zip`. A consortium author (`collectiveName`) is kept with `collective` set; the publication date keeps the precision Europe PMC gives (`firstPublicationDate`, else `pubYear`). A search answer of the wrong shape raises `UnreadableAnswer` |
+| `jats.py` | `parse_jats`: sections, captions and the supplement list (each file once, its href URL-decoded to a file name), with evidence IDs. Broken XML, a root other than `<article>` or nesting too deep raises `JatsUnreadable`; an article with no body is empty text |
+| `pdftext.py` | `pdf_to_text` and `split_sections`: an attached PDF to the same sections and IDs, pages joined by a form feed. A line broken at a hyphen inside an accession, DOI or URL is rejoined; a long paragraph is cut at a sentence end, else between words. `pypdf` is imported lazily, only here |
+| `accessions.py` | `find_accessions`: deposit accessions and repository links in paper text. `rejoin_split_accession`: a hyphen-free accession broken over two lines, joined |
+| `launch.py` | `launch_check` and `LaunchSeams`: stage 0, seconds, inside the op. Methods must be readable, and either a Data Availability section or at least one accession; a DOI already on a sample puts the paper in `update` mode. A PDF's DOI is used only when Europe PMC's title for it is on the PDF's first page (`_own_ref`, at most `MAX_PDF_DOI_LOOKUPS` lookups, a DOI broken at a line-end hyphen read both ways (`identify.doi_candidates`) and one glued to the next word also tried without it); with none, the paper has no DOI and starts in `new` mode |
+| `start.py` | `start`: the body of `paper-reingest-start`. Curators only (`is_superuser`), only when the feature flag is on, and it turns each launch failure into a `StartRefused` with an `error_type`. An unreadable source answer is `source_bad_answer`; on the PDF path (its DOI lookup) the message does not ask for the PDF |
+| `deposits/` | one adapter per repository, `ADAPTERS[repo](accession, fetcher) -> list[DepositRecord]`: `geo.py`, `ena.py`, `pride.py`, and `repos.py` for Zenodo, figshare and the Stanford Digital Repository (`sdr`). A GEO SuperSeries also returns each SubSeries' own project record (its samples come with the SuperSeries'). A checksum is typed only as md5 or sha1; any other digest stays verbatim in the file record's `checksum` field. An SDR file with `publish="no"` gets no record, only a name in the project's `unpublished_files` |
+| `si.py` | `supplement_items`: the supplementary zip to evidence items, and gaps for what could not be read. A listed supplement matches a member by file name, URL-decoded and case-folded; an image the paper does not list is one of its figures, skipped. Workbook cells read as a curator sees them (`cell_text`). Decompression is bounded per member, per workbook (`MAX_WORKBOOK_UNPACKED_BYTES`) and per archive (`MAX_ARCHIVE_UNPACKED_BYTES`) |
 | `evidence.py` | `paper_items`, `deposit_items`, `field_id`, `file_id`: records to quotable items |
 | `skeleton.py` | deposit records to skeleton rows: one GEO row per GSM (its SRA runs folded in through the SRX link), one ENA row per experiment for runs with no GSM, a PRIDE `raw` row per RAW file and an `analysis` row per SEARCH or RESULT file, one `file` row per Zenodo, figshare or SDR file |
-| `acquire.py` | `acquire`: `paper.json` to `evidence.json`. Reads the supplement, finds every accession, fetches each deposit once (projects before their parts) and builds the skeleton. A missing deposit or supplement, or a deposit that answers with something unreadable, is a `Gap` (logged); a source that is down raises `SourceUnavailable` and a spent deadline `OutOfTime` |
+| `acquire.py` | `acquire`: `paper.json` to `evidence.json`. Reads the supplement (Europe PMC's zip for any open-access paper with a PMCID, a PDF-read one included), finds every accession, fetches each deposit once (projects before their parts; a GSM cited without its series fetches its own SRX) and builds the skeleton. A missing deposit or supplement, or a deposit that answers with something unreadable, is a `Gap` (logged); a source that is down raises `SourceUnavailable` and a spent deadline `OutOfTime` |
 | `store.py` | `save_artifact` and `load_artifact`: content-addressed files, one folder per run under `NEXTSEEK_PAPER_REINGEST_DIR` |
-| `dates.py` | lenient date parsing (ISO, and GEO's `Jan 05 2024`) |
+| `dates.py` | lenient date parsing (ISO, and GEO's `Jan 05 2024`). `parse_partial_date` keeps a year or a month as `YYYY` or `YYYY-MM`, never padded to a day; `PaperRef.published` holds that form |
 
 ## Evidence IDs
 
@@ -47,7 +47,8 @@ stage can cite it and a reviewer can find it.
 
 The package reaches only the hosts in `fetch.py` `ALLOWED_HOSTS`, and only over https. Redirects are
 followed by hand, so a redirect to a host outside the list is refused (`HostNotAllowed`). A body over
-the byte cap is refused. A 5xx, a 429, a timeout or a dropped connection is retried with backoff and then
+the byte cap is refused. A 5xx, a 408, a 429, a timeout or a dropped connection is retried with backoff, or
+the server's `Retry-After` when longer (a wait past `max_wait_s` or the deadline is not slept), and then
 raised as `SourceUnavailable`, which the run turns into `paused`; any other 4xx is `SourceNotFound`. To
 read a new repository, add its adapter under `deposits/` and its host to the list in the same change.
 Supplementary files come from Europe PMC's `supplementaryFiles` zip, never from publisher pages.

@@ -2,7 +2,7 @@
 Repository. They have no sample structure, so each file becomes its own record; the
 paper decides what it is (piece 2).
 
-A checksum is typed only when its algorithm is one FileRef names (md5, sha1); any other digest is
+A checksum is typed only when its algorithm is one FileRef names (md5, sha1, sha256, sha512); any other digest is
 kept verbatim, algorithm and all, in the file record's `checksum` field, never labelled md5. An SDR
 file with publish="no" has no public stacks URL (it answers 403), so it gets no file record; the
 project record names it under `unpublished_files`."""
@@ -26,7 +26,7 @@ def _file(repo: Repo, rid: str, ref: FileRef, submitted, fields: dict | None = N
                          fields=fields or {}, files=[ref], links=[rid], submitted=submitted)
 
 
-_TYPED = ("md5", "sha1")
+_TYPED = ("md5", "sha1", "sha256", "sha512")
 
 
 def _zenodo_checksum(raw: str) -> tuple[str | None, str | None, dict]:

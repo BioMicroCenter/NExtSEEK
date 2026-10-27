@@ -200,6 +200,15 @@ def test_pdf_doi_glued_to_the_next_word_is_tried_without_it(monkeypatch):
     assert out.paper.ref.doi == "10.1000/xyz123" and out.paper.ref.pmid == "38000001"
 
 
+def test_pdf_doi_broken_over_a_line_at_a_hyphen_is_found(monkeypatch):
+    text = PDF_TEXT.replace("doi:10.1000/xyz123", "doi:10.1000/xyz-\n123")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.1000/xyz-123"'): js(epmc_search([])),
+                    _search('DOI:"10.1000/xyz123"'): js(epmc_search([EPMC_HIT]))}, files={"paper.pdf": b"%PDF"})
+    out = launch_check("paper.pdf", seams)
+    assert out.paper.ref.doi == "10.1000/xyz123" and out.paper.ref.pmid == "38000001"
+
+
 def test_pdf_looks_up_at_most_three_dois(monkeypatch):
     dois = [f"10.3000/c{i}" for i in range(5)]
     text = "".join(f"see doi:{d}\n" for d in dois) + PDF_TEXT.replace("doi:10.1000/xyz123", "")

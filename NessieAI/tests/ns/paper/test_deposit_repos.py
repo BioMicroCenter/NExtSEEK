@@ -54,10 +54,17 @@ def _zenodo_with(checksum):
 
 
 def test_zenodo_never_labels_a_non_md5_digest_as_md5_and_keeps_the_algorithm():
-    f, _ = fetcher(_zenodo_with("sha256:" + "e" * 64))
+    f, _ = fetcher(_zenodo_with("crc32:" + "e" * 8))
     _, file = repos.fetch_zenodo("7654321", f)
     assert (file.files[0].checksum, file.files[0].checksum_type) == (None, None)
-    assert file.fields["checksum"] == "sha256:" + "e" * 64
+    assert file.fields["checksum"] == "crc32:" + "e" * 8
+
+
+def test_zenodo_types_a_sha256_digest_as_sha256():
+    f, _ = fetcher(_zenodo_with("sha256:" + "e" * 64))
+    _, file = repos.fetch_zenodo("7654321", f)
+    assert (file.files[0].checksum, file.files[0].checksum_type) == ("e" * 64, "sha256")
+    assert file.fields == {}
 
 
 def test_zenodo_types_a_sha1_digest_as_sha1():

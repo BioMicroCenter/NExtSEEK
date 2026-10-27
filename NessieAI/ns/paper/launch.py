@@ -17,7 +17,7 @@ from typing import Callable, Literal
 from NessieAI.ns.paper import europepmc
 from NessieAI.ns.paper.accessions import find_accessions
 from NessieAI.ns.paper.fetch import Fetcher, SourceNotFound
-from NessieAI.ns.paper.identify import DOI_RE, clean_doi, identify
+from NessieAI.ns.paper.identify import doi_candidates, identify
 from NessieAI.ns.paper.jats import parse_jats
 from NessieAI.ns.paper.models import PaperArtifact, PaperInput, PaperRef, PaperText, _Strict
 from NessieAI.ns.paper.pdftext import pdf_to_text, split_sections
@@ -133,7 +133,7 @@ def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
 def _own_ref(first_page: str, fetcher: Fetcher) -> PaperRef | None:
     """Europe PMC's record for the first DOI on the first page whose title is on that page too."""
     page = _squash(first_page)
-    found = [clean_doi(m.group(0)) for m in DOI_RE.finditer(first_page)]
+    found = doi_candidates(first_page)
     dois = list(dict.fromkeys(d for doi in found for d in (doi, _GLUED_WORD.sub("", doi))))
     for doi in dois[:MAX_PDF_DOI_LOOKUPS]:
         ref = europepmc.resolve(PaperInput(kind="doi", value=doi), fetcher)
