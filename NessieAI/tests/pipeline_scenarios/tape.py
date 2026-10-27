@@ -204,10 +204,10 @@ class Tape:
     def fill(self, entry: dict, value, final: bool = False) -> None:
         if id(entry) in self._final:
             return          # the tool already gave up on this call and its timeout was taped
-        entry["value"] = encode(value)
-        # These entries skip the run-time scrubber, so an exception message that carries a path,
-        # an email or a private URL is caught here and makes taped() raise at exit.
+        # These entries skip the run's store scrubber: their URLs are rewritten here, and an
+        # exception message that carries a path or an email makes taped() raise at exit.
         from . import scrub
+        entry["value"] = scrub.for_tape(encode(value))
         hits = scrub.refusals_in(entry["value"])
         if hits:
             self.refused.append(f"{self._source_of.get(id(entry), '?')}: {'; '.join(hits)}")
@@ -361,16 +361,19 @@ def _resolve(target: str):
 
 
 @contextlib.contextmanager
-def taped(tape: Tape, scrubber=None):
+def taped(tape: Tape, live=None, store=None):
     """Record (tape.mode == "record") or replay every outside answer the pipeline tools get.
 
-    ``scrubber(source, value) -> value`` runs on each recorded value before it is kept, and the
-    scrubbed value is what the live run gets back, so recording and replay see the same data.
+    Recording only observes. ``live(source, value) -> value`` is what the live run gets back
+    (the run redacts people and nothing else, so it behaves as production does), and
+    ``store(source, live_value) -> value`` is what the tape keeps, or a refusal (any exception).
+    A refusal is never raised into the live call: the tool gets the live value and the refusal
+    is collected on the tape. A raised exception is kept by class and message, the message
+    cleaned by scrub.for_tape; the live run gets the original exception.
 
-    The tools' callers catch exceptions, so a TapeMismatch or a scrubber's refusal never stops
-    a run by itself. They are collected on the tape and raised here, at exit: a replay that
-    asked for something unrecorded, or left a recorded entry unplayed, raises TapeMismatch; a
-    recording whose scrubber refused raises ValueError.
+    The tools' callers catch exceptions, so a TapeMismatch never stops a run by itself either.
+    Both are raised here, at exit: a replay that asked for something unrecorded, or left a
+    recorded entry unplayed, raises TapeMismatch; a recording that refused raises ValueError.
     """
     from chat_nextseek.pipeline import agent, agent_tools
     from chat_nextseek.seqera import nfcore_schema
@@ -389,20 +392,19 @@ def taped(tape: Tape, scrubber=None):
             try:
                 value = original(*args, **kwargs)
             except Exception as exc:
-                spec = exception_spec(exc)
+                spec = scrub_module.for_tape(exception_spec(exc))
                 hits = scrub_module.refusals_in(spec)
                 if hits:
                     tape.refused.append(f"{source}: {'; '.join(hits)}")
                 else:
                     tape.record(source, *key(args, kwargs), spec)
                 raise
+            shown = live(source, value) if live else value
             try:
-                kept = scrubber(source, value) if scrubber else value
-                tape.record(source, *key(args, kwargs), kept)
-            except Exception as exc:
+                tape.record(source, *key(args, kwargs), store(source, shown) if store else shown)
+            except Exception as exc:  # noqa: BLE001 - a store refusal is the tape's, never the live run's
                 tape.refused.append(f"{source}: {type(exc).__name__}: {exc}")
-                raise
-            return decode(encode(kept))
+            return shown
 
         def replaying(*args, **kwargs):
             answer = tape.play(source, *key(args, kwargs))

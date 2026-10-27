@@ -101,21 +101,66 @@ def test_the_run_config_tapes_the_agent_models_answers():
     assert rn.RunConfig(real, None).LOG_DIR == "/l"
 
 
-def test_the_scrubber_redacts_people_and_refuses_contacts():
-    clean = rn.scrubber("fetch_reporter_metadata", {"ok": True, "data": {"Scientist": "X", "UID": "U"}})
+def test_live_redacts_people_and_changes_nothing_else():
+    md = {"ok": True, "data": {"Scientist": "X", "UID": "U", "Protocol": "https://nextseek.example.org/sops/12",
+                               "Notes": "mail a@b.org"}}
+    out = rn.live("fetch_reporter_metadata", md)
+    assert out["data"] == {"Scientist": "REDACTED", "UID": "U", "Protocol": "https://nextseek.example.org/sops/12",
+                           "Notes": "mail a@b.org"}
+    text = {"ok": True, "text": "Contact a@b.org at /home/u/x. We used STAR."}
+    assert rn.live("gather_protocol_text", text) is text           # no trimming: production reads it whole
+    assert rn.live("agent", {"content": "https://nextseek.example.org/x"}) == {"content": "https://nextseek.example.org/x"}
+
+
+def test_store_redacts_trims_rewrites_and_refuses():
+    clean = rn.store("fetch_reporter_metadata", {"ok": True, "data": {"Scientist": "X", "UID": "U"}})
     assert clean["data"]["Scientist"] == "REDACTED"
     with pytest.raises(ValueError, match="email"):
-        rn.scrubber("fetch_reporter_metadata", {"ok": True, "data": {"Notes": "mail a@b.org"}})
-
-
-def test_the_scrubber_keeps_only_markers_of_the_protocol_text():
-    out = rn.scrubber("gather_protocol_text", {"ok": True, "text": "Contact a@b.org at /home/u/x. We used STAR."})
+        rn.store("fetch_reporter_metadata", {"ok": True, "data": {"Notes": "mail a@b.org"}})
+    out = rn.store("gather_protocol_text", {"ok": True, "text": "Contact a@b.org at /home/u/x. We used STAR."})
     assert "a@b.org" not in out["text"] and "/home" not in out["text"]
-
-
-def test_the_scrubber_finds_a_path_after_an_escaped_newline():
     with pytest.raises(ValueError, match="path"):
-        rn.scrubber("expand_uid_prefixes", {"note": "first line\n/home/someone/file.txt"})
+        rn.store("expand_uid_prefixes", {"note": "first line\n/home/someone/file.txt"})
+
+
+SRA_ODP = "https://sra-pub-run-odp.s3.amazonaws.com/sra/SRR8615271/SRR8615271"
+SRA_SRC = "s3://sra-pub-src-14/SRR8615271/R1.fastq.gz.1"
+ENA_FASTQ = "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR861/001/SRR8615271/SRR8615271_1.fastq.gz"
+SOP = "https://nextseek.example.org/sops/12"
+
+
+def _real_metadata(notes="paired-end"):
+    return {"ok": True, "data": [{"metadata": {
+        "UID": "D.SEQ-1-PUB", "Scientist": "A Person", "Protocol": SOP, "Notes": notes,
+        "Link_PrimaryData": f"{SRA_ODP};{SRA_SRC}", "Link_Other": ENA_FASTQ}}]}
+
+
+def test_real_cohort_urls_reach_the_live_run_and_only_archive_urls_reach_the_tape(monkeypatch):
+    from chat_nextseek.pipeline import agent_tools as at
+    from NessieAI.tests.pipeline_scenarios import tape as tp
+    monkeypatch.setattr(at, "fetch_reporter_metadata", lambda *a, **k: _real_metadata())
+    tape = Tape(mode="record")
+    with tp.taped(tape, live=rn.live, store=rn.store):
+        seen = at.fetch_reporter_metadata(object(), ["D.SEQ-1-PUB"])
+    md = seen["data"][0]["metadata"]
+    assert md["Protocol"] == SOP and md["Link_PrimaryData"] == f"{SRA_ODP};{SRA_SRC}" and md["Link_Other"] == ENA_FASTQ
+    assert md["Scientist"] == "REDACTED"
+    kept = tape.entries["fetch_reporter_metadata"][0]["value"]["data"][0]["metadata"]
+    assert kept["Protocol"] == "<url>" and kept["Link_PrimaryData"] == f"{SRA_ODP};{SRA_SRC}"
+    assert kept["Link_Other"] == ENA_FASTQ and kept["Scientist"] == "REDACTED" and tape.refused == []
+
+
+def test_a_path_in_real_metadata_refuses_the_tape_but_not_the_tool(monkeypatch):
+    from chat_nextseek.pipeline import agent_tools as at
+    from NessieAI.tests.pipeline_scenarios import tape as tp
+    monkeypatch.setattr(at, "fetch_reporter_metadata", lambda *a, **k: _real_metadata("see\n/home/someone/x.fq.gz"))
+    tape = Tape(mode="record")
+    with pytest.raises(ValueError, match="refused.*path"):
+        with tp.taped(tape, live=rn.live, store=rn.store):
+            seen = at.fetch_reporter_metadata(object(), ["D.SEQ-1-PUB"])      # no exception in the tool
+            assert seen["data"][0]["metadata"]["Notes"] == "see\n/home/someone/x.fq.gz"
+            assert seen["data"][0]["metadata"]["Protocol"] == SOP
+    assert "fetch_reporter_metadata" not in tape.entries
 
 
 def test_a_replay_that_does_not_match_the_tape_is_not_swallowed(tmp_path, monkeypatch):

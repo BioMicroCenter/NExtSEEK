@@ -336,3 +336,17 @@ def test_the_fixture_keeps_the_laya_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
     assert record.main([str(_run_dir(tmp_path / "run", [_row(laya_mode="shadow")]))]) == 0
     assert json.loads((tmp_path / "rec" / f"{STORY_ID}.json").read_text())["laya_mode"] == "shadow"
+
+
+def test_record_keeps_archive_urls_and_rewrites_instance_urls_outside_the_story(tmp_path, monkeypatch):
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    sop, ena = "https://nextseek.example.org/sops/12", "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR1/SRR1_1.fastq.gz"
+    row = _row(outcome={"route": "nextseek_query", "uids": ["U"], "error": None,
+                        "replies": [f"The protocol ({sop}) says paired-end; reads at {ena}."]},
+               decision={"route": "nextseek_query", "reasoning": f"see {sop}"},
+               score={"grade": "PASS", "reasons": [f"last reply: {sop}"]})
+    assert record.main([str(_run_dir(tmp_path / "run", [row]))]) == 0
+    kept = json.loads((tmp_path / "rec" / f"{STORY_ID}.json").read_text())
+    assert kept["outcome"]["replies"] == [f"The protocol (<url>) says paired-end; reads at {ena}."]
+    assert kept["decision"]["reasoning"] == "see <url>" and kept["score"]["reasons"] == ["last reply: <url>"]
+    assert "nextseek.example.org" not in json.dumps(kept)

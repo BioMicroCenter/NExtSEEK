@@ -4,8 +4,10 @@
 
 Run on the host from the worktree root, on the commit the paid run was made from (its
 fingerprint must equal the current one, or nothing is written). A story the runner failed on
-(an `error` on the row, `tape: null`) is skipped; a fixture that still holds an email, an
-absolute path or a private URL anywhere in its text is refused.
+(an `error` on the row, `tape: null`) is skipped. Outside the story (which is the committed story
+itself), every URL that is not public archive or nf-core test data is rewritten to "<url>", as the
+tape's already were; a fixture that still holds an email or an absolute path anywhere in its text
+is refused.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ import sys
 from pathlib import Path
 
 from NessieAI.tests.pipeline_scenarios import fingerprint
-from NessieAI.tests.pipeline_scenarios.scrub import refusals_in
+from NessieAI.tests.pipeline_scenarios.scrub import for_tape, refusals_in
 
 HERE = Path(__file__).resolve().parent
 RECORDED = HERE / "recorded"
@@ -24,10 +26,12 @@ STORY_FIELDS = ("id", "family", "route", "acceptable", "must_not", "expect", "la
 
 
 def fixture_from_row(row: dict, fp: str) -> dict:
-    """The committed form of one run row: the story fields the replay checks, and what was seen."""
-    return {"story": {k: row["story"][k] for k in STORY_FIELDS}, "fingerprint": fp,
-            "decision": row["decision"], "outcome": row["outcome"], "score": row["score"],
-            "tape": row["tape"], "agent_model": row.get("agent_model"), "laya_mode": row.get("laya_mode")}
+    """The committed form of one run row: the story fields the replay checks, and what was seen,
+    with its URLs rewritten as a tape's are (the story is left as committed, so the replay can compare it)."""
+    seen = for_tape({"decision": row["decision"], "outcome": row["outcome"], "score": row["score"],
+                     "tape": row["tape"]})
+    return {"story": {k: row["story"][k] for k in STORY_FIELDS}, "fingerprint": fp, **seen,
+            "agent_model": row.get("agent_model"), "laya_mode": row.get("laya_mode")}
 
 
 def main(argv: list[str]) -> int:

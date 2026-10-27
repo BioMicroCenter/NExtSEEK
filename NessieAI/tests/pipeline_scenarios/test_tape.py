@@ -128,12 +128,17 @@ def fakes(monkeypatch):
     return types.SimpleNamespace(agent=agent, tools=agent_tools, calls=calls)
 
 
-def _scrubber(source, value):
-    if source == "fetch_reporter_metadata":
-        return scrub.scrub_metadata(value)
-    if source == "gather_protocol_text":
-        return scrub.protocol_markers_found(value, markers={"rna"})
-    return value
+def _live(source, value):
+    """What the live run gets back: people redacted, nothing else."""
+    return scrub.scrub_metadata(value) if source == "fetch_reporter_metadata" else value
+
+
+def _store(source, value):
+    """What the tape keeps: the protocol text cut to its markers."""
+    return scrub.protocol_markers_found(value, markers={"rna"}) if source == "gather_protocol_text" else value
+
+
+SCRUB = {"live": _live, "store": _store}
 
 
 def _session(f, log="/tmp/rec-1/log"):
@@ -153,18 +158,19 @@ def _session(f, log="/tmp/rec-1/log"):
 def _record(f):
     t = tp.Tape(mode="record")
     originals = f.tools.fetch_reporter_metadata, f.agent.call_tools
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         out = _session(f)
         assert f.tools.fetch_reporter_metadata is not originals[0]
     assert (f.tools.fetch_reporter_metadata, f.agent.call_tools) == originals
     return t, out
 
 
-def test_taped_record_stores_and_returns_the_scrubbed_value(fakes):
+def test_taped_record_returns_the_live_value_and_stores_the_scrubbed_one(fakes):
     t, out = _record(fakes)
     md, ann, text, uids, sizes, acc, payload, reply = out
     assert md["data"][0]["metadata"]["Scientist"] == "REDACTED"
-    assert text == "rna"
+    assert text == "Prepared by Bob in the Real lab with RNA"        # the live run reads what production reads
+    assert t.entries["gather_protocol_text"][0]["value"] == "rna"    # the tape keeps only the markers
     assert acc == [_Res("SRR1", [{"x": 1}])]
     assert "Bob" not in str(t.to_json()) and "Real" not in str(t.to_json())
     assert t.entries["payload"][0]["value"] == hashlib.sha256(b"PAYLOAD").hexdigest()
@@ -212,16 +218,14 @@ def test_taped_replay_raises_at_exit_when_an_entry_was_never_played(fakes):
             fakes.tools.fetch_reporter_metadata(object(), ["U1"])
 
 
-def test_taped_record_raises_at_exit_when_a_scrubber_refused_and_the_caller_swallowed_it(fakes):
+def test_a_store_refusal_never_reaches_the_live_call_and_taped_raises_at_exit(fakes):
     def refusing(source, value):
         raise ValueError("path in the tape")
     t = tp.Tape(mode="record")
     with pytest.raises(ValueError, match="path in the tape"):
-        with tp.taped(t, refusing):
-            try:
-                fakes.tools.lookup_run_sizes(object(), ["SRR1"])
-            except Exception:
-                pass
+        with tp.taped(t, store=refusing):
+            assert fakes.tools.lookup_run_sizes(object(), ["SRR1"]) == {"SRR1": 5}   # the tool got its answer
+            assert t.refused and "lookup_run_sizes" not in t.entries                  # nothing kept
 
 
 def test_recording_client_keeps_the_selection_answer_and_passes_calls_through():
@@ -402,8 +406,7 @@ def test_a_selection_that_outlasts_the_tools_wait_replays_as_a_timeout(fakes, mo
 def test_an_exception_message_with_a_path_or_email_makes_taped_raise_at_exit(fakes, monkeypatch):
     from chat_nextseek.pipeline.sample_digest import DigestError
     for message, needle in (("could not read /Users/alice/data/x.bam", "path"),
-                            ("ask bob@example.org", "email"),
-                            ("fetch https://private.example.org/y", "url")):
+                            ("ask bob@example.org", "email")):
         def failing(*a, _m=message, **k):
             raise DigestError(_m)
         monkeypatch.setattr(fakes.tools, "build_sample_digest", failing)
@@ -412,6 +415,14 @@ def test_an_exception_message_with_a_path_or_email_makes_taped_raise_at_exit(fak
             with tp.taped(t):
                 with pytest.raises(DigestError):
                     fakes.tools.build_sample_digest(object(), ["U1"])
+    # a private URL is no refusal: it is kept as "<url>"
+    monkeypatch.setattr(fakes.tools, "build_sample_digest",
+                        lambda *a, **k: (_ for _ in ()).throw(DigestError("fetch https://private.example.org/y")))
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        with pytest.raises(DigestError, match="private.example.org"):
+            fakes.tools.build_sample_digest(object(), ["U1"])
+    assert t.entries["digest"][0]["value"]["message"] == "fetch <url>" and t.refused == []
 
 
 # ---- bytes, schema fetches and exceptions of the taped I/O functions ----------------------
@@ -454,7 +465,7 @@ def _schema_world(monkeypatch, bodies=None):
 def test_schema_fetches_replay_by_url_with_their_404s_and_never_touch_the_network(fakes, monkeypatch):
     ns, calls = _schema_world(monkeypatch)
     t = tp.Tape(mode="record")
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         recorded = ns.get_schema("rnaseq", "3.18.0")
     assert recorded == {"nextflow_schema": {"title": "a", "definitions": {}}} and len(calls) == 2
     assert "_default_fetcher" not in t.entries and len(t.entries["schemas"]) == 2
@@ -470,7 +481,7 @@ def test_schema_fetches_replay_by_url_with_their_404s_and_never_touch_the_networ
 def test_the_schema_map_ignores_order_and_the_unplayed_check(fakes, monkeypatch):
     ns, _ = _schema_world(monkeypatch)
     t = tp.Tape(mode="record")
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         ns.get_schema("rnaseq", "3.18.0")
         ns.get_schema("sarek", "3.5.1")
     r = tp.Tape.from_json(t.to_json())
@@ -483,7 +494,7 @@ def test_the_schema_map_ignores_order_and_the_unplayed_check(fakes, monkeypatch)
 def test_a_schema_the_tape_never_fetched_is_collected_as_a_mismatch(fakes, monkeypatch):
     ns, _ = _schema_world(monkeypatch)
     t = tp.Tape(mode="record")
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         ns.get_schema("rnaseq", "3.18.0")
     r = tp.Tape.from_json(t.to_json())
     with pytest.raises(tp.TapeMismatch, match="never fetched"):
@@ -497,7 +508,7 @@ def test_a_schema_the_tape_never_fetched_is_collected_as_a_mismatch(fakes, monke
 def test_a_404_message_with_a_url_does_not_reach_refused_and_still_reads_as_not_found(fakes, monkeypatch):
     ns, _ = _schema_world(monkeypatch)
     t = tp.Tape(mode="record")
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         ns.get_schema("fetchngs", "1.12.0")
     assert t.refused == []
     answers = list(t.entries["schemas"].values())
@@ -516,7 +527,7 @@ def test_bytes_equal_to_a_committed_fixture_are_kept_as_a_sha_and_served_from_th
     served = {nf_url: fixture.read_bytes(), input_url: (tp.FIXTURES / "rnaseq.schema_input.json").read_bytes()}
     monkeypatch.setattr(ns, "_default_fetcher", lambda u: served[u])
     t = tp.Tape(mode="record")
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         ns.get_schema("rnaseq", "3.18.0")
     answer = t.entries["schemas"]["rnaseq/3.18.0/nextflow_schema.json"]
     assert answer == {"sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(), "fixture": "rnaseq.nextflow_schema.json"}
@@ -547,7 +558,7 @@ def test_an_exception_a_taped_function_raised_is_taped_and_raised_again_in_repla
         raise TimeoutError("ena was slow")
     monkeypatch.setattr(fakes.tools, "lookup_run_sizes", boom)
     t = tp.Tape(mode="record")
-    with tp.taped(t, _scrubber):
+    with tp.taped(t, **SCRUB):
         with pytest.raises(TimeoutError, match="ena was slow"):
             fakes.tools.lookup_run_sizes(object(), ["SRR1"])
     r = tp.Tape.from_json(t.to_json())
@@ -561,3 +572,35 @@ def test_an_http_status_survives_the_tape():
     spec = tp.exception_spec(requests.HTTPError("404", response=types.SimpleNamespace(status_code=404)))
     again = tp.rebuild_exception(spec)
     assert isinstance(again, requests.HTTPError) and again.response.status_code == 404
+
+
+def test_the_live_value_is_handed_back_as_is_not_round_tripped_through_the_tape(fakes, monkeypatch):
+    answer = ("SRR1", 5)                       # a tuple would come back from the tape as a list
+    monkeypatch.setattr(fakes.tools, "lookup_run_sizes", lambda *a, **k: answer)
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        assert fakes.tools.lookup_run_sizes(object(), ["SRR1"]) is answer
+    assert t.entries["lookup_run_sizes"][0]["value"] == ["SRR1", 5]
+
+
+def test_a_raised_message_is_kept_without_its_request_path_or_host(fakes, monkeypatch):
+    msg = ("HTTPSConnectionPool(host='nextseek.example.org', port=443): Max retries exceeded with url: "
+           "/api/v1/samples (Caused by ConnectTimeoutError())")
+
+    def down(*a, **k):
+        raise ConnectionError(msg)
+    monkeypatch.setattr(fakes.tools, "fetch_reporter_metadata", down)
+    t = tp.Tape(mode="record")
+    with tp.taped(t, **SCRUB):
+        with pytest.raises(ConnectionError, match="api/v1"):      # the live run sees the real message
+            fakes.tools.fetch_reporter_metadata(object(), ["U1"])
+    kept = t.entries["fetch_reporter_metadata"][0]["value"]
+    assert t.refused == [] and "/api" not in kept["message"] and "example.org" not in kept["message"]
+
+
+def test_a_filled_entry_rewrites_urls_before_it_is_judged():
+    t = tp.Tape(mode="record")
+    entry = t.reserve("selection")
+    t.fill(entry, "reads at https://nextseek.example.org/data_files/3 and " + "https://ftp.sra.ebi.ac.uk/vol1/x.fastq.gz")
+    assert t.entries["selection"][0]["value"] == "reads at <url> and https://ftp.sra.ebi.ac.uk/vol1/x.fastq.gz"
+    assert t.refused == []

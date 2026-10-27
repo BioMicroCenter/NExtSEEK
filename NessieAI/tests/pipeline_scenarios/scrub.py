@@ -2,15 +2,18 @@
 
 Sample metadata keeps its shape but loses every value under a person-like key; protocol text
 keeps only the param-atlas markers found in it (never the lines around them), since nothing else
-is read; and a tape that still holds an email address, an absolute path or a URL (other than
-public nf-core test data) is refused, with the same patterns scripts/reingest/sanitize_fixture.py
-uses.
+is read. Every URL on a tape is rewritten to "<url>" unless it is public nf-core test data or on
+a public sequence archive (ARCHIVE_URLS), so no instance hostname reaches the repository; an
+error message also loses its bare request path and host. A tape that still holds an email
+address or an absolute path is refused, with the patterns scripts/reingest/sanitize_fixture.py
+uses. The archive allow-list lives here only: sanitize_fixture keeps its narrower one.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
 import re
+import urllib.parse
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[3]
@@ -72,15 +75,111 @@ def protocol_markers_found(text: str, markers: set[str] | None = None) -> str:
     return "\n".join(sorted(m for m in markers if m in low))
 
 
-def refusals(text: str) -> list[str]:
-    out = [f"email {m}" for m in _sanitize.EMAIL.findall(text)]
-    out += [f"path /{m}" for m in _sanitize.ABSOLUTE.findall(text)]
-    out += [f"url {u}" for u in _sanitize.disallowed_urls(text)]
-    return out
+#: Public sequence archives whose URLs a tape keeps as they are: (scheme, host, path prefix).
+#: A host given as a pattern is matched whole. Real D.SEQ metadata and resolve_accessions carry these.
+ARCHIVE_URLS: tuple[tuple[str, "str | re.Pattern", str], ...] = (
+    ("https", "sra-pub-run-odp.s3.amazonaws.com", "/"),
+    ("s3", re.compile(r"sra-pub-(?:src|run)-[a-z0-9-]+"), "/"),
+    ("https", "ftp.sra.ebi.ac.uk", "/"),
+    ("ftp", "ftp.sra.ebi.ac.uk", "/"),
+    ("https", "www.ebi.ac.uk", "/ena/"),
+    ("https", "trace.ncbi.nlm.nih.gov", "/"),
+    ("https", "www.ncbi.nlm.nih.gov", "/geo/"),
+    ("https", "www.ncbi.nlm.nih.gov", "/sra/"),
+)
+_ARCHIVE_PATH = re.compile(r"^[A-Za-z0-9._~/+=-]*$")
+_ARCHIVE_QUERY = re.compile(r"^[A-Za-z0-9._~=&+-]*$")
+#: What stands in for a URL that is not kept.
+URL_PLACEHOLDER = "<url>"
+#: urllib3's connection errors name the request path bare ("... with url: /api/x?y=1 (Caused by")
+#: and the host in quotes; neither is a URL, so both are cut before the URL rewrite.
+_WITH_URL = re.compile(r" with url: \S+")
+_QUOTED_HOST = re.compile(r"(host=|resolve )'[^']*'")
+
+
+def archive_url(url: str) -> bool:
+    """True only for one plain URL on a public archive: a listed scheme, host and path prefix, no
+    userinfo or port, no dot-dot segment, no percent-encoding, no fragment, plain characters only."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    if (url.count("://") != 1 or parsed.fragment or "%" in url
+            or not _ARCHIVE_PATH.match(parsed.path) or not _ARCHIVE_QUERY.match(parsed.query)
+            or ".." in parsed.path.split("/")):
+        return False
+    for scheme, host, prefix in ARCHIVE_URLS:
+        host_ok = host.fullmatch(parsed.netloc) if isinstance(host, re.Pattern) else parsed.netloc == host
+        if parsed.scheme == scheme and host_ok and parsed.path.startswith(prefix):
+            return True
+    return False
 
 
 def allowed_url(url: str) -> bool:
-    return _sanitize.allowed_url(url)
+    """A URL a tape may keep: public nf-core test data, or a public archive's."""
+    return _sanitize.allowed_url(url) or archive_url(url)
+
+
+def _pieces(match: str) -> list[str]:
+    """One URL-regex match split on the separators it runs through, separators kept."""
+    return re.split(f"({_sanitize._URL_SEPARATORS.pattern})", match)
+
+
+def disallowed_urls(text: str) -> list[str]:
+    """Every URL-like piece of text that allowed_url does not keep (the same splitting as sanitize_fixture)."""
+    out = []
+    for match in _sanitize.URL.findall(text):
+        for piece in _sanitize._URL_SEPARATORS.split(match):
+            piece = piece.rstrip(_sanitize._TRAILING_PUNCTUATION)
+            if "://" in piece and not allowed_url(piece):
+                out.append(piece)
+    return out
+
+
+def rewrite_urls(text: str) -> str:
+    """Every URL allowed_url does not keep becomes "<url>"; the punctuation around it stays."""
+    def one(m: re.Match) -> str:
+        out = []
+        for piece in _pieces(m.group(0)):
+            core = piece.rstrip(_sanitize._TRAILING_PUNCTUATION)
+            if "://" in core and not allowed_url(core):
+                piece = URL_PLACEHOLDER + piece[len(core):]
+            out.append(piece)
+        return "".join(out)
+    return _sanitize.URL.sub(one, text)
+
+
+def _for_tape_text(text: str) -> str:
+    text = _QUOTED_HOST.sub(lambda m: f"{m.group(1)}'<host>'", _WITH_URL.sub("", text))
+    return rewrite_urls(text)
+
+
+def _walk_strings(value, fn):
+    if isinstance(value, str):
+        return fn(value)
+    if isinstance(value, dict):
+        return {(fn(k) if isinstance(k, str) else k): _walk_strings(v, fn) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_walk_strings(v, fn) for v in value]
+    return value
+
+
+def rewrite_urls_in(value):
+    """rewrite_urls over every string leaf and key of a JSON-like value (a new value; tuples become lists)."""
+    return _walk_strings(value, rewrite_urls)
+
+
+def for_tape(value):
+    """What a tape keeps of a value: error messages' bare request paths and hosts cut, then
+    every URL that is not kept rewritten. Emails and absolute paths are left for refusals_in."""
+    return _walk_strings(value, _for_tape_text)
+
+
+def refusals(text: str) -> list[str]:
+    out = [f"email {m}" for m in _sanitize.EMAIL.findall(text)]
+    out += [f"path /{m}" for m in _sanitize.ABSOLUTE.findall(text)]
+    out += [f"url {u}" for u in disallowed_urls(text)]
+    return out
 
 
 def refusals_in(value) -> list[str]:

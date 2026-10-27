@@ -82,12 +82,21 @@ def router_history(story: Story, uids: list[str]):
     return build_history(make_session(story, uids)["chat_log"])
 
 
-def scrubber(source: str, value):
-    """Make one taped value safe for a public repository, or refuse it (ValueError)."""
-    if source in _METADATA_SOURCES:
-        value = scrub.scrub_metadata(value)
+def live(source: str, value):
+    """What the live run gets back from a taped call: person fields redacted, nothing else
+    (no URL changed, no protocol text trimmed), so the run behaves as production does."""
+    return scrub.scrub_metadata(value) if source in _METADATA_SOURCES else value
+
+
+def store(source: str, value):
+    """What goes on the tape: live(), then the protocol text cut to its atlas markers, every URL
+    that is not public archive or nf-core test data rewritten to "<url>", then refused (ValueError)
+    if an email or an absolute path is left. taped() collects the refusal on the tape and never
+    raises it into the live run."""
+    value = live(source, value)
     if source == "gather_protocol_text" and isinstance(value, dict):
         value = {**value, "text": scrub.protocol_markers_found(value.get("text") or "")}
+    value = scrub.for_tape(value)
     hits = scrub.refusals_in(value)
     if hits:
         raise ValueError(f"{source}: cannot keep {hits[:3]} on a public tape")
@@ -146,7 +155,7 @@ def run_story(story: Story, config, tape: Tape | None, log_dir: Path, decide=Non
     try:
         cfg = config if isinstance(config, RunConfig) else RunConfig(config, tape)
         log_dir.mkdir(parents=True, exist_ok=True)
-        with (taped(tape, scrubber) if tape else contextlib.nullcontext()):
+        with (taped(tape, live=live, store=store) if tape else contextlib.nullcontext()):
             res = pa.start(session, cfg, user_query=story.question, log_dir=str(log_dir))
             record["replies"].append(res.get("reply") or "")
             answers = list(story.replies)
