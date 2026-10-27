@@ -94,6 +94,27 @@ def scrubber(source: str, value):
     return value
 
 
+def routing_settings() -> dict:
+    """What the router's behaviour depends on that no recording can capture: whether posterior routing
+    was on (the posterior selector reads the whole corpus file) and the laya mode. A setting that
+    cannot be read is written as "error: <Class>", never left out."""
+    def posterior():
+        from NessieAI.router import posterior_selector
+        return posterior_selector.posterior_routing_enabled()
+
+    def laya_mode():
+        from NessieAI.router import laya
+        return laya.mode()
+
+    out = {}
+    for key, read in (("posterior_routing", posterior), ("laya_mode", laya_mode)):
+        try:
+            out[key] = read()
+        except Exception as exc:  # noqa: BLE001 - a setting we cannot read must show, not vanish
+            out[key] = f"error: {type(exc).__name__}"
+    return out
+
+
 def _decision_record(d) -> dict:
     return {k: getattr(d, k, None) for k in ("route", "source", "reasoning", "router_model", "router_cost_usd")}
 
@@ -176,6 +197,7 @@ def main(argv: list[str]) -> int:
     real = ChatConfig()
     run_fingerprint = fingerprint.current()
     agent_model = real.get_agent_model("pipeline_agent")[1]    # a model swap must be visible on the run
+    routing = routing_settings()
     results = []
     for story in runnable:
         tape = Tape(mode="record")
@@ -189,13 +211,14 @@ def main(argv: list[str]) -> int:
         s = score(story, outcome)
         row = {"story": asdict(story), "decision": record["decision"], "outcome": asdict(outcome),
                "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": run_fingerprint,
-               "agent_model": agent_model}
+               "agent_model": agent_model, **routing}
         (out / "stories" / f"{story.id}.json").write_text(json.dumps(row, indent=2, default=str))
         results.append(row)
         print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}")
     summary = {g: sum(1 for r in results if r["score"]["grade"] == g) for g in ("PASS", "PARTIAL", "FAIL")}
     (out / "summary.json").write_text(json.dumps({"summary": summary, "n": len(results), "skipped": skipped,
-                                                "fingerprint": run_fingerprint, "agent_model": agent_model}, indent=2))
+                                                "fingerprint": run_fingerprint, "agent_model": agent_model,
+                                                **routing}, indent=2))
     write_report(out, results)
     print(f"{summary} -> {out}")
     return 0

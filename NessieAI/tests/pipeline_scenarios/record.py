@@ -27,7 +27,7 @@ def fixture_from_row(row: dict, fp: str) -> dict:
     """The committed form of one run row: the story fields the replay checks, and what was seen."""
     return {"story": {k: row["story"][k] for k in STORY_FIELDS}, "fingerprint": fp,
             "decision": row["decision"], "outcome": row["outcome"], "score": row["score"],
-            "tape": row["tape"], "agent_model": row.get("agent_model")}
+            "tape": row["tape"], "agent_model": row.get("agent_model"), "laya_mode": row.get("laya_mode")}
 
 
 def main(argv: list[str]) -> int:
@@ -42,6 +42,12 @@ def main(argv: list[str]) -> int:
     run_fp = summary["fingerprint"] if "fingerprint" in summary else a.fingerprint
     if run_fp != now:
         print(f"refusing: the run was made under fingerprint {run_fp}, the tree is at {now}", file=sys.stderr)
+        return 1
+    if summary.get("posterior_routing") is not False:
+        # The posterior selector reads the whole corpus file's sha, which the fingerprint (a projection
+        # of it) does not cover; a run that used it, or did not say, cannot be replayed faithfully.
+        print(f"refusing: posterior routing was {summary.get('posterior_routing')!r} for this run "
+              "(it must be recorded False)", file=sys.stderr)
         return 1
     wanted = set(filter(None, a.ids.split(",")))
     fixtures: dict[str, dict] = {}

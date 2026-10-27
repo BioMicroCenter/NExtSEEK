@@ -1,7 +1,7 @@
 """sha256 over everything that decides routing and pipeline choice (spec §4.2).
 
 Covered, as INPUTS groups them: the routing code (the BAML RouteQuery function and its client,
-the route capabilities, the router package, the family labels in corpus.json), the pipeline
+the route capabilities, the router package, the family labels and taxonomy version the router reads from corpus.json, not its variants), the pipeline
 agent's prompt, tool schemas, loop and catalog, the selection prompt and atlases, and the code
 that builds the selection payload (digest, metadata, protocols, schemas, param checks).
 The replay serves the recorded router decision and model answers, so this hash is the only
@@ -14,9 +14,12 @@ means the model might now answer differently, so CI fails until a paid run re-re
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
+#: The harness corpus. Only what the router reads of it is hashed (see corpus_projection).
+CORPUS = "NessieAI/tests/nessie_tests/corpus.json"
 _CHAT = "NessieAI/chat_nextseek/src/chat_nextseek/"
 INPUTS: tuple[str, ...] = (
     # Routing: the replay serves the recorded decision, so these are its only guard.
@@ -35,7 +38,6 @@ INPUTS: tuple[str, ...] = (
     "NessieAI/router/family_labels.py",
     "NessieAI/router/baml_introspect.py",
     "NessieAI/router/run_done.py",
-    "NessieAI/tests/nessie_tests/corpus.json",             # the family labels the router reads
     # What the model sees when it chooses a pipeline: prompts, tool schemas, the loop, the atlas
     # and the catalog.
     _CHAT + "prompts/pipeline_agent.txt",
@@ -61,8 +63,20 @@ INPUTS: tuple[str, ...] = (
 )
 
 
+def corpus_projection() -> dict:
+    """What family_labels.corpus_snapshot reads of the corpus: each family's description and the
+    taxonomy version. The corpus's variants (the harness's own stories) are not routing input, so
+    adding one must not invalidate a recording. Standard library only, so record.py runs on the host."""
+    payload = json.loads((REPO / CORPUS).read_text(encoding="utf-8"))
+    families = payload.get("families") or {}
+    return {"taxonomy_version": str(payload.get("taxonomy_version") or payload.get("version") or "nessie_corpus_v1"),
+            "families": {str(k): str((v or {}).get("description") or "") for k, v in sorted(families.items())}}
+
+
 def current() -> str:
     h = hashlib.sha256()
+    h.update(json.dumps(corpus_projection(), sort_keys=True).encode())
+    h.update(b"\0")
     for pattern in INPUTS:
         for path in sorted(REPO.glob(pattern)):
             h.update(str(path.relative_to(REPO)).encode())

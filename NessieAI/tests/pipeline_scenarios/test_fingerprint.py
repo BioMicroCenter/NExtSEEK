@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from NessieAI.tests.pipeline_scenarios import fingerprint as fp
@@ -17,6 +18,7 @@ def test_the_fingerprint_is_stable_and_changes_with_an_input(tmp_path, monkeypat
     probe.write_text("1")
     monkeypatch.setattr(fp, "REPO", tmp_path)
     monkeypatch.setattr(fp, "INPUTS", ("x.json",))
+    monkeypatch.setattr(fp, "corpus_projection", lambda: {})
     b = fp.current()
     probe.write_text("2")
     assert fp.current() != b
@@ -27,6 +29,7 @@ def test_a_renamed_file_changes_the_fingerprint(tmp_path, monkeypatch):
     (tmp_path / "a.json").write_text("1")
     monkeypatch.setattr(fp, "REPO", tmp_path)
     monkeypatch.setattr(fp, "INPUTS", ("*.json",))
+    monkeypatch.setattr(fp, "corpus_projection", lambda: {})
     before = fp.current()
     (tmp_path / "a.json").rename(tmp_path / "b.json")
     assert fp.current() != before
@@ -50,3 +53,40 @@ def test_the_inputs_cover_the_routing_code_and_the_selection_payload_code():
                  chat + "seqera/nfcore_atlas.py", chat + "seqera/nfcore_schema.py",
                  chat + "seqera/pipeline_params.py", chat + "seqera/schema_check.py"):
         assert path in fp.INPUTS, path
+
+
+def _corpus(tmp_path, monkeypatch, **payload):
+    path = tmp_path / "corpus.json"
+    path.write_text(json.dumps(payload))
+    monkeypatch.setattr(fp, "REPO", tmp_path)
+    monkeypatch.setattr(fp, "INPUTS", ())
+    monkeypatch.setattr(fp, "CORPUS", "corpus.json")
+    return path
+
+
+BASE = {"taxonomy_version": "v1", "families": {"b": {"description": "B"}, "a": {"description": "A"}},
+        "variants": [{"id": "x", "question": "q"}]}
+
+
+def test_the_corpus_is_fingerprinted_by_what_the_router_reads_not_by_the_whole_file(tmp_path, monkeypatch):
+    path = _corpus(tmp_path, monkeypatch, **BASE)
+    before = fp.current()
+    path.write_text(json.dumps({**BASE, "variants": [{"id": "y", "question": "another"}]}))
+    assert fp.current() == before                       # variants are the harness's, not the router's
+    path.write_text(json.dumps({**BASE, "families": {"a": {"description": "A"}, "b": {"description": "B"}}}))
+    assert fp.current() == before                       # key order is not a change
+    path.write_text(json.dumps({**BASE, "families": {"b": {"description": "B!"}, "a": {"description": "A"}}}))
+    assert fp.current() != before                       # a description is
+    path.write_text(json.dumps({**BASE, "taxonomy_version": "v2"}))
+    assert fp.current() != before                       # so is the taxonomy version
+    path.write_text(json.dumps({**BASE, "families": {"a": {"description": "A"}}}))
+    assert fp.current() != before                       # and the family set
+
+
+def test_the_projection_is_what_family_labels_reads():
+    from NessieAI.router.family_labels import corpus_snapshot
+    snap = corpus_snapshot(REPO / fp.CORPUS)
+    got = fp.corpus_projection()
+    assert got["taxonomy_version"] == snap.taxonomy_version
+    assert got["families"] == {name: snap.descriptions[name] for name in snap.families}
+    assert list(got["families"]) == sorted(got["families"])

@@ -230,7 +230,8 @@ def _run_dir(tmp_path, rows, fp=None, summary=None):
     for r in rows:
         (tmp_path / "stories" / f"{r['story']['id']}.json").write_text(json.dumps(r))
     (tmp_path / "summary.json").write_text(json.dumps(
-        summary if summary is not None else {"fingerprint": fp or fingerprint.current()}))
+        summary if summary is not None else {"fingerprint": fp or fingerprint.current(),
+                                             "posterior_routing": False, "laya_mode": "off"}))
     return tmp_path
 
 
@@ -271,7 +272,7 @@ def test_the_fingerprint_flag_is_used_only_when_the_summary_has_none(tmp_path, m
     assert record.main([str(run), "--fingerprint", fingerprint.current()]) == 1
     assert not (tmp_path / "rec").exists()
     # an older run dir with no key in its summary may be vouched for by the flag
-    bare = _run_dir(tmp_path / "bare", [_row()], summary={"summary": {}})
+    bare = _run_dir(tmp_path / "bare", [_row()], summary={"summary": {}, "posterior_routing": False})
     assert record.main([str(bare)]) == 1
     assert record.main([str(bare), "--fingerprint", fingerprint.current()]) == 0
     assert (tmp_path / "rec" / f"{STORY_ID}.json").exists()
@@ -313,3 +314,25 @@ def test_a_run_that_builds_the_real_selection_context_replays_clean(synthetic_re
     FETCHED.clear()
     replay_fixture(fx, tmp_path / "replay", monkeypatch)     # raises on any unplayed entry or mismatch
     assert FETCHED == []                                      # the stubbed context build fetched nothing
+
+
+@pytest.mark.parametrize("flag", [True, "error: ImportError"])
+def test_record_refuses_a_run_made_with_posterior_routing_on_or_unknown(tmp_path, monkeypatch, capsys, flag):
+    """The posterior selector reads the whole corpus file's sha, which the fingerprint does not."""
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    summary = {"fingerprint": fingerprint.current(), "posterior_routing": flag, "laya_mode": "off"}
+    assert record.main([str(_run_dir(tmp_path / "run", [_row()], summary=summary))]) == 1
+    assert "posterior" in capsys.readouterr().err and not (tmp_path / "rec").exists()
+
+
+def test_record_refuses_a_run_that_does_not_say_whether_posterior_routing_was_on(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    run = _run_dir(tmp_path / "run", [_row()], summary={"fingerprint": fingerprint.current()})
+    assert record.main([str(run)]) == 1
+    assert "posterior" in capsys.readouterr().err
+
+
+def test_the_fixture_keeps_the_laya_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    assert record.main([str(_run_dir(tmp_path / "run", [_row(laya_mode="shadow")]))]) == 0
+    assert json.loads((tmp_path / "rec" / f"{STORY_ID}.json").read_text())["laya_mode"] == "shadow"

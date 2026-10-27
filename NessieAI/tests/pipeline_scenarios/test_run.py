@@ -184,6 +184,36 @@ def test_the_summary_carries_the_fingerprint_the_run_was_made_under(tmp_path, mo
     assert rn.main(["--ids", "nosuch", "--yes", "--out", str(tmp_path)]) == 0
     summary = json.loads((tmp_path / "summary.json").read_text())
     assert summary["fingerprint"] == fingerprint.current() and summary["agent_model"] == "model-x"
+    assert summary["posterior_routing"] is False and summary["laya_mode"] == "off"
+
+
+def test_the_summary_says_when_posterior_routing_was_on(tmp_path, monkeypatch, settings):
+    import chat_nextseek.config as cc
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _Cfg())
+    assert rn.main(["--ids", "nosuch", "--yes", "--out", str(tmp_path)]) == 0
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["posterior_routing"] is True and summary["laya_mode"] == "off"
+
+
+def test_the_laya_mode_is_written_to_the_summary_and_every_row(tmp_path, monkeypatch):
+    from NessieAI.router import laya
+    import chat_nextseek.config as cc
+    story = _story(ruling={"state": "accepted", "date": "d", "note": ""})
+    monkeypatch.setattr(rn, "load_stories", lambda: [story])
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["U"])
+    monkeypatch.setattr(rn, "run_story", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr(laya, "mode", lambda: "shadow")
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _Cfg())
+    assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
+    assert json.loads((tmp_path / "summary.json").read_text())["laya_mode"] == "shadow"
+    assert json.loads((tmp_path / "stories" / "s1.json").read_text())["laya_mode"] == "shadow"
+
+
+def test_a_routing_setting_that_cannot_be_read_is_written_as_an_error_not_hidden(monkeypatch):
+    from NessieAI.router import laya
+    monkeypatch.setattr(laya, "mode", lambda: (_ for _ in ()).throw(OSError("no calibration file")))
+    assert rn.routing_settings()["laya_mode"] == "error: OSError"
 
 
 def test_the_report_groups_by_family_and_escapes(tmp_path):
