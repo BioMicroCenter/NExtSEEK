@@ -791,17 +791,20 @@ doc = "Paper reingest: how many times a paused run retries before it fails at ac
 [PAPER_REINGEST_CURATION_TIMEOUT_S]
 files = ["nextseek.env"]
 default = "1800"
-doc = "Paper reingest: seconds one curation agent run may take before the web loop stops it."
+dynamic = true
+doc = "Paper reingest: seconds one curation agent run may take before the web loop stops it. Read by nextseek_api/paper_reingest/launcher.py LaunchSettings.from_env."
 
 [PAPER_REINGEST_CURATION_MAX_TURNS]
 files = ["nextseek.env"]
 default = "200"
-doc = "Paper reingest: agent turns one curation run may take (at most NEXTSEEK_CC_MAX_TURNS_CEILING)."
+dynamic = true
+doc = "Paper reingest: agent turns one curation run may take (at most NEXTSEEK_CC_MAX_TURNS_CEILING). Read by nextseek_api/paper_reingest/launcher.py LaunchSettings.from_env."
 
 [PAPER_REINGEST_CURATION_BUDGET_USD]
 files = ["nextseek.env"]
 default = "15"
-doc = "Paper reingest: model spend cap in USD for one curation agent run (at most 100)."
+dynamic = true
+doc = "Paper reingest: model spend cap in USD for one curation agent run (at most 100). Read by nextseek_api/paper_reingest/launcher.py LaunchSettings.from_env."
 
 [DMAC_CC_MEMORY_SUMMARY_MODEL]
 files = ["nextseek.env"]
