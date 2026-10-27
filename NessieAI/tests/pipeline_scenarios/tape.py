@@ -58,16 +58,25 @@ class TapeRefused(ValueError):
     would; only its tape is lost, so the story is graded on its merits and left unrecorded."""
 
 
+def _plain_args(args: tuple) -> list | None:
+    """The arguments as a tape may keep them: plain values only (bytes would go on as base64, which the
+    scrubber cannot read), and none the scrubber would refuse (a JSON error's whole document, say);
+    else None, and the message is kept alone."""
+    if not all(a is None or isinstance(a, (str, int, float, bool)) for a in args):
+        return None
+    from . import scrub
+    return None if scrub.refusals_in(scrub.for_tape(list(args))) else list(args)
+
+
 def exception_spec(exc: BaseException, **extra) -> dict:
     """The exception by class name and message, plus its arguments when they are not just the message
-    (an OSError's errno, a KeyError's key, an exception that takes several) and can go on a tape."""
+    (an OSError's errno, a KeyError's key, an exception that takes several) and a tape may keep them."""
     cls = type(exc)
     spec = {"raise": f"{cls.__module__}.{cls.__qualname__}", "message": str(exc), **extra}
     if exc.args != (spec["message"],):
-        try:
-            spec["args"] = encode(list(exc.args))
-        except TypeError:
-            pass                          # an argument a tape cannot hold: the message alone is kept
+        args = _plain_args(exc.args)
+        if args is not None:
+            spec["args"] = args
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
         spec["status_code"] = status      # an HTTP error is judged by its status (a 404 is "absent")
@@ -80,9 +89,10 @@ def is_raise(value) -> bool:
 
 def rebuild_exception(spec: dict) -> BaseException:
     """The recorded exception: its class imported by dotted name and given its recorded arguments
-    (else the message), or a RuntimeError naming both when the class is gone or takes neither."""
+    (else the message). A class that takes neither (a JSON error wants its document) is made without
+    its __init__, holding the message, when it then reads as the message; else a RuntimeError names both."""
     name, message = spec["raise"], spec["message"]
-    args = decode(spec["args"]) if "args" in spec else [message]
+    args = list(spec["args"]) if "args" in spec else [message]
     try:
         module, _, qualname = name.rpartition(".")
         cls = importlib.import_module(module)
@@ -99,6 +109,10 @@ def rebuild_exception(spec: dict) -> BaseException:
                     return cls(*tried)
                 except TypeError:
                     continue
+            bare = cls.__new__(cls)
+            bare.args = (message,)
+            if str(bare) == message:
+                return bare
     except Exception:  # noqa: BLE001 - any failure to rebuild falls through to RuntimeError
         pass
     return RuntimeError(f"{name}: {message}")
@@ -382,10 +396,12 @@ class _ObservedFuture:
     def result(self, timeout=None):
         try:
             return self._future.result(timeout)
-        except concurrent.futures.TimeoutError:
-            # Only the tool giving up on a call that is still running counts; a TimeoutError the
-            # call itself raised comes with a finished future and is taped by the wrapper.
-            if self._entry is not None and not self._future.done():
+        except concurrent.futures.TimeoutError as exc:
+            # The tool gave up waiting, unless this is the TimeoutError the call itself raised (the
+            # future holds that very exception; the wrapper taped it). A call that finished just after
+            # the wait ran out still counts as given up on: the tool never used its answer.
+            own = self._future.done() and self._future.exception() is exc
+            if self._entry is not None and not own:
                 self._tape.mark_timeout(self._entry)
             raise
 

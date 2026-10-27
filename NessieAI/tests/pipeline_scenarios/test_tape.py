@@ -264,9 +264,90 @@ def test_an_exception_that_takes_other_arguments_comes_back_with_them():
     assert type(err) is FileNotFoundError and err.errno == 2 and err.strerror == "No such file"
     err = tp.rebuild_exception(tp.exception_spec(KeyError("UID")))
     assert type(err) is KeyError and str(err) == str(KeyError("UID"))
-    raw = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
-    err = tp.rebuild_exception(json.loads(json.dumps(tp.exception_spec(raw))))
-    assert type(err) is UnicodeDecodeError and str(err) == str(raw)
+
+
+class _Quiet(Exception):
+    """An exception whose message shows none of its arguments."""
+    def __init__(self, a, b):
+        super().__init__(a, b)
+
+    def __str__(self):
+        return "quiet"
+
+
+def test_arguments_that_are_not_plain_never_reach_the_tape():
+    """bytes would go on as base64, which the scrubber cannot read: the message is kept alone."""
+    raw = UnicodeDecodeError("utf-8", b"mail a@b.org, /home/u/x, https://private.example.org/y", 0, 1, "bad")
+    spec = tp.exception_spec(raw)
+    assert "args" not in spec and "a@b.org" not in json.dumps(spec)
+    err = tp.rebuild_exception(spec)        # it cannot be rebuilt from its message: a RuntimeError naming it
+    assert type(err) is RuntimeError and "UnicodeDecodeError" in str(err)
+
+
+def test_string_arguments_the_scrubber_would_refuse_are_left_off_the_tape():
+    spec = tp.exception_spec(_Quiet("could not read", "/home/alice/x.bam"))
+    assert spec == {"raise": f"{__name__}._Quiet", "message": "quiet"}
+    spec = tp.exception_spec(_Quiet("ask", "bob@example.org"))
+    assert "args" not in spec
+    # a URL is no refusal: the arguments stay, and the tape rewrites it as it does the message's
+    kept = tp.exception_spec(_Quiet("fetch", "https://private.example.org/y"))
+    assert kept["args"] == ["fetch", "https://private.example.org/y"]
+    assert scrub.for_tape(kept)["args"] == ["fetch", "<url>"]
+
+
+def test_a_json_decode_error_comes_back_as_itself_without_its_document():
+    import requests
+    for cls in (json.JSONDecodeError, requests.exceptions.JSONDecodeError):
+        raw = cls("Expecting value", "<html>mail a@b.org</html>", 0)
+        spec = json.loads(json.dumps(tp.exception_spec(raw)))
+        assert "a@b.org" not in json.dumps(spec)
+        err = tp.rebuild_exception(spec)
+        assert type(err) is cls and str(err) == str(raw), cls
+
+
+class _RacedFuture:
+    """The worker finished just after the tool's wait ran out: done, with no exception of its own."""
+    def result(self, timeout=None):
+        raise TimeoutError("the tool's wait")
+
+    def done(self):
+        return True
+
+    def exception(self, timeout=None):
+        return None
+
+
+class _OwnTimeout:
+    """The call itself raised TimeoutError: the future holds that very exception."""
+    def __init__(self):
+        self.exc = TimeoutError("the call's own")
+
+    def result(self, timeout=None):
+        raise self.exc
+
+    def done(self):
+        return True
+
+    def exception(self, timeout=None):
+        return self.exc
+
+
+def test_a_worker_that_finishes_as_the_wait_runs_out_is_still_taped_as_a_timeout():
+    t = tp.Tape(mode="record")
+    entry = t.reserve("selection")
+    t.fill(entry, "ANSWER THE TOOL NEVER USED")
+    with pytest.raises(TimeoutError):
+        tp._ObservedFuture(_RacedFuture(), entry, t).result(timeout=0.01)
+    assert entry["value"].get("waiting") is True
+
+
+def test_a_timeout_the_call_raised_itself_is_not_marked_as_the_tools():
+    t = tp.Tape(mode="record")
+    entry = t.reserve("digest")
+    t.fill(entry, tp.exception_spec(TimeoutError("the call's own")))
+    with pytest.raises(TimeoutError, match="own"):
+        tp._ObservedFuture(_OwnTimeout(), entry, t).result(timeout=0.01)
+    assert "waiting" not in entry["value"]
 
 
 def test_an_exception_that_cannot_be_rebuilt_comes_back_as_a_runtime_error():
