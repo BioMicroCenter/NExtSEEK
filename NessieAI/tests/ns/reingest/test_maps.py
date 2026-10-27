@@ -344,13 +344,16 @@ def test_sareks_germline_callers_skip_samples_and_hlatyping_does_not():
 
 
 @pytest.mark.parametrize("rule", [
-    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "alternative_group": "g"},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "optional": True,
+     "alternative_group": "g"},
     {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "primary_data": True,
-     "cardinality": "per_run", "alternative_group": "g"},
+     "optional": True, "cardinality": "per_run", "alternative_group": "g"},
     {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "primary_data": True,
-     "alternative_group": ""},
-], ids=["no primary_data", "per_run", "empty"])
-def test_alternative_group_is_only_for_per_sample_primary_rules(rule):
+     "optional": True, "alternative_group": ""},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "primary_data": True,
+     "alternative_group": "g"},
+], ids=["no primary_data", "per_run", "empty", "not optional"])
+def test_alternative_group_is_only_for_optional_per_sample_primary_rules(rule):
     with pytest.raises(ValueError, match="alternative_group"):
         maps.OutputRule.model_validate(rule)
 
@@ -359,9 +362,29 @@ def test_an_alternative_group_holds_rules_of_one_sample_type():
     with pytest.raises(ValueError, match="alternative_group"):
         maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "outputs": [
             {"id": "a", "candidates": ["a"], "sample_type": "A.MSEQ", "primary_data": True,
-             "alternative_group": "g"},
+             "optional": True, "alternative_group": "g"},
             {"id": "b", "candidates": ["b"], "sample_type": "A.ALN", "primary_data": True,
-             "alternative_group": "g"}]})
+             "optional": True, "alternative_group": "g"}]})
+
+
+def _grouped(rule_id, group="g"):
+    return {"id": rule_id, "candidates": [rule_id], "sample_type": "A.MSEQ",
+            "primary_data": True, "optional": True, "alternative_group": group}
+
+
+def test_an_alternative_group_needs_two_rules():
+    with pytest.raises(ValueError, match="alternative_group"):
+        maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "map_version": 2,
+                                         "outputs": [_grouped("a"), _grouped("b", "h")]})
+    # A version override's rule counts toward the group; replacing a rule does not.
+    maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "map_version": 2,
+                                     "outputs": [_grouped("a")],
+                                     "versions": [{"range": ">=2", "outputs": [_grouped("b")]}]})
+    with pytest.raises(ValueError, match="alternative_group"):
+        maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "map_version": 2,
+                                         "outputs": [_grouped("a")],
+                                         "versions": [{"range": ">=2",
+                                                       "outputs": [_grouped("a")]}]})
 
 
 def test_peak_callers_are_alternatives_and_bigwigs_and_variant_callers_are_not():
