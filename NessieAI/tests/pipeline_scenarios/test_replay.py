@@ -366,3 +366,10 @@ def test_a_changed_launch_fails_the_replay(synthetic, tmp_path, monkeypatch):
     synthetic["outcome"]["launch_params"] = {"genome": "GRCh38"}      # recorded a build the replay does not make
     with pytest.raises(AssertionError, match="launch"):
         replay_fixture(synthetic, tmp_path / "replay", monkeypatch)
+
+
+def test_record_skips_an_unrecorded_story_and_says_why(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    row = _row(tape=None, unrecorded="TapeRefused: the tape was refused: agent: email a@b.org")
+    assert record.main([str(_run_dir(tmp_path / "run", [row]))]) == 0
+    assert "unrecorded: TapeRefused" in capsys.readouterr().out and not list((tmp_path / "rec").glob("*.json"))

@@ -32,6 +32,12 @@ PERSON_KEYS = re.compile(
     r"co[_ ]?scientist|team[_ ]?lab|contact.*|author.*|person.*|contributor.*|.*e-?mail.*|"
     r".*_by|(?:submitted|created|collected|prepared|processed|performed|requested|owned)[_ ]?by|"
     r".*user)$")
+#: The paid runner's output root (run.OUTPUTS), and the same folder as the nextseek container
+#: mounts it. configure_run and write_samplesheet answer with absolute paths under it, which the
+#: agent may quote; a tape keeps them as /RUN/..., which the path refusal exempts.
+OUTPUTS = _REPO / "outputs"
+OUTPUT_ROOTS: tuple[str, ...] = tuple(dict.fromkeys((str(OUTPUTS), "/app/outputs")))
+_OUTPUT_ROOT = _sanitize.prefix_pattern(sorted(OUTPUT_ROOTS, key=len, reverse=True))
 PARAM_ATLAS = (_REPO / "NessieAI" / "chat_nextseek" / "src" / "chat_nextseek" / "seqera"
                / "nfcore_param_atlas.json")
 
@@ -151,7 +157,7 @@ def rewrite_urls(text: str) -> str:
 
 def _for_tape_text(text: str) -> str:
     text = _QUOTED_HOST.sub(lambda m: f"{m.group(1)}'<host>'", _WITH_URL.sub("", text))
-    return rewrite_urls(text)
+    return rewrite_urls(_OUTPUT_ROOT.sub("/RUN", text))
 
 
 def _walk_strings(value, fn):
@@ -170,8 +176,8 @@ def rewrite_urls_in(value):
 
 
 def for_tape(value):
-    """What a tape keeps of a value: error messages' bare request paths and hosts cut, then
-    every URL that is not kept rewritten. Emails and absolute paths are left for refusals_in."""
+    """What a tape keeps of a value: error messages' bare request paths and hosts cut, the
+    runner's output root rewritten to /RUN, then every URL that is not kept rewritten. Emails and absolute paths are left for refusals_in."""
     return _walk_strings(value, _for_tape_text)
 
 

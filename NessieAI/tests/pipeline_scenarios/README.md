@@ -15,10 +15,10 @@ route is right.
 | `test_cohorts.json` | local-only test cohorts (`test::<name>`); real cohorts come from `NessieAI/chat_nextseek/evals/groundtruth_cohorts.json` |
 | `test_story_format.py` | the free format test |
 | `scorer.py` | `score`: grades one story's outcome PASS, PARTIAL or FAIL, with the reasons; `test_scorer.py` tests it |
-| `scrub.py` | makes a tape safe for a public repository: keeps URLs on public sequence archives (`ARCHIVE_URLS`) and nf-core test data, rewrites every other URL to `<url>` (so no instance hostname is kept), and lists what must be refused (an email, an absolute path); `test_scrub.py` tests it |
+| `scrub.py` | makes a tape safe for a public repository: keeps URLs on public sequence archives (`ARCHIVE_URLS`) and nf-core test data, rewrites every other URL to `<url>` (so no instance hostname is kept), rewrites the runner's own output folder (`OUTPUT_ROOTS`) to `/RUN`, and lists what must be refused (an email, an absolute path); `test_scrub.py` tests it |
 | `tape.py` | records, then replays, every answer the pipeline tools get from outside the code under test; a call the tape did not see raises `TapeMismatch`, the signal to re-record; `test_tape.py` tests it |
 | `apply_rulings.py` | writes the owner's rulings from the review page into the story files (`python -m NessieAI.tests.pipeline_scenarios.apply_rulings <rulings.json> <yyyy-mm-dd>`); `test_apply_rulings.py` tests it |
-| `run.py` | the paid in-process runner: the real router and pipeline agent on each ruled story, no submit tool, every outside answer recorded on a tape. Recording only observes: the live run gets each answer with person fields redacted and nothing else changed (`live`), and the tape keeps the scrubbed copy (`store`). A value the tape must refuse never breaks the live run: the story finishes, is recorded as a runner error with its outcome kept, and has no tape. Without `--yes` it only prints what it would run and the estimate; a paid run needs the owner's go (usage in its docstring) |
+| `run.py` | the paid in-process runner: the real router and pipeline agent on each ruled story, no submit tool, every outside answer recorded on a tape. Recording only observes: the live run gets each answer with person fields redacted and nothing else changed (`live`), and the tape keeps the scrubbed copy (`store`). A value the tape must refuse never breaks the live run: the story finishes and is graded on its merits, and its row has no tape and says why in `unrecorded` (`summary.json` lists those stories). `error` is kept for real failures of the run. Without `--yes` it only prints what it would run and the estimate; a paid run needs the owner's go (usage in its docstring) |
 | `report.py` | `write_report`: the HTML page of a run, totals and then every story by family |
 | `test_run.py` | the free test of the runner and report, with a stubbed router and agent (no model, no stack) |
 | `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `files()` is a sha256 per input and `changed()` names the ones that moved. `test_fingerprint.py` tests it |
@@ -78,7 +78,7 @@ It writes `recorded/<id>.json` for each story and refuses (writing nothing) when
 - the run was made under another fingerprint;
 - the run had posterior routing on.
 
-A story the runner failed on is skipped. Review the diff of `recorded/` before committing it.
+A story the runner failed on (`error`), or whose tape was refused (`unrecorded`), is skipped. Review the diff of `recorded/` before committing it.
 
 CI demands a re-record whenever `fingerprint.current()` changes. `fingerprint.INPUTS` lists what it covers
 (the router's BAML and code, the selection and agent code and prompts, the atlases, the param atlas, the

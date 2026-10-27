@@ -52,6 +52,11 @@ class TapeMismatch(AssertionError):
     """The code asked something the tape does not hold: re-record with a paid run."""
 
 
+class TapeRefused(ValueError):
+    """A recording kept something a public tape may not hold. The run itself went as production
+    would; only its tape is lost, so the story is graded on its merits and left unrecorded."""
+
+
 def exception_spec(exc: BaseException, **extra) -> dict:
     cls = type(exc)
     spec = {"raise": f"{cls.__module__}.{cls.__qualname__}", "message": str(exc), **extra}
@@ -373,7 +378,8 @@ def taped(tape: Tape, live=None, store=None):
 
     The tools' callers catch exceptions, so a TapeMismatch never stops a run by itself either.
     Both are raised here, at exit: a replay that asked for something unrecorded, or left a
-    recorded entry unplayed, raises TapeMismatch; a recording that refused raises ValueError.
+    recorded entry unplayed, raises TapeMismatch; a recording that refused raises TapeRefused,
+    unless the run itself failed, whose exception then goes up unchanged.
     """
     from chat_nextseek.pipeline import agent, agent_tools
     from chat_nextseek.seqera import nfcore_schema
@@ -512,8 +518,9 @@ def taped(tape: Tape, live=None, store=None):
                 stack.enter_context(p)
             yield tape
     except BaseException as exc:
-        _raise_collected(tape, exc)
-        raise
+        if tape.mode != "record":
+            _raise_collected(tape, exc)     # a mismatch explains a replay's failure
+        raise                               # a refusal never hides a recording's real failure
     finally:
         nfcore_schema.clear_cache()
     _raise_collected(tape, None)
@@ -524,6 +531,6 @@ def taped(tape: Tape, live=None, store=None):
 def _raise_collected(tape: Tape, cause) -> None:
     if tape.mode == "record":
         if tape.refused:
-            raise ValueError("the tape was refused: " + "; ".join(tape.refused)) from cause
+            raise TapeRefused("the tape was refused: " + "; ".join(tape.refused)) from cause
     elif tape.mismatches:
         raise TapeMismatch("the replay did not match the tape: " + "; ".join(tape.mismatches)) from cause

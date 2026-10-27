@@ -21,13 +21,14 @@ from pathlib import Path
 from NessieAI.tests.pipeline_scenarios import fingerprint, scrub
 from NessieAI.tests.pipeline_scenarios.scorer import Outcome, score
 from NessieAI.tests.pipeline_scenarios.stories import Story, cohort_uids, load_stories
-from NessieAI.tests.pipeline_scenarios.tape import RecordingClient, Tape, taped
+from NessieAI.tests.pipeline_scenarios.tape import RecordingClient, Tape, TapeRefused, taped
 
 DEFAULT_REPLY = "Yes, use what you recommend and build the run."
 MAX_REPLIES = 3
 #: Below the agent's 75-leaf resolve cap (agent_tools MAX_RESOLVE_LEAVES), so a cohort is never refused for size.
 MAX_STORY_UIDS = 60
-OUTPUTS = Path(__file__).resolve().parents[3] / "outputs"
+#: The run folders' root; scrub rewrites paths under it to /RUN on the tape.
+OUTPUTS = scrub.OUTPUTS
 _METADATA_SOURCES = ("fetch_reporter_metadata", "annotate_metadata_with_sampletypes")
 
 
@@ -210,8 +211,13 @@ def main(argv: list[str]) -> int:
     results = []
     for story in runnable:
         tape = Tape(mode="record")
+        unrecorded = None
         try:
             outcome, record = run_story(story, RunConfig(real, tape), tape, out / "logs" / story.id)
+        except TapeRefused as exc:
+            # Only the tape is lost: the run went as production would, so it is graded on its merits.
+            outcome, record = exc.outcome, exc.record
+            unrecorded = f"{type(exc).__name__}: {exc}"
         except Exception as exc:  # noqa: BLE001 - one story's crash is that story's FAIL
             # Keep what the paid run produced; only a crash before the router answered has nothing.
             outcome = getattr(exc, "outcome", None) or Outcome(route="?")
@@ -219,13 +225,16 @@ def main(argv: list[str]) -> int:
             outcome.error = f"{type(exc).__name__}: {exc}"
         s = score(story, outcome)
         row = {"story": asdict(story), "decision": record["decision"], "outcome": asdict(outcome),
-               "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": run_fingerprint,
-               "fingerprint_files": run_files, "agent_model": agent_model, **routing}
+               "score": asdict(s), "tape": None if outcome.error or unrecorded else tape.to_json(),
+               "fingerprint": run_fingerprint, "fingerprint_files": run_files, "agent_model": agent_model, **routing}
+        if unrecorded:
+            row["unrecorded"] = unrecorded
         (out / "stories" / f"{story.id}.json").write_text(json.dumps(row, indent=2, default=str))
         results.append(row)
-        print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}")
+        print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}" + (" (unrecorded)" if unrecorded else ""))
     summary = {g: sum(1 for r in results if r["score"]["grade"] == g) for g in ("PASS", "PARTIAL", "FAIL")}
     (out / "summary.json").write_text(json.dumps({"summary": summary, "n": len(results), "skipped": skipped,
+                                                "unrecorded": [r["story"]["id"] for r in results if "unrecorded" in r],
                                                 "fingerprint": run_fingerprint, "fingerprint_files": run_files,
                                                 "agent_model": agent_model,
                                                 **routing}, indent=2))

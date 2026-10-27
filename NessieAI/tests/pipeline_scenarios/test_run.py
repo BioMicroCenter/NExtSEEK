@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from NessieAI.tests.pipeline_scenarios import run as rn
+from NessieAI.tests.pipeline_scenarios import run as rn, scrub
 from NessieAI.tests.pipeline_scenarios.stories import Story
 from NessieAI.tests.pipeline_scenarios.tape import Tape, TapeMismatch
 
@@ -355,9 +355,49 @@ def test_a_scrubber_refusal_keeps_the_decision_and_replies_on_the_row(tmp_path, 
     monkeypatch.setattr(rn, "Tape", refusing)
     assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
     row = json.loads((tmp_path / "stories" / "s1.json").read_text())
-    assert row["outcome"]["error"].startswith("ValueError") and row["tape"] is None
+    # A refusal is the tape's problem, not the run's: the story is graded on what it did.
+    assert row["outcome"]["error"] is None and row["tape"] is None
+    assert row["unrecorded"].startswith("TapeRefused") and "a@b.org" in row["unrecorded"]
     assert row["decision"]["route"] == "nextseek_query"
     assert row["outcome"]["replies"] == ["Group by Treatment?", "Ready. Submit?"]
     assert row["outcome"]["pipeline_key"] == "rnaseq" and row["outcome"]["uids"] == ["D.SEQ-1-PUB"]
     assert row["outcome"]["selection"]["pipelines"] == ["rnaseq"]
-    assert row["score"]["grade"] == "FAIL"
+    assert row["score"]["grade"] == "PASS"
+    assert json.loads((tmp_path / "summary.json").read_text())["unrecorded"] == ["s1"]
+
+
+def test_a_crash_with_a_refusal_pending_is_still_a_runner_error(tmp_path, monkeypatch):
+    """Only a refusal alone is 'unrecorded'; a real failure in the run stays an error."""
+    from chat_nextseek.pipeline import agent as pa
+    story = _story(ruling={"state": "accepted", "date": "d", "note": ""})
+    _scripted_agent(monkeypatch)
+    monkeypatch.setattr(pa, "handle_turn", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("agent down")))
+    monkeypatch.setattr(rn, "load_stories", lambda: [story])
+    import NessieAI.router.router as router
+    monkeypatch.setattr(router, "decide", _decide())
+    import chat_nextseek.config as cc
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _Cfg())
+    real_tape = rn.Tape
+    def refusing(mode="record"):
+        t = real_tape(mode=mode)
+        t.refused.append("fetch_reporter_metadata: email a@b.org")
+        return t
+    monkeypatch.setattr(rn, "Tape", refusing)
+    assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
+    row = json.loads((tmp_path / "stories" / "s1.json").read_text())
+    assert row["outcome"]["error"].startswith("RuntimeError: agent down") and row["score"]["grade"] == "FAIL"
+    assert row["tape"] is None
+
+
+def test_a_reply_quoting_the_runs_own_output_folder_is_stored_under_run_and_refuses_nothing():
+    """configure_run and write_samplesheet answer with absolute paths under the run's output
+    folder, and the agent may quote them; the tape keeps them as /RUN/..."""
+    assert str(rn.OUTPUTS) in scrub.OUTPUT_ROOTS and "/app/outputs" in scrub.OUTPUT_ROOTS
+    for root in scrub.OUTPUT_ROOTS:
+        reply = {"content": [{"type": "text", "text": f"Built {root}/20261027T1200_pipeline_scenarios/logs/s1/launch.yml."}]}
+        kept = rn.store("agent", reply)
+        assert kept["content"][0]["text"] == "Built /RUN/20261027T1200_pipeline_scenarios/logs/s1/launch.yml."
+    assert rn.store("agent", {"t": "/app/outputs"}) == {"t": "/RUN"}
+    with pytest.raises(ValueError, match="path"):                 # only the output root is exempt
+        rn.store("agent", {"t": "/app/outputsX/a/b and /app/other/x"})
+

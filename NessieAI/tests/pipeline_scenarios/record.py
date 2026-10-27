@@ -62,7 +62,8 @@ def main(argv: list[str]) -> int:
         if wanted and story_id not in wanted:
             continue
         if row["outcome"].get("error") or row.get("tape") is None:
-            print(f"skip {story_id}: runner error")
+            # A tape refusal leaves the story graded but untaped (`unrecorded`); a crash is an error.
+            print(f"skip {story_id}: " + (f"unrecorded: {row['unrecorded']}" if row.get("unrecorded") else "runner error"))
             continue
         fixtures[story_id] = fixture_from_row(row, now)
     # Scrub every fixture before writing any, so a refusal leaves RECORDED as it was.
