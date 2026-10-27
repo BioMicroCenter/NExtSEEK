@@ -227,6 +227,16 @@ class UnmappedFiles(BaseModel):
         return matches(self.glob) and not any(matches(e) for e in self.except_globs)
 
 
+class ModuleTable(BaseModel):
+    """A per-module MultiQC data file this map's pipeline writes, read like the harvest's
+    own `_MODULE_TABLES`: each column becomes the metric `<namespace>-<column>`, from the
+    row named `<sample><suffix>`, else `<sample>`. For a pipeline that writes no
+    general-stats table (atacseq and chipseq exclude it), this is where its QC is."""
+    model_config = ConfigDict(extra="forbid")
+    namespace: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    suffix: str = ""
+
+
 class VersionOverride(BaseModel):
     """Rules for one release range. An output with an existing id replaces that
     base rule, a new id adds a rule, and `drop` removes base rules by id."""
@@ -279,6 +289,11 @@ class PipelineMap(BaseModel):
     #: (sarek: "<sample>.recal", "<sample>.md"), best first. Their columns join the sample's
     #: metrics; a column the sample's own row or an earlier suffix already holds is kept.
     qc_row_suffixes: list[str] = Field(default_factory=list)
+    #: MultiQC data files, by file name (`multiqc_picard_dups.yaml`), read as module
+    #: tables on top of the harvest's own `_MODULE_TABLES`. A `.yaml` name (MultiQC's
+    #: `data_format: yaml`) also needs a `harvest_globs` entry: only `.txt` tables are
+    #: staged for every pipeline.
+    module_tables: dict[str, ModuleTable] = Field(default_factory=dict)
     #: When true, the fixture contract test requires every file in a run to be a rule's
     #: candidate or companion, or to match an `unmapped_files` glob.
     claims_every_file: bool = False

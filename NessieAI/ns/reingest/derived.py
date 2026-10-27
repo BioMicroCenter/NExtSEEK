@@ -40,7 +40,14 @@ DERIVED_METRICS: tuple[str, ...] = (
     "strandedness",
     # samtools' error rate as a percentage, from MultiQC <= 1.22's fraction.
     "mismatch_pct",
+    # Picard MarkDuplicates' PERCENT_DUPLICATION as a percentage, from the 0-1
+    # fraction MultiQC's picard module table keeps (a map's `module_tables`
+    # namespace `picard_dups`; general stats show it x100 instead).
+    "duplication_pct",
 )
+
+#: The module-table key duplication_pct reads (maps.ModuleTable namespace + column).
+PICARD_DUPLICATION_FRACTION = "picard_dups-PERCENT_DUPLICATION"
 
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
 # applied the way its calculateStrandedness does: to the forward and reverse
@@ -324,11 +331,18 @@ def from_metrics(metrics: dict) -> dict[str, float | str]:
     writes the value before its x100 display step. Only those versions spell
     the column `<Namespace>_mqc-generalstats-...`, so the spelling tells the
     0-1 fraction apart from the percentage later versions write.
+
+    `duplication_pct` is Picard's PERCENT_DUPLICATION from MultiQC's picard
+    module table (`multiqc_picard_dups`), which keeps Picard's own 0-1 fraction.
     """
     out: dict[str, float | str] = {}
     strandedness = _salmon_strandedness(metrics.get("salmon-library_types"))
     if strandedness:
         out["strandedness"] = strandedness
+    try:
+        out["duplication_pct"] = round(float(metrics[PICARD_DUPLICATION_FRACTION]) * 100, 4)
+    except (KeyError, TypeError, ValueError):
+        pass
     for key, value in metrics.items():
         if "_mqc-generalstats-" in key and key.endswith("-error_rate"):
             try:

@@ -73,6 +73,9 @@ _MULTIQC_TXT_GLOB = "multiqc*/**/*_data/multiqc_*.txt"
 _MODULE_TABLES: dict[str, tuple[str, str]] = {
     "multiqc_optitype.txt": ("optitype", "_result"),
 }
+# Where a module table is looked for, by its file name: a MultiQC data folder. A map's own
+# tables (`module_tables`) may be .yaml, which only that map's harvest_globs stage.
+_MULTIQC_DATA_DIR = "multiqc*/**/*_data/"
 _RSEQC_READ_DISTRIBUTION_GLOB = "*/rseqc/read_distribution/*.read_distribution.txt"
 _RSEQC_INFER_EXPERIMENT_GLOB = "*/rseqc/infer_experiment/*.infer_experiment.txt"
 # STAR's own per-sample summary. In GENERIC_GLOBS because it is PARSED
@@ -423,13 +426,41 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             f"multiqc general stats at {picked} could not be read; "
             "QC metrics unavailable")
 
+    from NessieAI.ns.reingest import uid_resolve
+
+    # Which sample types this run's own pipeline may point back to as a
+    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
+    # is only just now known (parsed from software_versions, above; it is ""
+    # when that file never arrived), so this is the first point in the
+    # harvest where the map CAN be resolved -- not at this function's own
+    # call site (the caller stages files and invokes harvest_local before
+    # any pipeline identity is known at all). An unrecognised or not-yet-
+    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
+    # to the same ("D.SEQ",) scope this lookup always used, rather than
+    # raising out of a read-only harvest step.
+    try:
+        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
+    except maps.UnknownPipelineMap:
+        pipeline_map = None
+    accepts_parent_types = (
+        tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
+        else ("D.SEQ",))
+
     module_tables: dict[str, tuple[str, dict[str, dict]]] = {}
-    for filename, (namespace, suffix) in _MODULE_TABLES.items():
-        path = _pick_module_table(all_named(_MULTIQC_TXT_GLOB, filename), picked, warnings)
+    wanted_tables = dict(_MODULE_TABLES)
+    if pipeline_map is not None:
+        wanted_tables.update({name: (table.namespace, table.suffix)
+                              for name, table in pipeline_map.module_tables.items()})
+    for filename, (namespace, suffix) in wanted_tables.items():
+        if namespace in module_tables:
+            continue  # the same table as .txt and as .yaml: the first one read wins
+        path = _pick_module_table(all_named(_MULTIQC_DATA_DIR + filename, filename), picked, warnings)
         text = read(path) if path else None
         if text is not None:
             sources[f"metrics_{namespace}"] = path
-            module_tables[namespace] = (suffix, parsers.parse_general_stats(text))
+            parse = (parsers.parse_multiqc_yaml_table if filename.endswith((".yaml", ".yml"))
+                     else parsers.parse_general_stats)
+            module_tables[namespace] = (suffix, parse(text))
 
     sheet = _find_samplesheet(base, read)
     rows: list[dict] = []
@@ -489,26 +520,6 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                     for name in sample_names]
         else:
             warnings.append("no validated samplesheet; samples cannot be resolved")
-
-    from NessieAI.ns.reingest import uid_resolve
-
-    # Which sample types this run's own pipeline may point back to as a
-    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
-    # is only just now known (parsed from software_versions, above; it is ""
-    # when that file never arrived), so this is the first point in the
-    # harvest where the map CAN be resolved -- not at this function's own
-    # call site (the caller stages files and invokes harvest_local before
-    # any pipeline identity is known at all). An unrecognised or not-yet-
-    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
-    # to the same ("D.SEQ",) scope this lookup always used, rather than
-    # raising out of a read-only harvest step.
-    try:
-        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
-    except maps.UnknownPipelineMap:
-        pipeline_map = None
-    accepts_parent_types = (
-        tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
-        else ("D.SEQ",))
 
     # A replicate-keyed map (atacseq, chipseq): one sample per biological
     # replicate, `<sample>_REP<replicate>`, as nf-core names its files. Every

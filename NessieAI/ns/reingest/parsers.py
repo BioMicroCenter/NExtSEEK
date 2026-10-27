@@ -198,6 +198,37 @@ def parse_general_stats(text: str) -> dict[str, dict[str, float | str]]:
     return out
 
 
+def parse_multiqc_yaml_table(text: str) -> dict[str, dict[str, float | str]]:
+    """A MultiQC data file written with `data_format: yaml` (nf-core/atacseq and
+    nf-core/chipseq set it) -> {sample: {column: value}}, the shape
+    `parse_general_stats` returns for the same table written as .txt.
+
+    MultiQC writes a table as one mapping per sample. Only scalar cells are kept:
+    a nested value is a plot series, not a column. A blank cell is omitted, as in
+    the .txt reader. Anything that is not a mapping of mappings reads as empty."""
+    doc = yaml.safe_load(text) or {}
+    if not isinstance(doc, dict):
+        return {}
+    out: dict[str, dict[str, float | str]] = {}
+    for sample, row in doc.items():
+        name = str(sample).strip()
+        if not isinstance(row, dict) or not name:
+            continue
+        values: dict[str, float | str] = {}
+        for column, cell in row.items():
+            if cell is None or isinstance(cell, (bool, dict, list)):
+                continue
+            text_cell = str(cell).strip()
+            if not text_cell:
+                continue
+            try:
+                values[str(column)] = float(text_cell)
+            except ValueError:
+                values[str(column)] = text_cell
+        out[name] = values
+    return out
+
+
 def parse_execution_trace(text: str) -> dict:
     """execution_trace.txt -> {processes, failed, non_terminal, recovered,
     recovered_tasks}.
