@@ -610,6 +610,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             # A per-sample tool file (RSeQC, the STAR log) wins over a value
             # derived from a general-stats column (Salmon's library type).
             derived={**derived.from_metrics(metrics), **_derived_for(base, name, read)},
+            samplesheet=_samplesheet_cells(row),
         ))
 
     # SampleRecord.parent_sample_type: one batched call for every resolved
@@ -831,6 +832,20 @@ def _pick_module_table(candidates: list[str], stats_path: str | None,
         f"{len(candidates)} {Path(candidates[0]).name} files ({', '.join(candidates)}) "
         "and none beside the general stats that were read; read none of them")
     return None
+
+
+def _samplesheet_cells(row: dict) -> dict[str, str]:
+    """A samplesheet row's own cells for `SampleRecord.samplesheet`: non-empty, and no
+    path or URL (a map reads metadata such as chipseq's `antibody` from here, never a
+    file). Keys starting with "_" are the harvest's own bookkeeping, not columns."""
+    cells: dict[str, str] = {}
+    for column, value in row.items():
+        text = str(value or "").strip()
+        if (not column or str(column).startswith("_") or not text
+                or text.startswith(("/", "~", "${")) or "://" in text):
+            continue
+        cells[str(column)] = text
+    return cells
 
 
 def _module_metrics(name: str, module_tables: dict[str, tuple[str, dict[str, dict]]]) -> dict:

@@ -61,6 +61,10 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # `pipelines` package (not looked up like a `$ref`); the validator below checks them.
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
+# A sample's own samplesheet cells (SampleRecord.samplesheet). On a row with no sample
+# in scope (per_run, per_file) it resolves to the value every sample of the run shares,
+# else None; a per_file rule with `parents_by_samplesheet` narrows the run to its parents.
+_SAMPLESHEET_SECTION = "samplesheet"
 _RUN_SECTION_ATTR = {"outputs": "named_outputs"}
 
 
@@ -151,6 +155,12 @@ class OutputRule(BaseModel):
     # project happened to be first. None means emit no ASSAY rows for this
     # rule -- the pre-existing behaviour, not an error.
     assay: str | None = None
+    # per_file only: a samplesheet column whose value names the row's file (its
+    # @file_stem). The row is parented only by the samples whose column holds that
+    # value, not by every sample of the run: nf-core/chipseq writes one consensus
+    # peak set per `antibody`, which its controls and the other antibodies' samples
+    # did not make.
+    parents_by_samplesheet: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -181,6 +191,8 @@ class OutputRule(BaseModel):
             raise ValueError(f"rule {self.id!r}: skip_samples_without_file is for optional "
                              "per_sample rules that set primary_data (the mapper's skip "
                              "guard reads the primary file)")
+        if self.parents_by_samplesheet and self.cardinality != "per_file":
+            raise ValueError(f"rule {self.id!r}: parents_by_samplesheet is for per_file rules")
         if self.cardinality == "per_file":
             if not self.primary_data:
                 raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")
@@ -496,6 +508,14 @@ def resolve_ref(ref: str, run_manifest, sample=None):
     body = ref[1:]
     section, _, key = body.partition(".")
 
+    if section == _SAMPLESHEET_SECTION:
+        if not key:
+            return None
+        if sample is not None:
+            return (getattr(sample, "samplesheet", None) or {}).get(key) or None
+        values = {(getattr(s, "samplesheet", None) or {}).get(key) or None
+                  for s in getattr(run_manifest, "samples", None) or []}
+        return values.pop() if len(values) == 1 else None
     if section in _SAMPLE_SECTIONS:
         if sample is None:
             return None

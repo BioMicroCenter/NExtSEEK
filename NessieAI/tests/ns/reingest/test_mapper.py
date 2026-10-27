@@ -416,6 +416,8 @@ _SAMPLE_RECORD_FIELDS_KNOWN_HERE = {
     "nfcore_sample", "fastq_1", "fastq_2", "d_seq_uid", "d_seq_uid_multirun",
     "uid_resolution", "parent_sample_type", "strandedness_declared",
     "strandedness_inferred", "metrics", "derived",
+    # Empty in every fixture here: none of these maps reads `$samplesheet.<column>`.
+    "samplesheet",
 }
 
 

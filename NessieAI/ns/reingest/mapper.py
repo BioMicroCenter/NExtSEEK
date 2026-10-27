@@ -979,7 +979,10 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
         name_counts[base] = name_counts.get(base, 0) + 1
     rows: list[MappedRow] = []
     for output in candidates:
-        only_this_file = run_manifest.model_copy(update={"outputs": [output]})
+        update: dict = {"outputs": [output]}
+        if rule.parents_by_samplesheet:
+            update["samples"] = _samples_named_by_file(rule, run_manifest, output, warnings)
+        only_this_file = run_manifest.model_copy(update=update)
         row_context = {**(context or {}), "file_path": output.path, "file_glob": rule.candidates[0],
                        "all_outputs": list(run_manifest.outputs)}
         row = _per_run_row(rule, merged_attrs, only_this_file, row_context, warnings)
@@ -992,6 +995,21 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
             primary.value = "/".join(output.path.split("/")[-2:])
         rows.append(row)
     return rows
+
+
+def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
+                           output: manifest.OutputRecord, warnings: list[str]) -> list:
+    """The samples a per_file row with ``parents_by_samplesheet`` is parented by: those
+    whose samplesheet column holds the row's @file_stem (chipseq's per-antibody consensus,
+    ``<antibody>.consensus_peaks.bed``). None of them is a warning: the row then names no
+    Parent rather than every sample of the run."""
+    column = rule.parents_by_samplesheet
+    stem = common.file_stem({"file_path": output.path, "file_glob": rule.candidates[0]})
+    named = [s for s in run_manifest.samples if stem and s.samplesheet.get(column) == stem]
+    if not named:
+        warnings.append(f"{output.path}: no sample's samplesheet {column} is {stem!r}; "
+                        f"the {rule.id} row names no Parent")
+    return named
 
 
 def _lookup(rule: maps.AttributeRule, run_manifest: manifest.RunManifest,

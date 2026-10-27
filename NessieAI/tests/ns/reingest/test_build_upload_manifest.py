@@ -282,6 +282,8 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
 _DEFAULTED_SAMPLE_RECORD_FIELDS = {
     "fastq_1", "fastq_2", "d_seq_uid_multirun",
     "strandedness_declared", "strandedness_inferred", "derived",
+    # Only a map that reads `$samplesheet.<column>` (chipseq's antibody) uses it.
+    "samplesheet",
 }
 # Fields `_sample_record` DOES set explicitly, right now.
 _EXPLICIT_SAMPLE_RECORD_FIELDS = {
