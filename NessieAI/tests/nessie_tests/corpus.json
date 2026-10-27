@@ -15791,6 +15791,384 @@
           "retirement": null,
           "_why": "Single-turn like route.ns_pipeline_by_question: route tier stops at route_decided, so only `route` is observable. Sibling with a different subject. TESTS: choosing an nf-core pipeline for NExtSEEK samples, phrased as a scientific question with no pipeline named, routes nextseek_query (router rule, 2026-10-14). A published method or a paper's data stays container_cc.",
           "_added_2026_10_14_bmr_dev_test_fixes": "Proof case for the BMR dev test fixes (shared reader, parser target on every path, pipeline router rule). Global: real data on dev and prod, no fix code names it."
+        },
+        {
+          "id": "pipeline_scenarios.ribo-plain",
+          "family": "pipeline_launch",
+          "name": "pipeline scenario ribo-plain",
+          "tags": [
+            "pipeline_scenarios",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find D.SEQ-261026NA-17, D.SEQ-261026NA-18.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "question",
+              "query": "Which mRNAs are translated less after Torin 1?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "(?s)^(?!(rnaseq|smrnaseq)$).*"
+                }
+              ]
+            },
+            {
+              "label": "build",
+              "query": "Yes, use what you recommend and build the run.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "^(riboseq)$"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.genome",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story ribo-plain; edit the story, then re-run build_e2e."
+        },
+        {
+          "id": "pipeline_scenarios.bry-antibody-lung",
+          "family": "pipeline_launch",
+          "name": "pipeline scenario bry-antibody-lung",
+          "tags": [
+            "pipeline_scenarios",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find D.SEQ-220720BRY-1-PUB.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "question",
+              "query": "What changes in the lung cells when the mice get the N297A antibody before Mtb infection?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            },
+            {
+              "label": "build",
+              "query": "Yes, use what you recommend and build the run.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "^(scrnaseq)$"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.genome",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.protocol",
+                  "op": "eq",
+                  "value": "10XV3"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story bry-antibody-lung; edit the story, then re-run build_e2e."
+        },
+        {
+          "id": "pipeline_scenarios.sarek-plain",
+          "family": "pipeline_launch",
+          "name": "pipeline scenario sarek-plain",
+          "tags": [
+            "pipeline_scenarios",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find D.SEQ-261026NA-1, D.SEQ-261026NA-2.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "question",
+              "query": "Which variants do these two blood donors carry?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "(?s)^(?!(methylseq|rnavar)$).*"
+                }
+              ]
+            },
+            {
+              "label": "build",
+              "query": "Yes, use what you recommend and build the run.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "^(sarek)$"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.genome",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.wes",
+                  "op": "eq",
+                  "value": false
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story sarek-plain; edit the story, then re-run build_e2e."
+        },
+        {
+          "id": "pipeline_scenarios.atac-plain",
+          "family": "pipeline_launch",
+          "name": "pipeline scenario atac-plain",
+          "tags": [
+            "pipeline_scenarios",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find D.SEQ-261026NA-3, D.SEQ-261026NA-4, D.SEQ-261026NA-5, D.SEQ-261026NA-6.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "question",
+              "query": "Where is the chromatin open in the treated cells compared with the untreated ones?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "(?s)^(?!(chipseq|rnaseq)$).*"
+                }
+              ]
+            },
+            {
+              "label": "build",
+              "query": "Yes, use what you recommend and build the run.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "^(atacseq)$"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.genome",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story atac-plain; edit the story, then re-run build_e2e."
+        },
+        {
+          "id": "pipeline_scenarios.methyl-plain",
+          "family": "pipeline_launch",
+          "name": "pipeline scenario methyl-plain",
+          "tags": [
+            "pipeline_scenarios",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find D.SEQ-261026NA-13, D.SEQ-261026NA-14.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "question",
+              "query": "How methylated are the promoters in these samples?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "(?s)^(?!(sarek)$).*"
+                }
+              ]
+            },
+            {
+              "label": "build",
+              "query": "Yes, use what you recommend and build the run.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "matches_re",
+                  "value": "^(methylseq)$"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.genome",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.rrbs",
+                  "op": "eq",
+                  "value": true
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story methyl-plain; edit the story, then re-run build_e2e."
+        },
+        {
+          "id": "pipeline_scenarios.cutandrun-not-yet",
+          "family": "pipeline_launch",
+          "name": "pipeline scenario cutandrun-not-yet",
+          "tags": [
+            "pipeline_scenarios",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find D.SEQ-261026NA-7, D.SEQ-261026NA-8, D.SEQ-261026NA-9, D.SEQ-261026NA-10.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "question",
+              "query": "These libraries are CUT&Tag, not ChIP; the metadata is wrong. Run CUT&Tag peak calling on them.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "pipeline_agent.selection.verdict",
+                  "op": "matches_re",
+                  "value": "^(refused|out_of_scope)$"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story cutandrun-not-yet; edit the story, then re-run build_e2e."
         }
       ]
     },

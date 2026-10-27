@@ -21,6 +21,6 @@ route is right.
 | `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `test_fingerprint.py` tests it |
 | `record.py` | turns an accepted paid run into `recorded/<id>.json` (`python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]`): refuses a run made under another fingerprint, skips stories the runner failed on, refuses any fixture holding an email, absolute path or private URL |
 | `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade and pipeline; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
-
-The three layers (the paid run, the CI replay, the chat end-to-end check) are added in later commits of the same
-branch, and this README gains a row for each.
+| `e2e.json` | the ruled story ids that also run through the real chat, one per family: bulk_rna, single_cell, dna_variants, chromatin, methylation, not_yet |
+| `build_e2e.py` | `variants()` and `main()`: turns each `e2e.json` story into a multi-turn `pipeline_launch` variant (id `pipeline_scenarios.<story id>`, tag `pipeline_scenarios`) in `NessieAI/tests/nessie_tests/corpus.json` (`python3 -m NessieAI.tests.pipeline_scenarios.build_e2e`). It rewrites only those variants, in the file's own layout. The turns stop at the confirm-to-submit question. `pipeline_agent.launch_plan.params.*` criteria are skipped by the harness (the chat does not report the launch plan), so the chat run does not enforce `launch.must_match`; the in-process run does |
+| `test_e2e_in_sync.py` | the free test that the corpus holds exactly the generated variants (never hand-edit them) and that every `e2e.json` story is ruled |
