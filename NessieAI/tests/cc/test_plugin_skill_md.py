@@ -232,5 +232,7 @@ def test_batch_upload_harmonize_first_reply_carries_the_ontology_line_even_with_
     assert "first reply of a harmonization always carries this line and the table" in step4
     assert "also when it must ask a question first" in step4
     assert "put the question after the table" in step4
-    # it closes step 4, after the table is introduced, so "the table" names one the step already described
-    assert step4.rstrip().endswith("put the question after the table.")
+    # it follows the table's introduction, so "the table" names one the step already described;
+    # the app sets the ontology link, so the agent writes no note about it (dtd3 S5)
+    assert step4.rstrip().endswith("put the question after the table. "
+                                   "The app sets the ontology link; never write a note about the link.")
