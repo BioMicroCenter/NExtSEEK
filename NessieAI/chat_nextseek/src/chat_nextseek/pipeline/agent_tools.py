@@ -84,8 +84,9 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "— go straight to resolve_samples. Returns a verdict: 'chosen' (use it), "
             "'fork' (ask the user which), 'refused' (these samples cannot answer that — "
             "conclude(rejected)), or 'out_of_scope' (decide for yourself from the catalog, "
-            "exactly as you would if this tool did not exist). Only RNA pipelines are "
-            "covered; everything else comes back out_of_scope, which is normal."
+            "exactly as you would if this tool did not exist). It covers the pipelines in its "
+            "atlas (RNA, DNA variants, HLA, chromatin and methylation); out_of_scope means the "
+            "atlas cannot judge this request, which is normal."
         ),
         "input_schema": {
             "type": "object",

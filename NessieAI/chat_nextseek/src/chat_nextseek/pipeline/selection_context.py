@@ -40,10 +40,11 @@ RICH_PIPELINES: tuple[str, ...] = (
     "atacseq", "chipseq", "methylseq",
 )
 
-#: The measured payload baseline (atlas + digest + docs + schemas for the first six
-#: RICH_PIPELINES; sarek, added later, makes it larger) is ~135k tokens. This ceiling exists so a payload that has
-#: grown too large fires our own PayloadTooLargeError, with a size breakdown,
-#: before the API rejects the request with an opaque error.
+#: The payload (atlas + digest + docs + schemas of every RICH_PIPELINES entry) grows with each
+#: rich pipeline and with the cohort; measure it with size_report() rather than trusting a number
+#: written here. This ceiling exists so a payload that has grown too large fires our own
+#: PayloadTooLargeError, with a size breakdown, before the API rejects the request with an
+#: opaque error.
 #:
 #: It was 180_000, chosen against a stated 200k context window. That premise
 #: was wrong for the model actually in use: the routed pipeline_agent model,

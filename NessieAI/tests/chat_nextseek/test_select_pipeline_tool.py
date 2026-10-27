@@ -505,3 +505,17 @@ def test_agent_start_without_send_event_still_works(monkeypatch):
     assert sig.parameters["send_event"].default is None
     sig2 = inspect.signature(agent.handle_turn)
     assert sig2.parameters["send_event"].default is None
+
+
+def test_the_tool_and_the_prompt_describe_the_atlas_as_it_is_not_as_rna_only():
+    """The atlas holds RNA, DNA-variant, HLA, chromatin and methylation pipelines; text saying the
+    tool covers only RNA would steer the model to second-guess a DNA verdict as normal fallback."""
+    from pathlib import Path
+    import chat_nextseek
+    desc = next(t["description"] for t in agent_tools.PIPELINE_TOOL_SCHEMAS if t["name"] == "select_pipeline")
+    prompt = (Path(chat_nextseek.__file__).parent / "prompts" / "pipeline_agent.txt").read_text()
+    for text in (desc, prompt):
+        low = text.lower()
+        assert "only rna" not in low and "only covers rna" not in low
+        assert all(word in low for word in ("rna", "dna variant", "hla", "chromatin", "methylation"))
+        assert "cannot judge" in low
