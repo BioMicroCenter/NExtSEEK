@@ -19,6 +19,19 @@ from chat_nextseek.seqera.pipeline_params import build_run_params
 from chat_nextseek.seqera.schema_check import check_params
 
 TEMPLATES = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/reports/templates/nfcore"
+FIXTURES = Path(__file__).parent / "fixtures" / "nfcore"
+
+
+@pytest.fixture(autouse=True)
+def _pinned_schemas(monkeypatch):
+    """Serve every schema configure_run fetches from the pinned fixtures, never GitHub: a test
+    that patches check_params alone still reaches missing_required. A pipeline with no fixture
+    is unavailable, which the checks treat as a skip."""
+    from chat_nextseek.seqera import schema_check
+
+    def get(pipeline, revision):
+        return {"nextflow_schema": json.loads((FIXTURES / f"{pipeline}.nextflow_schema.json").read_text())}
+    monkeypatch.setattr(schema_check, "get_schema", get)
 
 
 def curated(key):
@@ -401,9 +414,6 @@ def test_an_unresolvable_genome_override_the_schema_rejects_still_hard_fails(mon
     assert any("genome" in e for e in out["errors"])
 
 
-FIXTURES = Path(__file__).parent / "fixtures" / "nfcore"
-
-
 def test_sarek_defaults_never_reach_for_an_unstaged_cache():
     """vep/snpeff/bcfann/snpsift and merge need annotation caches no Luria run has."""
     p = curated("sarek")
@@ -450,21 +460,223 @@ def test_new_choosable_pipelines_pin_the_approved_release(key):
     assert NFCORE_PIPELINE_CATALOG[key]["default_revision"] == PINS[key]
 
 
+def launched(key, bundle_key="GRCh38"):
+    """The params a launch for a human cohort would send: curated defaults, the bundle's
+    genome, and the example of each value only the user can give (its first word: an
+    example may carry a gloss, as smrnaseq's "hsa   (human; ...)" does)."""
+    from chat_nextseek.seqera.user_params import required_user_params
+    user = {spec["name"]: (spec.get("example") or "x").split()[0] for spec in required_user_params(key)}
+    merged, errors, _status = build_run_params(key, user, bundle_key)
+    assert errors == [], f"{key}: launch params do not validate: {errors}"
+    return merged
+
+
 @pytest.mark.parametrize("key", sorted(PINS))
 def test_new_choosable_pipelines_defaults_pass_the_pinned_schema(key):
     schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
-    errors, skipped = check_params(key, PINS[key], curated(key),
+    errors, skipped = check_params(key, PINS[key], launched(key), required=True,
+                                   schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and errors == []
+
+
+PINNED_SCHEMAS = sorted(p.name.split(".")[0] for p in FIXTURES.glob("*.nextflow_schema.json"))
+#: Required params NExtSEEK has no way to set today. rnafusion's prebuilt reference bundle
+#: (genomes_base) is not provisioned, so a launch would abort at nf-schema.
+UNSET_REQUIRED = {"rnafusion": ["genomes_base"]}
+
+
+@pytest.mark.parametrize("key", PINNED_SCHEMAS)
+def test_a_human_launch_leaves_no_required_param_unset_on_any_pinned_schema(key):
+    """The required check must not fail a launch that works: the bundle's genome fills the
+    reference, the launcher writes input/outdir, and nextflow.config sets every schema default."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    from chat_nextseek.seqera.schema_check import missing_required
+    schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
+    names, skipped = missing_required(key, NFCORE_PIPELINE_CATALOG[key]["default_revision"],
+                                      launched(key),
+                                      schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and names == UNSET_REQUIRED.get(key, [])
+
+
+def _asks_for_a_genome(out):
+    assert out["ok"] is False and out["needs_user_input"] == ["genome"], out
+    assert "STOP" in out["message"] and "fasta" in out["ask_the_user"]
+    # Only bundles with a single genome are offered: hg38_mm39 has none.
+    offered = out["ask_the_user"].split("Which genome")[1]
+    assert "GRCh38" in offered and "hg38_mm39" not in offered
+
+
+def test_configure_run_asks_for_chipseqs_genome_when_none_resolved(tmp_path):
+    """chipseq 2.1.0 requires fasta, which only a genome fills here. With no species-resolved
+    genome the user is asked which one, rather than the run defaulting to GRCh38 on Luria."""
+    from chat_nextseek.pipeline import agent_tools
+
+    state = _state(tmp_path)
+    _asks_for_a_genome(json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {}}, str(tmp_path))))
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {"genome": "GRCh38"}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert out["schema_check"] == {"status": "ok"}
+
+
+def test_a_pdx_chipseq_cohort_stops_for_the_user_instead_of_looping(tmp_path):
+    """hg38_mm39 has no single genome (no igenomes_key, no store_root): resending it reselects
+    the same bundle, so telling the agent to send a genome would loop. It stops every time."""
+    from chat_nextseek.pipeline import agent_tools
+
+    state = _state(tmp_path)
+    state["bundle_key"] = "hg38_mm39"
+    for params in ({}, {"genome": "hg38_mm39"}, {"genome": "human+mouse"}):
+        _asks_for_a_genome(json.loads(agent_tools.tool_configure_run(
+            object(), state, {"pipeline_key": "chipseq", "params": params}, str(tmp_path))))
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {"genome": "GRCh38"}}, str(tmp_path)))
+    assert out["ok"] is True, out
+
+
+def test_a_required_param_the_agent_cannot_send_warns_not_errors(monkeypatch, tmp_path):
+    """rnafusion's genomes_base is on no menu: the agent can neither send nor drop it, so
+    hard-failing would spin it to MAX_ITER, as a drifted curated default would."""
+    from chat_nextseek.pipeline import agent_tools
+
+    state = _state(tmp_path)
+    state["bundle_key"] = "GRCh38"
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "rnafusion", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert any("genomes_base" in w for w in out["schema_check"]["required_warnings"])
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_templates_name_every_required_input_column(key):
+    """The catalog, the template and the pinned input schema name the same required columns."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    path = FIXTURES / f"{key}.schema_input.json"
+    if not path.exists():
+        pytest.skip(f"{key} {PINS[key]} ships no assets/schema_input.json")
+    items = json.loads(path.read_text())["items"]
+    schema = set(items.get("required") or [])
+    template = set(json.loads((TEMPLATES / f"{key}.json").read_text())["pipeline"]["required_columns"])
+    catalog = set(NFCORE_PIPELINE_CATALOG[key]["required_columns"])
+    assert catalog == template == schema, {"catalog": catalog, "template": template, "schema": schema}
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_offer_only_params_of_the_pinned_schema(key):
+    """Every param on the menu, not only those with a default, is one the pinned release declares."""
+    schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
+    menu = json.loads((TEMPLATES / f"{key}.json").read_text())["params"]
+    errors, skipped = check_params(key, PINS[key], {name: None for name in menu}, required=False,
                                    schema_getter=lambda _p, _r: {"nextflow_schema": schema})
     assert skipped is None and errors == []
 
 
 @pytest.mark.parametrize("key", sorted(PINS))
-def test_new_choosable_pipelines_templates_name_every_required_input_column(key):
-    """The samplesheet columns the template asks for are the pinned input schema's required ones."""
-    path = FIXTURES / f"{key}.schema_input.json"
-    if not path.exists():
-        pytest.skip(f"{key} {PINS[key]} ships no assets/schema_input.json")
-    items = json.loads(path.read_text())["items"]
-    required = set(items.get("required") or [])
+def test_new_choosable_pipelines_template_rows_use_only_input_schema_columns(key):
+    items = json.loads((FIXTURES / f"{key}.schema_input.json").read_text())["items"]
     template = json.loads((TEMPLATES / f"{key}.json").read_text())
-    assert required <= set(template["pipeline"]["required_columns"]), required - set(template["pipeline"]["required_columns"])
+    for row in template["samplesheet_template"]:
+        assert set(row) <= set(items["properties"]), set(row) - set(items["properties"])
+
+
+def test_atacseq_offers_input_controls_off_by_default():
+    """atacseq 2.1.2 calls peaks against controls only with --with_control and the control columns."""
+    template = json.loads((TEMPLATES / "atacseq.json").read_text())
+    spec = template["params"]["with_control"]
+    assert spec["type"] == "bool" and spec["default"] is False and spec["steerable"] is True
+    assert curated("atacseq")["with_control"] is False
+    assert {"control", "control_replicate"} <= set(template["samplesheet_template"][0])
+
+
+ATAC_HEADER = ["sample", "fastq_1", "fastq_2", "replicate"]
+ATAC_CONTROLS = ["control", "control_replicate"]
+CHIP_HEADER = ATAC_HEADER + ["antibody", "control", "control_replicate"]
+
+
+def _sheet_lines(tmp_path, pipeline, rows):
+    """Emit a samplesheet and return its raw lines: DictReader would hide the column order."""
+    from chat_nextseek.seqera.emitter import emit_nfcore_artifacts
+    emit_nfcore_artifacts(
+        tmp_path, pipeline=pipeline, samplesheet_rows=rows, resolutions=[],
+        launch_plan=None, tower_env=None,
+        accession_metadata={r["sample"]: {"Link_PrimaryData": f"/net/x/{r['sample']}_R1.fastq.gz"}
+                            for r in rows})
+    return (tmp_path / "samplesheet.csv").read_text().splitlines()
+
+
+@pytest.mark.parametrize("rows", [
+    [{"sample": "A", "replicate": 1}],
+    [{"replicate": 1, "fastq_2": "", "sample": "A"}],
+    [{"sample": "A", "replicate": 1, "control": "", "control_replicate": ""}],
+])
+def test_atacseq_header_opens_with_its_four_columns_in_order(tmp_path, rows):
+    """bin/check_samplesheet.py (2.1.2) exits 1 unless header[:4] is exactly these, fastq_2
+    included for single-end runs; unused control columns are left out (see below)."""
+    assert _sheet_lines(tmp_path, "atacseq", rows)[0].split(",") == ATAC_HEADER
+
+
+def test_atacseq_header_puts_the_control_columns_next_when_a_row_names_a_control(tmp_path):
+    rows = [{"sample": "IN", "replicate": 1, "cohort": "c"},
+            {"cohort": "c", "control_replicate": 1, "control": "IN", "sample": "ATAC", "replicate": 1}]
+    lines = _sheet_lines(tmp_path, "atacseq", rows)
+    assert lines[0].split(",")[:6] == ATAC_HEADER + ATAC_CONTROLS
+    assert lines[1].split(",")[4:6] == ["", ""] and lines[2].split(",")[4:6] == ["IN", "1"]
+
+
+def test_chipseq_header_always_carries_its_seven_columns_in_order(tmp_path):
+    """chipseq 2.1.0's checker reads all seven by position, controls or not."""
+    lines = _sheet_lines(tmp_path, "chipseq", [{"replicate": 1, "sample": "A"}])
+    assert lines[0].split(",")[:7] == CHIP_HEADER
+
+
+IN_ROW = {"sample": "D.SEQ-IN-1", "replicate": 1}
+ATAC_ROW = {"sample": "D.SEQ-ATAC-1", "replicate": 1, "control": "D.SEQ-IN-1", "control_replicate": 1}
+
+
+def _configure_atac(tmp_path, rows, params):
+    """write_samplesheet over `rows`, then configure_run with `params`: (result, state)."""
+    from chat_nextseek.pipeline import agent_tools
+    state = {"resolved": {"uids": [r["sample"] for r in rows], "accessions": []},
+             "accession_file_paths": {
+                 r["sample"]: {"Link_PrimaryData": f"/net/x/{r['sample']}_R1.fastq.gz"} for r in rows},
+             "bundle_key": "GRCh38"}
+    built = json.loads(agent_tools.tool_write_samplesheet(
+        object(), state, {"pipeline_key": "atacseq", "cohorts": [{"label": "c", "rows": rows}]},
+        str(tmp_path)))
+    assert built["ok"] is True, built
+    return json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "atacseq", "params": params}, str(tmp_path))), state
+
+
+def test_configure_run_launches_atacseq_with_its_input_controls(tmp_path):
+    import yaml
+
+    out, state = _configure_atac(tmp_path, [IN_ROW, ATAC_ROW], {"with_control": True})
+    assert out["ok"] is True, out
+    assert out["schema_check"]["status"] == "ok"
+    assert yaml.safe_load(open(out["params_yml"]))["with_control"] is True
+    header = open(state["artifacts"]["samplesheet"]).readline().strip().split(",")
+    assert header[:6] == ATAC_HEADER + ATAC_CONTROLS
+
+
+def test_atacseq_rows_naming_a_control_need_with_control(tmp_path):
+    """Without --with_control atacseq still carries the control column through, and the value
+    reaches meta.control (workflows/atacseq.nf merges replicates on it), so refuse."""
+    out, _ = _configure_atac(tmp_path, [IN_ROW, ATAC_ROW], {})
+    assert out["ok"] is False and any("with_control" in e for e in out["errors"]), out
+
+
+def test_atacseq_with_control_needs_a_row_that_names_a_control(tmp_path):
+    out, _ = _configure_atac(tmp_path, [IN_ROW, {**ATAC_ROW, "control": "", "control_replicate": ""}],
+                             {"with_control": True})
+    assert out["ok"] is False and any("with_control" in e for e in out["errors"]), out
+
+
+@pytest.mark.parametrize("bad", [{"control": "D.SEQ-ELSEWHERE"}, {"control_replicate": 2},
+                                 {"control_replicate": ""}])
+def test_atacseq_control_must_name_a_sample_and_replicate_in_the_sheet(tmp_path, bad):
+    """The checker exits 1 on a control/control_replicate pair that is not a row of the sheet."""
+    out, _ = _configure_atac(tmp_path, [IN_ROW, {**ATAC_ROW, **bad}], {"with_control": True})
+    assert out["ok"] is False and any("control" in e for e in out["errors"]), out

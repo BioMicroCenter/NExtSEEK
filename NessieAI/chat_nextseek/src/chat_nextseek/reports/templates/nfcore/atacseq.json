@@ -5,6 +5,7 @@
     "read_length":    {"type": "enum", "allowed": [50, 75, 100, 150, 200], "default": null, "steerable": true, "help": "Read length used to calculate or retrieve pre-computed MACS2 genome size for peak calling if `--macs_gsize` isn't provided. The schema accepts only 50, 75, 100, 150 or 200."},
     "narrow_peak":    {"type": "bool", "default": false, "steerable": true, "help": "Run MACS2 in narrowPeak mode. MACS2 is run by default with the --broad flag."},
     "aligner":        {"type": "enum", "allowed": ["bwa", "bowtie2", "chromap", "star"], "default": "bwa", "steerable": true, "help": "Specifies the alignment algorithm to use - available options are 'bwa', 'bowtie2', 'chromap' and 'star'."},
+    "with_control":   {"type": "bool", "default": false, "steerable": true, "help": "Call peaks against input controls. Set true exactly when the samplesheet carries the controls as rows of their own and some ATAC row names its control in control and control_replicate; configure_run refuses the two out of step, because without it the pipeline still carries a control value into its replicate merging."},
     "save_reference": {"type": "bool", "default": true, "steerable": true},
     "multiqc_title":  {"type": "string", "default": null, "steerable": true}
   },
@@ -14,7 +15,7 @@
     "repository": "https://github.com/nf-core/atacseq",
     "documentation_url": "https://nf-co.re/atacseq/latest/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Required columns are: sample, fastq_1, replicate. fastq_2 is blank for single-end libraries; control and control_replicate are used only when the run is launched with --with_control.",
+    "core_rule": "Required columns are: sample, fastq_1, replicate. fastq_2 is blank for single-end libraries; control and control_replicate are used only when the run sets with_control=true.",
     "required_columns": [
       "sample",
       "fastq_1",
@@ -31,14 +32,16 @@
       "sample": null,
       "fastq_1": null,
       "fastq_2": null,
-      "replicate": null
+      "replicate": null,
+      "control": null,
+      "control_replicate": null
     }
   ],
   "validation_rules": [
     "sample must be a stable biological identifier with no spaces, identical across the replicates of one experimental group.",
     "replicate is an integer that starts at 1 for each experimental group and counts up (1..<number of replicates>); a re-sequenced library keeps the same sample and replicate values, and the pipeline merges its runs.",
     "fastq_1/fastq_2 must be gzipped FASTQ files ending in .fastq.gz or .fq.gz; the pipeline detects single-end from a blank fastq_2.",
-    "control and control_replicate (the sample name and replicate number of the control) are used only when the run is launched with --with_control; the pipeline has no antibody column."
+    "control and control_replicate (the sample name and replicate number of the control) are used only when the run sets with_control=true: fill them on each ATAC row whose input control is in the cohort, leave them empty on the control rows themselves, and leave them out entirely when the cohort has no controls. The pipeline has no antibody column."
   ],
   "report_writer_guidance": {
     "population_priority": [

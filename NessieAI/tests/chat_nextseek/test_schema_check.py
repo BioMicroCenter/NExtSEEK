@@ -3,6 +3,7 @@ from chat_nextseek.seqera.nfcore_schema import SchemaFetchError
 from chat_nextseek.seqera.schema_check import (
     check_params,
     check_reference_flags,
+    missing_required,
     schema_properties,
 )
 
@@ -243,6 +244,94 @@ def test_a_schema_with_no_properties_skips_rather_than_rejecting_everything():
                                 schema_getter=lambda p, r: {"nextflow_schema": {}})
     assert errors == []
     assert skip is not None
+
+
+# ---- required params ------------------------------------------------------
+
+REQUIRED_SCHEMA = {
+    "$defs": {
+        "input_output_options": {"required": ["input", "outdir"],
+                                 "properties": {"input": {"type": "string"},
+                                                "outdir": {"type": "string"}}},
+        "reference_genome_options": {"required": ["fasta"],
+                                     "properties": {"genome": {"type": "string"},
+                                                    "fasta": {"type": "string"}}},
+        "options": {"required": ["step", "contrasts"],
+                    "properties": {"step": {"type": "string", "default": "mapping"},
+                                   "contrasts": {"type": "string"}}},
+    }
+}
+
+
+def test_a_required_param_the_run_neither_sets_nor_fills_is_reported():
+    errors, skip = check_params("toy", "1.0", {}, required=True, schema_getter=_getter(REQUIRED_SCHEMA))
+    assert skip is None
+    assert len(errors) == 2
+    assert any("'fasta'" in e and "required" in e for e in errors)
+    assert any("'contrasts'" in e for e in errors)
+
+
+def test_the_launcher_params_and_schema_defaults_count_as_filled():
+    """input/outdir are written by the launcher; step has a default nextflow.config sets."""
+    names, _ = missing_required("toy", "1.0", {"fasta": "/r/genome.fa", "contrasts": "/r/c.csv"},
+                                schema_getter=_getter(REQUIRED_SCHEMA))
+    assert names == []
+
+
+def test_a_genome_fills_the_reference_fasta():
+    names, _ = missing_required("toy", "1.0", {"genome": "GRCh38", "contrasts": "/r/c.csv"},
+                                schema_getter=_getter(REQUIRED_SCHEMA))
+    assert names == []
+
+
+def test_a_none_value_does_not_set_a_required_param():
+    names, _ = missing_required("toy", "1.0", {"fasta": None, "genome": None, "contrasts": "c"},
+                                schema_getter=_getter(REQUIRED_SCHEMA))
+    assert names == ["fasta"]
+
+
+def test_top_level_required_is_read_too():
+    schema = {"required": ["loose"], "properties": {"loose": {"type": "string"}}}
+    names, _ = missing_required("toy", "1.0", {}, schema_getter=_getter(schema))
+    assert names == ["loose"]
+
+
+def test_required_is_checked_only_when_the_caller_passes_the_whole_run():
+    """A partial param set (configure_run's split by who sent what) must not look incomplete."""
+    errors, _ = check_params("toy", "1.0", {}, schema_getter=_getter(REQUIRED_SCHEMA))
+    assert errors == []
+
+
+NO_GENOME_SCHEMA = {"$defs": {"reference": {"required": ["fasta"],
+                                            "properties": {"fasta": {"type": "string"}}}}}
+
+
+def test_a_genome_fills_nothing_in_a_schema_without_a_genome_param():
+    names, _ = missing_required("toy", "1.0", {"genome": "GRCh38"},
+                                schema_getter=_getter(NO_GENOME_SCHEMA))
+    assert names == ["fasta"]
+    errors, _ = check_params("toy", "1.0", {}, required=True, schema_getter=_getter(NO_GENOME_SCHEMA))
+    assert len(errors) == 1 and "genome" not in errors[0]
+
+
+def test_required_is_skipped_with_the_schema():
+    names, skip = missing_required("toy", "1.0", {}, schema_getter=_getter(fail=True))
+    assert names == [] and "read timeout" in skip
+
+
+def test_pinned_chipseq_with_no_fasta_and_no_genome_reports_the_missing_fasta():
+    import json
+    from pathlib import Path
+    schema = json.loads((Path(__file__).parent / "fixtures/nfcore/chipseq.nextflow_schema.json").read_text())
+    errors, skip = check_params("chipseq", "2.1.0", {}, required=True,
+                                schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert skip is None
+    assert len(errors) == 1 and "'fasta'" in errors[0] and "genome" in errors[0]
+    # chipseq 2.1.0 validates with nf-validation, not nf-schema: the wording names neither.
+    assert "nf-schema" not in errors[0]
+    errors, _ = check_params("chipseq", "2.1.0", {"genome": "GRCh38"}, required=True,
+                             schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert errors == []
 
 
 # ---- reference flags ------------------------------------------------------

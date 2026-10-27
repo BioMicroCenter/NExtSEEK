@@ -44,13 +44,13 @@ from typing import Any
 
 from chat_nextseek.config import ChatConfig
 from chat_nextseek.pipeline.sample_digest import DigestError
-from chat_nextseek.pipeline.selection import SELECTION_SECTIONS
+from chat_nextseek.pipeline.selection import (
+    SELECTION_SECTIONS, SYSTEM_PROMPT, USER_TEMPLATE, _extract_json_object)
 from chat_nextseek.pipeline.selection_context import SECTION_NAMES, build_selection_context
 
 EVALS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(EVALS_DIR))
 from demo_cohort_real import build_real_digest  # noqa: E402
-from chat_nextseek.pipeline.selection import SYSTEM_PROMPT, USER_TEMPLATE, _extract_json_object  # noqa: E402
 
 
 def _ask(client, model, budget, payload: str, question: str) -> dict[str, Any]:
