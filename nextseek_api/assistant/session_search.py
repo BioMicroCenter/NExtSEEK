@@ -57,6 +57,11 @@ def _patterns(terms: list[str]) -> list[re.Pattern]:
     return [re.compile(r"(?<![^\W_])" + re.escape(t), re.IGNORECASE) for t in terms]
 
 
+def _whole(terms: list[str]) -> list[re.Pattern]:
+    """Each term as a whole word: it starts a word and ends one (``tis-220831fly-2`` is not inside ``...-26``)."""
+    return [re.compile(r"(?<![^\W_])" + re.escape(t) + r"(?![^\W_])", re.IGNORECASE) for t in terms]
+
+
 def _all(patterns: list[re.Pattern], text: str) -> bool:
     return all(p.search(text) for p in patterns)
 
@@ -100,10 +105,10 @@ def _chat_logs(user_id: int | None, since: datetime | None) -> list[tuple]:
 
 def search_chats(user_id: int | None, terms: list[str], since: datetime | None) -> list[dict]:
     """One hit per chat whose title, or one turn's question and answer, hold every term."""
-    patterns = _patterns(terms)
+    patterns, whole = _patterns(terms), _whole(terms)
     hits = []
     for session_id, title, updated_at, username, chat_log in _chat_logs(user_id, since):
-        best = None  # (tier, turn_id, snippet source)
+        best = None  # (exact, tier, turn_id, snippet source)
         turns = set()  # the matched turns, by number (by position for an entry without one)
         for n, entry in enumerate(chat_log if isinstance(chat_log, list) else []):
             if not isinstance(entry, dict) or not _text(entry.get("user_query")):
@@ -113,29 +118,34 @@ def search_chats(user_id: int | None, terms: list[str], since: datetime | None) 
             if not answer and entry.get("bundle_id") is None:
                 continue  # turn_rows hides it (PD-6): a hit there would open on nothing
             if _all(patterns, question):
-                tier, source = QUESTION, question
+                tier, source, exact = QUESTION, question, _all(whole, question)
             elif _all(patterns, question + "\n" + answer):
-                tier, source = ANSWER, answer
+                tier, source, exact = ANSWER, answer, _all(whole, question + "\n" + answer)
             else:
                 continue
             turn_id = entry.get("turn_id")
             turns.add(turn_id if isinstance(turn_id, int) else ("#", n))
-            if best is None or tier > best[0]:
-                best = (tier, turn_id if isinstance(turn_id, int) else None, source)
+            if best is None or (exact, tier) > best[:2]:
+                best = (exact, tier, turn_id if isinstance(turn_id, int) else None, source)
         title_hit = bool(title) and _all(patterns, title)
         if not title_hit and best is None:
             continue
+        # The title wins unless a turn matched whole words and the title only their starts.
+        rank = (_all(whole, title), TITLE) if title_hit else best[:2]
+        if title_hit and best is not None and best[:2] > rank:
+            rank = best[:2]
         hits.append({
             "source": "chat",
             "session_id": session_id,
             "title": title or "New chat",
             "updated_at": updated_at,
             "owner": username if user_id is None else None,
-            "turn_id": best[1] if best else None,
-            "matched_in": _MATCHED_IN[TITLE if title_hit else best[0]],
-            "snippet": make_snippet(best[2], terms) if best else "",
+            "turn_id": best[2] if best else None,
+            "matched_in": _MATCHED_IN[rank[1]],
+            "snippet": make_snippet(best[3], terms) if best else "",
             "match_count": 0,
-            "_tier": TITLE if title_hit else best[0],
+            "_tier": rank[1],
+            "_exact": rank[0],
             "_turns": turns,
             "_keys": [],
         })
@@ -182,20 +192,24 @@ def _with_meta(found: dict, source: str, tier: int, scope: int | None) -> list[d
                      "updated_at": updated_at, "owner": username if scope is None else None,
                      "turn_id": f["turn"], "matched_in": _MATCHED_IN[tier], "snippet": f.get("snippet", ""),
                      "match_count": 0, "_tier": tier, "_turns": set(f["turns"]), "_keys": [],
-                     "_record": f.get("record")})
+                     "_record": f.get("record"), "_exact": f.get("exact", False)})
     return hits
 
 
 def search_steps(scope: int | None, terms: list[str], since: datetime | None) -> list[dict]:
     """One hit per chat whose Container-CC agent steps (its words or its tool calls) hold every term."""
-    patterns = _patterns(terms)
+    patterns, whole = _patterns(terms), _whole(terms)
     qs = _entries(scope, source="steps")
     for t in terms:
         qs = qs.filter(text__icontains=t)  # a cheap first cut; the word-start rule is checked below
     found: dict = {}
     for session_id, turn_id, text in qs.order_by("turn_id", "id").values_list("session_id", "turn_id", "text"):
         if _in_window(session_id, scope, since) and _all(patterns, text):
-            f = found.setdefault(session_id, {"turn": turn_id, "snippet": make_snippet(text, terms), "turns": set()})
+            exact = _all(whole, text)
+            f = found.setdefault(session_id, {"turn": turn_id, "snippet": make_snippet(text, terms), "turns": set(),
+                                              "exact": exact})
+            if exact and not f["exact"]:
+                f.update(turn=turn_id, snippet=make_snippet(text, terms), exact=True)
             f["turns"].add(turn_id)
     return _with_meta(found, "steps", STEPS, scope)
 
@@ -263,7 +277,20 @@ def search_records(scope: int | None, terms: list[str], since: datetime | None) 
     match = Q(source="record", kind__in=("uid", "project"))
     for t in terms:
         match &= _starts_word(t)  # in SQL: no row ids travel back and forth
-    return _record_hits(_entries(scope).filter(match), match, scope, since)
+    hits = _record_hits(_entries(scope).filter(match), match, scope, since)
+    if hits:
+        ids = [h["session_id"] for h in hits]
+        # Chats where every term is a whole ID or code, or an ID's type (TIS in TIS-220831FLY-26, D.SEQ in
+        # D.SEQ-...): both anchored at the key's start, so each is a range on the (user, key) index.
+        exact = None
+        for t in terms:
+            rows = _entries(scope, source="record", kind__in=("uid", "project"), session_id__in=ids).filter(
+                Q(key__iexact=t) | Q(key__istartswith=t + "-"))
+            found = set(rows.order_by().values_list("session_id", flat=True).distinct())
+            exact = found if exact is None else exact & found
+        for h in hits:
+            h["_exact"] = h["session_id"] in exact
+    return hits
 
 
 Source = Callable[[int | None, list[str], datetime | None], list[dict]]
@@ -325,7 +352,7 @@ def _merge(hits: list[dict]) -> list[dict]:
     best: dict = {}
     for h in hits:
         b = best.get(h["session_id"])
-        if b is None or h["_tier"] > b["_tier"]:
+        if b is None or (h["_exact"], h["_tier"]) > (b["_exact"], b["_tier"]):
             if b is not None:
                 h["_turns"] |= b["_turns"]
             best[h["session_id"]] = h
@@ -373,13 +400,14 @@ def search_sessions(user_id: int, query: str, *, all_users: bool = False,
     else:
         return out
     hits = _merge(hits)
-    hits.sort(key=lambda h: (h["_tier"], h["updated_at"]), reverse=True)
+    # Whole-word matches first (an exact ID before IDs it starts), then title > question > answer > record > steps.
+    hits.sort(key=lambda h: (h["_exact"], h["_tier"], h["updated_at"]), reverse=True)
     if facets:
         out["facets"] = _facets(scope, since, [h["session_id"] for h in hits], record_type=record_type, where=where)
     page = hits[:limit]
     _record_snippets(page)
     for h in hits:
-        for private in ("_tier", "_turns", "_keys", "_record"):
+        for private in ("_tier", "_turns", "_keys", "_record", "_exact"):
             h.pop(private, None)
     out["total"] = len(hits)
     out["results"] = page
