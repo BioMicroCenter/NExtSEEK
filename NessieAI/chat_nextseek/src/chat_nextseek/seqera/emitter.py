@@ -214,6 +214,25 @@ PIPELINE_SAMPLE_ID_RULES: dict[str, dict[str, str]] = {
 # can still be traced back. Every affected schema tolerates extra columns.
 SAMPLE_ID_PROVENANCE_COLUMN = "nextseek_uid"
 
+# Pipelines whose bin/check_samplesheet.py reads the header by POSITION
+# (`header[:len(HEADER)] != HEADER` exits 1), not by name. `columns` open every header, in
+# this order, empty where a row has no value. `if_used` follows them, in order, only when
+# some row fills one of its columns, and is left out otherwise. Every other catalogued
+# pipeline reads its sheet by column name (nf-schema samplesheetToList, nf-validation
+# fromSamplesheet, or a DictReader checker such as rnasplice's).
+PIPELINE_HEADER_PREFIX: dict[str, dict[str, list[str]]] = {
+    # atacseq 2.1.2: four columns, then control/control_replicate only with --with_control.
+    # Without it, columns past the four are carried through and a control value still
+    # reaches meta.control, so the two are written only when a row names a control
+    # (configure_run then requires with_control).
+    "atacseq": {"columns": ["sample", "fastq_1", "fastq_2", "replicate"],
+                "if_used": ["control", "control_replicate"]},
+    # chipseq 2.1.0: all seven, every run.
+    "chipseq": {"columns": ["sample", "fastq_1", "fastq_2", "replicate", "antibody", "control",
+                            "control_replicate"],
+                "if_used": []},
+}
+
 
 def sanitize_sample_id(value: str, pattern: str) -> str:
     """Rewrite a sample id so it satisfies `pattern`, changing as little as possible.
@@ -366,6 +385,19 @@ def _ensure_columns(rows: Sequence[Mapping[str, Any]], required: Sequence[str],
             columns.append(k)
             seen.add(k)
     return columns
+
+
+def _positional_columns(pipeline: str, rows: Sequence[Mapping[str, Any]],
+                        columns: list[str]) -> list[str]:
+    """`columns` reordered so the header opens as PIPELINE_HEADER_PREFIX says; unchanged for
+    a pipeline that reads its sheet by name."""
+    prefix = PIPELINE_HEADER_PREFIX.get(pipeline)
+    if not prefix:
+        return columns
+    used = [c for c in prefix["if_used"]
+            if any(str(row.get(c) if row.get(c) is not None else "").strip() for row in rows)]
+    head = list(prefix["columns"]) + (list(prefix["if_used"]) if used else [])
+    return head + [c for c in columns if c not in head and c not in prefix["if_used"]]
 
 
 def _coerce_csv(value: Any) -> str:
@@ -933,7 +965,8 @@ def emit_nfcore_artifacts(
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
-    columns = _ensure_columns(keep_rows, required, enrichment)
+    columns = _positional_columns(pipeline, keep_rows,
+                                  _ensure_columns(keep_rows, required, enrichment))
     samplesheet_path = out_path / "samplesheet.csv"
     _write_csv(samplesheet_path, keep_rows, columns)
     # cohort.json sidecar: the only surviving record of which D.SEQ sample each

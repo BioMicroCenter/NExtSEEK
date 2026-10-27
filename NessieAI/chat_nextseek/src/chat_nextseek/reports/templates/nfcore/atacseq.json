@@ -5,7 +5,7 @@
     "read_length":    {"type": "enum", "allowed": [50, 75, 100, 150, 200], "default": null, "steerable": true, "help": "Read length used to calculate or retrieve pre-computed MACS2 genome size for peak calling if `--macs_gsize` isn't provided. The schema accepts only 50, 75, 100, 150 or 200."},
     "narrow_peak":    {"type": "bool", "default": false, "steerable": true, "help": "Run MACS2 in narrowPeak mode. MACS2 is run by default with the --broad flag."},
     "aligner":        {"type": "enum", "allowed": ["bwa", "bowtie2", "chromap", "star"], "default": "bwa", "steerable": true, "help": "Specifies the alignment algorithm to use - available options are 'bwa', 'bowtie2', 'chromap' and 'star'."},
-    "with_control":   {"type": "bool", "default": false, "steerable": true, "help": "Call peaks against input controls. Set true only when the samplesheet carries the controls as rows of their own and each ATAC row names its control in control and control_replicate; without it the pipeline ignores those columns."},
+    "with_control":   {"type": "bool", "default": false, "steerable": true, "help": "Call peaks against input controls. Set true exactly when the samplesheet carries the controls as rows of their own and some ATAC row names its control in control and control_replicate; configure_run refuses the two out of step, because without it the pipeline still carries a control value into its replicate merging."},
     "save_reference": {"type": "bool", "default": true, "steerable": true},
     "multiqc_title":  {"type": "string", "default": null, "steerable": true}
   },

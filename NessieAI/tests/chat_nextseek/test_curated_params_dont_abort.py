@@ -19,6 +19,19 @@ from chat_nextseek.seqera.pipeline_params import build_run_params
 from chat_nextseek.seqera.schema_check import check_params
 
 TEMPLATES = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/reports/templates/nfcore"
+FIXTURES = Path(__file__).parent / "fixtures" / "nfcore"
+
+
+@pytest.fixture(autouse=True)
+def _pinned_schemas(monkeypatch):
+    """Serve every schema configure_run fetches from the pinned fixtures, never GitHub: a test
+    that patches check_params alone still reaches missing_required. A pipeline with no fixture
+    is unavailable, which the checks treat as a skip."""
+    from chat_nextseek.seqera import schema_check
+
+    def get(pipeline, revision):
+        return {"nextflow_schema": json.loads((FIXTURES / f"{pipeline}.nextflow_schema.json").read_text())}
+    monkeypatch.setattr(schema_check, "get_schema", get)
 
 
 def curated(key):
@@ -401,9 +414,6 @@ def test_an_unresolvable_genome_override_the_schema_rejects_still_hard_fails(mon
     assert any("genome" in e for e in out["errors"])
 
 
-FIXTURES = Path(__file__).parent / "fixtures" / "nfcore"
-
-
 def test_sarek_defaults_never_reach_for_an_unstaged_cache():
     """vep/snpeff/bcfann/snpsift and merge need annotation caches no Luria run has."""
     p = curated("sarek")
@@ -464,7 +474,7 @@ def launched(key, bundle_key="GRCh38"):
 @pytest.mark.parametrize("key", sorted(PINS))
 def test_new_choosable_pipelines_defaults_pass_the_pinned_schema(key):
     schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
-    errors, skipped = check_params(key, PINS[key], launched(key),
+    errors, skipped = check_params(key, PINS[key], launched(key), required=True,
                                    schema_getter=lambda _p, _r: {"nextflow_schema": schema})
     assert skipped is None and errors == []
 
@@ -488,17 +498,22 @@ def test_a_human_launch_leaves_no_required_param_unset_on_any_pinned_schema(key)
     assert skipped is None and names == UNSET_REQUIRED.get(key, [])
 
 
-def test_configure_run_refuses_chipseq_with_no_reference_genome(monkeypatch, tmp_path):
-    """chipseq 2.1.0 requires fasta: with no species-resolved genome the run would die on the
-    cluster, so the agent is told to send one."""
+def _asks_for_a_genome(out):
+    assert out["ok"] is False and out["needs_user_input"] == ["genome"], out
+    assert "STOP" in out["message"] and "fasta" in out["ask_the_user"]
+    # Only bundles with a single genome are offered: hg38_mm39 has none.
+    offered = out["ask_the_user"].split("Which genome")[1]
+    assert "GRCh38" in offered and "hg38_mm39" not in offered
+
+
+def test_configure_run_asks_for_chipseqs_genome_when_none_resolved(tmp_path):
+    """chipseq 2.1.0 requires fasta, which only a genome fills here. With no species-resolved
+    genome the user is asked which one, rather than the run defaulting to GRCh38 on Luria."""
     from chat_nextseek.pipeline import agent_tools
 
-    _pinned_schema(monkeypatch)
     state = _state(tmp_path)
-    out = json.loads(agent_tools.tool_configure_run(
-        object(), state, {"pipeline_key": "chipseq", "params": {}}, str(tmp_path)))
-    assert out["ok"] is False
-    assert any("'fasta'" in e and "genome" in e for e in out["errors"])
+    _asks_for_a_genome(json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {}}, str(tmp_path))))
 
     out = json.loads(agent_tools.tool_configure_run(
         object(), state, {"pipeline_key": "chipseq", "params": {"genome": "GRCh38"}}, str(tmp_path)))
@@ -506,12 +521,26 @@ def test_configure_run_refuses_chipseq_with_no_reference_genome(monkeypatch, tmp
     assert out["schema_check"] == {"status": "ok"}
 
 
+def test_a_pdx_chipseq_cohort_stops_for_the_user_instead_of_looping(tmp_path):
+    """hg38_mm39 has no single genome (no igenomes_key, no store_root): resending it reselects
+    the same bundle, so telling the agent to send a genome would loop. It stops every time."""
+    from chat_nextseek.pipeline import agent_tools
+
+    state = _state(tmp_path)
+    state["bundle_key"] = "hg38_mm39"
+    for params in ({}, {"genome": "hg38_mm39"}, {"genome": "human+mouse"}):
+        _asks_for_a_genome(json.loads(agent_tools.tool_configure_run(
+            object(), state, {"pipeline_key": "chipseq", "params": params}, str(tmp_path))))
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {"genome": "GRCh38"}}, str(tmp_path)))
+    assert out["ok"] is True, out
+
+
 def test_a_required_param_the_agent_cannot_send_warns_not_errors(monkeypatch, tmp_path):
     """rnafusion's genomes_base is on no menu: the agent can neither send nor drop it, so
     hard-failing would spin it to MAX_ITER, as a drifted curated default would."""
     from chat_nextseek.pipeline import agent_tools
 
-    _pinned_schema(monkeypatch)
     state = _state(tmp_path)
     state["bundle_key"] = "GRCh38"
     out = json.loads(agent_tools.tool_configure_run(
@@ -561,38 +590,93 @@ def test_atacseq_offers_input_controls_off_by_default():
     assert {"control", "control_replicate"} <= set(template["samplesheet_template"][0])
 
 
-def _pinned_schema(monkeypatch):
-    """Serve every schema check from the pinned fixtures, never the network."""
-    from chat_nextseek.seqera import schema_check
-
-    def get(pipeline, revision):
-        return {"nextflow_schema": json.loads((FIXTURES / f"{pipeline}.nextflow_schema.json").read_text())}
-    monkeypatch.setattr(schema_check, "get_schema", get)
+ATAC_HEADER = ["sample", "fastq_1", "fastq_2", "replicate"]
+ATAC_CONTROLS = ["control", "control_replicate"]
+CHIP_HEADER = ATAC_HEADER + ["antibody", "control", "control_replicate"]
 
 
-def test_configure_run_launches_atacseq_with_its_input_controls(monkeypatch, tmp_path):
-    import csv
+def _sheet_lines(tmp_path, pipeline, rows):
+    """Emit a samplesheet and return its raw lines: DictReader would hide the column order."""
+    from chat_nextseek.seqera.emitter import emit_nfcore_artifacts
+    emit_nfcore_artifacts(
+        tmp_path, pipeline=pipeline, samplesheet_rows=rows, resolutions=[],
+        launch_plan=None, tower_env=None,
+        accession_metadata={r["sample"]: {"Link_PrimaryData": f"/net/x/{r['sample']}_R1.fastq.gz"}
+                            for r in rows})
+    return (tmp_path / "samplesheet.csv").read_text().splitlines()
 
-    import yaml
 
+@pytest.mark.parametrize("rows", [
+    [{"sample": "A", "replicate": 1}],
+    [{"replicate": 1, "fastq_2": "", "sample": "A"}],
+    [{"sample": "A", "replicate": 1, "control": "", "control_replicate": ""}],
+])
+def test_atacseq_header_opens_with_its_four_columns_in_order(tmp_path, rows):
+    """bin/check_samplesheet.py (2.1.2) exits 1 unless header[:4] is exactly these, fastq_2
+    included for single-end runs; unused control columns are left out (see below)."""
+    assert _sheet_lines(tmp_path, "atacseq", rows)[0].split(",") == ATAC_HEADER
+
+
+def test_atacseq_header_puts_the_control_columns_next_when_a_row_names_a_control(tmp_path):
+    rows = [{"sample": "IN", "replicate": 1, "cohort": "c"},
+            {"cohort": "c", "control_replicate": 1, "control": "IN", "sample": "ATAC", "replicate": 1}]
+    lines = _sheet_lines(tmp_path, "atacseq", rows)
+    assert lines[0].split(",")[:6] == ATAC_HEADER + ATAC_CONTROLS
+    assert lines[1].split(",")[4:6] == ["", ""] and lines[2].split(",")[4:6] == ["IN", "1"]
+
+
+def test_chipseq_header_always_carries_its_seven_columns_in_order(tmp_path):
+    """chipseq 2.1.0's checker reads all seven by position, controls or not."""
+    lines = _sheet_lines(tmp_path, "chipseq", [{"replicate": 1, "sample": "A"}])
+    assert lines[0].split(",")[:7] == CHIP_HEADER
+
+
+IN_ROW = {"sample": "D.SEQ-IN-1", "replicate": 1}
+ATAC_ROW = {"sample": "D.SEQ-ATAC-1", "replicate": 1, "control": "D.SEQ-IN-1", "control_replicate": 1}
+
+
+def _configure_atac(tmp_path, rows, params):
+    """write_samplesheet over `rows`, then configure_run with `params`: (result, state)."""
     from chat_nextseek.pipeline import agent_tools
-
-    _pinned_schema(monkeypatch)
-    rows = [{"sample": "D.SEQ-IN-1", "fastq_1": "/net/x/in_R1.fastq.gz", "replicate": 1},
-            {"sample": "D.SEQ-ATAC-1", "fastq_1": "/net/x/atac_R1.fastq.gz", "replicate": 1,
-             "control": "D.SEQ-IN-1", "control_replicate": 1}]
     state = {"resolved": {"uids": [r["sample"] for r in rows], "accessions": []},
-             "accession_file_paths": {}, "bundle_key": "GRCh38"}
+             "accession_file_paths": {
+                 r["sample"]: {"Link_PrimaryData": f"/net/x/{r['sample']}_R1.fastq.gz"} for r in rows},
+             "bundle_key": "GRCh38"}
     built = json.loads(agent_tools.tool_write_samplesheet(
         object(), state, {"pipeline_key": "atacseq", "cohorts": [{"label": "c", "rows": rows}]},
         str(tmp_path)))
     assert built["ok"] is True, built
-    with open(built["samplesheet"], newline="") as fh:
-        sheet = list(csv.DictReader(fh))
-    assert sheet[1]["control"] == "D.SEQ-IN-1" and sheet[1]["control_replicate"] == "1"
+    return json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "atacseq", "params": params}, str(tmp_path))), state
 
-    out = json.loads(agent_tools.tool_configure_run(
-        object(), state, {"pipeline_key": "atacseq", "params": {"with_control": True}}, str(tmp_path)))
+
+def test_configure_run_launches_atacseq_with_its_input_controls(tmp_path):
+    import yaml
+
+    out, state = _configure_atac(tmp_path, [IN_ROW, ATAC_ROW], {"with_control": True})
     assert out["ok"] is True, out
     assert out["schema_check"]["status"] == "ok"
     assert yaml.safe_load(open(out["params_yml"]))["with_control"] is True
+    header = open(state["artifacts"]["samplesheet"]).readline().strip().split(",")
+    assert header[:6] == ATAC_HEADER + ATAC_CONTROLS
+
+
+def test_atacseq_rows_naming_a_control_need_with_control(tmp_path):
+    """Without --with_control atacseq still carries the control column through, and the value
+    reaches meta.control (workflows/atacseq.nf merges replicates on it), so refuse."""
+    out, _ = _configure_atac(tmp_path, [IN_ROW, ATAC_ROW], {})
+    assert out["ok"] is False and any("with_control" in e for e in out["errors"]), out
+
+
+def test_atacseq_with_control_needs_a_row_that_names_a_control(tmp_path):
+    out, _ = _configure_atac(tmp_path, [IN_ROW, {**ATAC_ROW, "control": "", "control_replicate": ""}],
+                             {"with_control": True})
+    assert out["ok"] is False and any("with_control" in e for e in out["errors"]), out
+
+
+@pytest.mark.parametrize("bad", [{"control": "D.SEQ-ELSEWHERE"}, {"control_replicate": 2},
+                                 {"control_replicate": ""}])
+def test_atacseq_control_must_name_a_sample_and_replicate_in_the_sheet(tmp_path, bad):
+    """The checker exits 1 on a control/control_replicate pair that is not a row of the sheet."""
+    out, _ = _configure_atac(tmp_path, [IN_ROW, {**ATAC_ROW, **bad}], {"with_control": True})
+    assert out["ok"] is False and any("control" in e for e in out["errors"]), out

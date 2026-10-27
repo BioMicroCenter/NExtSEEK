@@ -44,7 +44,7 @@ from ..seqera.pipeline_params import (
     resolve_bundle_for_species,
     runtime_estimate,
 )
-from ..seqera.schema_check import (GENOME_FILLS, check_params, check_reference_flags,
+from ..seqera.schema_check import (check_params, check_reference_flags, genome_fills,
                                     missing_required, required_message)
 from ..seqera.submitter import submit_launch
 from ..seqera.user_params import (
@@ -790,6 +790,11 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
                 "sarek's save_output_as_bam stays off: reingest registers sarek's alignments as "
                 "CRAMs only, until the reingest map has a BAM rule. Leave it unset.")})
 
+    if pipeline_key == "atacseq":
+        control_errors = _atacseq_control_errors(merged.get("with_control"), _samplesheet_rows(state))
+        if control_errors:
+            return json.dumps({"ok": False, "errors": control_errors})
+
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (seqera.pairing).
     # The tools are the run's own (curated defaults included), not only what the model sent.
@@ -861,10 +866,16 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     # fasta needs rather than leaving the Luria submitter to default it to GRCh38 unseen; one
     # it cannot (rnafusion's genomes_base) warns, for the same MAX_ITER reason as a drifted
     # curated default.
+    # A param only a genome fills is asked of the user: no genome resolved for this cohort, and
+    # telling the agent to send one loops when the cohort's bundle has none (a PDX cohort's
+    # hg38_mm39 reselects itself).
     required_warnings: list[str] = []
     if not schema_errors and not schema_skip:
         unset, _ = missing_required(pipeline_key, revision, merged)
-        sendable = agent_param_names(pipeline_key) | GENOME_FILLS
+        by_genome = [n for n in unset if n in genome_fills(pipeline_key, revision)]
+        if by_genome:
+            return _ask_for_genome(pipeline_key, by_genome, reference_status, bundle_key)
+        sendable = agent_param_names(pipeline_key)
         schema_errors = [required_message(pipeline_key, revision, n) for n in unset if n in sendable]
         required_warnings = [required_message(pipeline_key, revision, n) for n in unset
                              if n not in sendable]
@@ -926,6 +937,54 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "launch_yml": result.saved_files.get("launch"),
         "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
                                              fetch_sizes=fetch_sizes),
+    })
+
+
+def _atacseq_control_errors(with_control: Any, rows: list[dict]) -> list[str]:
+    """Why an atacseq sheet and its with_control disagree ([] when they agree).
+
+    nf-core/atacseq 2.1.2 reads control/control_replicate only with --with_control, yet
+    without it a control value is still carried into meta.control, which its replicate merging
+    reads (workflows/atacseq.nf), so the two must agree both ways. With it, its samplesheet
+    check exits on a control that is not a sample and replicate of the same sheet.
+    """
+    on = with_control is True or str(with_control).strip().lower() == "true"
+    named = [r for r in rows if str(r.get("control") or "").strip()]
+    if named and not on:
+        return ["rows name an input control, so set with_control=true; or rebuild the "
+                "samplesheet without control and control_replicate if the controls should not be used."]
+    if on and not named:
+        return ["with_control=true but no row names a control: fill control and control_replicate "
+                "on each ATAC row whose input control is in the cohort, or leave with_control unset."]
+    present = {(str(r.get("sample") or "").strip(), str(r.get("replicate") or "").strip()) for r in rows}
+    errors = []
+    for row in named:
+        control = str(row["control"]).strip()
+        replicate = str(row.get("control_replicate") or "").strip()
+        if (control, replicate) not in present:
+            errors.append(
+                f"row {row.get('sample')!r}: control {control!r} replicate {replicate or '(empty)'} "
+                "is not a sample and replicate of this samplesheet; name the control's own sample "
+                "and replicate values, and include the control as a row.")
+    return errors
+
+
+def _ask_for_genome(pipeline_key: str, names: list[str], reference_status: str,
+                    bundle_key: str | None) -> str:
+    """Stop and ask the user which genome to run, offering the bundles that name one."""
+    choices = [k for k, b in (load_reference_bundles().get("bundles") or {}).items()
+               if b.get("igenomes_key")]
+    if reference_status == "unconfigured_no_fallback" and bundle_key:
+        why = f"this cohort's reference {bundle_key} has no single genome to run against"
+    else:
+        why = "no reference genome was resolved from the samples' species"
+    return json.dumps({
+        "ok": False, "needs_user_input": ["genome"],
+        "ask_the_user": (f"nf-core/{pipeline_key} needs a reference genome for its "
+                         f"{' and '.join(names)}, and {why}. Which genome should it use: "
+                         f"{', '.join(choices)}?"),
+        "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call configure_run "
+                    "again with params.genome set to the genome they choose."),
     })
 
 
