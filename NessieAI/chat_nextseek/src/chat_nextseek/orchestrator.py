@@ -1137,6 +1137,10 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
                 types.append(EntityItem(code=code, name=names.get(code)))
                 have.add(code)
         resolved_update["sampletypes"] = types
+    # The same for `house_types`: the graph agent anchors the type a house word names, as if the question said it.
+    house = _entity("house_types") or {}
+    if house:
+        resolved_update["house_types"] = dict(house)
     updates: dict[str, Any] = {
         "resolved": plan.resolved.model_copy(update=resolved_update),
     }

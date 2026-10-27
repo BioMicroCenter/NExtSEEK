@@ -180,3 +180,15 @@ def test_premise_compares_against_the_total_not_the_row_count():
     assert _premise_count(t) is None
     t = _T("how many of these 900 samples have y", [{"overall_samples": 800, "with_y": 0}])
     assert _premise_count(t) is not None
+
+
+# dtd3 G2: the parser's echo has no house_types slot either; the clamp restores it from the entity result.
+@pytest.mark.parametrize("as_dict", [False, True])
+def test_the_clamp_carries_house_types_to_the_graph_agent(as_dict):
+    from chat_nextseek import orchestrator as orch
+    from chat_nextseek.agents.graph import project_parser_plan
+    from chat_nextseek.schemas.router import ParserPlan
+    ent = EntityAgentOutput(sampletypes=[EntityItem(code="TIS")], house_types={"WORD_X": "TIS"})
+    plan = ParserPlan(resolved=EntityAgentOutput(sampletypes=[EntityItem(code="TIS")]))
+    out = orch._clamp_lab_codes_to_entity(plan, ent.model_dump() if as_dict else ent)
+    assert project_parser_plan(out.model_dump())["resolved"]["house_types"] == {"WORD_X": "TIS"}

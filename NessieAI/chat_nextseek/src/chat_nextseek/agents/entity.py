@@ -81,6 +81,7 @@ def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: lis
 
     The list's word is also kept as a keyword unless the agent already has it or the question's form of it, in any
     letter case. A code the catalog does not hold is never added; with no catalog the code is added with no name.
+    Each word found is recorded in ``result.house_types`` with its code, whoever put the code in ``sampletypes``.
     Words match whole, any letter case, a space or a hyphen between their parts, with an optional plural s.
     A word inside a quoted span counts for nothing, and a question that names a study or paper (STUDY_WORDS_RE)
     is left to the agent: there the word is most likely part of a title, not the kind of sample asked for.
@@ -100,6 +101,8 @@ def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: lis
             if code not in chosen and (code in names or not names):
                 result.sampletypes.append(EntityItem(code=code, name=names.get(code)))
                 chosen.add(code)
+            if code in chosen:
+                result.house_types[word] = code
             if word.lower() not in have and m.group(0).lower() not in have:
                 result.keywords.append(word)
                 have.add(word.lower())
