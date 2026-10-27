@@ -18,7 +18,9 @@ from nextseek_api.paper_reingest.models_db import PaperReingestRun
 
 _MODELS = {"paper": PaperArtifact, "evidence": EvidenceArtifact}
 #: The states stage 1 can be queued again from: waiting, paused, or stuck mid-acquire after a worker died.
-REQUEUE_STATES = ("queued", "paused", "acquiring")
+# Not acquiring: a worker may still be running it, and a second message would overlap it. The boot sweep
+# fails runs a restart cut; a stuck live run is cancelled and started again.
+REQUEUE_STATES = ("queued", "paused")
 
 
 class Command(BaseCommand):

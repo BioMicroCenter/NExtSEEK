@@ -196,3 +196,25 @@ def test_doi_lookup_outage_raises(monkeypatch, settings):
     monkeypatch.setattr("django.db.connections", {settings.SEEK_DATABASE: _Conn(_Cursor(fail=True))})
     with pytest.raises(RuntimeError):
         lookups.doi_project_ids_strict("10.1000/xyz123")
+
+
+@pytest.mark.django_db
+def test_migration_0035_fails_a_newer_duplicate_live_run(django_user_model, tmp_path, monkeypatch):
+    """Before 0035 two live runs of one paper could exist; the newer must not later collide on its key."""
+    import importlib
+
+    from django.apps import apps
+
+    backfill = importlib.import_module("nextseek_api.migrations.0035_paper_reingest_run_live_key")._backfill
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    user = django_user_model.objects.create(username="curator")
+    older = service.create_run(user=user, paper_input="38000001", paper=_paper())
+    PaperReingestRun.objects.filter(pk=older.pk).update(live_key=None)
+    newer = service.create_run(user=user, paper_input="38000001", paper=_paper())
+    PaperReingestRun.objects.filter(pk=newer.pk).update(live_key=None)
+    backfill(apps, None)
+    older.refresh_from_db()
+    newer.refresh_from_db()
+    assert older.live_key == older.paper_key() and older.state == "queued"
+    assert (newer.state, newer.failed_stage, newer.live_key) == ("failed", "duplicate", None)
+    assert older.run_id in newer.reason

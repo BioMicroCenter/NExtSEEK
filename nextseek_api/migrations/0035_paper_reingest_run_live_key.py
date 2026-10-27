@@ -1,7 +1,7 @@
 """PaperReingestRun.live_key: a unique key per unfinished run of a paper, so the database refuses a second one.
 
-The backfill keys the oldest unfinished run of each paper; a newer duplicate (only possible before this
-migration) keeps NULL and stays visible to the operator command.
+The backfill keys the oldest unfinished run of each paper. A newer duplicate (only possible before this
+migration) is failed at stage `duplicate`: left live with no key, its first claim would set the key and collide.
 """
 import hashlib
 
@@ -21,13 +21,17 @@ def paper_key(doi, paper_input):
 
 def _backfill(apps, schema_editor):
     Run = apps.get_model("nextseek_api", "PaperReingestRun")
-    taken = set()
+    taken = {}
     live = Run.objects.filter(state__in=_LIVE_STATES, superseded_by__isnull=True).order_by("created_at", "id")
     for run in live:
         key = paper_key(run.doi, run.paper_input)
         if key not in taken:
-            taken.add(key)
+            taken[key] = run.run_id
             Run.objects.filter(pk=run.pk).update(live_key=key)
+        else:
+            Run.objects.filter(pk=run.pk).update(
+                state="failed", failed_stage="duplicate",
+                reason=f"a second unfinished run of this paper; {taken[key]} is kept")
 
 
 class Migration(migrations.Migration):

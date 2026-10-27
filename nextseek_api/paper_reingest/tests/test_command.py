@@ -66,7 +66,7 @@ def test_cancel_refuses_a_finished_run(django_user_model, tmp_path, monkeypatch)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("state", ["queued", "paused", "acquiring"])
+@pytest.mark.parametrize("state", ["queued", "paused"])
 def test_requeue_puts_a_stuck_run_back_on_the_queue(django_user_model, tmp_path, monkeypatch, capsys, state):
     run = _a_run(django_user_model, tmp_path, monkeypatch, state)
     queued = []
@@ -79,7 +79,7 @@ def test_requeue_puts_a_stuck_run_back_on_the_queue(django_user_model, tmp_path,
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("state", ["context", "failed", "applied"])
+@pytest.mark.parametrize("state", ["acquiring", "context", "failed", "applied"])
 def test_requeue_refuses_any_other_state(django_user_model, tmp_path, monkeypatch, state):
     from django.core.management.base import CommandError
 

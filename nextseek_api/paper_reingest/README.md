@@ -87,9 +87,10 @@ manage.py sweep_paper_reingest_runs
 - `cancel` sets a run in any live state (`LIVE_STATES`) to `failed`, with `failed_stage` `cancelled` and the reason
   `cancelled by operator`. It refuses a run that is already finished or failed, including one that finished while the
   command ran.
-- `requeue` puts a `queued`, `paused` or `acquiring` run back to `queued` and queues stage 1 again. Use it for a run
-  the worker lost (a restart mid-acquire leaves it `acquiring`; a lost message leaves it `queued`). Check first that
-  no worker is still running it. Any other state is refused. If the queue is down the run is left `queued`.
+- `requeue` puts a `queued` or `paused` run back to `queued` and queues stage 1 again. Use it for a run whose message
+  was lost. An `acquiring` run is refused, since a worker may still be running it: the boot sweep fails one a restart
+  cut, and a stuck one is cancelled and started again. Any other state is refused. If the queue is down the run is
+  left `queued`.
 
 - `sweep_paper_reingest_runs` runs once at boot, from `docker/scripts/entrypoint.sh`, before the paper worker starts.
   It fails every `acquiring` run at stage `acquire` ("interrupted by a server restart") and queues stage 1 again for
