@@ -26,7 +26,7 @@ route is right.
 | `recorded/` | the committed replay fixtures, one `<story id>.json` per recorded story. It does not exist until the first accepted paid run is recorded |
 | `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade and pipeline; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
 | `e2e.json` | the ruled story ids that also run through the real chat, one per family: bulk_rna, single_cell, dna_variants, chromatin, methylation, not_yet |
-| `build_e2e.py` | `variants()` and `main()`: turns each `e2e.json` story into a multi-turn `pipeline_launch` variant (id `pipeline_scenarios.<story id>`, tag `pipeline_scenarios`) in `NessieAI/tests/nessie_tests/corpus.json` (`python3 -m NessieAI.tests.pipeline_scenarios.build_e2e`). It rewrites only those variants, in the file's own layout. The turns stop at the confirm-to-submit question. The build turn asserts only the pipeline built; settings (`launch.must_match`) are checked by the in-process run only, because the chat snapshot carries no launch plan |
+| `build_e2e.py` | `variants()` and `main()`: turns each `e2e.json` story into a multi-turn `pipeline_launch` variant (id `pipeline_scenarios.<story id>`, tag `pipeline_scenarios`, `requires_env` `NESSIE_PIPELINE_SCENARIOS_E2E`) in `NessieAI/tests/nessie_tests/corpus.json` (`python3 -m NessieAI.tests.pipeline_scenarios.build_e2e`). It rewrites only those variants, in the file's own layout. The build turn asks for the build and says not to submit; the turns stop at the confirm-to-submit question. The build turn asserts only the pipeline built; settings (`launch.must_match`) are checked by the in-process run only, because the chat snapshot carries no launch plan |
 | `test_e2e_in_sync.py` | the free test that the corpus holds exactly the generated variants (never hand-edit them) and that every `e2e.json` story is ruled |
 
 ## The starting state
@@ -95,11 +95,24 @@ fields, or a tool call the tape never saw, fails it the same way.
 
 `e2e.json` names one ruled story per family, and `build_e2e.py` turns each into a `pipeline_launch` variant
 in `NessieAI/tests/nessie_tests/corpus.json` (id `pipeline_scenarios.<story id>`). Paid, and each run needs
-the owner's go. The harness CLI has no `--ids`; run one story at a time:
+the owner's go.
+
+The variants drive the real chat as far as a built launch, so they are fenced:
+
+- Each one runs only with `NESSIE_PIPELINE_SCENARIOS_E2E` set (`requires_env`); without it the harness
+  records it skipped, so a `--scope all` run never draws them by accident.
+- Run them only on a stack whose Luria env is unset: no `LURIA_*` variable in the `nextseek` container
+  (`docker exec nextseek env | grep '^LURIA_'` prints nothing). Never on dev or prod. The build turn says
+  "Build the run, but do not submit anything yet." and no turn confirms a submit, but a stack that cannot
+  submit is the guard, not the wording.
+- The cohorts they search exist only on the local stack (the `test::` cohorts and the local UIDs of the real
+  ones), so on any other stack they would fail at the setup turn anyway.
+
+The harness CLI has no `--ids`; run one story at a time:
 
 ```bash
-docker exec nextseek uv run manage.py nessie --base-url http://localhost:8000 --tier full --scope all \
-  --variant pipeline_scenarios.<story id>
+docker exec -e NESSIE_PIPELINE_SCENARIOS_E2E=1 nextseek uv run manage.py nessie \
+  --base-url http://localhost:8000 --tier full --scope all --variant pipeline_scenarios.<story id>
 ```
 
 or pass `--cases <file>` for several. This checks the route, the pipeline chosen and, for `not_yet`, that

@@ -3,9 +3,14 @@
   python3 -m NessieAI.tests.pipeline_scenarios.build_e2e
 
 Each variant: a setup turn that finds the cohort's samples by UID, the story's question, and,
-for a launch story, one reply asking for the build (the story's first scripted reply, else
-DEFAULT_REPLY). It stops at the confirm-to-submit question and never answers it. A not_yet or
-refuse story has a third turn, the same reply pushing for a build, on which nothing may be built.
+for a launch story, one turn asking for the build (BUILD_ONLY, which says not to submit; never a
+confirmation, and never the story's own replies, which the in-process runner answers with). It
+stops at the confirm-to-submit question and never answers it. A not_yet or refuse story has a
+third turn, BUILD_ONLY again pushing for a build, on which nothing may be built.
+
+The variants run against a real stack, so every one needs NESSIE_PIPELINE_SCENARIOS_E2E set
+(`requires_env`; the harness skips it otherwise). Run them only on a stack whose Luria env is
+unset, never on dev or prod: the README's "Chat end-to-end" says why.
 
 The build turn asserts only which pipeline was built. Settings (`launch.must_match`) are checked by
 the in-process run only, because the chat snapshot carries no launch plan, so the harness skips every
@@ -25,13 +30,16 @@ import re
 from pathlib import Path
 
 from NessieAI.paths import NESSIE_CORPUS
-from NessieAI.tests.pipeline_scenarios.run import DEFAULT_REPLY
 from NessieAI.tests.pipeline_scenarios.stories import cohort_uids, story_by_id
 
 E2E = Path(__file__).resolve().parent / "e2e.json"
 MAX_SETUP_UIDS = 12
 #: corpus.json's own layout; a different one would make the rewrite touch every line.
 CORPUS_INDENT = 2
+#: The build and push turns. Not a confirmation: a variant must never be the turn that submits.
+BUILD_ONLY = "Build the run, but do not submit anything yet."
+#: The opt-in every variant needs; nessie_tests' runner skips a variant whose env var is unset.
+OPT_IN_ENV = "NESSIE_PIPELINE_SCENARIOS_E2E"
 
 
 def _alternation(keys) -> str:
@@ -65,17 +73,17 @@ def _variant(story) -> dict:
         ask["pass_criteria"] += [
             {"field": "pipeline_agent.selection.verdict", "op": "matches_re", "value": "^(refused|out_of_scope)$"},
             NO_PIPELINE_OFFERED]
-        turns.append({"label": "push_to_build", "query": DEFAULT_REPLY, "pass_criteria": [
+        turns.append({"label": "push_to_build", "query": BUILD_ONLY, "pass_criteria": [
             {"field": "pipeline_agent.pipeline_key", "op": "eq", "value": None},
             NO_PIPELINE_OFFERED]})
     elif story.launch.get("built"):
         union = {k for a in story.acceptable for k in a}
-        turns.append({"label": "build", "query": story.replies[0] if story.replies else DEFAULT_REPLY,
+        turns.append({"label": "build", "query": BUILD_ONLY,
                       "pass_criteria": [
                           {"field": "pipeline_agent.pipeline_key", "op": "matches_re", "value": rf"^({_alternation(union)})$"}]})
     return {"id": f"pipeline_scenarios.{story.id}", "family": "pipeline_launch",
             "name": f"pipeline scenario {story.id}", "tags": ["pipeline_scenarios", "multi-turn"],
-            "requires_env": [], "turns": turns, "status": "active", "origin": "overlay", "is_bayesian": False,
+            "requires_env": [OPT_IN_ENV], "turns": turns, "status": "active", "origin": "overlay", "is_bayesian": False,
             "hibayes_subtype": None, "expected_behavior": None, "artifact_expected": None,
             "artifact_kind": None, "retirement": None,
             "_why": f"Generated from NessieAI/tests/pipeline_scenarios story {story.id}; edit the story, then re-run build_e2e."}

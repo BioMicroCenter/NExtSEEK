@@ -15800,7 +15800,9 @@
             "pipeline_scenarios",
             "multi-turn"
           ],
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_PIPELINE_SCENARIOS_E2E"
+          ],
           "turns": [
             {
               "label": "setup_search",
@@ -15831,7 +15833,7 @@
             },
             {
               "label": "build",
-              "query": "Yes, use what you recommend and build the run.",
+              "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
                   "field": "pipeline_agent.pipeline_key",
@@ -15859,7 +15861,9 @@
             "pipeline_scenarios",
             "multi-turn"
           ],
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_PIPELINE_SCENARIOS_E2E"
+          ],
           "turns": [
             {
               "label": "setup_search",
@@ -15885,7 +15889,7 @@
             },
             {
               "label": "build",
-              "query": "Yes, use what you recommend and build the run.",
+              "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
                   "field": "pipeline_agent.pipeline_key",
@@ -15913,7 +15917,9 @@
             "pipeline_scenarios",
             "multi-turn"
           ],
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_PIPELINE_SCENARIOS_E2E"
+          ],
           "turns": [
             {
               "label": "setup_search",
@@ -15944,7 +15950,7 @@
             },
             {
               "label": "build",
-              "query": "Yes, use what you recommend and build the run.",
+              "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
                   "field": "pipeline_agent.pipeline_key",
@@ -15972,7 +15978,9 @@
             "pipeline_scenarios",
             "multi-turn"
           ],
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_PIPELINE_SCENARIOS_E2E"
+          ],
           "turns": [
             {
               "label": "setup_search",
@@ -16003,7 +16011,7 @@
             },
             {
               "label": "build",
-              "query": "Yes, use what you recommend and build the run.",
+              "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
                   "field": "pipeline_agent.pipeline_key",
@@ -16031,7 +16039,9 @@
             "pipeline_scenarios",
             "multi-turn"
           ],
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_PIPELINE_SCENARIOS_E2E"
+          ],
           "turns": [
             {
               "label": "setup_search",
@@ -16062,7 +16072,7 @@
             },
             {
               "label": "build",
-              "query": "Yes, use what you recommend and build the run.",
+              "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
                   "field": "pipeline_agent.pipeline_key",
@@ -16090,7 +16100,9 @@
             "pipeline_scenarios",
             "multi-turn"
           ],
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_PIPELINE_SCENARIOS_E2E"
+          ],
           "turns": [
             {
               "label": "setup_search",
@@ -16126,7 +16138,7 @@
             },
             {
               "label": "push_to_build",
-              "query": "Yes, use what you recommend and build the run.",
+              "query": "Build the run, but do not submit anything yet.",
               "pass_criteria": [
                 {
                   "field": "pipeline_agent.pipeline_key",
