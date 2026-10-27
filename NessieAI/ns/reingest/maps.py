@@ -7,6 +7,7 @@ file reviewable in a diff rather than a security surface.
 """
 from __future__ import annotations
 
+import fnmatch
 import re
 from pathlib import Path
 from typing import Literal
@@ -213,6 +214,17 @@ class UnmappedFiles(BaseModel):
     model_config = ConfigDict(extra="forbid")
     glob: str
     why: str
+    #: Files `glob` also matches that this ruling leaves to the rules. fnmatch cannot say
+    #: "a .bam that is not a .sorted.bam", and bwa-meth writes its raw alignment as
+    #: `alignments/<sample>.bam` beside the `<sample>.sorted.bam` a rule reads.
+    except_globs: list[str] = Field(default_factory=list)
+
+    def rules_out(self, path: str) -> bool:
+        """Whether this ruling drops `path`: `fnmatch` (whose `*` crosses `/`) over the
+        brace-expanded glob, unless an `except_globs` pattern matches it too."""
+        def matches(pattern: str) -> bool:
+            return any(fnmatch.fnmatch(path, g) for g in expand_braces(pattern))
+        return matches(self.glob) and not any(matches(e) for e in self.except_globs)
 
 
 class VersionOverride(BaseModel):

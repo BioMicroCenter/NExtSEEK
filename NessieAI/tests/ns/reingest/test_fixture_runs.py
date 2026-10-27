@@ -88,9 +88,10 @@ def test_every_file_is_claimed_or_ruled_out(folder):
     paths = [e["path"] for e in json.loads((folder / "inventory.json").read_text())]
     rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
     patterns = [p for rule in rules for p in [*rule.candidates, *(c.glob for c in rule.companions)]]
-    patterns += [u.glob for u in pipeline_map.unmapped_files] + list(_HARVEST_OWNED)
+    patterns += list(_HARVEST_OWNED)
     expanded = [e for p in patterns for e in maps.expand_braces(p)]
-    unclaimed = [p for p in paths if not any(fnmatch.fnmatch(p, g) for g in expanded)]
+    unclaimed = [p for p in paths if not any(fnmatch.fnmatch(p, g) for g in expanded)
+                 and not any(u.rules_out(p) for u in pipeline_map.unmapped_files)]
     assert unclaimed == [], f"{folder}: files no rule claims and no ruling explains: {unclaimed}"
 
 
@@ -101,9 +102,8 @@ def _rule_and_ruling_overlaps(paths, pipeline_map) -> list[str]:
     rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
     rule_globs = [e for rule in rules for p in [*rule.candidates, *(c.glob for c in rule.companions)]
                   for e in maps.expand_braces(p)]
-    ruled = [e for u in pipeline_map.unmapped_files for e in maps.expand_braces(u.glob)]
     return [p for p in paths if any(fnmatch.fnmatch(p, g) for g in rule_globs)
-            and any(fnmatch.fnmatch(p, g) for g in ruled)]
+            and any(u.rules_out(p) for u in pipeline_map.unmapped_files)]
 
 
 @pytest.mark.parametrize("folder", FIXTURES, ids=lambda p: f"{p.parent.name}/{p.name}")
@@ -120,3 +120,14 @@ def test_the_overlap_check_catches_a_ruled_out_candidate():
         "outputs": [{"id": "v", "sample_type": "A.VCF", "candidates": ["vc/*/*.vcf.gz"]}],
         "unmapped_files": [{"glob": "vc/*/*.g.vcf.gz", "why": "a gVCF ruled out for this check"}]})
     assert _rule_and_ruling_overlaps(["vc/S1/S1.g.vcf.gz", "vc/S1/S1.vcf.gz"], m) == ["vc/S1/S1.g.vcf.gz"]
+
+
+def test_a_rulings_except_globs_leave_a_rules_file_to_the_rule():
+    m = maps.PipelineMap.model_validate({
+        "map_version": 2, "pipeline": "nf-core/x",
+        "outputs": [{"id": "aln", "sample_type": "A.ALN", "candidates": ["al/*.sorted.bam"]}],
+        "unmapped_files": [{"glob": "al/*.bam", "except_globs": ["al/*.sorted.bam"],
+                            "why": "the raw alignment, before sorting, for this check"}]})
+    assert _rule_and_ruling_overlaps(["al/S1.bam", "al/S1.sorted.bam"], m) == []
+    assert m.unmapped_files[0].rules_out("al/S1.bam")
+    assert not m.unmapped_files[0].rules_out("al/S1.sorted.bam")

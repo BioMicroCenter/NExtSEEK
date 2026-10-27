@@ -322,13 +322,13 @@ def _without_ruled_out_files(run_manifest: manifest.RunManifest,
     tumor/normal pair's VCF as ``<tumor>_vs_<normal>/<tumor>_vs_<normal>.*``, the
     harvest attributes it to the tumor by its basename's prefix, and a germline
     rule would register it as the tumor's own call set. Matching is the claims
-    test's: ``fnmatch`` (whose ``*`` crosses ``/``) over brace-expanded globs. A
-    map without ``unmapped_files`` gets its manifest back unchanged."""
-    globs = [g for ruling in pipeline_map.unmapped_files for g in maps.expand_braces(ruling.glob)]
-    if not globs:
+    test's, ``maps.UnmappedFiles.rules_out``. A map without ``unmapped_files`` gets
+    its manifest back unchanged."""
+    rulings = pipeline_map.unmapped_files
+    if not rulings:
         return run_manifest
     kept = [o for o in run_manifest.outputs
-            if not any(fnmatch.fnmatch(o.path, g) for g in globs)]
+            if not any(ruling.rules_out(o.path) for ruling in rulings)]
     if len(kept) == len(run_manifest.outputs):
         return run_manifest
     return run_manifest.model_copy(update={"outputs": kept})
