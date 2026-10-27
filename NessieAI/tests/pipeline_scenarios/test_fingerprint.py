@@ -90,3 +90,35 @@ def test_the_projection_is_what_family_labels_reads():
     assert got["taxonomy_version"] == snap.taxonomy_version
     assert got["families"] == {name: snap.descriptions[name] for name in snap.families}
     assert list(got["families"]) == sorted(got["families"])
+
+
+def test_files_hashes_each_input_and_the_corpus_projection(tmp_path, monkeypatch):
+    (tmp_path / "a.json").write_text("1")
+    (tmp_path / "b.json").write_text("2")
+    monkeypatch.setattr(fp, "REPO", tmp_path)
+    monkeypatch.setattr(fp, "INPUTS", ("*.json",))
+    monkeypatch.setattr(fp, "corpus_projection", lambda: {"families": {}})
+    files = fp.files()
+    assert set(files) == {"a.json", "b.json", fp.CORPUS_KEY} and all(len(v) == 64 for v in files.values())
+    assert files == fp.files()
+
+
+def test_changed_names_every_edited_added_and_removed_input(tmp_path, monkeypatch):
+    for name in ("a.json", "b.json", "c.json"):
+        (tmp_path / name).write_text(name)
+    monkeypatch.setattr(fp, "REPO", tmp_path)
+    monkeypatch.setattr(fp, "INPUTS", ("*.json",))
+    monkeypatch.setattr(fp, "corpus_projection", lambda: {})
+    recorded = fp.files()
+    assert fp.changed(recorded) == []
+    (tmp_path / "a.json").write_text("edited")
+    (tmp_path / "b.json").unlink()
+    (tmp_path / "d.json").write_text("new")
+    assert fp.changed(recorded) == ["a.json", "b.json", "d.json"]
+    assert fp.changed({}) == sorted(fp.files())            # a recording without per-file hashes: all unknown
+
+
+def test_the_real_inputs_have_per_file_hashes():
+    files = fp.files()
+    assert fp.CORPUS_KEY in files
+    assert "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py" in files

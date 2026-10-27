@@ -174,7 +174,11 @@ Key facts every operator must internalize:
    That run is approved separately and never run by the deploy itself. The
    full list of files whose change invalidates the recordings is `INPUTS` in
    `NessieAI/tests/pipeline_scenarios/fingerprint.py`. CI does not enforce
-   this; the deployer checks it.
+   this; the deployer checks it. Make that run on a stack built from a commit
+   whose fingerprint inputs equal the branch's: deploy the branch itself, not a
+   `merge(local)` that also carries other branches' changes to those files.
+   `record.py` refuses a run made under any other fingerprint, so a run on the
+   wrong commit is paid for and cannot be recorded.
 9. **Pruning is not cleanup: it destroys backups.** Rollback tags and cached
    layers on the deploy host are the rollback path. Get the owner's explicit
    approval per item before removing images, tags, or volumes.

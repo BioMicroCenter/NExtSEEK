@@ -10,6 +10,8 @@ swap is visible) and the code that runs after the model answers, which replay ru
 
 A recorded tape is valid only for the fingerprint it was recorded under: a changed input
 means the model might now answer differently, so CI fails until a paid run re-records.
+`files()` keeps a sha256 per input as well (the run's summary.json, each row and each recorded
+fixture carry it), so a failed replay names the files that changed (`changed`).
 """
 from __future__ import annotations
 
@@ -20,6 +22,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 #: The harness corpus. Only what the router reads of it is hashed (see corpus_projection).
 CORPUS = "NessieAI/tests/nessie_tests/corpus.json"
+#: The key the corpus projection's hash goes under in files().
+CORPUS_KEY = CORPUS + "#families"
 _CHAT = "NessieAI/chat_nextseek/src/chat_nextseek/"
 INPUTS: tuple[str, ...] = (
     # Routing: the replay serves the recorded decision, so these are its only guard.
@@ -84,3 +88,19 @@ def current() -> str:
             h.update(path.read_bytes())
             h.update(b"\0")
     return h.hexdigest()
+
+
+def files() -> dict[str, str]:
+    """A sha256 per input (repo-relative path -> hex), and one for the corpus projection under
+    CORPUS_KEY. current() is the hash over the same bytes; this says which of them moved."""
+    out = {CORPUS_KEY: hashlib.sha256(json.dumps(corpus_projection(), sort_keys=True).encode()).hexdigest()}
+    for pattern in INPUTS:
+        for path in sorted(REPO.glob(pattern)):
+            out[str(path.relative_to(REPO))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return out
+
+
+def changed(recorded: dict[str, str]) -> list[str]:
+    """The inputs whose hash differs from `recorded`, or that were added or removed since, sorted."""
+    now = files()
+    return sorted(k for k in set(now) | set(recorded) if now.get(k) != recorded.get(k))

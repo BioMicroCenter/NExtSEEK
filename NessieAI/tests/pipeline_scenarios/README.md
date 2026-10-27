@@ -21,10 +21,10 @@ route is right.
 | `run.py` | the paid in-process runner: the real router and pipeline agent on each ruled story, no submit tool, every outside answer recorded on a tape. Recording only observes: the live run gets each answer with person fields redacted and nothing else changed (`live`), and the tape keeps the scrubbed copy (`store`). A value the tape must refuse never breaks the live run: the story finishes, is recorded as a runner error with its outcome kept, and has no tape. Without `--yes` it only prints what it would run and the estimate; a paid run needs the owner's go (usage in its docstring) |
 | `report.py` | `write_report`: the HTML page of a run, totals and then every story by family |
 | `test_run.py` | the free test of the runner and report, with a stubbed router and agent (no model, no stack) |
-| `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `test_fingerprint.py` tests it |
+| `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `files()` is a sha256 per input and `changed()` names the ones that moved. `test_fingerprint.py` tests it |
 | `record.py` | turns an accepted paid run into `recorded/<id>.json` (`python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]`): refuses a run made under another fingerprint, skips stories the runner failed on, rewrites URLs outside the story as a tape's are, refuses any fixture holding an email or an absolute path |
 | `recorded/` | the committed replay fixtures, one `<story id>.json` per recorded story. It does not exist until the first accepted paid run is recorded |
-| `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade and pipeline; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
+| `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade, pipeline, selection and launch settings; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
 | `e2e.json` | the ruled story ids that also run through the real chat, one per family: bulk_rna, single_cell, dna_variants, chromatin, methylation, not_yet |
 | `build_e2e.py` | `variants()` and `main()`: turns each `e2e.json` story into a multi-turn `pipeline_launch` variant (id `pipeline_scenarios.<story id>`, tag `pipeline_scenarios`, `requires_env` `NESSIE_PIPELINE_SCENARIOS_E2E`) in `NessieAI/tests/nessie_tests/corpus.json` (`python3 -m NessieAI.tests.pipeline_scenarios.build_e2e`). It rewrites only those variants, in the file's own layout. The build turn asks for the build and says not to submit; the turns stop at the confirm-to-submit question. The build turn asserts only the pipeline built; settings (`launch.must_match`) are checked by the in-process run only, because the chat snapshot carries no launch plan |
 | `test_e2e_in_sync.py` | the free test that the corpus holds exactly the generated variants (never hand-edit them) and that every `e2e.json` story is ruled |
@@ -57,6 +57,11 @@ docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_
 - The run writes a run folder (`summary.json`, one file per story, the HTML report from `report.py`) to
   `--out`, which defaults to `outputs/<timestamp>_pipeline_scenarios`.
 - `DEPLOYMENT.md` §1 says when a prod deploy needs an accepted run.
+- Run it on a stack built from a commit whose fingerprint inputs (`fingerprint.INPUTS`) equal the branch's:
+  deploy the branch itself, not a `merge(local)` that also carries other branches' changes to those files.
+  `record.py` refuses a run made under any other fingerprint, so a run on the wrong commit is paid for and
+  cannot be recorded. `summary.json` and each story file keep a sha256 per input (`fingerprint_files`), so
+  you can see which files differ.
 
 ## Re-recording
 
@@ -78,7 +83,8 @@ A story the runner failed on is skipped. Review the diff of `recorded/` before c
 CI demands a re-record whenever `fingerprint.current()` changes. `fingerprint.INPUTS` lists what it covers
 (the router's BAML and code, the selection and agent code and prompts, the atlases, the param atlas, the
 nf-core templates, the pinned schemas, the catalog, and the corpus families' projection); read that file
-for the list. A change to any of these fails the replay until a paid re-record. A change to a story's own
+for the list. A change to any of these fails the replay until a paid re-record; the failure names the
+files that changed, from the per-input hashes each fixture keeps (`fingerprint_files`). A change to a story's own
 fields, or a tool call the tape never saw, fails it the same way.
 
 ## Adding a story

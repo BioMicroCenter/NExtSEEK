@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from NessieAI.tests.pipeline_scenarios import fingerprint, record, run as rn
+from NessieAI.tests.pipeline_scenarios import fingerprint, record, run as rn, scrub
 from NessieAI.tests.pipeline_scenarios.record import RECORDED, STORY_FIELDS
 from NessieAI.tests.pipeline_scenarios.scorer import score
 from NessieAI.tests.pipeline_scenarios.stories import story_by_id
@@ -40,7 +40,9 @@ class _ReplayConfig:
 
 def replay_fixture(fixture: dict, tmp_path, monkeypatch):
     """Replay one recorded story against the current code and check it still ends the same."""
-    assert fixture["fingerprint"] == fingerprint.current(), f"selection inputs changed: {REGENERATE}"
+    if fixture["fingerprint"] != fingerprint.current():
+        moved = fingerprint.changed(fixture.get("fingerprint_files") or {})
+        raise AssertionError(f"selection inputs changed ({', '.join(moved) or 'unknown files'}): {REGENERATE}")
     story = story_by_id(fixture["story"]["id"])
     current = {k: getattr(story, k) for k in STORY_FIELDS}
     assert current == fixture["story"], f"the story changed since it was recorded: {REGENERATE}"
@@ -60,6 +62,9 @@ def replay_fixture(fixture: dict, tmp_path, monkeypatch):
     assert (s.grade, outcome.pipeline_key) == (fixture["score"]["grade"], want["pipeline_key"]), s.reasons
     kept = lambda sel: {k: (sel or {}).get(k) for k in ("verdict", "pipelines")}   # noqa: E731
     assert kept(outcome.selection) == kept(want["selection"])
+    # The fixture's URLs were rewritten as the tape's were (record.py), so compare like with like.
+    assert scrub.for_tape(outcome.launch_params) == want.get("launch_params"), \
+        f"the launch changed: {outcome.launch_params!r}, recorded {want.get('launch_params')!r}"
 
 
 def test_there_are_recorded_stories():
@@ -185,9 +190,12 @@ def test_a_recorded_run_replays_to_the_same_grade(synthetic, tmp_path, monkeypat
     replay_fixture(synthetic, tmp_path / "replay", monkeypatch)
 
 
-def test_a_changed_selection_input_fails_the_replay(synthetic, tmp_path, monkeypatch):
+def test_a_changed_selection_input_fails_the_replay_naming_the_changed_files(synthetic, tmp_path, monkeypatch):
+    assert synthetic["fingerprint_files"] == fingerprint.files()
+    edited = {**fingerprint.files(), "NessieAI/router/router.py": "0" * 64}
     monkeypatch.setattr(fingerprint, "current", lambda: "0" * 64)
-    with pytest.raises(AssertionError, match="selection inputs changed"):
+    monkeypatch.setattr(fingerprint, "files", lambda: edited)
+    with pytest.raises(AssertionError, match="selection inputs changed.*NessieAI/router/router.py"):
         replay_fixture(synthetic, tmp_path / "replay", monkeypatch)
 
 
@@ -309,8 +317,10 @@ def test_a_run_that_builds_the_real_selection_context_replays_clean(synthetic_re
                                           "reason": "bulk or single-cell is not stated"}
     total = len(json.dumps(fx, indent=1, sort_keys=True))
     own_bytes = sum(len(a["__bytes__"]) for a in schemas.values() if "__bytes__" in a)
-    print(f"tape size: {total} bytes; {own_bytes} of them the one schema that is not a committed fixture")
-    assert total - own_bytes < 15_000       # a sha per committed schema, not its bytes
+    hashes = len(json.dumps(fx["fingerprint_files"], indent=1, sort_keys=True))   # fixed: one sha per input
+    print(f"tape size: {total} bytes; {own_bytes} of them the one schema that is not a committed fixture, "
+          f"{hashes} the per-input fingerprint hashes")
+    assert total - own_bytes - hashes < 15_000       # a sha per committed schema, not its bytes
     FETCHED.clear()
     replay_fixture(fx, tmp_path / "replay", monkeypatch)     # raises on any unplayed entry or mismatch
     assert FETCHED == []                                      # the stubbed context build fetched nothing
@@ -350,3 +360,9 @@ def test_record_keeps_archive_urls_and_rewrites_instance_urls_outside_the_story(
     assert kept["outcome"]["replies"] == [f"The protocol (<url>) says paired-end; reads at {ena}."]
     assert kept["decision"]["reasoning"] == "see <url>" and kept["score"]["reasons"] == ["last reply: <url>"]
     assert "nextseek.example.org" not in json.dumps(kept)
+
+
+def test_a_changed_launch_fails_the_replay(synthetic, tmp_path, monkeypatch):
+    synthetic["outcome"]["launch_params"] = {"genome": "GRCh38"}      # recorded a build the replay does not make
+    with pytest.raises(AssertionError, match="launch"):
+        replay_fixture(synthetic, tmp_path / "replay", monkeypatch)

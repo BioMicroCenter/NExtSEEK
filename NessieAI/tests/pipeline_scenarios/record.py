@@ -30,7 +30,8 @@ def fixture_from_row(row: dict, fp: str) -> dict:
     with its URLs rewritten as a tape's are (the story is left as committed, so the replay can compare it)."""
     seen = for_tape({"decision": row["decision"], "outcome": row["outcome"], "score": row["score"],
                      "tape": row["tape"]})
-    return {"story": {k: row["story"][k] for k in STORY_FIELDS}, "fingerprint": fp, **seen,
+    return {"story": {k: row["story"][k] for k in STORY_FIELDS}, "fingerprint": fp,
+            "fingerprint_files": fingerprint.files(), **seen,
             "agent_model": row.get("agent_model"), "laya_mode": row.get("laya_mode")}
 
 

@@ -218,6 +218,7 @@ def test_main_writes_the_run_folder_even_when_a_story_crashes(tmp_path, monkeypa
     assert row["outcome"]["error"].startswith("RuntimeError") and row["score"]["grade"] == "FAIL"
     from NessieAI.tests.pipeline_scenarios import fingerprint
     assert row["fingerprint"] == fingerprint.current() and row["agent_model"] == "model-x"
+    assert row["fingerprint_files"] == fingerprint.files()
     assert (tmp_path / "report.html").exists()
     assert json.loads((tmp_path / "summary.json").read_text())["summary"]["FAIL"] == 1
 
@@ -230,6 +231,7 @@ def test_the_summary_carries_the_fingerprint_the_run_was_made_under(tmp_path, mo
     summary = json.loads((tmp_path / "summary.json").read_text())
     assert summary["fingerprint"] == fingerprint.current() and summary["agent_model"] == "model-x"
     assert summary["posterior_routing"] is False and summary["laya_mode"] == "off"
+    assert summary["fingerprint_files"] == fingerprint.files()
 
 
 def test_the_summary_says_when_posterior_routing_was_on(tmp_path, monkeypatch, settings):
