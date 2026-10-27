@@ -47,7 +47,15 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
     by every sample of the run, unless the rule sets `parents_by_samplesheet`, a
     samplesheet column whose value is the row's `@file_stem`: then only the samples
     with that value are its parents (chipseq's `<antibody>.consensus_peaks.bed`, column
-    `antibody`), and a file no sample names gets no `Parent` and a warning.
+    `antibody`). A file whose value no sample of this run's samplesheet has is not this
+    run's (a folder reused by a launch with another antibody): it gets no row, and the
+    reply lists it under FILES LEFT OUT: NOT FROM THIS RUN (`MapResult.stale_files`). A
+    named sample that resolved to no D.SEQ is left out of `Parent` with a warning; when
+    none resolved, the row ships with no `Parent`, pending the owner's ruling on
+    parentless group rows (`NessieAI/ns/reingest/README.md` "Invariants").
+    Two rows of one sample type whose files share a name (a contrast under two
+    paramsets; one antibody's broad and narrow consensus in a reused folder) keep as
+    many trailing folders in `File_PrimaryData` as tell them apart.
   - `companions` — files derived from the row's primary file (a subset, an index,
     other units, a model object). A companion is never its own row. It goes into
     its `slot` if it names one, the row's type has it and it is empty; else
@@ -57,7 +65,7 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
   - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
     nothing is expected, so it is not reported and builds no rows.
   - `skip_samples_without_file` — optional per_sample rules only: a sample with no file gets no row (logged), e.g. tumours for germline callers. Without it, such a sample gets a fileless row, which blocks the upload.
-  - `alternative_group` — optional per_sample primary rules only, two or more to a group, one sample type per group: rules naming one group are outputs of which one launch writes at most one per sample (methylseq's three A.MSEQ rules; atacseq's and chipseq's narrow and broad peaks). nf-core never deletes an old output, so a run folder reused by a second launch can hold both; the sample (counted by replicate group where the run has them) then gets a row from each, every row is kept, and the reply's FILES FROM AN EARLIER RUN TO CHECK names the files, plus any other row of the sample whose file won over a later candidate pattern (methylseq's aln rule prefers Bismark's BAM). Leave it unset for outputs that coexist (a bigWig beside its peaks, sarek's variant callers).
+  - `alternative_group` — optional primary rules only, per_sample or per_file (not mixed in one group), two or more to a group, one sample type per group; a per_file rule's rows are counted by their `@file_stem` (chipseq's narrow and broad consensus of one antibody): rules naming one group are outputs of which one launch writes at most one per sample (methylseq's three A.MSEQ rules; atacseq's and chipseq's narrow and broad peaks). nf-core never deletes an old output, so a run folder reused by a second launch can hold both; the sample (counted by replicate group where the run has them) then gets a row from each, every row is kept, and the reply's FILES FROM AN EARLIER RUN TO CHECK names the files, plus any other row of the sample whose file won over a later candidate pattern (methylseq's aln rule prefers Bismark's BAM). Leave it unset for outputs that coexist (a bigWig beside its peaks, sarek's variant callers).
   - `assay` — the house assay the rule's rows are filed under, by its `internal_assays` title (a catalog alternative name also resolves). A name, never an id: the ASSAY sheet needs a study-scoped `assays.id`, resolved per run from the parents' study, and the upload creates the study assay when the study has none. Every rule must name one (`test_map_contract.py`).
   - `attributes`, `primary_data`, `include_provenance` — as in the schema.
 
@@ -105,9 +113,12 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
 
 `$`-prefixed values are lookups into a manifest section (`params`, `pipeline`,
 `software_versions`, `outputs`, `metrics`, `derived`, `samplesheet`). There is no evaluation.
-`$samplesheet.<column>` is the sample's own samplesheet cell (the harvest keeps every
-cell that is not a path); on a row with no sample in scope (`per_run`, `per_file`) it is
-the value every sample of the row's run shares, else nothing.
+`$samplesheet.<column>` is the sample's own samplesheet cell. The harvest keeps only the
+columns the run's map reads (`PipelineMap.samplesheet_columns`: its `$samplesheet` refs
+and `parents_by_samplesheet`), and no path: the manifest is stored and handed to
+Container-CC whole, so sarek's sex or status never reach it. On a row with no sample in
+scope (`per_run`, `per_file`) it is the value every sample of the row's run shares, else
+nothing.
 A map cannot compute; `derived_metrics` in `reingest/derived.py` is the only
 place reingest does arithmetic on a measurement.
 
@@ -244,7 +255,7 @@ What blocks each row:
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | methylseq | Bismark's per-read, per-context calls `<aligner>/methylation_calls/methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz`, the targeted bedGraph `*.bedGraph.targeted.bedGraph` (with `--run_targeted_sequencing`), and `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`). The CpG coverage and bedGraph have rules (A.MSEQ); their MeanCpGMethylationPercent reads the general-stats column `bismark-percent_cpg_meth`, unverified until a real run | A.MSEQ | choice: whether to register the per-read calls (large; summarised by the coverage file) and the genome-wide cytosine report, which would need a slot or Notes on A.MSEQ |
 | methylseq | `methyldackel/*_{CHG,CHH}.bedGraph` (with `--all_contexts`; `*_{CHG,CHH}.methylKit` with `--methyl_kit` as well), `methyldackel/*.targeted.bedGraph`, and Rastair's TAPS calls `rastair/{call,methylkit}/` (bwa-mem, or bwa-meth with `--taps`). MethylDackel's CpG calls have rules (A.MSEQ): `*_CpG.bedGraph`, or `*_CpG.methylKit`, which `--methyl_kit` writes instead of the bedGraph. With `--taps` and a Bismark aligner, Bismark still calls the reads as bisulfite data, so its calls come out inverted while the row's ConversionMethod says TAPS; methylseq only logs a recommendation to use bwa-mem (`workflows/methylseq/main.nf`) | A.MSEQ | inventory; choice: A.MSEQ has one secondary slot and no Notes for the non-CpG files; TAPS calls need their own DataType and Software; whether to refuse a TAPS run aligned with Bismark |
-| chipseq, atacseq | A.CHRM's Name, Antibody, File_SecondaryData, Link_SecondaryData and Notes exist on the local stack only (widened 2026-10-27). The maps set Name and Antibody as `row_defaults`, which the mapper drops for a type that lacks them, and companions fall back to the build report there, so dev and prod build the rows they built before. The committed `context/sample_types.json` stays prod-true; the contract test reads the fields from the test-only snapshot `NessieAI/tests/ns/fixtures/sampletype_attributes.json` (its `hand_edits` note). Before this map merges to a branch that deploys: widen A.CHRM on dev and prod (the owner's commands, untracked, in `schema/reingest-types-src/remote-create/`: `remote_create.py widen <instance> --definitions achrm_fields.json`, then `achrm_catalog.sql` on that instance's dmac database and `graph_sync --catalog`), then add the five to A.CHRM in `context/sample_types.json`, regenerate (`scripts/context_gen.py --emit update`, `--emit exports`) and drop the snapshot's hand-edit note. | A.CHRM | five fields to create on dev and prod |
+| chipseq, atacseq | A.CHRM's Name, Antibody, File_SecondaryData, Link_SecondaryData and Notes exist on the local stack only (widened 2026-10-27). The maps set Name and Antibody as `row_defaults`, which the mapper drops for a type that lacks them, and companions fall back to the build report there, so on dev and prod the A.CHRM rows carry no field those instances lack. They are not the rows those instances built before: chipseq now also writes one consensus row per antibody (narrow or broad), and the atacseq and chipseq D.SEQ backfill gains DuplicationPercent, which an instance whose live catalog lacks it parks in Notes and lists as needs_definition. The committed `context/sample_types.json` stays prod-true; the contract test reads the fields from the test-only snapshot `NessieAI/tests/ns/fixtures/sampletype_attributes.json` (its `hand_edits` note). Before this map merges to a branch that deploys: widen A.CHRM on dev and prod (the owner's commands, untracked, in `schema/reingest-types-src/remote-create/`: `remote_create.py widen <instance> --definitions achrm_fields.json`, then `achrm_catalog.sql` on that instance's dmac database and `graph_sync --catalog`), then add the five to A.CHRM in `context/sample_types.json`, regenerate (`scripts/context_gen.py --emit update`, `--emit exports`) and drop the snapshot's hand-edit note. | A.CHRM | five fields to create on dev and prod |
 | methylseq | A.MSEQ and its producing assay "Methylation Calling" exist on the local stack only; the A.MSEQ rows cannot upload on dev or prod until both are created there. The committed assay catalog (`assays_db.json`, `min_assays_db.json`, the installer seed) stays prod-true and does not list the assay: the contract test reads it from the test-only overlay `NessieAI/tests/ns/fixtures/local_only_assays.json`. Before this map merges to a branch that deploys, Methylation Calling must be in `context/assays.json` and the exports (and the overlay entry deleted), and A.MSEQ created on dev and prod. | A.MSEQ | a sample type and a house assay to create on dev and prod |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
 | riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
@@ -339,11 +350,14 @@ the attribute.
 A.CHRM rows carry a `Name` (`@row_name`) and, for chipseq, the `Antibody` their
 replicate's samplesheet names (`$samplesheet.antibody`; blank for the input controls),
 both as `row_defaults`. chipseq's per-antibody consensus peaks are one `per_file` row
-each, parented only by that antibody's samples (`parents_by_samplesheet`), with its
-`featureCounts.txt` as companion. A companion of an A.CHRM row (atacseq's consensus
-`featureCounts.txt`, a losing peak or bigWig candidate of a merged-replicate group) goes
-to `File_SecondaryData`, then `Notes`, on an instance whose A.CHRM has them (the local
-stack, until dev and prod are widened: the row above), and to the build report elsewhere.
+each (`consensus_narrow` or `consensus_broad`, one `alternative_group`), parented only by
+that antibody's samples (`parents_by_samplesheet`), with its `featureCounts.txt` as
+companion. A companion of an A.CHRM row (atacseq's consensus `featureCounts.txt`) goes to
+`File_SecondaryData`, then `Notes`, on an instance whose A.CHRM has them (the local stack,
+until dev and prod are widened: the row above), and to the build report elsewhere. A
+merged-replicate group's row names its replicates' own peaks or bigWigs in `Notes` (or the
+build report), never in `File_SecondaryData`: one replicate's output is not the group's
+secondary data (G-4).
 
 ### methylseq's variant fixtures
 
