@@ -192,7 +192,6 @@ def test_out_of_scope_helper_shape():
     assert verdict.reason == "no evidence"
 
 
-
 def test_the_prompt_does_not_call_the_atlas_rna_only():
     assert "covers RNA pipelines only" not in SYSTEM_PROMPT
     assert "sarek" in SYSTEM_PROMPT

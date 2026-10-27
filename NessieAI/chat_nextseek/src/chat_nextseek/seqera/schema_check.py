@@ -48,9 +48,10 @@ _TYPE_CHECKS: dict[str, Callable[[Any], bool]] = {
 #: and emit_launch_artifacts), so the run never needs them from the menu.
 LAUNCHER_PARAMS = frozenset({"input", "outdir"})
 
-#: Params a genome key fills before nf-schema validates: main.nf reads them from the iGenomes
-#: entry (getGenomeAttribute), and on Luria the run script passes the local --fasta/--gtf
-#: beside --genome (luria.run_script.render_run_script).
+#: Params a genome key fills before the pipeline validates its params, in a pipeline whose
+#: schema declares `genome`: main.nf reads them from the iGenomes entry (getGenomeAttribute),
+#: and on Luria the run script passes the local --fasta/--gtf beside --genome
+#: (luria.run_script.render_run_script).
 GENOME_FILLS = frozenset({"fasta", "gtf"})
 
 
@@ -115,30 +116,37 @@ def missing_required(pipeline_key: str, revision: str | None, params: dict[str, 
     """Schema-required params that `params`, the run's whole param set, neither sets nor fills.
 
     Filled: a schema default (the pipeline's nextflow.config sets it), LAUNCHER_PARAMS, and
-    GENOME_FILLS when the run names a genome. A None value sets nothing. Returns (names,
-    skip_reason); when the schema is unavailable, names is empty.
+    GENOME_FILLS when the run names a genome and the schema declares one. A None value sets
+    nothing. Returns (names, skip_reason); when the schema is unavailable, names is empty.
     """
     nextflow_schema, props, skip = _load_schema(pipeline_key, revision, schema_getter)
     if props is None:
         return [], skip
     given = {k for k, v in (params or {}).items() if v is not None}
-    filled = given | LAUNCHER_PARAMS | (GENOME_FILLS if "genome" in given else set())
+    filled = given | LAUNCHER_PARAMS | (GENOME_FILLS if "genome" in given and "genome" in props
+                                        else set())
     return [name for name in schema_required(nextflow_schema)
             if name not in filled and (props.get(name) or {}).get("default") is None], None
 
 
-def required_message(pipeline_key: str, revision: str | None, name: str) -> str:
-    """The error for a required param the run leaves unset."""
-    via = " (a genome fills it: send the cohort's genome, or ask the user which reference)" \
-        if name in GENOME_FILLS else ""
+def genome_fills(pipeline_key: str, revision: str | None, *, schema_getter=None) -> frozenset[str]:
+    """GENOME_FILLS when the pinned schema declares a `genome` param, else nothing."""
+    _schema, props, _skip = _load_schema(pipeline_key, revision, schema_getter)
+    return GENOME_FILLS if props and "genome" in props else frozenset()
+
+
+def required_message(pipeline_key: str, revision: str | None, name: str,
+                     *, by_genome: bool = False) -> str:
+    """The error for a required param the run leaves unset; `by_genome` when a genome fills it."""
+    via = " (a genome fills it)" if by_genome else ""
     return (f"param {name!r} is required by nf-core/{pipeline_key}@{revision} and this run "
-            f"neither sets nor fills it{via}. nf-schema aborts the run on a missing required "
-            "parameter.")
+            f"neither sets nor fills it{via}. A run without it fails the pipeline's own "
+            "parameter check.")
 
 
 def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any],
                  *, schema_getter=None, source: str = "curated",
-                 required: bool = True) -> tuple[list[str], str | None]:
+                 required: bool = False) -> tuple[list[str], str | None]:
     """Check every final param against the pinned schema, and that none it requires is unset.
 
     Returns (errors, skip_reason). When skip_reason is set, errors is empty and
@@ -153,9 +161,10 @@ def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any]
     — telling it to "correct the curated file" would send it to edit a file it
     has no tool for and no business touching.
 
-    `required` assumes `params` is the run's whole param set (see missing_required). Pass
-    False when checking only part of it: configure_run splits the run by who supplied each
-    param and checks the required ones on the merged set itself.
+    `required=True` also reports required params `params` leaves unset (missing_required). It
+    is off by default because only a caller holding the run's WHOLE param set may ask for it:
+    on a part of the run (configure_run checks it split by who supplied each param) every
+    required param the other part sets would be a false error.
     """
     props, skip = _load_properties(pipeline_key, revision, schema_getter)
     if props is None:
@@ -199,7 +208,10 @@ def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any]
                     f"nf-core/{pipeline_key}@{revision}, got {type(value).__name__} {value!r}.")
     if required:
         unset, _ = missing_required(pipeline_key, revision, params, schema_getter=schema_getter)
-        errors += [required_message(pipeline_key, revision, name) for name in unset]
+        by_genome = "genome" in props
+        errors += [required_message(pipeline_key, revision, name,
+                                    by_genome=by_genome and name in GENOME_FILLS)
+                   for name in unset]
     return errors, None
 
 
