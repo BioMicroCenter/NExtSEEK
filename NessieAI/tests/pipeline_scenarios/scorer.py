@@ -85,14 +85,20 @@ def score(story: Story, o: Outcome) -> Score:
         return Score("FAIL", [f"launch expected but not built; last reply: {last!r}"])
     sets = [set(a) for a in story.acceptable]
     union = set().union(*sets) if sets else set()
+    # An offer is held to the same fork check as a build (owner's ruling 2026-10-28, T7-m1): a story
+    # that tolerates a fork says so by listing the pair as an acceptable set.
+    forked = (o.selection or {}).get("verdict") == "fork" and all(len(a) == 1 for a in sets) \
+        and set(o.selection.get("pipelines") or []) not in sets
+    fork_reason = f"asked between {(o.selection or {}).get('pipelines')} when the story expects a choice"
     reasons = []
     if built:
         if o.pipeline_key not in union:
             reasons.append(f"built on {o.pipeline_key}, acceptable {story.acceptable}")
-        elif (o.selection or {}).get("verdict") == "fork" and all(len(a) == 1 for a in sets) \
-                and set(o.selection.get("pipelines") or []) not in sets:
-            reasons.append(f"asked between {o.selection.get('pipelines')} when the story expects a choice")
+        elif forked:
+            reasons.append(fork_reason)
         reasons += _mismatches(o.launch_params, story.launch.get("must_match") or {})
     elif offered(o) not in sets and not (offered(o) & union):
         reasons.append(f"offered {sorted(offered(o))}, acceptable {story.acceptable}")
+    elif forked:
+        reasons.append(fork_reason)
     return Score("PARTIAL", reasons) if reasons else Score("PASS", ["acceptable"])

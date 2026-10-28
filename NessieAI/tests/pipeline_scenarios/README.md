@@ -14,7 +14,7 @@ route is right.
 | `stories.py` | loader, cohort resolution, format problems |
 | `test_cohorts.json` | local-only test cohorts (`test::<name>`); real cohorts come from `NessieAI/chat_nextseek/evals/groundtruth_cohorts.json` |
 | `test_story_format.py` | the free format test |
-| `scorer.py` | `score`: grades one story's outcome PASS, PARTIAL or FAIL, with the reasons; `test_scorer.py` tests it |
+| `scorer.py` | `score`: grades one story's outcome PASS, PARTIAL or FAIL, with the reasons; `test_scorer.py` tests it. An `ask` story passes when nothing was built and the selection did not refuse, however the reply is worded. A fork between pipelines when every acceptable set is a single choice is PARTIAL for an offer as for a build (owner's ruling, 2026-10-28); a story that tolerates a fork lists the pair as an acceptable set |
 | `scrub.py` | makes a tape safe for a public repository: keeps URLs on public sequence archives (`ARCHIVE_URLS`) and nf-core test data, rewrites every other URL to `<url>` (so no instance hostname is kept), rewrites the runner's own output folder (`OUTPUT_ROOTS`) to `/RUN`, and lists what must be refused (an email, an absolute path); `test_scrub.py` tests it |
 | `tape.py` | records, then replays, every answer the pipeline tools get from outside the code under test; a call the tape did not see raises `TapeMismatch`, the signal to re-record; `test_tape.py` tests it |
 | `apply_rulings.py` | writes the owner's rulings from the review page into the story files (`python -m NessieAI.tests.pipeline_scenarios.apply_rulings <rulings.json> <yyyy-mm-dd>`); `test_apply_rulings.py` tests it |
