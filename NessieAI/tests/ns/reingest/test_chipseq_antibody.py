@@ -235,7 +235,11 @@ def test_a_consensus_whose_samples_did_not_resolve_is_kept_and_said(tmp_path):
     k27 = _by(result, "consensus_broad")["H3K27ac.consensus_peaks.bed"]
     assert "Parent" not in k27
     assert result.stale_files == []
-    assert any("K27AC_REP1, K27AC_REP2" in w and "pending ruling" in w for w in result.warnings)
+    assert any("K27AC_REP1, K27AC_REP2" in w and "has no Parent" in w for w in result.warnings)
+    listed = [e for e in result.parentless_rows if e["rule_id"] == "consensus_broad"]
+    assert [(e["group"], e["samples"]) for e in listed] == [
+        ("antibody H3K27ac", ["K27AC_REP1", "K27AC_REP2"])]
+    assert listed[0]["path"].endswith("H3K27ac.consensus_peaks.bed")
 
 
 def test_a_consensus_says_which_of_its_samples_it_leaves_out(tmp_path):

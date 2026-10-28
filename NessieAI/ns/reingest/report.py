@@ -235,6 +235,24 @@ def _render_stale_files(entries: list[dict]) -> list[str]:
     return lines
 
 
+def _render_parentless_rows(entries: list[dict]) -> list[str]:
+    """The MERGED ROWS WITH NO PARENT section: rows for several samples at once (a
+    replicate group's merged file, an antibody's consensus) none of whose samples
+    matched a D.SEQ."""
+    if not entries:
+        return []
+    lines = ["MERGED ROWS WITH NO PARENT", ""]
+    for index, entry in enumerate(entries, start=1):
+        lines.append(f"  {index}.  {entry['sample_type']} row for {entry['group']}, {entry['path']}:"
+                     f" none of {_and_join(entry['samples'])} matched a D.SEQ.")
+    lines.append("")
+    lines.append("      These rows are in the workbook and upload without a parent, so")
+    lines.append("      they sit under no sample. Attach the parents in NExtSEEK later, or")
+    lines.append("      tell me the source samples and I'll rebuild.")
+    lines.append("")
+    return lines
+
+
 def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
                         run_name: str, ambiguous_primary: list[dict] | None = None,
                         row_counts: dict[str, int] | None = None,
@@ -242,6 +260,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
                         missed_rules: list[dict] | None = None,
                         alternative_rows: list[dict] | None = None,
                         stale_files: list[dict] | None = None,
+                        parentless_rows: list[dict] | None = None,
                         already_present: dict[str, dict] | None = None,
                         path_changed: dict[str, list] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
@@ -292,6 +311,10 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
 
     ``stale_files`` -- ``MapResult.stale_files``: files left out of the workbook
     because no sample of this run's samplesheet names them.
+
+    ``parentless_rows`` -- ``MapResult.parentless_rows``: merged rows (a replicate
+    group's, an antibody's consensus) that ship with no Parent because none of their
+    samples matched a D.SEQ.
 
     ``already_present`` -- ``{sample_type: {"uids": [...], "total": n}}``, the
     new-mode rows left out because their data file is already a sample of that
@@ -428,6 +451,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
 
     lines.extend(_render_alternative_rows(alternative_rows or []))
     lines.extend(_render_stale_files(stale_files or []))
+    lines.extend(_render_parentless_rows(parentless_rows or []))
 
     if unmapped_count:
         lines.append(f"{unmapped_count} QC metrics had no matching attribute; they are"

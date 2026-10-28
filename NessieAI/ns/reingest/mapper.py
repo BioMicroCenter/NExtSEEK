@@ -144,6 +144,14 @@ class MapResult(BaseModel):
     # an antibody an earlier launch in the same folder ran). Also in `warnings`;
     # this copy reaches the curator.
     stale_files: list[dict] = Field(default_factory=list)
+    # Rows for several samples at once that ship with no Parent because none of those
+    # samples resolved to a D.SEQ: {group, rule_id, sample_type, path, samples}, for a
+    # replicate group's merged row (`_group_row`) and a per_file row parented by a
+    # samplesheet column (chipseq's per-antibody consensus; `group` is then
+    # "<column> <value>"). They ship by the owner's ruling (2026-10-28,
+    # NessieAI/ns/reingest/README.md "Invariants"). Also in `warnings`; this copy
+    # reaches the curator, who can attach the parents later.
+    parentless_rows: list[dict] = Field(default_factory=list)
 
 
 _METRICS_REF = "$metrics."
@@ -313,11 +321,12 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
 
         if rule.cardinality == "per_sample":
             result.rows.extend(
-                _per_sample_rows(rule, merged_attrs, run_manifest, context, result.warnings))
+                _per_sample_rows(rule, merged_attrs, run_manifest, context, result.warnings,
+                                 result.parentless_rows))
         elif rule.cardinality == "per_file":
             result.rows.extend(
                 _per_file_rows(rule, merged_attrs, run_manifest, context, result.warnings,
-                               result.stale_files))
+                               result.stale_files, result.parentless_rows))
         else:
             row = _per_run_row(rule, merged_attrs, run_manifest, context, result.warnings)
             if row is not None:
@@ -834,7 +843,8 @@ def _place_companions(row: MappedRow, rule: maps.OutputRule, run_manifest,
 
 def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                      run_manifest: manifest.RunManifest,
-                     context: dict | None, warnings: list[str]) -> list[MappedRow]:
+                     context: dict | None, warnings: list[str],
+                     parentless_rows: list[dict] | None = None) -> list[MappedRow]:
     """One row per sample this rule's child ships for; the analysis record
     does not exist yet, so `uid` stays None and this row is what creates it.
 
@@ -886,7 +896,7 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                 members = [s for s in run_manifest.samples
                            if group_of.get(s.nfcore_sample) == group]
                 decided[group] = _group_row(rule, merged_attrs, run_manifest, context,
-                                            warnings, group, members)
+                                            warnings, group, members, parentless_rows)
                 if decided[group] is not None:
                     rows.append(decided[group])
             if decided[group] is not None:
@@ -907,7 +917,8 @@ def _first_tier(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
 def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
                run_manifest: manifest.RunManifest, context: dict | None,
                warnings: list[str], group: str,
-               members: list[manifest.SampleRecord]) -> MappedRow | None:
+               members: list[manifest.SampleRecord],
+               parentless_rows: list[dict] | None = None) -> MappedRow | None:
     """The replicate group's own row for this rule, or None when the group owns
     no file that wins over its replicates' (see `_per_sample_rows`). Its parents
     are every replicate's; its replicates' files for the rule (candidates and
@@ -916,7 +927,9 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     A replicate with no D.SEQ to name (ambiguous or unresolved) is left out of
     `Parent` with a warning, and the row still ships, by the owner's ruling
     (NessieAI/ns/reingest/README.md "Invariants"): unlike a standalone ambiguous
-    sample (`_NO_CHILD_ROW`), the merged file is the group's own output."""
+    sample (`_NO_CHILD_ROW`), the merged file is the group's own output. When no
+    replicate resolved, the row ships with no Parent and is also recorded in
+    `parentless_rows` for the curator's reply."""
     own = _first_tier(rule, run_manifest, group)
     if own is None:
         return None
@@ -934,8 +947,6 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
         else:
             unresolved.append(member.nfcore_sample)
     if unresolved and not parents:
-        # Whether this row should ship at all awaits the owner's ruling
-        # (NessieAI/ns/reingest/README.md "Invariants"); today it ships with no Parent.
         warnings.append(f"{group}: no replicate ({', '.join(unresolved)}) resolved to a "
                         f"D.SEQ; the group's {rule.id} row has no Parent")
     elif unresolved:
@@ -953,8 +964,21 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
         for companion in rule.companions:
             lost.extend(_companion_outputs(companion.glob, run_manifest,
                                            member.nfcore_sample, context))
-    return _sample_row(rule, merged_attrs, run_manifest, context, warnings, stand_in,
-                       replicate_files=sorted(lost, key=lambda o: o.path))
+    row = _sample_row(rule, merged_attrs, run_manifest, context, warnings, stand_in,
+                      replicate_files=sorted(lost, key=lambda o: o.path))
+    if row is not None and not parents and parentless_rows is not None:
+        parentless_rows.append(_parentless_row(rule, row, group, unresolved))
+    return row
+
+
+def _parentless_row(rule: maps.OutputRule, row: MappedRow, group: str,
+                    samples: list[str]) -> dict:
+    """A `MapResult.parentless_rows` entry: the row's data file and the samples none of
+    which resolved to a D.SEQ."""
+    primary = row.attributes.get("File_PrimaryData")
+    path = (primary.source_file or str(primary.value)) if primary is not None else ""
+    return {"group": group, "rule_id": rule.id, "sample_type": rule.sample_type,
+            "path": path, "samples": list(samples)}
 
 
 def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
@@ -1069,7 +1093,8 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
 def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                    run_manifest: manifest.RunManifest,
                    context: dict | None, warnings: list[str],
-                   stale_files: list[dict] | None = None) -> list[MappedRow]:
+                   stale_files: list[dict] | None = None,
+                   parentless_rows: list[dict] | None = None) -> list[MappedRow]:
     """One per_run-shaped row for EACH file the rule's glob matches, in path order.
 
     A per_run rule keeps the first match and drops the rest, which is right for
@@ -1106,6 +1131,13 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
         row = _per_run_row(rule, merged_attrs, only_this_file, row_context, warnings)
         if row is None:
             continue
+        if (rule.parents_by_samplesheet and parentless_rows is not None
+                and not any(_names_a_parent(s) for s in named)):
+            value = common.file_stem({"file_path": output.path, "file_glob": rule.candidates[0]})
+            parentless_rows.append({
+                "group": f"{rule.parents_by_samplesheet} {value}", "rule_id": rule.id,
+                "sample_type": rule.sample_type, "path": output.path,
+                "samples": [s.nfcore_sample for s in named]})
         rows.append(row)
     return rows
 
@@ -1155,8 +1187,9 @@ def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunMani
     run's (a folder reused by a launch with another antibody), so the row is left out
     and reported (``MapResult.stale_files``). Named samples that resolved to no D.SEQ
     are left out of Parent with a warning, as ``_group_row`` does; when none resolved
-    the row still ships with no Parent, pending the owner's ruling on parentless
-    group rows (NessieAI/ns/reingest/README.md "Invariants")."""
+    the row still ships with no Parent, by the owner's ruling on parentless group rows
+    (NessieAI/ns/reingest/README.md "Invariants"), and ``_per_file_rows`` records it in
+    ``MapResult.parentless_rows``."""
     column = rule.parents_by_samplesheet
     stem = common.file_stem({"file_path": output.path, "file_glob": rule.candidates[0]})
     named = [s for s in run_manifest.samples if stem and s.samplesheet.get(column) == stem]
@@ -1168,7 +1201,7 @@ def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunMani
     if unresolved and len(unresolved) == len(named):
         warnings.append(f"{output.path}: no sample with {column} {stem!r} "
                         f"({', '.join(unresolved)}) resolved to a D.SEQ; the {rule.id} row "
-                        "has no Parent (pending ruling on parentless group rows)")
+                        "has no Parent")
     elif unresolved:
         warnings.append(f"{output.path}: sample(s) {', '.join(unresolved)} with {column} "
                         f"{stem!r} resolved to no D.SEQ; the {rule.id} row names only the "

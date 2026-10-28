@@ -51,8 +51,8 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
     run's (a folder reused by a launch with another antibody): it gets no row, and the
     reply lists it under FILES LEFT OUT: NOT FROM THIS RUN (`MapResult.stale_files`). A
     named sample that resolved to no D.SEQ is left out of `Parent` with a warning; when
-    none resolved, the row ships with no `Parent`, pending the owner's ruling on
-    parentless group rows (`NessieAI/ns/reingest/README.md` "Invariants").
+    none resolved, the row ships with no `Parent` and the reply lists it, by the owner's
+    ruling on parentless group rows (`NessieAI/ns/reingest/README.md` "Invariants").
     Two rows of one sample type whose files share a name (a contrast under two
     paramsets; one antibody's broad and narrow consensus in a reused folder) keep as
     many trailing folders in `File_PrimaryData` as tell them apart.

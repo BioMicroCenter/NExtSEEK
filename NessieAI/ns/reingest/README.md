@@ -91,8 +91,11 @@ per-job path cannot be listed until the allowlist supports patterns.
   certain, so the row ships, `Parent` names only the replicates that resolved, and a map note
   names the one left out. See `test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row`
   in `NessieAI/tests/ns/reingest/test_replicate_samples.py`. When no replicate resolved, the row
-  still ships today, with no `Parent`, and the note says so; whether it should ship awaits an
-  owner ruling (`test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent`).
+  still ships, with no `Parent`, as an unresolved sample's child does (the owner's ruling,
+  2026-10-28), and the reply lists it under MERGED ROWS WITH NO PARENT
+  (`MapResult.parentless_rows`) so the curator can attach the parents later; chipseq's
+  per-antibody consensus rows follow the same rule
+  (`test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent`).
 
 ## Running and testing
 
