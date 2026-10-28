@@ -70,10 +70,14 @@ def score(story: Story, o: Outcome) -> Score:
             return Score("FAIL", [f"offered {put_forward} for a {story.expect} story"])
         return Score("PASS", [story.expect])
     if story.expect == "ask":
-        asked = bool(o.replies and "?" in o.replies[0]) or (o.selection or {}).get("verdict") == "fork"
-        if asked and not built:
-            return Score("PASS", ["asked"])
-        return Score("PARTIAL", [f"chose {o.pipeline_key or sorted(offered(o))} without asking"])
+        # Stopping short of a build without refusing is the ask. The reply's wording is not:
+        # "I need two things from you" asks with no question mark.
+        verdict = (o.selection or {}).get("verdict")
+        if built:
+            return Score("PARTIAL", [f"chose {o.pipeline_key or sorted(offered(o))} without asking"])
+        if verdict in ("refused", "out_of_scope"):
+            return Score("PARTIAL", [f"{verdict} instead of asking: {o.selection.get('reason') or ''}"[:200]])
+        return Score("PASS", ["asked"])
     if (o.selection or {}).get("verdict") == "refused" and not built:
         return Score("FAIL", [f"refused: {o.selection.get('reason') or ''}"[:200]])
     if story.launch.get("built") and not built:

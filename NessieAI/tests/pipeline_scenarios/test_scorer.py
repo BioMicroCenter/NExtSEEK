@@ -96,10 +96,25 @@ def test_ask_passes_on_a_fork_even_when_the_reply_is_a_statement():
     assert score(st, o).grade == "PASS"
 
 
-def test_ask_is_partial_with_no_question_and_no_fork():
+def test_ask_passes_without_a_question_mark_when_nothing_was_built():
+    """241219BRY: Nessie chose scrnaseq, then asked for the barcode layout as a statement."""
+    st = _story(expect="ask", acceptable=[["scrnaseq"]], must_not=["rnaseq"],
+                launch={"built": False, "must_match": {}})
+    o = Outcome(route="nextseek_query", pipeline_key="scrnaseq",
+                selection={"verdict": "chosen", "pipelines": ["scrnaseq"]},
+                replies=["These are pooled prime-seq libraries. I need two things from you: "
+                         "the barcode layout and the condition map."])
+    assert score(st, o).grade == "PASS"
+    assert score(st, Outcome(route="nextseek_query", replies=["Tell me whether these are ATAC or ChIP."])).grade == "PASS"
+
+
+def test_ask_is_partial_on_a_refusal_even_with_a_question_mark():
     st = _story(expect="ask", acceptable=[], launch={"built": False, "must_match": {}})
-    o = Outcome(route="nextseek_query", replies=["Tell me whether these are ATAC or ChIP."])
-    assert score(st, o).grade == "PARTIAL"
+    for verdict in ("refused", "out_of_scope"):
+        o = Outcome(route="nextseek_query", replies=["No pipeline fits. Shall I look again?"],
+                    selection={"verdict": verdict, "pipelines": [], "reason": "no matching data"})
+        s = score(st, o)
+        assert s.grade == "PARTIAL" and verdict in s.reasons[0] and "no matching data" in s.reasons[0], verdict
 
 
 def test_a_refusal_of_an_offer_only_answerable_story_fails():
