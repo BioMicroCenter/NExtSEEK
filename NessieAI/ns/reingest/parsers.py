@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import shlex
 
 import yaml
 
@@ -21,6 +22,67 @@ def parse_params(text: str) -> dict:
     """pipeline_info/params*.json -> every resolved param, verbatim."""
     data = json.loads(text)
     return data if isinstance(data, dict) else {}
+
+
+# Nextflow's own single-dash options that take a value, in a `nextflow run` line.
+_NEXTFLOW_VALUE_OPTIONS = {"-profile", "-c", "-config", "-params-file", "-w", "-work-dir",
+                           "-r", "-revision", "-name", "-with-report", "-with-trace",
+                           "-with-timeline", "-with-dag"}
+
+
+def parse_launch_params(params_yml: str | None, run_sh: str | None) -> dict:
+    """The params Nessie launched a run with, for a release that writes no
+    pipeline_info/params*.json (nf-core/atacseq 2.1.2): its `-params-file
+    params.yml`, overlaid with the `--name value` flags of run.sh's `nextflow run`
+    line, which win over the params file as they do in Nextflow. Only the
+    pipeline's own command counts (the one given `-params-file`, not a fetchngs
+    pre-step's). A flag with no value is True; values stay strings."""
+    params: dict = {}
+    if params_yml:
+        try:
+            data = yaml.safe_load(params_yml)
+        except yaml.YAMLError:
+            data = None
+        if isinstance(data, dict):
+            params.update({str(k): v for k, v in data.items()})
+    for tokens in _nextflow_run_commands(run_sh or ""):
+        if "-params-file" not in tokens:
+            continue
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            if token.startswith("--") and len(token) > 2:
+                name, eq, value = token[2:].partition("=")
+                if eq:
+                    params[name] = value
+                elif i + 1 < len(tokens) and not tokens[i + 1].startswith("-"):
+                    params[name] = tokens[i + 1]
+                    i += 1
+                else:
+                    params[name] = True
+            elif token in _NEXTFLOW_VALUE_OPTIONS:
+                i += 1
+            i += 1
+    return params
+
+
+def _nextflow_run_commands(script: str) -> list[list[str]]:
+    """Each `nextflow run ...` command of a shell script, its backslash
+    continuations joined, split into words after `run`."""
+    commands = []
+    lines = iter(script.splitlines())
+    for line in lines:
+        text = line.strip()
+        if not text.startswith("nextflow run "):
+            continue
+        while text.endswith("\\"):
+            text = text[:-1] + " " + next(lines, "").strip()
+        try:
+            words = shlex.split(text, comments=True)
+        except ValueError:
+            continue
+        commands.append(words[2:])
+    return commands
 
 
 def _version_field(value) -> str:

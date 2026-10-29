@@ -41,7 +41,9 @@ Nessie run. It is fixture bookkeeping: no map has to claim it.
 The sanitizer refuses rather than edits, so before committing a fixture:
 
 1. Blank params such as `email`, `email_on_fail`, `hook_url` and `multiqc_title`
-   if present, in the params JSON and anywhere else they are echoed.
+   if present, in the params JSON and anywhere else they are echoed, and delete a
+   `#SBATCH --mail-user` line from Nessie's `run.sh` (staged since the harvest reads
+   the run's params from it when a release writes no params JSON).
 2. Review every file in the folder by hand. The scan catches paths, addresses and
    URLs, not lab sample names, user names or hostnames in free text.
 

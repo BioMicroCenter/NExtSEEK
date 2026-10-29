@@ -73,8 +73,9 @@ def test_fixture(folder):
 import fnmatch
 
 # Files the harvest reads itself, or fixture bookkeeping: no map has to claim them.
-_HARVEST_OWNED = ("pipeline_info/*", "multiqc/*", "samplesheet.csv", "launch_record.json",
-                  "EVIDENCE.txt", "SYNTHETIC.txt", "inventory.json", "snapshot.json")
+_HARVEST_OWNED = ("pipeline_info/*", "multiqc/*", "samplesheet.csv", "params.yml", "run.sh",
+                  "launch_record.json", "EVIDENCE.txt", "SYNTHETIC.txt", "inventory.json",
+                  "snapshot.json")
 
 
 @pytest.mark.parametrize("folder", FIXTURES, ids=lambda p: f"{p.parent.name}/{p.name}")

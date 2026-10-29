@@ -114,6 +114,11 @@ data), all under `NessieAI/tests/ns/reingest/`; and the link test
 
 `$`-prefixed values are lookups into a manifest section (`params`, `pipeline`,
 `software_versions`, `outputs`, `metrics`, `derived`, `samplesheet`). There is no evaluation.
+`params` is the release's `pipeline_info/params*.json`. A release that writes none
+(atacseq 2.1.2) gets the params Nessie launched it with instead: its `params.yml`
+overlaid with the `--name value` flags of `run.sh`'s `nextflow run` line, where
+`--genome` is (`parsers.parse_launch_params`). A run Nessie did not launch has neither,
+so its `$params` refs resolve to nothing.
 `$samplesheet.<column>` is the sample's own samplesheet cell. The harvest keeps only the
 columns the run's map reads (`PipelineMap.samplesheet_columns`: its `$samplesheet` refs
 and `parents_by_samplesheet`), and no path: the manifest is stored and handed to

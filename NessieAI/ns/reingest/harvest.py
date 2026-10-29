@@ -89,6 +89,11 @@ _STAR_LOG_GLOB = "*/log/*.Log.final.out"
 # harvest_local reads only the one file params.contrasts names.
 _CONTRASTS_TSV_GLOB = "*.tsv"
 _CONTRASTS_YAML_GLOB = "*.y*ml"
+# Nessie's own launch files, beside pipeline_info/ (its run.sh launches with
+# `--outdir .`): the run's params, for a release that writes no params JSON
+# (parsers.parse_launch_params).
+_LAUNCH_PARAMS_GLOB = "params.yml"
+_LAUNCH_SCRIPT_GLOB = "run.sh"
 
 GENERIC_GLOBS: tuple[str, ...] = (
     _PARAMS_GLOB,
@@ -102,6 +107,8 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _STAR_LOG_GLOB,
     _CONTRASTS_TSV_GLOB,
     _CONTRASTS_YAML_GLOB,
+    _LAUNCH_PARAMS_GLOB,
+    _LAUNCH_SCRIPT_GLOB,
 )
 
 # Not a glob: the stage script (granular._STAGE_SCRIPT) reads Nextflow's
@@ -367,6 +374,15 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     if found:
         sources["params"], text = found[0], found[1]
         out.params = parsers.parse_params(text)
+    else:
+        # nf-core/atacseq 2.1.2 writes no params JSON: rebuild the params from the
+        # files Nessie launched it with, so $params.genome and $params.aligner resolve.
+        launch = [f for f in (first(_LAUNCH_PARAMS_GLOB), first(_LAUNCH_SCRIPT_GLOB)) if f]
+        if launch:
+            texts = {rel: text for rel, text in launch}
+            out.params = parsers.parse_launch_params(texts.get(_LAUNCH_PARAMS_GLOB),
+                                                     texts.get(_LAUNCH_SCRIPT_GLOB))
+            sources["params"] = " + ".join(texts)
 
     _read_contrasts(out, base, read, sources, warnings)
 
