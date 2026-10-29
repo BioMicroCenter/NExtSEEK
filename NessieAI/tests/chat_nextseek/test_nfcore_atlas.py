@@ -144,3 +144,34 @@ def test_pipelines_without_a_species_limit_do_not_claim_one():
             continue
         assert "species_constraint" not in entry or entry["species_constraint"], \
             f"{key} carries an empty species_constraint"
+
+
+# ---------------------------------------------------------------------------
+# rnavar
+#
+# On 2026-10-29 a dev user asked which genetic variants a lab's breast cancer
+# cells express. rnavar was the answer and was never offered. Its entry was the
+# thinnest in the atlas: no input or data signals, and an `answers` line in
+# pipeline words ("appear in the transcripts") that a scientist's "which
+# variants do these cells express" does not echo, while "express" pulls
+# toward rnaseq.
+# ---------------------------------------------------------------------------
+
+def test_rnavar_carries_the_fields_the_selector_reads():
+    entry = load_atlas()["pipelines"]["rnavar"]
+    for field in ("answers", "assumes_prep", "input_you_must_have", "data_signals"):
+        assert entry.get(field), f"rnavar has no {field}"
+    assert entry["data_signals"]["library_strategy"] == ["RNA-Seq"]
+    assert entry["data_signals"]["library_source"] == ["TRANSCRIPTOMIC"]
+
+
+def test_rnavar_answers_in_the_words_a_scientist_uses():
+    answers = load_atlas()["pipelines"]["rnavar"]["answers"].lower()
+    for word in ("genetic variants", "mutations", "snps", "carry", "express"):
+        assert word in answers, word
+
+
+def test_a_variant_question_that_says_express_is_still_rnavar():
+    pipelines = load_atlas()["pipelines"]
+    assert "express" in pipelines["rnavar"]["versus"]["rnaseq"]["differs_by"]
+    assert "variant question" in pipelines["rnaseq"]["versus"]["rnavar"]["differs_by"]

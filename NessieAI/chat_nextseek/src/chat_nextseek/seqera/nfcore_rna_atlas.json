@@ -51,7 +51,7 @@
           "ask_user": "Are you looking for two genes fused together, or for how much each gene is expressed?"
         },
         "rnavar": {
-          "differs_by": "Same reads, different question. rnavar calls SNVs and indels inside transcripts and does not produce a normal expression table.",
+          "differs_by": "Same reads, different question. rnavar calls SNVs and indels inside transcripts and does not produce a normal expression table. Which variants or mutations a sample \"expresses\" is still a variant question, not an expression one.",
           "ask_user": "Do you want expression levels, or the sequence variants present in the transcripts?"
         },
         "riboseq": {
@@ -244,11 +244,29 @@
     },
     "rnavar": {
       "revision": "1.3.0",
-      "answers": "Which sequence variants \u2014 SNVs, indels \u2014 appear in the transcripts?",
-      "assumes_prep": "The same bulk RNA library as rnaseq.",
+      "answers": "Which genetic variants \u2014 SNVs and short indels, the mutations and SNPs \u2014 do these samples carry or express in their transcripts?",
+      "assumes_prep": "The same bulk RNA library as rnaseq. Calls follow coverage, so only genes the sample expresses can be called: a silent or lowly expressed gene reports nothing, which is not evidence that it is unmutated.",
+      "input_you_must_have": "FASTQ, single- or paired-end, from a bulk RNA library, and a reference genome with its annotation. Base recalibration and variant annotation are off by default, because dbSNP, the known-indel sets and the annotation caches are not provisioned on Luria.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "TruSeq Stranded mRNA",
+          "poly-A selection",
+          "rRNA depletion",
+          "tumour",
+          "tumor",
+          "cancer cell line",
+          "mutation"
+        ]
+      },
       "versus": {
         "rnaseq": {
-          "differs_by": "Choose rnaseq unless the question names variants, mutations, SNPs, or allele-specific expression. rnavar does not produce a normal expression table.",
+          "differs_by": "Choose rnaseq unless the question names variants, mutations, SNPs, or allele-specific expression. A question about which variants or mutations samples express or carry is rnavar: \"express\" there does not make it an expression question. rnavar does not produce a normal expression table.",
           "ask_user": "Do you want expression levels, or the sequence variants present in the transcripts?"
         },
         "rnafusion": {
