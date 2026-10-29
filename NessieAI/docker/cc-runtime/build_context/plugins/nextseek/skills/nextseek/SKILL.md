@@ -5,8 +5,10 @@ description: >
   samples", "break samples down by type/attribute/project", "retrieve a sample by UID",
   "show the sample tree / lineage", "run a graph query", "refine that search", "what sampletypes/assays exist", "build a project report
   (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission workbook",
-  "launch/run/submit an nf-core pipeline (rnaseq/scrnaseq) on the cluster for these samples",
+  "launch/run/submit an nf-core pipeline (rnaseq, rnavar, scrnaseq or any other in the pipeline agent's
+  catalog) on the cluster for these samples",
   "which genes change between these samples / compare expression between groups" (offers a pipeline run),
+  "which variants or mutations do these samples carry or express" (offers a pipeline run),
   "plan a multi-step lookup", "how would I run the method of this paper / lab" (a named paper, method or
   lab is looked up in NExtSEEK first), or "create/update/delete NExtSEEK data". Do NOT trigger on general
   bioinformatics questions that name no paper, method or lab, code/file edits, non-NExtSEEK data sources,
@@ -275,13 +277,21 @@ turn's time to do it. Put the user's question in the message VERBATIM, then the 
 the cohort exactly as the user gave them, and do NOT name a pipeline: the pipeline agent picks it
 from the question.
 
+The same holds when the user asks what their sequenced samples carry, which only a run over the
+reads can call: which variants, mutations or SNPs they carry or express, whether two genes are
+fused, which HLA alleles a donor carries. When they point back at earlier results ("these
+cells", "those files"), add the sample UIDs from that turn's `rows.csv` after the verbatim
+question. A request for variant-call records already registered (the A.VCF samples, their files)
+is still a `nextseek-graph` question. Never tell the user which pipelines NExtSEEK can or cannot
+run: the pipeline agent's catalog decides that, and it covers far more than rnaseq and scrnaseq.
+
 ```bash
 nextseek-pipeline --message "Question (verbatim): <the user's question, word for word>"
 ```
 
 Relay its reply as it stands. It is an offer, not a launch: it says what the run will give the
 user and what it will not answer, and nothing is submitted until the user replies. Never compute
-or claim the changed genes yourself.
+or claim the changed genes or the variants yourself.
 
 **Reingest pipeline outputs — `nextseek-run-harvest` + `nextseek-run-checksum` +
 `nextseek-build-upload-xlsx` + `nextseek-upload-reingest`.** After an nf-core run finishes, register

@@ -236,3 +236,13 @@ def test_batch_upload_harmonize_first_reply_carries_the_ontology_line_even_with_
     # the app sets the ontology link, so the agent writes no note about it (dtd3 S5)
     assert step4.rstrip().endswith("put the question after the table. "
                                    "The app sets the ontology link; never write a note about the link.")
+
+
+def test_a_variant_question_is_handed_to_the_pipeline_agent():
+    """On 2026-10-29 a CC turn answered "which variants do those files express" by saying it
+    had only the RNA-seq and scRNA-seq pipelines; nf-core/rnavar was the run that answers it."""
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    assert "(rnaseq/scrnaseq)" not in text
+    assert '"which variants or mutations do these samples carry or express" (offers a pipeline run)' in text
+    assert "which variants, mutations or SNPs they carry or express" in text
+    assert "Never tell the user which pipelines NExtSEEK can or cannot\nrun" in text
