@@ -20,6 +20,7 @@ import pytest
 from django.test import override_settings
 
 from NessieAI import paths
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.tests.cc.agent_folder_canary import MARK, Canary, FakeAgent, FakeContainer, TURN_FRAMES
@@ -96,7 +97,7 @@ def test_a_turn_whose_agent_plants_links_everywhere_leaves_the_canary_alone(tmp_
             return {"trace": True}
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket",
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket",
                         lambda raw, stdout_stream=None: FakeAgent(_agent_work(users, canary)))
     monkeypatch.setattr("NessieAI.cc.cc_trace.extract_trace", lambda *a, **k: _Trace())
     events: list = []

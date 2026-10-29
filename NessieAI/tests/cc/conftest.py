@@ -17,3 +17,17 @@ from nextseek_api.conftest import (  # noqa: F401
     mock_seek_auth,
     mock_seek_client,
 )
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _fake_spawner(request, monkeypatch):
+    """Every turn test runs against the stand-in spawner; a test that wants its own start_turn patches it after."""
+    from NessieAI.tests.cc import fake_spawner
+
+    if request.module.__name__.endswith("test_cc_spawner_client"):
+        return None  # that file drives the real client against a real local server
+
+    return fake_spawner.install(monkeypatch)

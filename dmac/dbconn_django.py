@@ -19,6 +19,10 @@ logging.basicConfig(level=logging.DEBUG)
 from dmac.iocsv import saveCsvfile, getString, getFloat
 from dmac.conversion import convertSQLString, is_numeric
 
+# Grid column names that are not model fields but have one behind them. The others (sample_type, assays, first_name)
+# need a join this ORM grid does not make, so they are dropped.
+GRID_KEY_MAP = {'uid': 'uuid'}
+
 class DBconn_django(object):
     def __init__(self):
         self.conn = connection
@@ -388,12 +392,16 @@ class DBconn_django(object):
         keyword = ' '
         if len(strs3)>2:
             keyword = strs3[2]
+        keyword = GRID_KEY_MAP.get(keyword, keyword)
+        rejected = keyword not in self.__fieldNames(tablemodel)   # the sort key comes from the client
         
         order = 'ASC'                          
         if len(strs3)>3:
             order = strs3[3]                    
             
-        if order.upper()=='ASC':
+        if rejected:
+            orderby_keyword = ' '       # no ordering at all, whatever the order
+        elif order.upper()=='ASC':
             orderby_keyword = keyword
         elif order.upper()=='DESC':
             orderby_keyword = "-" + keyword
@@ -561,9 +569,21 @@ class DBconn_django(object):
         return dlist
             
             
-    def generateQuerySet(self, filterRules):
+    @staticmethod
+    def __fieldNames(tablemodel):
+        """The model's own concrete column names: the only keys a client may filter or sort by (no ``__`` lookups)."""
+        names = set()
+        for f in tablemodel._meta.concrete_fields:
+            names.update((f.name, f.attname))
+        return names
+
+    def generateQuerySet(self, filterRules, tablemodel=None):
         qset = Q()
         n = 0
+        if tablemodel is not None:
+            allowed = self.__fieldNames(tablemodel)
+            filterRules = [dict(r, field=GRID_KEY_MAP.get(r.get("field"), r.get("field"))) for r in filterRules]
+            filterRules = [r for r in filterRules if r["field"] in allowed]
         for rule in filterRules:
             field = rule["field"]
             keyword = rule["value"]
@@ -746,15 +766,14 @@ class DBconn_django(object):
         filterRules = filtersdic['filterRules']
         # A caller's row scope (a Q), applied to the page and to the total alike.
         scope = filtersdic.get('scope', Q())
-        qset = self.generateQuerySet(filterRules) & scope
+        if filtersdic.get('error'):
+            return [], [], 0
+        qset = self.generateQuerySet(filterRules, tablename) & scope
         
         joint_tablemodels_string = ''
         dicList = self.retrieveJoint(tablename, joint_tablemodels_string, qset, orderby, limit)
         
-        qset = scope
-        limit = ' '
-        dicList_total = self.retrieveJoint(tablename, joint_tablemodels_string, qset, orderby, limit)
-        total = len(dicList_total)
+        total = self.retrieveTotalRecords(tablename, scope)
         
         footer = []
         return dicList, footer, total

@@ -436,7 +436,7 @@ class SearchSessionsPart2Tests(SessionEndpointsTestBase):
         index_chat(self.cs)
 
     def test_records_searched_by_default_and_facets_returned(self):
-        body = self.client.get(self.URL, {"q": "tis-220831fly-26"}).json()
+        body = self.client.get(self.URL, {"q": "tis-220831fly-26", "facets": "1"}).json()
         self.assertEqual(body["sources"], ["chats", "records"])
         # The ID is in the answer's words too, and the chat's words outrank a record.
         self.assertEqual((body["results"][0]["source"], body["results"][0]["matched_in"]), ("chat", "answer"))
@@ -448,6 +448,10 @@ class SearchSessionsPart2Tests(SessionEndpointsTestBase):
     def test_filter_needs_no_words(self):
         body = self.client.get(self.URL, {"record_type": "TIS", "project": "GBM", "where": "answer"}).json()
         self.assertEqual([r["session_id"] for r in body["results"]], [str(self.cs.session_id)])
+
+    def test_no_counts_unless_asked(self):
+        body = self.client.get(self.URL, {"q": "tis-220831fly-26"}).json()
+        self.assertEqual(body["facets"], {"record_type": {}, "project": {}, "where": {}})
 
     def test_facets_only(self):
         body = self.client.get(self.URL, {"facets_only": "1"}).json()

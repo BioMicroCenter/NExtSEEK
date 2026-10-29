@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import datetime
 import sys
+import time
 from pathlib import Path
 
 import typer
 from rich.markup import escape
 
-from startup.lib import layout, ui
+from startup.lib import layout, ownership, ui
 from startup.lib.docker_ops import volume_exists
 from startup.lib.env import read_env, write_env
 from startup.lib.instance import (
@@ -118,6 +119,41 @@ def _disk_preflight_or_exit(
         raise typer.Exit(code=1)
 
 
+def _app_preflight_or_exit(state: InstanceState) -> None:
+    """Before any build: the dedicated app uid/gid is free on this host, NEXTSEEK_HOST_GID is sane, and
+    local_settings.py plus the Luria key are group-readable (0640) by that gid."""
+    env = state.compose_env()
+    res = validate.check_app_ids(volumes.host_gid(REPO_ROOT, env))
+    if not res.ok:
+        ui.fail(f"{res.name}: {res.detail}")
+        raise typer.Exit(code=1)
+    problems = volumes.ensure_secret_group_read(REPO_ROOT, env)
+    for p in problems:
+        ui.fail(p)
+    if problems:
+        raise typer.Exit(code=1)
+
+
+def _say_ownership(label: str, count: int | None, seconds: float) -> None:
+    ui.info(f"{label}: {'fixed' if count is None else str(count) + ' not owned by the app uid'} ({seconds:.1f} s)")
+
+
+def _check_app_ownership() -> None:
+    """After an app recreate: anything not owned by the app uid (a `docker exec -u 0`, a root rollback) is fixed, loudly."""
+    env = load_instance(REPO_ROOT).compose_env()
+    try:
+        counts = volumes.ensure_app_ownership(REPO_ROOT, env, check_only=True)
+        bad = {k: v for k, v in counts.items() if v}
+        if bad:
+            ui.warn("OWNERSHIP: files not owned by the app uid found after the rebuild (" +
+                    ", ".join(f"{k}: {v}" for k, v in bad.items()) + "). Running the fix now.")
+            volumes.ensure_app_ownership(REPO_ROOT, env, check_only=False, say=_say_ownership)
+        else:
+            ui.ok("ownership: every app volume and bind is owned by the app uid")
+    except Exception as exc:  # the rebuild itself succeeded; say the check did not run
+        ui.warn(f"ownership check did not run: {exc}")
+
+
 def _print_health_results(results: list[validate.HealthResult]) -> None:
     for r in results:
         printer = ui.warn if getattr(r, "warn", False) else (ui.ok if r.ok else ui.fail)
@@ -157,6 +193,7 @@ def _install_impl(
     no_disk_check: bool = False,
     disk_floor: int | None = None,
     keep_demo_passwords: bool = False,
+    demo_passwords_are_public: bool = False,
 ) -> None:
     """Install body as plain Python with real defaults.
 
@@ -168,6 +205,14 @@ def _install_impl(
     # Before the banner and before anything is written: an unusable value here
     # would otherwise be discovered only by the first CI run after the install,
     # as a pytest.exit(2) with no obvious connection to what was typed.
+    if keep_demo_passwords:
+        # install cannot tell which interfaces the compose ports bind, so it cannot prove
+        # the box is loopback-only: the operator says so with a second flag (SEC-H21).
+        ui.warn("--keep-demo-passwords: the demo and user logins stay at the PUBLISHED passwords. "
+                "Anyone who can reach this box can sign in as an admin.")
+        if not demo_passwords_are_public:
+            ui.fail("add --demo-passwords-are-public to confirm, or drop --keep-demo-passwords.")
+            raise typer.Exit(code=1)
     if ci_profile not in CI_PROFILE_CHOICES:
         ui.fail(
             f"unknown ci profile: {ci_profile!r}. "
@@ -253,9 +298,9 @@ def _install_impl(
     if not fresh_db and not all(
         kept.get(k) for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD")
     ):
-        ui.warn("a database data volume already exists but docker/db.env or docker/nextseek.env "
-                "lacks a password: install is using the old default. Restore the env files "
-                "if the database was set up with other passwords.")
+        ui.fail("a database data volume already exists but docker/db.env or docker/nextseek.env "
+                "lacks a password. Restore the env files that went with the volume, then run install again.")
+        raise typer.Exit(code=2)
 
     state = InstanceState(
         name=name,
@@ -357,6 +402,9 @@ def _install_impl(
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
     _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
+    # The .env now holds NEXTSEEK_HOST_GID: the app uid/gid must be free and the secret files group-readable
+    # (a re-install keeps an existing 0600 local_settings.py; this makes it 0640) before anything is built.
+    _app_preflight_or_exit(state)
     ui.ok(
         "docker/db.env, docker/nextseek.env, docker/cc-spawner.env, "
         f"{layout.PROXY_SECRET_ENV.as_posix()}, docker/seek-nginx.conf, dmac/local_settings.py, .env"
@@ -377,14 +425,14 @@ def _install_impl(
     loaded_seek_seed = False
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
-        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        build.start_databases(REPO_ROOT, db_env)
         ui.ok("databases up (empty — populate them yourself or re-run without --no-seed)")
     else:
         missing = seed.seed_files_present(REPO_ROOT)
         if missing:
             ui.fail(f"missing seed files: {', '.join(missing)}")
             raise typer.Exit(code=1)
-        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        build.start_databases(REPO_ROOT, db_env)
         if seed.mysql_db_is_populated("dmac", REPO_ROOT, db_env):
             ui.ok("dmac already populated; skipping")
         else:
@@ -490,7 +538,9 @@ def _install_impl(
     if loaded_seek_seed and not keep_demo_passwords:
         new_logins = users.set_random_passwords(REPO_ROOT, db_env, compose_env)
         if new_logins is None:
-            ui.warn("demo and user still have the published passwords: change them in SEEK now")
+            ui.fail("demo and user still have the published passwords: password rotation failed. "
+                    "Change them in SEEK now, then do not expose this box.")
+            raise typer.Exit(code=1)
         else:
             ui.ok("demo + user given random passwords (shown once, not saved):")
             # Shown here, before any step that can fail: a failed health check
@@ -559,7 +609,13 @@ def install(
     keep_demo_passwords: bool = typer.Option(
         False,
         "--keep-demo-passwords",
-        help="Keep the seed's published demo/user passwords (a private laptop only).",
+        help="Keep the seed's published demo/user passwords (a private laptop only). "
+             "Needs --demo-passwords-are-public.",
+    ),
+    demo_passwords_are_public: bool = typer.Option(
+        False,
+        "--demo-passwords-are-public",
+        help="Confirms --keep-demo-passwords: the logins are published, so the box must not be reachable by others.",
     ),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
@@ -577,7 +633,44 @@ def install(
         no_disk_check=no_disk_check,
         disk_floor=disk_floor,
         keep_demo_passwords=keep_demo_passwords,
+        demo_passwords_are_public=demo_passwords_are_public,
     )
+
+
+@app.command(name="fix-ownership")
+def fix_ownership(
+    instance: str | None = typer.Option(None, "--instance"),
+    check: bool = typer.Option(
+        False, "--check", help="Count what is not owned by the app uid and change nothing (exit 1 if any)."),
+) -> None:
+    """Hand every writable volume and bind of web and nextseek to the dedicated app uid (10001).
+
+    Before the switchover (a running web or nextseek, or the app image, not on 10001:10001) it skips
+    dmac-cc-users and says so: the old-uid agents still own their 0600 files there, and the switchover
+    rebuild fixes that volume with the app stopped. Everything else is safe to pre-chown while the old
+    root containers run; the per-target seconds time the switchover window."""
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'startup install' first")
+        raise typer.Exit(code=1)
+    config.ensure_host_gid(REPO_ROOT)   # compose needs it for every verb
+    t0 = time.monotonic()
+    try:
+        # Before the switchover the running agents still own their files in dmac-cc-users under the old
+        # uid; a chown there would lock them out. Everything else is safe to pre-chown (root ignores owners).
+        before = not check and volumes.before_switchover(REPO_ROOT, state.compose_env())
+        if before:
+            ui.warn("SKIPPING dmac-cc-users: a running web or nextseek, or the app image, is not on 10001:10001 "
+                    "yet (the switchover rebuild fixes that volume with the app stopped); pre-chowning the "
+                    "other volumes and binds")
+        counts = volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=check,
+                                              skip_cc_users=before, say=_say_ownership)
+    except Exception as exc:
+        ui.fail(f"ownership pass failed: {exc}")
+        raise typer.Exit(code=1) from exc
+    ui.info(f"total {time.monotonic() - t0:.1f} s")
+    if check and any(counts.values()):
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -753,6 +846,7 @@ def reset(
         no_disk_check=False,
         disk_floor=None,
         keep_demo_passwords=False,
+        demo_passwords_are_public=False,
     )
 
 
@@ -831,6 +925,8 @@ def rebuild(
         ui.fail("no instance found — run 'startup install' first")
         raise typer.Exit(code=1)
 
+    # Phase 4 compose interpolates ${NEXTSEEK_HOST_GID:?...}, so every compose verb fails until .env has it.
+    config.ensure_host_gid(REPO_ROOT)
     try:
         policy = resolve_component(component, state.compose_project_name)
     except ValueError as exc:
@@ -853,6 +949,8 @@ def rebuild(
     # here (it only adds a key to docker/nextseek.env, never re-renders the file).
     if (REPO_ROOT / "docker" / "nextseek.env").exists():
         config.render_spawner_env(REPO_ROOT)
+    if {"web", "nextseek"} & set(policy.restart_services):
+        _app_preflight_or_exit(state)
 
     _disk_preflight_or_exit(
         ci_profile=state.ci_profile,
@@ -912,6 +1010,48 @@ def rebuild(
         # stop-first or the new image carries a migration (old code must not run on
         # a new schema). Everything else restarts in place, as it always did.
         swap_web = "web" in policy.restart_services and not stop_first
+        app_services = bool({"web", "nextseek"} & set(policy.restart_services))
+        # Switchover to the dedicated app uid: an old root web beside a new one leaves files the new one
+        # cannot touch, and dmac-cc-users changes owner too, so stop web, nextseek AND the sidecar, fix
+        # every volume and bind, start the sidecar, then the app.
+        try:
+            user_changed = app_services and volumes.app_user_change(REPO_ROOT, state.compose_env())
+        except Exception as exc:  # unreadable: carry on as before; the CHECK after the recreate still runs
+            user_changed = False
+            ui.warn(f"could not compare the running and new app user ({exc}); not treating this as a switchover")
+        switchover_sidecar = False
+        if user_changed:
+            # The agent and the sidecar share dmac-cc-users with the app: both must already be on the app uid.
+            try:
+                peers = volumes.peers_not_on_app_uid(REPO_ROOT, state.compose_env())
+            except Exception as exc:
+                peers = [f"could not check the cc-agent and sidecar images ({exc})"]
+            if peers:
+                ui.fail(f"switchover refused, nothing stopped: not on {ownership.APP_UID}: " + "; ".join(peers))
+                ui.remediation("./startup.sh rebuild --component cc-agent, then ./startup.sh rebuild --component "
+                               "nextseek-sidecar, then this rebuild again (the new app image is built; the old "
+                               "containers keep running)")
+                raise typer.Exit(code=1)
+            swap_web = False
+            ui.warn("the app containers change user (to 10001): no swap. Stopping web, nextseek and the "
+                    "sidecar, fixing ownership of every volume and bind, then starting the sidecar and "
+                    "the app; users see the restart page meanwhile.")
+            try:
+                with ui.spinner("stopping web, nextseek and the sidecar"):
+                    volumes.stop_app_services(REPO_ROOT, state.compose_env())
+                volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=False,
+                                             say=_say_ownership)
+                compose_up(services=("nextseek-sidecar",), project_dir=REPO_ROOT, env=state.compose_env(),
+                           force_recreate=True, no_deps=True)
+            except Exception as exc:
+                # web, nextseek and the sidecar may all be stopped now: say exactly how to bring them back.
+                ui.fail(f"switchover failed part-way: {exc}")
+                ui.remediation("web, nextseek and the sidecar may be stopped. From the repo: "
+                               "`docker compose stop web nextseek nextseek-sidecar`, then "
+                               "`./startup.sh fix-ownership`, then "
+                               "`docker compose up -d nextseek-sidecar web nextseek`")
+                raise typer.Exit(code=1) from exc
+            switchover_sidecar = True
         if swap_web:
             run_docker = web_swap.make_runner(REPO_ROOT, state.compose_env())
             with ui.spinner("checking the new image for pending migrations"):
@@ -921,7 +1061,8 @@ def rebuild(
                 ui.warn("this image has pending migrations (or the check could not run), so web is "
                         "stopped and recreated instead of swapped: users see the restart page for "
                         f"about a minute. {why}")
-        in_place = tuple(s for s in policy.restart_services if s != "web")
+        in_place = tuple(s for s in policy.restart_services
+                         if s != "web" and not (switchover_sidecar and s == "nextseek-sidecar"))
         with ui.spinner(f"recreating {policy.name} runtimes"):
             if "web" in policy.restart_services and not swap_web:
                 # Stop-first: web alone, before the worker. The old web drains and
@@ -950,18 +1091,25 @@ def rebuild(
                 ui.fail(f"web swap failed: {exc}")
                 raise typer.Exit(code=1) from exc
         ui.ok(f"{policy.name} rebuilt and restarted")
-        # Start the front door if it is down, and do nothing else to it. `up`
-        # without --force-recreate is a no-op on a running nginx, which needs no
-        # restart anyway (docker/nginx.conf re-resolves `web` per request);
-        # --no-deps keeps it from touching any other service. A stopped nginx
-        # used to survive every rebuild, and the CI hook then spent its whole
-        # readiness floor on a refused port.
+        if app_services:
+            _check_app_ownership()
+        # Start the front door if it is down, and do nothing else to it. A plain
+        # `up` also recreates a RUNNING nginx whose service definition differs in
+        # the checkout's compose file; on a pre-split box that served a conf naming
+        # `web` before `web` existed (prod 502, 2026-10-26). `--no-recreate` makes
+        # it a no-op on a running nginx (docker/nginx.conf re-resolves `web` per
+        # request, so a web swap needs no restart); a changed definition waits for
+        # --recreate-nginx, and the nginx config check below says so. --no-deps
+        # keeps it from touching any other service. A stopped nginx used to
+        # survive every rebuild, and the CI hook then spent its whole readiness
+        # floor on a refused port.
         if not recreate_nginx:  # the recreate below starts it too
             compose_up(
                 services=("nextseek_nginx",),
                 project_dir=REPO_ROOT,
                 env=state.compose_env(),
                 no_deps=True,
+                no_recreate=True,
             )
             ui.ok("front door (nextseek_nginx) running")
     elif not policy.restart_services:
@@ -987,7 +1135,7 @@ def rebuild(
         recreate_failed = not all(c.ok for c in checks)
     else:
         nginx_cfg = validate.check_nginx_config(REPO_ROOT, state.compose_env())
-        if not nginx_cfg.ok:
+        if not nginx_cfg.ok or nginx_cfg.warn:
             ui.warn(nginx_cfg.detail)
 
     # Stack health, step 1 of CI. Every first-party image, not just this

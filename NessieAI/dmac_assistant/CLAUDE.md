@@ -50,10 +50,10 @@ Rules that span units (the box env, the one BAML tree both images build from) ar
   boot failure instead of a degraded route.
 - **`docker` reaches the app venv through this directory alone.** The root
   `pyproject.toml` does not declare it; in `uv.lock` the only package that requests
-  `docker` is the `dmac-assistant` block (`uv.lock:868-873`), which declares it at
-  `NessieAI/dmac_assistant/pyproject.toml:20`. Dropping that line as
-  unused-by-vendored-code breaks the module-scope `import docker` at
-  `NessieAI/cc/cc_engine.py:37`, which takes the whole Container-CC engine down at import.
+  `docker` is the `dmac-assistant` block, which declares it in this directory's
+  `pyproject.toml`. The app runtime no longer imports it (cc-spawner holds the socket,
+  and a repo guard keeps the SDK out of app modules); the CC tests still do, so dropping
+  the line breaks their collection.
 
 ## Landmines
 

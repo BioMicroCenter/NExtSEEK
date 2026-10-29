@@ -96,7 +96,7 @@ Area labels are written without their `area:` prefix (`docs/ISSUE-CONVENTIONS.md
 
 ## Build and test
 
-`./startup.sh` verbs: `install`, `doctor`, `rebuild` (`--component app|cc-agent|bedrock-proxy|nextseek-sidecar|custom-stack`; app is the default), `reset` (deletes config and the queue volumes, keeps the data volumes; `reset --drop-data` also deletes the data volumes and asks you to type the instance name), `ci`, `seed-filestore`, `dump-db`. Details: `startup/README.md`.
+`./startup.sh` verbs: `install`, `doctor`, `rebuild` (`--component app|cc-agent|bedrock-proxy|nextseek-sidecar|custom-stack`; app is the default), `reset` (deletes config and the queue volumes, keeps the data volumes; `reset --drop-data` also deletes the data volumes and asks you to type the instance name), `ci`, `seed-filestore`, `dump-db`, `fix-ownership` (hands the app's writable volumes and binds to uid 10001; `--check` only counts). Details: `startup/README.md`.
 
 | Lane | Where | Read |
 |---|---|---|
@@ -120,7 +120,7 @@ Live state comes from GitHub and git, never from spec headers or plan checkboxes
 
 ## Gotchas
 
-- Admin gates read `is_superuser`, never `is_staff`: the SEEK login sets `is_staff` on everyone (`dmac/CLAUDE.md`).
+- Admin gates read `is_superuser`, never `is_staff`: older accounts carried `is_staff` from a former SEEK login rule, and only superusers keep it now (`dmac/CLAUDE.md`).
 - A new `router.register` goes into `ci/routes.py` in the same change, or the blocking gate fails (`nextseek_api/CLAUDE.md`).
 - Nothing may be registered after the Mezzanine catch-all (`dmac/CLAUDE.md`).
 - A `static/` change needs `collectstatic` after the rebuild (`DEPLOYMENT.md` §3.2). Schema fixups run only on `install`, never on `rebuild` (`startup/CLAUDE.md`).

@@ -97,6 +97,8 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0030_spill_json_fields.py",
         "nextseek_api/migrations/0031_merge_reingest_spill.py",
         "nextseek_api/migrations/0032_chat_search_entry.py",
+        # Pin updated for SEC-H19: 0033 is data only (clears is_staff on non-superusers); no router table.
+        "nextseek_api/migrations/0033_clear_staff_non_superusers.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_cc_turn_heal.py",

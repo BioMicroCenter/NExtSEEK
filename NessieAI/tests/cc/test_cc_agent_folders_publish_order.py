@@ -10,6 +10,7 @@ import docker as docker_mod
 import pytest
 from django.test import override_settings
 
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine, safe_fs
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.tests.cc.agent_folder_canary import FakeAgent, FakeContainer
@@ -36,7 +37,7 @@ def _turn(tmp_path, monkeypatch, container, calls):
                 return container
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket", lambda raw, stdout_stream=None: FakeAgent(work))
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket", lambda raw, stdout_stream=None: FakeAgent(work))
     real_publish = cc_engine._publish_artifacts
 
     def spy_publish(*args, **kwargs):
@@ -101,8 +102,8 @@ def test_a_failed_stop_is_followed_by_a_force_remove_and_a_confirm(tmp_path, mon
     with override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar"):
         _turn(tmp_path, monkeypatch, container, calls)
     assert calls[:4] == ["stop", "remove", "wait", "sweep"] and "publish" in calls, calls
-    assert container.wait_timeouts == [cc_engine._CONFIRM_EXIT_WAIT_S]
-    assert 0 < cc_engine._CONFIRM_EXIT_WAIT_S < float("inf")
+    assert container.wait_timeouts == [fake_spawner.load_spawner()._CONFIRM_EXIT_WAIT_S]
+    assert 0 < fake_spawner.load_spawner()._CONFIRM_EXIT_WAIT_S < float("inf")
 
 
 def test_nothing_is_published_when_the_agent_cannot_be_confirmed_gone(tmp_path, monkeypatch):

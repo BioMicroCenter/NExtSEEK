@@ -21,6 +21,11 @@ routes you and holds the hard gates.
 - **App code**: `./startup.sh rebuild`: rebuild the shared app image and
   recreate `nextseek`, which runs every app-code process (web, both Celery
   workers, the outbox dispatcher, the recovery loop, the assay-registration drain).
+- **Phase 4 switchover** (the app image's first non-root build): the runner detects it (running `nextseek` has
+  no USER, the checked-out Dockerfile names one), builds the app image first without a restart (`app-build`: the
+  slow build and the preflight), rebuilds cc-agent, nextseek-sidecar, bedrock-proxy, then app (a cached build; it
+  stops web, nextseek and the sidecar, fixes ownership, starts them), then runs
+  `./startup.sh fix-ownership --check` and stops the launch on any count above 0. DEPLOYMENT.md section 3.5.
 - **CC image**: `./startup.sh rebuild --component cc-agent`, build only; the
   next chat turn uses it, with no persistent agent container to restart.
 - **CC spawner**: `--component cc-spawner` (`docker/cc-spawner/**`). Rebuilding it cuts a CC turn that is

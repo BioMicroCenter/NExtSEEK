@@ -30,6 +30,7 @@ from ..decorators import verifySuperUser
 import zipfile
 from django.conf import settings
 import logging
+from nextseek_api.batch_upload.xlsx_guard import XlsxExpansionError, check_xlsx_expansion
 from nextseek_api.graph_search.scope import resolve_scope
 from nextseek_api.graph_sync import hooks
 
@@ -226,6 +227,7 @@ def sample_type(request, id):
         
     return render(request,"sampleQuery.html", {'bodyhtml' : report['bodyhtml'], 'report':report})
 
+@requires_seek_login
 def getAttributes(request, id):
     try:
         sampletype_id = int(id)
@@ -241,6 +243,7 @@ def getAttributes(request, id):
     data = sattr.getAttributes(sampletype_id, valueSelected)
     return HttpResponse(simplejson.dumps(data, default=str))
 
+@requires_seek_login
 def getOperators(request):
     ret = request.GET
     bad = missing_param(ret, 'sampletype_id', 'attribute')
@@ -388,6 +391,10 @@ def sampleFindAjax(request):
         if request.FILES and request.FILES.get('excelfile_find'):
             excelfile = request.FILES['excelfile_find']
             if excelfile:
+                try:
+                    check_xlsx_expansion(excelfile)
+                except XlsxExpansionError as exc:
+                    return json_response(str(exc), 0, message=str(exc))
                 datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
                 filename = 'samples-export' + datenow + '.zip'
                 downloadfile, link = newExport(request, filename)
@@ -447,6 +454,7 @@ def sampleDelete(request):
                                    is_superuser=verifySuperUser(request) == 1)
     return HttpResponse(sdata)
 
+@requires_seek_login
 def getStudiesOptions(request, id):
     seekdb = SeekDB(None, None, None)
     seekdb.getSeekLogin(request, False)
@@ -457,6 +465,7 @@ def getStudiesOptions(request, id):
     data = {'msg':'okay', 'status': 1, 'study_options':study_options}
     return HttpResponse(simplejson.dumps(data, default=str))
 
+@requires_seek_login
 def getAssaysOptions(request, id):
     seekdb = SeekDB(None, None, None)
     seekdb.getSeekLogin(request, False)
@@ -542,6 +551,7 @@ def sampleAttributeDelete(request):
 
     return HttpResponse(reportData)
 
+@requires_seek_login
 def getInstituionUsers(request, id):
     seekdb = SeekDB(None, None, None)
     seekdb.getSeekLogin(request, False)

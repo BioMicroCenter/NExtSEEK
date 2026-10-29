@@ -49,7 +49,7 @@ case "${1:?step}" in
     trap 'rm -f "$ENV"' EXIT
     # throwaway credentials only; the MySQL container's own client writes the dump (no host client, no port)
     printf '%s\n' "MYSQL_HOST_DEV=127.0.0.1" "MYSQL_PORT=3306" "MYSQL_USER=root" "MYSQL_DEV_PASSWORD=$MPW" \
-      "MYSQLDUMP=\"docker exec $P-mysql mysqldump\"" "NEO4J_URI=bolt://localhost:${NEO4J_PORT:-17687}" \
+      "MYSQLDUMP=\"docker exec -e MYSQL_PWD $P-mysql mysqldump\"" "NEO4J_URI=bolt://localhost:${NEO4J_PORT:-17687}" \
       "NEO4J_USER=neo4j" "NEO4J_PASSWORD=${SEED_NEO4J_PW:-${P}pass}" "NEO4J_DATABASE=neo4j" > "$ENV"
     bash "$REPO/startup/seed/regenerate/dump_mysql.sh"
     gpy "$REPO/startup/seed/regenerate/dump_neo4j.py"

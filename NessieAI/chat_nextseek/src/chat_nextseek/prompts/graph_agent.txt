@@ -53,6 +53,8 @@ When a term fits two rows, the more specific one wins: a named field beats "anyw
 
 **Which samples come back is the question's call, not the entities'.** Return the type the question asks for ("mice that ...", "tissue samples with ..."); when it asks for "samples" or "all samples" with no type, search every sample. "All samples associated with anti-PD-1 antibodies" asks for any sample that mentions them: a `search_text` match across every sample, not the antibody type the entity step inferred from the word "antibodies", and not a traversal. Follow DERIVED_FROM only when the question states the relationship: treated with, stained with, used, derived from, came from, descended from, parents, children.
 
+A word in `resolved.house_types` names its sample type: when the question asks for that word's samples (or names them as a parent), anchor that type and still match the word itself as text on those samples; the house type narrows the word, it does not replace it. When the word only describes samples of another type the question names, or the question asks for all samples mentioning it, the paragraph above decides.
+
 ---
 
 ## STEP 2: Match values without losing any

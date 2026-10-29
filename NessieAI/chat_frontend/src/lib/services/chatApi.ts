@@ -441,6 +441,7 @@ export class NextseekApiService {
     if (opts.project) params.set("project", opts.project);
     if (opts.where) params.set("where", opts.where);
     if (opts.facetsOnly) params.set("facets_only", "1");
+    if (opts.facets) params.set("facets", "1");
     const response = await fetch(
       `${baseUrl}/nextseek_api/assistant/sessions/search/?${params}`,
       { headers: { ...this.auth.getAuthHeaders() }, signal },
@@ -494,18 +495,6 @@ export class NextseekApiService {
       throw new Error(`Failed to load session: ${response.status}`);
     }
     return response.json();
-  }
-
-  downloadSearchAsExcel(
-    data: Record<string, unknown>[],
-    filename: string,
-  ): void {
-    import("xlsx").then((XLSX) => {
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Search Results");
-      XLSX.writeFile(wb, filename);
-    });
   }
 
   async uploadFiles(files: File[]): Promise<{ job_id: string }> {

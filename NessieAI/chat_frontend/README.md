@@ -75,11 +75,9 @@ NessieAI/chat_frontend/src/
 | `npm run build` (`NessieAI/chat_frontend/package.json:8`) | `NessieAI/chat_frontend/vite.config.ts:6-12` | `NessieAI/chat_frontend/dist`, ignored at `NessieAI/chat_frontend/.gitignore:2` |
 | `npm run dev` (`NessieAI/chat_frontend/package.json:7`) | `NessieAI/chat_frontend/vite.config.ts:13-15` | nothing on disk |
 
-The embedded build writes three asset files plus a manifest. Two of them are
-named in that manifest (`static/js/chat_assistant/.vite/manifest.json:7-16`); the
-third, a 429 kB SheetJS chunk, exists only because of the dynamic import at
-`NessieAI/chat_frontend/src/lib/services/chatApi.ts:380` and is fetched at call time from
-the `base` prefix set at `NessieAI/chat_frontend/vite.config.embedded.ts:21`.
+The embedded build writes two asset files plus a manifest that names both
+(`static/js/chat_assistant/.vite/manifest.json`). There is no lazy SheetJS chunk any more:
+the dead `downloadSearchAsExcel` and the `xlsx` dependency were removed (SEC-H34).
 
 ### Host page contract
 
@@ -215,7 +213,7 @@ Playwright and vitest output, so it has the same browser-binary requirement.
   `seek/templates/smartSearch.html:1-9`.
 - The Django view and URL that serve that template: `seek/urls.py:13` under the
   prefix mounted at `dmac/urls.py:27`, gated on authentication at
-  `seek/views/search.py:110-114`.
+  `seek/views/search.py:102-105`.
 
 ### Depended on by
 

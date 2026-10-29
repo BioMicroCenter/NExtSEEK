@@ -1,5 +1,7 @@
 from __future__ import unicode_literals
 
+from functools import wraps
+
 from django.urls import re_path
 from django.conf.urls import include
 from django.conf.urls.i18n import i18n_patterns
@@ -25,11 +27,40 @@ admin.autodiscover()
 def _not_found(request, *args, **kwargs):
     raise Http404()
 
+
+def _is_superuser(request):
+    return bool(request.user.is_active and request.user.is_superuser)
+
+
+def _superuser_only(view):
+    @wraps(view)
+    def guarded(request, *args, **kwargs):
+        if not _is_superuser(request):
+            raise Http404()
+        return view(request, *args, **kwargs)
+    return guarded
+
+
+def _guard_patterns(patterns):
+    for p in patterns:
+        if hasattr(p, "url_patterns"):
+            _guard_patterns(p.url_patterns)
+        else:
+            p.callback = _superuser_only(p.callback)
+
+
+# Everything under /admin/ is for superusers alone (SEC-H11, SEC-H19). Django's admin site admits any active
+# staff user, and Mezzanine's media library (filebrowser_safe) checks is_staff on its own views, so the site
+# check below is not enough: every route the admin site serves is guarded, a non-superuser gets a 404.
+admin.site.has_permission = _is_superuser
+_admin_urls = admin.site.urls  # Mezzanine's site builds a fresh list on each access
+_guard_patterns(_admin_urls)
+
 urlpatterns = i18n_patterns(
     re_path(r'^login/?$', views.login_seek, name="login_seek"),
     re_path(r'^signup/', views.signup_seek, name="signup_seek"),
     
-    re_path("^admin/", include(admin.site.urls)),
+    re_path("^admin/", include(_admin_urls)),
     re_path("^seek/", include(seek.urls)),
     re_path("^nextseek_api/", include(nextseek_api.urls)),
 )

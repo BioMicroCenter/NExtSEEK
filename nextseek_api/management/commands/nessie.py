@@ -4,8 +4,8 @@ Runs the ``nessie_tests`` harness (see ``NessieAI/tests/nessie_tests/README.md``
 the trusted Django process, so the full-tier bundle reader (which imports Django
 models) works with no separate ``django.setup()`` bootstrap.
 
-    docker exec nextseek uv run manage.py nessie --tier route              # cheap route gate
-    docker exec nextseek uv run manage.py nessie --tier full --scope all   # paid full pass (needs seed)
+    docker exec nextseek uv run manage.py nessie --tier route --password-env NESSIE_PW   # cheap route gate
+    docker exec nextseek uv run manage.py nessie --tier full --scope all --password-env NESSIE_PW   # paid full pass (needs seed)
 
 The harness drives cases through the real top-level router at ``--base-url``
 (default ``http://localhost:8000`` — gunicorn inside the same container),
@@ -43,8 +43,6 @@ from NessieAI import paths
 # The hand-owned harness corpus, NessieAI/tests/nessie_tests/corpus.json.
 _CORPUS = paths.NESSIE_CORPUS
 
-_DEFAULT_PASSWORD = "demopassword"
-
 
 class Command(BaseCommand):
     help = "Run the Nessie router-aware assistant test harness (route/full tiers, forced arms)."
@@ -56,9 +54,6 @@ class Command(BaseCommand):
         parser.add_argument("--family", default=None)
         parser.add_argument("--variant", default=None)
         parser.add_argument("--user", default="demo")
-        parser.add_argument("--password", default=None,
-                            help=f"Default {_DEFAULT_PASSWORD}. Prefer --password-env, which "
-                                 "keeps the password off the command line.")
         parser.add_argument("--password-env", default=None, metavar="NAME",
                             help="Read the password from the environment variable NAME. The "
                                  "value is never printed.")
@@ -197,9 +192,7 @@ class Command(BaseCommand):
     def _password(opts) -> str:
         name = opts["password_env"]
         if not name:
-            return opts["password"] if opts["password"] is not None else _DEFAULT_PASSWORD
-        if opts["password"] is not None:
-            raise CommandError("give --password or --password-env, not both.")
+            raise CommandError("give --password-env NAME (the environment variable that holds the password).")
         value = os.environ.get(name)
         if not value:
             raise CommandError(f"--password-env {name}: that environment variable is unset "

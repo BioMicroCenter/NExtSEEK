@@ -23,6 +23,9 @@ from dmac import csv_excel
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + '/download/' 
 
+# The legacy grids ask for 50 rows a page.
+MAX_ROWS = 500
+
 class DataGrid(object):
     def __init__(self, dbtable):
         self.dbtable = dbtable
@@ -33,21 +36,19 @@ class DataGrid(object):
         
     def __querySuffix(self, ret):
         if 'rows' in ret:
-            page = ret['page']
-            rows = ret['rows']
-            msg = "page: " + page + " rows: " + rows
-            offset = (int(page)-1)*int(rows)     
-            limit = " LIMIT " + str(offset) + "," + rows
+            # int() raises ValueError on a non-integer page or rows: the callers answer it as a grid error
+            rows = min(max(int(ret['rows']), 1), MAX_ROWS)
+            page = max(int(ret['page']), 1)
+            limit = " LIMIT " + str((page-1)*rows) + "," + str(rows)
         else:
             limit = ""
         
-        msg = 'limit: ' + limit
         orderby = ""
         if 'sort' in ret:
             sort= ret['sort']
-            order = 'desc'
-            if 'order' in ret:
-                order= ret['order']
+            order = ret.get('order', 'desc')
+            if order not in ('asc', 'desc'):
+                order = 'asc'
         
             orderby = " ORDER BY " + sort + " " + order + " "
         
@@ -100,7 +101,11 @@ class DataGrid(object):
     def getDatagridFilters(self, ret):
         filtersdic = {}
     
-        orderby, limit = self.__querySuffix(ret)
+        try:
+            orderby, limit = self.__querySuffix(ret)
+        except ValueError:
+            return {'error': True, 'orderby': '', 'limit': '', 'suffix': '', 'startNo': 0, 'endNo': 0,
+                    'filterRules': []}
         filtersdic['orderby'] = orderby
         filtersdic['limit'] = limit
     
@@ -182,7 +187,7 @@ class DataGrid(object):
     def __retrieve(self):
         filterRules = self.dbtable.formatRule(self.filterRules)
         
-        qset = self.db.generateQuerySet(filterRules)
+        qset = self.db.generateQuerySet(filterRules, self.dbtable.tablemodel)
         jdata = self.db.retrieveJoint(self.dbtable.tablemodel, '', qset, self.orderby, self.limit)
         jdata_new = self.dbtable.reformatData(jdata)
         
@@ -278,7 +283,12 @@ class DataGrid(object):
         
     def process(self, request, operation):
         ret = request.GET
-        self.orderby, self.limit = self.__querySuffix(ret)
+        try:
+            self.orderby, self.limit = self.__querySuffix(ret)
+        except ValueError:
+            return HttpResponse(simplejson.dumps({'total': 0, 'rows': None, 'footer': {}, 'status': 0,
+                                                  'msg': 'Error: page and rows must be whole numbers.',
+                                                  'link': ' '}))
         self.suffix = self.orderby + self.limit
         self.startNo, self.endNo = self.__getStartRows(self.limit)
         self.filterRules = self.__getFilteringParameters(ret)

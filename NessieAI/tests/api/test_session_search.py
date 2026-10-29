@@ -55,8 +55,21 @@ class ParseTests(TestCase):
     def test_snippet_short_text_whole(self):
         self.assertEqual(make_snippet("Find **NDMA** mice", ["ndma"]), "Find NDMA mice")
 
+    def test_snippet_markdown_links_keep_their_text(self):
+        text = "Found [D.SEQ-231101GRI-1-PUB](/seek/samples/D.SEQ-231101GRI-1-PUB/) and ![plot](/m/x.png) here"
+        self.assertEqual(make_snippet(text, ["d.seq"]), "Found D.SEQ-231101GRI-1-PUB and plot here")
+        self.assertEqual(make_snippet("see [a [b] c](u) and [Foo](/w/Foo_bar)", ["foo"]), "see a [b] c and Foo")
+
 
 class SearchTests(SearchBase):
+    def test_a_term_only_in_a_link_address_does_not_match(self):
+        link = "[TIS-1](/seek/sampletree/uid=TIS-1/) " + "word " * 60  # long: the cut-snippet path
+        hit = self.chat(log=[turn(1, "show it", link)])
+        self.assertEqual(search_sessions(self.a.pk, "sampletree")["results"], [])
+        res = search_sessions(self.a.pk, "tis-1")["results"]
+        self.assertEqual(self.ids({"results": res}), [str(hit.session_id)])
+        self.assertTrue(res[0]["snippet"].startswith("TIS-1 word"))
+
     def test_other_users_chats_never_returned(self):
         mine = self.chat(log=[turn(1, "NDMA liver mice")])
         self.assertEqual(search_sessions(self.b.pk, "ndma")["results"], [])
@@ -323,14 +336,78 @@ class Part2SearchTests(SearchBase):
     def test_facets_follow_the_matches(self):
         self.indexed(log=[turn(1, "liver", "TIS-220831FLY-26")])
         self.indexed(log=[turn(1, "brain", "MUS-220101ABC-1")])
-        self.assertEqual(search_sessions(self.a.pk, "liver", sources=["chats", "records"])["facets"]["record_type"],
+        self.assertEqual(search_sessions(self.a.pk, "liver", sources=["chats", "records"], facets=True)["facets"]["record_type"],
                          {"TIS": 1})
+
+    def test_counts_only_when_asked(self):
+        self.indexed(log=[turn(1, "liver", "TIS-220831FLY-26")])
+        res = search_sessions(self.a.pk, "liver", sources=["chats", "records"])
+        self.assertEqual(res["facets"], {"record_type": {}, "project": {}, "where": {}})
+
+    def test_no_query_joins_the_chat_table_to_the_index(self):
+        # dev 10-26: a join from the index to assistant_chat_session (legacy latin1, ~1 GB) table-scanned the chats
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        cs = self.indexed(log=[{"turn_id": 1, "user_query": "q", "assistant_reply": "TIS-220831FLY-26", "cc_run_id": "r1"}],
+                          transcripts=[("r1", self.steps("graph schema read", "nextseek-graph-schema"))])
+        with CaptureQueriesContext(connection) as ctx:
+            for kw in ({"sources": ["steps"]}, {"sources": ["steps"], "since_days": 30},
+                       {"sources": ["records"], "record_type": "TIS", "since_days": 30, "facets": True}):
+                q = "graph" if kw["sources"] == ["steps"] else ""
+                self.assertEqual(self.ids(search_sessions(self.a.pk, q, **kw)), [str(cs.session_id)], kw)
+        joined = [q["sql"] for q in ctx.captured_queries
+                  if "assistant_chat_search_entry" in q["sql"] and "assistant_chat_session" in q["sql"]]
+        self.assertEqual(joined, [])
 
     def test_facets_count_what_the_combined_filter_returns(self):
         # review 10-26: the question names a MUS, the answer a TIS; with where=answer, MUS must not be offered
         self.indexed(log=[turn(1, "q", "TIS-220831FLY-26") | {"key_entities": {"uids": ["MUS-220101ABC-1"]}}])
-        res = search_sessions(self.a.pk, "", sources=["records"], where="answer")
+        res = search_sessions(self.a.pk, "", sources=["records"], where="answer", facets=True)
         self.assertEqual(res["facets"]["record_type"], {"TIS": 1})
         self.assertEqual(search_sessions(self.a.pk, "", sources=["records"], where="answer", record_type="MUS")["results"], [])
         only = search_sessions(self.a.pk, "", sources=["records"], record_type="MUS", facets_only=True)
         self.assertEqual(only["facets"]["where"], {"question": 1})
+
+
+class ExactFirstTests(SearchBase):
+    """A whole-word match ranks above a prefix match, whatever the source (dev 10-26: a full ID that is also the
+    start of a longer ID, TIS-...-2 inside TIS-...-26, lost its own chat to chats showing the longer one)."""
+
+    indexed = Part2SearchTests.indexed
+    steps = Part2SearchTests.steps
+
+    def test_exact_id_in_results_beats_a_longer_id_in_a_newer_answer(self):
+        mine = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": "TIS-220831FLY-2"}])
+        other = self.indexed(log=[turn(1, "q", "see TIS-220831FLY-26")])
+        ChatSession.objects.filter(pk=other.pk).update(updated_at=timezone.now() + timedelta(days=1))
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "tis-220831fly-2", sources=["chats", "records"]))[0],
+                         str(mine.session_id))
+
+    def test_exact_record_beats_a_prefix_record(self):
+        mine = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": "TIS-220831FLY-2"}])
+        other = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": "TIS-220831FLY-27"}])
+        ChatSession.objects.filter(pk=other.pk).update(updated_at=timezone.now() + timedelta(days=1))
+        res = search_sessions(self.a.pk, "tis-220831fly-2", sources=["records"])
+        self.assertEqual(self.ids(res), [str(mine.session_id), str(other.session_id)])
+
+    def test_whole_word_beats_a_word_that_starts_the_same(self):
+        whole = self.chat(log=[turn(1, "q", "the liver samples")])
+        prefix = self.chat(log=[turn(1, "liverpool samples")])
+        ChatSession.objects.filter(pk=prefix.pk).update(updated_at=timezone.now() + timedelta(days=1))
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "liver")), [str(whole.session_id), str(prefix.session_id)])
+
+    def test_exact_steps_beat_prefix_steps(self):
+        whole = self.indexed(log=[{"turn_id": 1, "user_query": "q", "assistant_reply": "a", "cc_run_id": "r1"}],
+                             transcripts=[("r1", self.steps("read the graph", "x"))])
+        prefix = self.indexed(log=[{"turn_id": 1, "user_query": "q", "assistant_reply": "a", "cc_run_id": "r2"}],
+                              transcripts=[("r2", self.steps("read the graphs", "x"))])
+        ChatSession.objects.filter(pk=prefix.pk).update(updated_at=timezone.now() + timedelta(days=1))
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "graph", sources=["steps"])),
+                         [str(whole.session_id), str(prefix.session_id)])
+
+    def test_a_type_code_is_a_whole_word_of_its_ids(self):
+        rec = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": "NHP-220630FLY-9"}])
+        prefix = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": "NHPX-220630FLY-9"}])
+        ChatSession.objects.filter(pk=prefix.pk).update(updated_at=timezone.now() + timedelta(days=1))
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "nhp", sources=["records"])),
+                         [str(rec.session_id), str(prefix.session_id)])

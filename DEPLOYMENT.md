@@ -34,8 +34,8 @@ No service is profile-gated: `docker compose ps` shows the whole stack, and
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
 | `nextseek` (the worker) | built from root `Dockerfile` | none | default | The background runtimes that run app code, no web server: Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the beat, the outbox dispatcher, the sync-recovery loop, the assay-registration and share drains and the graph sync. It is the only service that runs `migrate`, and it holds no Docker socket. One `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app`. Keeps the name `nextseek`, so every `docker exec nextseek ...` works |
-| `web` | the `nextseek` image (no second build) | none (internal :8000) | default + laya-net + dmac-spawner-net | The web server (daphne, or gunicorn via `NEXTSEEK_SERVER`) and the chat turn. No `container_name`: compose names it `nextseek-web-N`, so a rebuild can run two and swap them (§3.3). Holds the Docker socket for the one dev cycle of the spawner switch, the Luria key and ssh volume, and `dmac-cc-users`. Healthcheck: `GET /login/` answers 200. `stop_grace_period: 5m` |
-| `cc-spawner` | built from `docker/cc-spawner/` | none | dmac-spawner-net (internal) | Starts Container-CC turns and runs the SEEK admin scripts for `web`, behind a token. The only other holder of the Docker socket; read-only, all capabilities dropped. `web` uses it unless `NEXTSEEK_SPAWNER_URL` is set empty in the project-root `.env` |
+| `web` | the `nextseek` image (no second build) | none (internal :8000) | default + laya-net + dmac-spawner-net | The web server (daphne, or gunicorn via `NEXTSEEK_SERVER`) and the chat turn. No `container_name`: compose names it `nextseek-web-N`, so a rebuild can run two and swap them (§3.3). Holds no Docker socket (it reaches Docker only through `cc-spawner`), the Luria key and ssh volume, and `dmac-cc-users`. Healthcheck: `GET /login/` answers 200. `stop_grace_period: 5m` |
+| `cc-spawner` | built from `docker/cc-spawner/` | none | dmac-spawner-net (internal) | Starts Container-CC turns and runs the SEEK admin scripts for `web`, behind a token. The only holder of the Docker socket (a repo guard keeps it so); read-only, all capabilities dropped. `web` reaches it at `NEXTSEEK_SPAWNER_URL`, which has no off switch |
 | `nextseek_nginx` | `nginx:${NGINX_IMAGE_TAG:-1.31.2}` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy to the `web` service (or, during a swap, to the one container `docker/nginx-upstream/pin.conf` names); the **only dual-homed** service |
 | `db` | `mysql:8.0` | `127.0.0.1:3306` | default | two schemas: `dmac` (NExtSEEK) + `seek_production` (SEEK) |
 | `neo4j` | `neo4j:${NEO4J_IMAGE_TAG:-2026.05.0}` | `127.0.0.1:7474` / `:7687` | default | sample/assay graph |
@@ -43,7 +43,7 @@ No service is profile-gated: `docker compose ps` shows the whole stack, and
 | `solr` | `fairdom/seek-solr:8.11` | none | default | SEEK search index |
 | `bedrock-proxy` | built from `NessieAI/docker/bedrock-proxy/` | none | dmac-cc-net | holds the Bedrock token; model-allowlist auth proxy (container name `dmac-bedrock-proxy`) |
 | `nextseek-sidecar` | built from `NessieAI/docker/ns-sidecar/` | none | dmac-cc-net | NS sidecar for the CC agent (healthchecked) |
-| `cc-agent` | built from `NessieAI/docker/cc-runtime/` → `dmac-assistant:poc` | none | none | **build-target only**: never runs as a service; per-turn agent containers are spawned from this image by the app via the docker socket |
+| `cc-agent` | built from `NessieAI/docker/cc-runtime/` → `dmac-assistant:poc` | none | none | **build-target only**: never runs as a service; per-turn agent containers are spawned from this image by `cc-spawner` |
 
 Key facts every operator must internalize:
 
@@ -51,7 +51,7 @@ Key facts every operator must internalize:
   `nextseek_api/`, `NessieAI/`, `seek/`, `dmac/`, templates, etc.
   **requires an image rebuild**. Only these are bind-mounted at runtime and
   changeable without a rebuild: `themes/NextSeek/`, `dmac/local_settings.py`,
-  `./outputs/`, `./logs/` (plus the docker socket and the `dmac-cc-users`
+  `./outputs/`, `./logs/` (plus the `dmac-cc-users`
   volume).
 - Secrets **never** enter images: `.dockerignore` excludes `docker/db.env`,
   `docker/nextseek.env`, `NessieAI/docker/bedrock-proxy/proxy-secret.env`,
@@ -405,7 +405,7 @@ exits non-zero rather than blocking on a question nobody can answer.
 | `NessieAI/docker/bedrock-proxy/**` or its secret env | `./startup.sh rebuild --component bedrock-proxy` |
 | `NessieAI/docker/ns-sidecar/**` | `./startup.sh rebuild --component nextseek-sidecar` |
 | More than one first-party image family | run each affected component, or `--component custom-stack` |
-| A Django migration (in the range) | mysqldump gate (§5.3) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
+| A Django migration (in the range) | mysqldump gate (§5.3), migration rehearsal (§3.6) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
 
 ### 3.3 Swapping the web server (no gap)
 
@@ -458,6 +458,17 @@ does not start, so build the spawner first, once per box:
 ./startup.sh rebuild --recreate-nginx      # about a minute of the restart page
 ```
 
+Until the app step recreates it, nginx must keep its old config: the new `nginx.conf`
+proxies to `web` and answers 502 until `web` exists (prod, 2026-10-26: 19 minutes). The
+rebuild's front-door start never recreates a running nginx (`up --no-recreate`) on a checkout
+that contains 607031e7; on an older checkout the first rebuild that restarts a container
+recreates it whenever its service definition changed. So the skill's runner, on a box that has
+never had a `web` container, keeps the usual image order and stops before any rebuild unless
+the shipped sha contains that fix and the brief lets the app step recreate nginx
+(`nginx recreate ok`). The same `--no-recreate` leaves any other change to the nginx service
+(an image tag, a mount) unapplied until `--recreate-nginx`; the rebuild's `nginx config` check
+warns when the running nginx's definition differs from the checkout's.
+
 Every rebuild after it swaps. `rebuild` also writes the spawner token pair
 (`NEXTSEEK_SPAWNER_TOKEN` in `docker/nextseek.env`, `SPAWNER_TOKEN` in
 `docker/cc-spawner.env`) on a box that lacks it; both files stay out of git. The
@@ -465,9 +476,15 @@ spawner reads its Container-CC limits (`NEXTSEEK_CC_MAX_TURNS`, `_MEM_LIMIT`, `_
 `_PIDS_LIMIT`, `_FSIZE_BYTES`, `_AUTOMODE_GCP`) from the project-root `.env`, not from
 `docker/nextseek.env`: a box that overrides one in `nextseek.env` must copy it to `.env`.
 
-Rollback of the spawner: `NEXTSEEK_SPAWNER_URL=` (empty) in `.env`, then recreate `web`, puts
-Container-CC turns back on the direct Docker path. SEEK user create and patch always need the
-spawner and answer 503 while it is down or the switch is empty.
+There is no direct Docker path any more (W9 part 2): Container-CC turns and SEEK user create and
+patch need the spawner and answer 503 or "CC unavailable" while it is down. An empty
+`NEXTSEEK_SPAWNER_URL=` line in `.env` is read as the default (`:-`), so a stale line does no harm.
+What a rollback past part 2 gets depends on the compose file it runs with. The image-only
+rollback (§5.1) keeps this compose file, so `web` still has no socket: a part-1 image still
+sends Container-CC turns through the spawner, and an image from before the spawner existed
+has no route to Docker at all (Container-CC and SEEK user create and patch fail). The direct
+Docker path comes back only with a part-1 checkout (its compose file puts the socket back in
+`web`) plus `NEXTSEEK_SPAWNER_URL=` (empty) in `.env`, then `./startup.sh rebuild` there.
 
 ### 3.4 If the deploy clone is owned by a different account
 
@@ -496,6 +513,111 @@ to fast-forward or invoke the service-account checkout; never edit or commit
 from that checkout.
 
 ---
+
+### 3.5 Phase 4: the app containers stop running as root
+
+What changes: `nextseek` and `web` (the app image), `cc-agent` and `nextseek-sidecar` run as 10001:10001 (host
+uid 1001 is a person on both boxes, so it is not used); the bedrock proxy runs as 10002. Compose drops all caps
+and sets no-new-privileges. The app reads `dmac/local_settings.py` and the Luria key by group (`group_add:
+${NEXTSEEK_HOST_GID}`, files 0640, that group). No file in a volume or bind the app writes may stay root- or
+1001-owned: `./startup.sh fix-ownership` hands them over.
+
+**Preflight** (rebuild runs both before any build; run them by hand first on a box you have not touched):
+- `check_app_ids` (`startup/steps/validate.py`): uid and gid 10001 are free on the box (NSS, so directory
+  accounts count) and `NEXTSEEK_HOST_GID` is a number that is not 0 and not the docker group's gid.
+- the group-read step (`ensure_secret_group_read`, in `startup/steps/volumes.py`): `local_settings.py` gets
+  group `NEXTSEEK_HOST_GID` and group read only (`chmod g+r,g-wx,o-rwx`: today's 0644 becomes 0640). The file
+  named by `LURIAKEY` is never touched (on dev it is `~/.ssh/luria`, and OpenSSH refuses a group-readable key
+  for its owner): it is copied to `docker/luria-key`
+  (gitignored and dockerignored, 0640, that group, refreshed on every rebuild) and compose binds the copy at the
+  `LURIAKEY` path (`NEXTSEEK_LURIA_KEY_COPY` in `.env`). Run as the installing user; if `local_settings.py`
+  belongs to someone else it prints the `chgrp` and `chmod` for that owner.
+
+**Switchover sitting** (the first deploy whose app image has a USER; runner-driven or by hand). Pick a quiet
+window: between the sidecar rebuild and the app step, the 10001 sidecar cannot write a `_staging` still owned by
+1001, and a CC turn on the new agent image cannot write its old 1001 files; the app step's FIX closes both.
+1. `./startup.sh rebuild --no-restart` first (the slow app build and the preflight, nothing restarted, so the
+   old containers keep serving), then `--component cc-agent`, `--component nextseek-sidecar`, `--component
+   bedrock-proxy`, then the app again (`./startup.sh rebuild`, a cached build), back to back: the mixed-uid window
+   is the three small rebuilds, not the app build. Roll back to the FIRST app rollback tag (the second one tags
+   the image the first step built). The app rebuild notices the user change, does not swap,
+   stops `web`, `nextseek` and `nextseek-sidecar`, runs FIX on every volume and bind, then starts them. Users
+   see the restart page meanwhile. Before it stops anything it runs `id -u` in the cc-agent and sidecar images
+   and refuses (nothing stopped, the old containers keep running) unless both say 10001: rebuild them first.
+   The runner stops before any rebuild when the brief leaves either out. Measured sizes: dev about 16k files, prod about 14k, the scans take 0 to 1 s,
+   so the FIX is seconds, not minutes.
+2. CHECK: `./startup.sh fix-ownership --check` must print 0 on every target (exit 0). The runner does this
+   itself after the rebuilds and stops the launch otherwise, and its post-deploy checks add: `id -u` in `web` is
+   10001, no `/var/run/docker.sock` in `web`, a spawner call without the token answers 401 or 403, and
+   `docker inspect` of `web` and `nextseek` shows User 10001:10001, CapDrop [ALL] and no-new-privileges.
+3. `fix-ownership` (without `--check`) skips `dmac-cc-users`, and says so, while a running `web` or `nextseek`,
+   or the app image at the compose tag, is not on 10001:10001 (the old-uid agents still own their 0600 files
+   there; the switchover rebuild fixes that volume with the app stopped). After the switchover it is safe at
+   any time.
+
+Phase 4 rides the same dev rollout as phase 3.
+
+Expected once, on dev: the runner's `LABS pre-copy failed` line at the switchover (its `compose run` is already
+10001 and `/media` is still root-owned until the app step's FIX); the copy after the app step puts the file in.
+
+**Rollback** to the previous commit's compose and images (root app, 1001 agent and sidecar). First stop the app
+and the sidecar, so no 10001 process writes while the volume changes hands (a CC turn in flight is cut), then
+hand `dmac-cc-users` back to 1001:
+
+```bash
+docker compose stop web nextseek nextseek-sidecar
+docker run --rm --network none --user 0:0 --entrypoint sh -v dmac-cc-users:/v <app-or-cc-image> \
+  -c 'find /v -xdev ! -user 1001 -exec chown -h 1001:1001 {} +'
+```
+
+The old 1001 agent cannot write 10001's files; the old root app does not care who owns them, so no other volume
+or bind needs anything. Then roll back as in section 5 (compose files from the previous commit AND the
+rollback-tagged images), which starts them again. The Luria key itself was never changed: the old compose binds
+`LURIAKEY` directly again and the root app reads it. `docker/luria-key` and `NEXTSEEK_LURIA_KEY_COPY` in `.env`
+are ignored by the old compose (delete the copy if the rollback is for good); `local_settings.py` stays 0640 in
+the deploy group, which the root app reads. Rolling forward again repeats the switchover.
+
+**`docker compose exec` is 10001 now.** `docker compose exec -u 0` does not help: the container drops every
+capability, so uid 0 there cannot write 10001's 0755 and 0600 files either. For root work on a volume use a
+throwaway container, which keeps docker's default capabilities:
+`docker run --rm --network none --user 0:0 --entrypoint sh -v <volume>:/v nextseek-nextseek:latest -c '...'`.
+Whatever it leaves root-owned the next CHECK reports and `./startup.sh fix-ownership` (or the next rebuild's
+ownership pass) fixes. The runner's own execs (collectstatic, `mkdir -p /app/runs`, the Nessie run) run as the app user on purpose, and its
+copies into the containers use `docker compose cp -a` / `docker cp -a`, which gives the file the container user
+(verified on docker here: without `-a` the host uid is kept).
+
+### 3.6 Migration rehearsal (launch runner, before anything restarts)
+
+When a launch's range has a migration (the brief's `migrations_expected`, or the commits step's migration flag) and
+the app is rebuilt, the runner's first step is `app-build` (the new app image built with `--no-restart`, as on the
+phase 4 switchover, §3.5), then it rehearses `manage.py migrate --noinput` with that image on a throwaway copy of the
+box's own schema, and only then rebuilds and restarts the other components in their order (the app's turn is a cached
+build). The SQLite lanes and GitHub's pytest cannot see
+charsets or collations; this can (launch 20261026-1846: an FK from a utf8mb4 table to the latin1
+`assistant_chat_session`, MySQL error 3780, a crash loop behind `[MIGRATE-FAILED]`).
+
+- `app-build` is judged by its success line (`app image rebuilt; runtime restart deferred by request`), not its exit
+  code: a `--no-restart` rebuild still runs stack health, and `app image code` is STALE until the restart.
+- It only reads the live database: `mysqldump --single-transaction --no-data` plus the rows of `django_migrations` and
+  `django_content_type`, run inside the db container under `sh -e` (its password never leaves the container; nothing
+  secret is on an argv). No user or auth rows.
+- The copy loads into a throwaway MySQL: the running db container's own image and command (no db container, no
+  rehearsal), the live database's default charset and collation, an `--internal` network, 2 GB, and `timeout -k 10 900`
+  as its entrypoint, so the limit holds even if the runner dies. The migrate container gets its settings on stdin (no
+  host mount) and a 600 s limit. A trap removes the dump, the containers and the network on every exit; on a failure it
+  first appends the throwaway db's last 20 lines to `rehearsal.log`. A rehearsal also removes any `rehearse-*`
+  container, network or dump a killed runner left behind before it starts.
+- It cannot catch a failure that needs rows: the copy has the schema only, so a unique index over duplicate values, a
+  NOT NULL over existing nulls, an FK over orphan rows, or a RunPython data step all pass here and can still fail at
+  boot. The mysqldump gate (§5.3) stays the way back from those.
+- Green: the status file gets `REHEARSAL-OK applied=<migrations> seconds=<n>` and the launch goes on.
+- A STOP (`STOPPED: the migration rehearsal failed ...`, or `STOPPED: app-build: no '...' line`, which stops even
+  with the app in `continue_on_failure`: the app's restart would migrate the live database unrehearsed) means the old
+  containers are still serving and nothing was restarted. The error tail is on the status line and in
+  `launch-<tag>/rehearsal.log`; the new image is built but unused. Fix the migration, push, and relaunch. Never
+  `migrate --fake`.
+- The app's rollback point is `app-build`'s `ROLLBACK` line (the old image); the restart's own tag would be the new
+  image, so the runner reports only an image's first tag and `launch.py` keeps a component's first `ROLLBACK` line.
 
 ## 4. Config-only changes
 
@@ -624,6 +746,10 @@ docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'   # MUST su
 docker tag nextseek-nextseek:pre-<name> nextseek-nextseek:latest
 docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek web
 ```
+
+**Not across the phase 4 switchover.** This keeps the current compose file, and from phase 4 on it runs `nextseek`
+and `web` as 10001 with every capability dropped: an image from before the switchover (built to run as root)
+crash-loops under it. Roll back the compose files and the agent's volume too, as in §3.5 "Rollback".
 
 This recreates `web` in place (about a minute of the restart page). For a gap-free
 rollback check out the previous good commit and run `./startup.sh rebuild` there: it
@@ -1017,6 +1143,8 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DMAC_ROUTER_MODEL_CLASS_MAP_FILE` | internal |  |  |  | Override of the router model class map. On a box every CC turn loses its model id. Must not be set. |
 | `COMPOSE_PROJECT_NAME` | root.env | nextseek |  |  | Compose project name; install writes it per instance. |
 | `INSTANCE_PREFIX` | root.env | "" |  |  | Prefix for container and volume names of a second instance; install writes it. |
+| `NEXTSEEK_HOST_GID` | root.env | "" |  |  | Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and docker/luria-key (startup's 0640 copy of the Luria key). Install writes it (render_root_env); rebuild, fix-ownership and doctor add it to an older .env (ensure_host_gid), and the deploy runner appends it before its first compose verb and its pull. Compose reads it in the mandatory form, so every compose verb fails without it; by hand: echo NEXTSEEK_HOST_GID=`id -g` >> .env. Never the docker group. |
+| `NEXTSEEK_LURIA_KEY_COPY` | root.env | /dev/null |  |  | Host path compose binds at the LURIAKEY path: ./docker/luria-key, startup's copy of the Luria key (0640, group NEXTSEEK_HOST_GID; the key itself is never chmodded, as OpenSSH refuses a group-readable key), or /dev/null with no key. rebuild and install write it (startup/steps/volumes.py ensure_secret_group_read); never set it by hand. |
 | `NEXTSEEK_PORT` | root.env | 8000 |  |  | Host port of the published nginx; install writes it. |
 | `SEEK_PORT` | root.env | 3000 |  |  | Host port of SEEK; install writes it. |
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |
@@ -1024,9 +1152,9 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
 | `NEXTSEEK_MEMORY` | root.env | 8G |  |  | Memory cap of the web container. |
 | `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
-| `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
+| `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. The entrypoint clamps it to web's stop_grace_period less 30 s (270) and uses 240 for a value that is not a whole number of seconds; doctor reports either. |
 | `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
-| `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle). |
+| `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns and SEEK user ops: the cc-spawner service. Unset or empty in .env: this default. There is no direct Docker path. |
 | `NEXTSEEK_CC_AUTOMODE_GCP` | root.env | 1 |  |  | 1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key. |
 | `CC_SPAWNER_NEO4J_URI` | root.env | neo4j://neo4j:7687 |  |  | Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text. |
 | `SPAWNER_MEMORY` | root.env | 512M |  |  | Memory cap of the cc-spawner container. |

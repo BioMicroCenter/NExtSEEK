@@ -20,6 +20,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 import seek.views.samples  # noqa: F401  -- so @patch can resolve the target
 import seek.views.timeline  # noqa: F401
 from seek.dbtable_sample import DBtable_sample
+from seek.models import Samples
 
 _MOD = "seek.views.samples"
 MEMBER = SimpleNamespace(is_authenticated=True, is_active=True, is_superuser=False, username="member", pk=7)
@@ -106,11 +107,13 @@ def test_the_grid_scope_applies_to_the_page_and_the_total():
 
     conn = DBconn_django.__new__(DBconn_django)
     scope = Q(id__in=[1])
-    with patch.object(DBconn_django, "retrieveJoint", return_value=[]) as joint:
-        conn.retrieve_table_list("samples", "id", {"orderby": " ", "startNo": " ", "endNo": " ", "limit": " ",
-                                                   "filterRules": [], "scope": scope}, {})
+    with patch.object(DBconn_django, "retrieveJoint", return_value=[]) as joint, \
+            patch.object(DBconn_django, "retrieveTotalRecords", return_value=0) as total:
+        conn.retrieve_table_list(Samples, "id", {"orderby": " ", "startNo": " ", "endNo": " ", "limit": " ",
+                                                 "filterRules": [], "scope": scope}, {})
 
-    assert [call.args[2] for call in joint.call_args_list] == [Q() & scope, scope]
+    assert joint.call_args.args[2] == Q() & scope
+    assert total.call_args.args == (Samples, scope)
 
 
 # --------------------------------------------------------------------------- the NHP timeline

@@ -58,8 +58,8 @@ PROJECT = "proj"
 CC_STATE_KEY = "chat-1"
 CC_SESSION = "cc-sess-1"
 
-# ``_container_name_for_run`` is fail-closed on ``^[0-9a-f-]{1,64}$`` (real run_ids
-# are Celery task UUIDs), so these have to be hex-safe.
+# cc-spawner names the container from the run id and refuses anything but
+# ``^[0-9a-f][0-9a-f-]{0,63}$`` (real run_ids are Celery task UUIDs), so these have to be hex-safe.
 RUN1 = "aa11"
 RUN2 = "bb22"
 

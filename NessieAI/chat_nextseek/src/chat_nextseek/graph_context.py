@@ -593,6 +593,17 @@ def _named_by(key: str, words: frozenset[str]) -> int:
     return sum(1 for word in words if any(_uses(word, stem) for stem in stems))
 
 
+def _ranks(keys, words: frozenset[str]) -> list[tuple[float, int]]:
+    """Per entry, ``(weight of the rarest question word it uses, how many it uses)``. A word's weight is one over
+    the entries of the block using it, so a title holding a word few titles hold outranks any number of titles
+    matched only by a word most of them share (the question's "named", "cohort"), however many such words they
+    use. Not named: ``(0, 0)``."""
+    stems = [{_stem(t) for t in _WORD_RE.findall(key.lower())} for key in keys]
+    uses = [[w for w in words if any(_uses(w, st) for st in sts)] for sts in stems]
+    freq = {w: sum(1 for u in uses if w in u) for w in words}
+    return [(max((1 / freq[w] for w in u), default=0.0), len(u)) for u in uses]
+
+
 def _left_out_note(left_out: int, named: int) -> str:
     if not left_out:
         return ""
@@ -606,7 +617,9 @@ class _Trim:
 
     def __init__(self, block: VocabularyBlock, words: frozenset[str]):
         self.block = block
-        self.scores = [_named_by(key, words) for key in (block.keys or block.entries)]
+        keys = block.keys or block.entries
+        self.scores = [_named_by(key, words) for key in keys]
+        self.ranks = _ranks(keys, words)
         self.sizes = [len(entry.encode("utf-8")) for entry in block.entries]
         self.kept = list(range(len(block.entries)))
         self.kept_bytes = sum(self.sizes)
@@ -630,9 +643,10 @@ class _Trim:
         return None
 
     def named_victim(self) -> int | None:
-        """The kept entry using the fewest of the question's words (the later on a tie), leaving one entry."""
+        """The kept entry ranked lowest (``_ranks``: the rarest question word it uses first, then how many words),
+        the later on a tie, leaving one entry."""
         if len(self.kept) > 1:
-            return min(self.kept, key=lambda i: (self.scores[i], -i))
+            return min(self.kept, key=lambda i: (self.ranks[i], -i))
         return None
 
     def drop(self, i: int) -> None:
@@ -679,10 +693,14 @@ def fit_vocabulary(blocks, question: str, *, budget: int = VOCAB_BUDGET_BYTES) -
 
 
 def _title_block(heading: str, titles) -> VocabularyBlock | None:
+    """``heading`` over the quoted titles, one per line, each but the last ending in a comma. One line per title
+    keeps a title findable by a reader that cuts each line (a Container-CC agent printed ``line[:3000]``), where
+    one long line hid every title past its first few thousand characters. ``",\\n"`` is two bytes, as ``", "``
+    was, so the trim budget is unchanged."""
     titles = [t for t in titles or () if t not in (None, "")]
     if not titles:
         return None
-    return VocabularyBlock(f"{heading}:\n", tuple(_quote(t) for t in titles), ", ", "", tuple(map(str, titles)))
+    return VocabularyBlock(f"{heading}:\n", tuple(_quote(t) for t in titles), ",\n", "", tuple(map(str, titles)))
 
 
 def _field_ci(record: Any, name: str) -> Any:

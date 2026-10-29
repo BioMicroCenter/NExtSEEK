@@ -16,28 +16,28 @@ because it is the fact most readers get wrong.
 behind an environment flag that defaults to off:
 
 - The flag is `NEXTSEEK_APPLY_MANAGED_INDEXES`
-  (`startup/steps/schema_fixups.py:973`).
+  (`startup/steps/schema_fixups.py:969`).
 - `managed_indexes_enabled()` reads it at call time and returns true only for
   `1`, `true`, `yes` or `on`, case-insensitively, after stripping
-  (`startup/steps/schema_fixups.py:992`). An unset variable is false, which is
+  (`startup/steps/schema_fixups.py:988`). An unset variable is false, which is
   the documented default: the docstring states "Opt-in, default off"
-  (`startup/steps/schema_fixups.py:976-991`).
+  (`startup/steps/schema_fixups.py:972-987`).
 - `apply_all()` runs the table and column fixups unconditionally
-  (`startup/steps/schema_fixups.py:999-1000`), then checks the flag and, when
+  (`startup/steps/schema_fixups.py:995-996`), then checks the flag and, when
   it is off, returns early with one `skipped (set NEXTSEEK_APPLY_MANAGED_INDEXES=1
   to apply)` status per index and never calls `apply_managed_indexes`
-  (`startup/steps/schema_fixups.py:1001-1009`). The index DDL is reached only on
-  the line past that gate (`startup/steps/schema_fixups.py:1010`).
+  (`startup/steps/schema_fixups.py:997-1005`). The index DDL is reached only on
+  the line past that gate (`startup/steps/schema_fixups.py:1006`).
 - The skip is reported by name rather than silently, because "silence here would
   read as applied to anyone scanning install output"
-  (`startup/steps/schema_fixups.py:1002-1003`). Note how `install` renders it,
+  (`startup/steps/schema_fixups.py:998-999`). Note how `install` renders it,
   though: the status line is a warning only for `applied` and
   `constraints reset`, everything else goes through `ui.ok`
   (`startup/cli.py:288-291`), so a skipped index appears as a normal green
   line.
 
 The reason for the gate is recorded in the same docstring
-(`startup/steps/schema_fixups.py:979-990`): `MANAGED_INDEXES` targets
+(`startup/steps/schema_fixups.py:975-986`): `MANAGED_INDEXES` targets
 `seek_production`, which Rails owns and no Django migration ledger tracks, and
 `duplicate_preflight` raises on the first case-variant group, so unconditional
 application means a stock install can abort *after* the seeds are loaded and the
@@ -88,14 +88,14 @@ somebody ran `install` with the flag set on that box, and check with
 ## Owned index names
 
 Both indexes are declared in `MANAGED_INDEXES`
-(`startup/steps/schema_fixups.py:373-389`) and can be rebound onto a different
+(`startup/steps/schema_fixups.py:369-385`) and can be rebound onto a different
 physical database name by `indexes_for_database()`
-(`startup/steps/schema_fixups.py:392-396`):
+(`startup/steps/schema_fixups.py:388-392`):
 
 | Table | Index name | Columns | Unique | Preflight |
 |---|---|---|---|---|
 | `samples` | `idx_samples_sample_type_id` | `sample_type_id` | no | no |
-| `sample_attributes` | `uq_sample_attributes_sample_type_title_ci` | `sample_type_id`, `title` | yes | yes, `duplicate_preflight` aborts before any write if a case-variant duplicate `(sample_type_id, LOWER(title))` group already exists (`startup/steps/schema_fixups.py:538-556`) |
+| `sample_attributes` | `uq_sample_attributes_sample_type_title_ci` | `sample_type_id`, `title` | yes | yes, `duplicate_preflight` aborts before any write if a case-variant duplicate `(sample_type_id, LOWER(title))` group already exists (`startup/steps/schema_fixups.py:534-552`) |
 
 The unique index is case-insensitive through the table's collation rather than
 through anything in the index definition: `sample_attributes` is declared
@@ -104,18 +104,18 @@ collation. On an install whose collation differs, that property does not hold an
 the preflight's `LOWER(title)` grouping is stricter than the index it guards.
 
 Ownership is tracked in a durable marker table,
-`nextseek_managed_index_ownership` (`startup/steps/schema_fixups.py:330`), one
+`nextseek_managed_index_ownership` (`startup/steps/schema_fixups.py:326`), one
 row per index name, primary keyed on `index_name`
-(`startup/steps/schema_fixups.py:407-418`). It stores `shape_sha256`,
+(`startup/steps/schema_fixups.py:403-414`). It stores `shape_sha256`,
 `ownership_state` (`create_pending` | `created_by_fixup` |
 `preexisting_compatible`) and `owner` (`nextseek-attribute-fixup`,
-`startup/steps/schema_fixups.py:329`); the state vocabulary is pinned on the
-dataclass at `startup/steps/schema_fixups.py:399-404`. A compatible index that
+`startup/steps/schema_fixups.py:325`); the state vocabulary is pinned on the
+dataclass at `startup/steps/schema_fixups.py:395-400`. A compatible index that
 already existed before the fixup ever ran is marked `preexisting_compatible`
-(`startup/steps/schema_fixups.py:774-775`) and is never dropped by reverse; only
+(`startup/steps/schema_fixups.py:770-771`) and is never dropped by reverse; only
 an index this fixup itself created (`created_by_fixup`) whose observed physical
 shape still matches the managed definition is eligible for reverse
-(`startup/steps/schema_fixups.py:843-850`).
+(`startup/steps/schema_fixups.py:839-846`).
 
 ## Readiness, apply, reverse, and post-state
 
@@ -126,53 +126,53 @@ real-boundary contract module is `startup/tests/test_schema_fixups.py`
 and never against `seek_production` (`startup/tests/test_schema_fixups.py:5-8`).
 
 - **Readiness** (read-only): `attribute_index_readiness(connection, index)`
-  (`startup/steps/schema_fixups.py:520-535`) returns `("table_missing", None)`,
+  (`startup/steps/schema_fixups.py:516-531`) returns `("table_missing", None)`,
   `("absent", None)`, or `("present", (unique, columns))`. Any
   query/connectivity error propagates unmodified
-  (`startup/steps/schema_fixups.py:531-532`); a database that cannot be reached
+  (`startup/steps/schema_fixups.py:527-528`); a database that cannot be reached
   is never reported as absent.
 - **Apply**: `apply_managed_indexes(repo_root, env)`
-  (`startup/steps/schema_fixups.py:936-949`) opens a connection to the `db`
+  (`startup/steps/schema_fixups.py:932-945`) opens a connection to the `db`
   compose service on its published host port as `root`
-  (`startup/steps/schema_fixups.py:912-925`) and delegates to
+  (`startup/steps/schema_fixups.py:908-921`) and delegates to
   `apply_managed_indexes_on_connection(connection, indexes, faults)`
-  (`startup/steps/schema_fixups.py:725-744`). That function runs
+  (`startup/steps/schema_fixups.py:721-740`). That function runs
   `duplicate_preflight()` for every index in the batch *before* any ownership
-  write or DDL for any index (`startup/steps/schema_fixups.py:736-737`), so a
+  write or DDL for any index (`startup/steps/schema_fixups.py:732-733`), so a
   duplicate found on one index aborts the entire batch untouched. Each index's
-  `forward_sql()` (`startup/steps/schema_fixups.py:358-364`) is:
+  `forward_sql()` (`startup/steps/schema_fixups.py:354-360`) is:
   ```sql
   ALTER TABLE `<table>` ADD [UNIQUE] INDEX `<name>` (<columns>), ALGORITHM=INPLACE, LOCK=NONE
   ```
 - **Reverse**: `reverse_managed_indexes(repo_root, env)`
-  (`startup/steps/schema_fixups.py:958-970`) →
+  (`startup/steps/schema_fixups.py:954-966`) →
   `reverse_managed_indexes_on_connection(connection, indexes)`
-  (`startup/steps/schema_fixups.py:825-870`), which walks the batch in reverse
-  declaration order (`startup/steps/schema_fixups.py:835`). It drops only
+  (`startup/steps/schema_fixups.py:821-866`), which walks the batch in reverse
+  declaration order (`startup/steps/schema_fixups.py:831`). It drops only
   indexes whose marker names this owner and state `created_by_fixup`
-  (`startup/steps/schema_fixups.py:843-844`) and whose observed shape still
-  matches (`startup/steps/schema_fixups.py:846-850`); a compatible preexisting
+  (`startup/steps/schema_fixups.py:839-840`) and whose observed shape still
+  matches (`startup/steps/schema_fixups.py:842-846`); a compatible preexisting
   index is recorded as `preserved preexisting` and left alone. Each owned
-  index's `reverse_sql()` (`startup/steps/schema_fixups.py:366-370`) is:
+  index's `reverse_sql()` (`startup/steps/schema_fixups.py:362-366`) is:
   ```sql
   ALTER TABLE `<table>` DROP INDEX `<name>`, ALGORITHM=INPLACE, LOCK=NONE
   ```
   Its docstring warns that reverse is a separate, explicit user gate and must
   never be run against a live populated `seek_production` from an automated task
-  (`startup/steps/schema_fixups.py:959-961`).
+  (`startup/steps/schema_fixups.py:955-957`).
 - **Post-state verification**: after DDL, `_verify_final_shape()` re-reads the
   index via `attribute_index_readiness()` and raises `IndexOwnershipError` if
   the physical shape observed after DDL does not exactly match the managed
-  definition (`startup/steps/schema_fixups.py:809-814`). DDL that does not
+  definition (`startup/steps/schema_fixups.py:805-810`). DDL that does not
   converge is never silently accepted.
 
 Both `apply_managed_indexes` and `reverse_managed_indexes` accept an optional
 `indexes=` override, used by the test lane to rebind onto a disposable database
-name (`startup/steps/schema_fixups.py:941`, `startup/steps/schema_fixups.py:962`).
+name (`startup/steps/schema_fixups.py:937`, `startup/steps/schema_fixups.py:958`).
 When it is omitted, the frozen `MANAGED_INDEXES` list is used and the connection
 is bound to the single database every entry in the batch targets, which is
 `seek_production`; a batch spanning two databases is refused rather than guessed
-(`startup/steps/schema_fixups.py:873-892`). Reaching either entry point from
+(`startup/steps/schema_fixups.py:869-888`). Reaching either entry point from
 `install` still requires the flag in the headline above.
 
 ### The schema evidence lane, and why you probably cannot run it
@@ -211,68 +211,68 @@ is this file's own former citation. Section numbers quoted in module docstrings
 
 Each apply/reverse operation on a single index that gets past the gates produces
 one `ddl-telemetry/v1` record (`build_ddl_telemetry_record`,
-`startup/steps/schema_fixups.py:632-703`). Two shapes are returned without any
+`startup/steps/schema_fixups.py:628-699`). Two shapes are returned without any
 measurement: a table that does not exist yields a three-key stub with verdict
-`table missing` (`startup/steps/schema_fixups.py:752-757`), and a skipped
-reverse yields the same stub shape (`startup/steps/schema_fixups.py:817-822`).
+`table missing` (`startup/steps/schema_fixups.py:748-753`), and a skipped
+reverse yields the same stub shape (`startup/steps/schema_fixups.py:813-818`).
 A full record captures, as measured at the moment of that run rather than
 hardcoded:
 
 - `pre_state`: row/byte counts from `INFORMATION_SCHEMA.TABLES`, the ownership
   marker as it stood before this run, and the pre-existing index shape if any,
   with the first indexed column's collation
-  (`startup/steps/schema_fixups.py:678-684`, with the collation read by
-  `startup/steps/schema_fixups.py:602-614`).
+  (`startup/steps/schema_fixups.py:674-680`, with the collation read by
+  `startup/steps/schema_fixups.py:598-610`).
 - `observation.duration_seconds`: wall-clock time for the operation on that
   index, measured with `time.monotonic()`
-  (`startup/steps/schema_fixups.py:749`, `startup/steps/schema_fixups.py:798`).
+  (`startup/steps/schema_fixups.py:745`, `startup/steps/schema_fixups.py:794`).
 - `observation.concurrent_probe`: a `SELECT COUNT(*)` issued after the DDL by
   `observe_concurrent_lock_probe()`
-  (`startup/steps/schema_fixups.py:706-722`), reporting `attempted` (always
+  (`startup/steps/schema_fixups.py:702-718`), reporting `attempted` (always
   `true`), `outcome` (`"succeeded"` or `"errored"`), `blocked_seconds` and
   `server_error_code`. It runs on the same connection, so it evidences that no
   lingering metadata lock from the DDL blocks continued access; a failed probe
   is recorded as evidence, not raised as a fixup failure
-  (`startup/steps/schema_fixups.py:708-710`).
+  (`startup/steps/schema_fixups.py:704-706`).
 - `observation.raw_query_artifact`: **null unless the lane set
   `ATTRIBUTE_EVIDENCE_RUN_ROOT`.** `_raw_query_artifact()` returns `None` when
-  that variable is unset (`startup/steps/schema_fixups.py:617-620`), which is
+  that variable is unset (`startup/steps/schema_fixups.py:613-616`), which is
   the case in every ordinary `./startup.sh install`. Inside the lane it writes a
   content-addressed, `chmod 0o444` JSON file under the run's
   `ddl-raw-queries/` directory holding the exact
   `INFORMATION_SCHEMA.STATISTICS` rows observed post-DDL, with its own SHA-256
-  recorded in the record (`startup/steps/schema_fixups.py:621-629`).
+  recorded in the record (`startup/steps/schema_fixups.py:617-625`).
 - `post_state`: final shape SHA-256, statistics rows, ownership marker after the
   run, and `convergence_verdict`, one of `applied`, `already-converged`,
   `recovered`, `reversed`, `preserved preexisting`, `already absent` or
-  `table missing` (`startup/steps/schema_fixups.py:693-702`, and the verdict
-  assignments at `startup/steps/schema_fixups.py:773`,
-  `startup/steps/schema_fixups.py:776`, `startup/steps/schema_fixups.py:778`,
-  `startup/steps/schema_fixups.py:791`, `startup/steps/schema_fixups.py:756`,
-  `startup/steps/schema_fixups.py:841`, `startup/steps/schema_fixups.py:844`,
-  `startup/steps/schema_fixups.py:868`).
+  `table missing` (`startup/steps/schema_fixups.py:689-698`, and the verdict
+  assignments at `startup/steps/schema_fixups.py:769`,
+  `startup/steps/schema_fixups.py:772`, `startup/steps/schema_fixups.py:774`,
+  `startup/steps/schema_fixups.py:787`, `startup/steps/schema_fixups.py:752`,
+  `startup/steps/schema_fixups.py:837`, `startup/steps/schema_fixups.py:840`,
+  `startup/steps/schema_fixups.py:864`).
 
 ### Two `run_identity` fields are unusable off one machine
 
 `base_sha` is read from `VERIFICATION-MANIFEST.json` under `ATTRIBUTE_STATE_ROOT`
 (default `~/work/state/attribute-viewset`, `startup/steps/schema_fixups.py:72`). `_base_sha()` returns `None` whenever that
-file is absent (`startup/steps/schema_fixups.py:564-566`), so on every other
+file is absent (`startup/steps/schema_fixups.py:560-562`), so on every other
 machine the record's `base_sha` field is null
-(`startup/steps/schema_fixups.py:660`) and the record cannot be tied back to a
+(`startup/steps/schema_fixups.py:656`) and the record cannot be tied back to a
 source revision. Its neighbour `image_id` has the same shape, falling back to a
-hardcoded reference digest (`startup/steps/schema_fixups.py:662`,
+hardcoded reference digest (`startup/steps/schema_fixups.py:658`,
 `startup/steps/schema_fixups.py:71`) that no reader can have built.
 `dependency_sha` is likewise null without `ATTRIBUTE_EVIDENCE_RUN_ROOT`
-(`startup/steps/schema_fixups.py:571-581`). Both failures are silent: nothing
+(`startup/steps/schema_fixups.py:567-577`). Both failures are silent: nothing
 raises, and the record still validates as `ddl-telemetry/v1`.
 
 Because of the above, this document names no canonical evidence directory. The
 only telemetry a reader can obtain is what
 `apply_managed_indexes`/`reverse_managed_indexes` return in their own run, and
 those callers reduce each record to an `(fqn, convergence_verdict)` pair before
-`install` ever sees it (`startup/steps/schema_fixups.py:949`,
-`startup/steps/schema_fixups.py:970`,
-`startup/steps/schema_fixups.py:952-955`). No duration or lock-probe outcome is
+`install` ever sees it (`startup/steps/schema_fixups.py:945`,
+`startup/steps/schema_fixups.py:966`,
+`startup/steps/schema_fixups.py:948-951`). No duration or lock-probe outcome is
 restated here: both are per-run measurements, not fixed properties of the code.
 
 ## Absent tables, and `--no-seed` installs
@@ -281,10 +281,10 @@ A `--no-seed` install can leave `samples`/`sample_attributes` absent on a fresh
 volume. `attribute_index_readiness()` reports this as `table_missing` rather than
 `absent`, and `_apply_one_index` returns the stub record and skips the DDL
 without writing an ownership row or raising
-(`startup/steps/schema_fixups.py:752-757`); it is not a swallowed error. The
+(`startup/steps/schema_fixups.py:748-753`); it is not a swallowed error. The
 marker *table* is still created for that database, because `_ensure_marker_table`
 runs before each index is attempted
-(`startup/steps/schema_fixups.py:741-743`).
+(`startup/steps/schema_fixups.py:737-739`).
 
 Note the ordering this sits in: `install` calls `apply_all` after the seed phase
 (`startup/cli.py:251`) and before `build.start_seek_side`
@@ -309,6 +309,6 @@ should be confirmed afterwards rather than assumed.
    makes the documented schema lane unrunnable elsewhere.
 3. The `DatabaseError` lookup at `startup/steps/schema_fixups.py:47-56` imports
    from `MySQLdb` unconditionally, unlike the driver lookup at
-   `startup/steps/schema_fixups.py:895-909`. On a host with only PyMySQL and the
+   `startup/steps/schema_fixups.py:891-905`. On a host with only PyMySQL and the
    flag on, the first database error raised inside the apply or reverse path
    surfaces as an `ImportError` that hides the error it was meant to handle.

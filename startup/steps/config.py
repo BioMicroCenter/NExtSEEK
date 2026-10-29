@@ -207,10 +207,16 @@ def default_values(
         # The port moved: install's loopback pair for the old one moves with it.
         old_pair = csrf_origins_for_port(previous_ports["nextseek"]).split()
         origins = " ".join(o for o in origins.split() if o not in old_pair)
+    if not generate_passwords:
+        # No published default stands in for a lost password: restore the env files.
+        for key in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD"):
+            if not kept.get(key):
+                raise ValueError(f"{key} is missing from docker/db.env and docker/nextseek.env "
+                                 "but a database volume exists: restore the env files.")
     values = ConfigValues(
-        mysql_root_password=kept.get("MYSQL_ROOT_PASSWORD") or "seek_root",
-        mysql_password=kept.get("MYSQL_PASSWORD") or "seek_db_password",
-        neo4j_password=kept.get("NEXTSEEK_NEO4J_PASSWORD") or "demopassword",
+        mysql_root_password=kept.get("MYSQL_ROOT_PASSWORD") or "",
+        mysql_password=kept.get("MYSQL_PASSWORD") or "",
+        neo4j_password=kept.get("NEXTSEEK_NEO4J_PASSWORD") or "",
         django_secret_key=kept.get("DJANGO_SECRET_KEY") or _generate_secret_key(),
         django_csrf_trusted_origins=_with_loopback(origins, nextseek_port),
         django_allowed_hosts=kept.get("DJANGO_ALLOWED_HOSTS") or "127.0.0.1 localhost",
@@ -318,11 +324,19 @@ def _render_keeping(repo_root: Path, name: str, values: ConfigValues) -> str:
     return "\n".join(out) + "\n"
 
 
+# The modes of what install renders. One constant per kind of file, so a box whose
+# app runs as another uid can change a mode in one place (SEC-H08).
+ENV_FILE_MODE = 0o600
+# 0640: the app runs as another uid and reads it through the deploy account's group (NEXTSEEK_HOST_GID).
+LOCAL_SETTINGS_MODE = 0o640
+
+
 def _write_keeping(repo_root: Path, name: str, values: ConfigValues) -> Path:
     output = repo_root / "docker" / name
     output.parent.mkdir(parents=True, exist_ok=True)
-    # write_text, never a rename: the file keeps its mode.
+    # write_text, never a rename (the inode stays); the mode is set after, as these hold credentials.
     output.write_text(_render_keeping(repo_root, name, values))
+    output.chmod(ENV_FILE_MODE)
     return output
 
 
@@ -332,6 +346,22 @@ def render_db_env(repo_root: Path, values: ConfigValues) -> Path:
 
 def render_nextseek_env(repo_root: Path, values: ConfigValues) -> Path:
     return _write_keeping(repo_root, "nextseek.env", values)
+
+
+HOST_GID_KEY = "NEXTSEEK_HOST_GID"
+
+
+def ensure_host_gid(repo_root: Path) -> Path:
+    """Add NEXTSEEK_HOST_GID=<the installing user's gid> to .env once; an existing value is kept.
+
+    Compose reads it with the mandatory ``${NEXTSEEK_HOST_GID:?...}`` form, so a box whose .env lacks it
+    fails every compose verb until this runs. rebuild, fix-ownership and doctor call it first; the deploy
+    runner appends the key before its pull.
+    """
+    output = repo_root / ".env"
+    if not read_env(output).get(HOST_GID_KEY):
+        update_env(output, {HOST_GID_KEY: str(os.getgid())})
+    return output
 
 
 def render_spawner_env(repo_root: Path) -> Path:
@@ -350,7 +380,7 @@ def render_spawner_env(repo_root: Path) -> Path:
     if not read_env(app_env).get("NEXTSEEK_SPAWNER_TOKEN"):
         update_env(app_env, {"NEXTSEEK_SPAWNER_TOKEN": token})
     write_env(spawner_env, {"SPAWNER_TOKEN": token})
-    spawner_env.chmod(0o600)
+    spawner_env.chmod(ENV_FILE_MODE)
     return spawner_env
 
 
@@ -423,6 +453,7 @@ def render_local_settings(repo_root: Path, values: ConfigValues) -> Path:
             return output
         output = output.with_name("local_settings.py.new")
     output.write_text(text)
+    output.chmod(LOCAL_SETTINGS_MODE)  # holds the secret key and database passwords
     return output
 
 
@@ -464,7 +495,7 @@ def render_proxy_secret_env(
         or "us-east-1"
     )
     write_env(output, {"AWS_BEARER_TOKEN_BEDROCK": token, "AWS_REGION": region})
-    output.chmod(0o600)  # institutional Bedrock token (D3)
+    output.chmod(ENV_FILE_MODE)  # institutional Bedrock token (D3)
     return output
 
 
@@ -507,7 +538,11 @@ def render_root_env(
     ]
     values = {key: compose_env[key] for key in ordered_keys if key in compose_env}
     output = repo_root / ".env"
-    owned = {*ordered_keys, "NEO4J_PASSWORD"}
+    # The deploy account's gid: compose gives it to the app as an extra group (group_add) so the app can read
+    # local_settings.py. A value already in the file is kept; a new one is the installing user's gid.
+    gid = compose_env.get(HOST_GID_KEY) or read_env(output).get(HOST_GID_KEY) or str(os.getgid())
+    values[HOST_GID_KEY] = gid
+    owned = {*ordered_keys, "NEO4J_PASSWORD", HOST_GID_KEY}
     kept = [line for key, (line, _v, _q) in _env_lines(output).items() if key not in owned]
     if neo4j_password is not None:
         # Compose interpolates $ in .env even inside double quotes; $$ is a literal $.
@@ -519,5 +554,5 @@ def render_root_env(
         with output.open("a") as f:
             f.write("\n".join(["", "# Kept from the previous .env by ./startup.sh install", *kept, ""]))
     if neo4j_password is not None:
-        output.chmod(0o600)  # now carries a credential
+        output.chmod(ENV_FILE_MODE)  # now carries a credential
     return output

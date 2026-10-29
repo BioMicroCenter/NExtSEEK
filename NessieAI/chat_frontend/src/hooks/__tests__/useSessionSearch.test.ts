@@ -11,7 +11,7 @@ const resp = (ids: string[], terms = ["ndma"]): SessionSearchResponse => ({
   query: terms.join(" "), terms, sources: ["chats", "records"], total: ids.length, results: ids.map(hit),
   facets: { record_type: { TIS: ids.length }, project: {}, where: {} },
 });
-const NONE = { steps: false, recordType: null, project: null, where: null };
+const NONE = { steps: false, recordType: null, project: null, where: null, facets: false };
 
 describe("useSessionSearch", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -97,6 +97,18 @@ describe("useSessionSearch", () => {
     act(() => result.current.setQuery("n"));
     await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
     expect(service.searchSessions.mock.calls.at(-1)?.[0]).toBe("");
+  });
+
+  it("asks for the counts only while they are wanted (the options panel is open)", async () => {
+    const service = { searchSessions: vi.fn().mockResolvedValue(resp(["a"])) };
+    const { result } = renderHook(() => useSessionSearch(service));
+    act(() => result.current.setQuery("ndma"));
+    await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
+    expect(service.searchSessions.mock.calls.at(-1)?.[1]).toMatchObject({ facets: false });
+    act(() => result.current.setCountsWanted(true));
+    await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
+    expect(service.searchSessions).toHaveBeenCalledTimes(2);
+    expect(service.searchSessions.mock.calls.at(-1)?.[1]).toMatchObject({ facets: true });
   });
 
   it("loadFacets asks for the counts only, over the date and user scope", async () => {

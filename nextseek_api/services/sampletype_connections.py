@@ -54,6 +54,7 @@ from nextseek_api.models import (
     SampleTypeConnectionsResponse,
 )
 from nextseek_api.permissions import IsSuperUser
+from nextseek_api.services.excel_safe import csv_safe
 from nextseek_api.services.assistant import SeekSessionAuthentication
 
 logger = logging.getLogger(__name__)
@@ -436,10 +437,10 @@ def rows_to_csv(rows: List[Dict[str, Any]]) -> str:
     for row in rows:
         writer.writerow(
             [
-                row["parent_sample_type"],
+                csv_safe(row["parent_sample_type"]),
                 "isParent",
-                row["child_sample_type"],
-                row["internal_assay"],
+                csv_safe(row["child_sample_type"]),
+                csv_safe(row["internal_assay"]),
                 row["n_edges"],
             ]
         )

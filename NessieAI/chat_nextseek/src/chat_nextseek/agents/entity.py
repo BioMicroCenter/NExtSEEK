@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from ..session import SessionState
 
 from ..config import ChatConfig
+from ..graph_context import STUDY_WORDS_RE
 from ..llm_clients import LLMAPIConnectionError, LLMRateLimitError, LLMTimeoutError
 from ..helpers import (
     log_usage,
@@ -59,6 +60,87 @@ def expand_category_types(query: str, result: EntityAgentOutput, catalog: list[d
                 result.sampletypes.append(EntityItem(code=r["SampleType"], name=r.get("Name")))
                 chosen.add(r["SampleType"])
         result.category_types[word] = codes
+
+
+#: The house conventions of entity_agent.txt ("DOMAIN CONVENTIONS"), applied in code: (words a question uses, code).
+#: The prompt block lists the same words; test_entity_house_types.py keeps the two in step.
+HOUSE_SAMPLE_TYPES: list[tuple[tuple[str, ...], str]] = [
+    (("PBMC", "peripheral blood mononuclear cell"), "TIS"),
+    (("BAL", "bronchoalveolar lavage"), "TIS"),
+    (("T cell", "NK cell", "natural killer cell", "macrophage", "monocyte", "dendritic cell", "neutrophil",
+      "B cell"), "CEL"),
+]
+
+
+#: A quoted span: double or curly quotes, or single quotes that are not apostrophes (no letter just outside them).
+_QUOTED_RE = re.compile(r'"[^"]*"|“[^”]*”|‘[^’]*’|(?<!\w)\'[^\']*\'(?!\w)')
+
+
+def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: list[dict] | None) -> None:
+    """Add the house sample type of a word the question uses when the entity agent left it out.
+
+    The list's word is also kept as a keyword unless the agent already has it or the question's form of it, in any
+    letter case. A code the catalog does not hold is never added; with no catalog the code is added with no name.
+    Each word found is recorded in ``result.house_types`` with its code, whoever put the code in ``sampletypes``.
+    The field is code-owned: whatever the model wrote there is cleared first, also when the question is left alone.
+    Words match whole, any letter case, a space or a hyphen between their parts, with an optional plural s.
+    A word inside a quoted span counts for nothing, and a question that names a study or paper (STUDY_WORDS_RE)
+    is left to the agent: there the word is most likely part of a title, not the kind of sample asked for.
+    """
+    result.house_types = {}
+    if STUDY_WORDS_RE.search(query or ""):
+        return
+    text = _QUOTED_RE.sub(" ", query or "")
+    names = {r.get("SampleType"): r.get("Name") for r in catalog or [] if isinstance(r, dict)}
+    chosen = {i.code for i in result.sampletypes}
+    have = {k.lower() for k in result.keywords}
+    for words, code in HOUSE_SAMPLE_TYPES:
+        for word in words:
+            parts = re.escape(word).replace(r"\ ", r"[\s-]")
+            m = re.search(rf"(?<![\w-]){parts}s?(?![\w-])", text, re.IGNORECASE)
+            if not m:
+                continue
+            if code not in chosen and (code in names or not names):
+                result.sampletypes.append(EntityItem(code=code, name=names.get(code)))
+                chosen.add(code)
+            if code in chosen:
+                result.house_types[word] = code
+            if word.lower() not in have and m.group(0).lower() not in have:
+                result.keywords.append(word)
+                have.add(word.lower())
+
+
+def carry_code_owned_types(plan: Any, entity_result: Any) -> Any:
+    """``plan`` with the entity result's code-written ``house_types`` and ``category_types`` in ``plan.resolved``.
+
+    The graph agent reads the parser plan's resolved block, and the parser's echo of the entity result leaves both
+    out. ``house_types`` always comes from the entity result, empty when it has none, so a map the parser model wrote
+    is dropped. A category map is restored when the entity step found one, with any of its codes the echo left out of
+    ``sampletypes``. The NS clamp and the graph op both call it; the lab codes stay the clamp's alone. Anything that
+    is not a parser plan (no ``EntityAgentOutput`` as ``resolved``) is returned as it is.
+    """
+    if not isinstance(getattr(plan, "resolved", None), EntityAgentOutput):
+        return plan
+
+    def _get(name):
+        return entity_result.get(name) if isinstance(entity_result, dict) else getattr(entity_result, name, None)
+
+    update: dict[str, Any] = {"house_types": dict(_get("house_types") or {})}
+    categories = _get("category_types") or {}
+    if categories:
+        update["category_types"] = {w: list(codes) for w, codes in categories.items()}
+        names = {}
+        for item in _get("sampletypes") or []:
+            item = item if isinstance(item, dict) else item.model_dump()
+            names[item.get("code")] = item.get("name")
+        types = list(plan.resolved.sampletypes)
+        have = {t.code for t in types}
+        for code in (c for codes in categories.values() for c in codes):
+            if code not in have:
+                types.append(EntityItem(code=code, name=names.get(code)))
+                have.add(code)
+        update["sampletypes"] = types
+    return plan.model_copy(update={"resolved": plan.resolved.model_copy(update=update)})
 
 
 def _as_list(value: Any) -> list:
@@ -212,6 +294,7 @@ def entity_agent(
                 result = EntityAgentOutput()
 
     _resolve_lab_names(config, user_query, result, sampletypes, assays, projects)
+    apply_house_sample_types(user_query, result, getattr(config, "MIN_SAMPLETYPES", None))
     expand_category_types(user_query, result, getattr(config, "MIN_SAMPLETYPES", None))
 
     print("[DEBUG][ENTITY] Parsed entity result:", json.dumps(result.model_dump(), indent=2))

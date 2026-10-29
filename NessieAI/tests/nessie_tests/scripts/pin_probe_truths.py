@@ -126,6 +126,23 @@ def pin(spec: dict, measured: dict) -> tuple[dict, list[str]]:
     return spec, log
 
 
+def drop_unmeasured(spec: dict, measured: dict) -> tuple[dict, list[str]]:
+    """Remove every `_measure` case that has no measured number: its criteria still hold the
+    placeholder the probe was written with (a parse-step drop, a measured 0), and a run against
+    it would grade the reply against a number nobody measured. Returns the spec and the ids."""
+    gone = [c for c in (spec.get("_measure") or {}) if c not in measured]
+    for c in gone:
+        spec["_measure"].pop(c)
+    for name in list(spec.get("families") or {}):
+        fam = spec["families"][name]
+        fam["variants"] = [v for v in fam.get("variants") or [] if v.get("id") not in gone]
+        if not fam["variants"]:
+            del spec["families"][name]
+    if "include_ids" in spec:
+        spec["include_ids"] = [i for i in spec["include_ids"] if i not in gone]
+    return spec, gone
+
+
 def parse_output(text: str) -> dict[str, list[int]]:
     """The numbers each case's statements returned, in order, from `cypher-shell --format plain`.
 
@@ -182,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, help="default: rewrite the probe in place")
     ap.add_argument("--parse-output", type=Path, metavar="OUT", help="cypher-shell's output of the batch")
     ap.add_argument("--probe", type=Path, help="with --parse-output: the probe the batch came from")
+    ap.add_argument("--drop-unmeasured", action="store_true",
+                    help="with --pin: remove the cases with no measured number; exit 3 if none are left")
     ap.add_argument("--measured-out", type=Path, help="with --parse-output: where to write the answers")
     args = ap.parse_args(argv)
 
@@ -208,10 +227,17 @@ def main(argv: list[str] | None = None) -> int:
     spec = json.loads(args.pin.read_text(encoding="utf-8"))
     measured = json.loads(args.measured.read_text(encoding="utf-8"))
     spec, log = pin(spec, measured)
+    gone: list[str] = []
+    if args.drop_unmeasured:
+        spec, gone = drop_unmeasured(spec, measured)
     out = args.out or args.pin
     out.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print("\n".join(log) or "nothing to re-pin")
     print(f"wrote {out}")
+    if args.drop_unmeasured:
+        print("DROPPED: " + ",".join(gone))
+        if not list(variants(spec)) and not spec.get("include_ids"):
+            return 3
     return 0
 
 

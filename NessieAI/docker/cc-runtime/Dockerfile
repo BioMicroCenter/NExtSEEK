@@ -43,7 +43,7 @@ RUN mkdir -p /opt/uv-python \
     && chmod -R a+rX /opt/uv-python
 ENV DMAC_PYTHON=/usr/local/bin/python3.14
 
-RUN useradd -m -u 1001 -s /bin/sh user
+RUN useradd -m -u 10001 -U -s /bin/sh user
 
 # Ship only the `nextseek` plugin in the image (the legacy `nextseek-api`
 # plugin tree is not part of this port; see PORT-EVIDENCE.json).

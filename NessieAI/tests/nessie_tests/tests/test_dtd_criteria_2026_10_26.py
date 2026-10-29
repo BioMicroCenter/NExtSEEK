@@ -64,3 +64,12 @@ def test_ontology_link_criterion_is_the_published_folder_only():
         "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/ontology_species.json",
     ):
         assert not re.search(rx, invented), invented
+
+
+def test_sra_submission_accepts_a_reply_naming_only_what_the_package_holds():
+    rx = _regexes("report.sra_submission")[0]
+    reply = ("SRA package built for 2 samples: D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB. "
+             "Accessions in the package: PRJNA967652.")
+    assert re.search(rx, reply)
+    assert not re.search(rx, "SRA package built for 2 samples: D.SEQ-230512FOR-288-PUB.")
+    assert not re.search(rx, "Accessions in the package: PRJNA967652.")

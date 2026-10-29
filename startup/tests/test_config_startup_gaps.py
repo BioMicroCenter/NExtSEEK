@@ -1,6 +1,7 @@
 """Regression tests for startup-generated deploy gap files."""
 from __future__ import annotations
 
+import os
 import dataclasses
 import importlib.util
 import shutil
@@ -163,6 +164,7 @@ def test_render_root_env_writes_compose_targeting_vars_only(tmp_path: Path) -> N
         "NEO4J_HTTP_PORT": "7475",
         "NEO4J_BOLT_PORT": "7688",
         "INSTANCE_PREFIX": "test-",
+        "NEXTSEEK_HOST_GID": str(os.getgid()),
     }
 
 
@@ -186,6 +188,7 @@ def test_render_root_env_writes_neo4j_password_when_given(tmp_path: Path) -> Non
         "COMPOSE_PROJECT_NAME": "nextseek-test",
         "INSTANCE_PREFIX": "test-",
         "NEO4J_PASSWORD": "s3cret",
+        "NEXTSEEK_HOST_GID": str(os.getgid()),
     }
     assert (out.stat().st_mode & 0o777) == 0o600
 
@@ -204,7 +207,7 @@ def test_render_root_env_never_copies_a_secret_from_compose_env(tmp_path: Path) 
         {"COMPOSE_PROJECT_NAME": "nextseek-test", "NEO4J_PASSWORD": "must-not-copy"},
     )
 
-    assert read_env(repo / ".env") == {"COMPOSE_PROJECT_NAME": "nextseek-test"}
+    assert read_env(repo / ".env") == {"COMPOSE_PROJECT_NAME": "nextseek-test", "NEXTSEEK_HOST_GID": str(os.getgid())}
 
 
 def test_render_root_env_persists_db_port(tmp_path: Path) -> None:

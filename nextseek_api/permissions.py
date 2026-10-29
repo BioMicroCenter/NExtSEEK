@@ -9,11 +9,9 @@ class IsSuperUser(BasePermission):
     """Gate an endpoint to true superusers only.
 
     Deliberately NOT ``rest_framework.permissions.IsAdminUser``: that checks
-    ``is_staff``, and ``dmac.views.userSynchronization`` sets ``is_staff = 1``
-    on every SEEK user at login (dmac/views.py:80 and :97, on both the create
-    and the update branch). ``IsAdminUser`` is therefore equivalent to
-    ``IsAuthenticated`` in this project. ``is_superuser`` is never assigned by
-    any live application code path, so it is the only trustworthy admin signal.
+    ``is_staff``, and accounts made before the clear-staff migration (users API and the old
+    SEEK login) carry ``is_staff`` without being admins. Nothing sets it now, and
+    /admin/ is superuser-only, but ``is_superuser`` stays the one admin signal.
 
     Same predicate as ``seek.views.verifySuperUser``, in DRF shape.
     """
@@ -42,8 +40,8 @@ def may_read_any_users_data(user) -> bool:
     into the box.
 
     ``is_superuser`` alone, for the reason given on :class:`IsSuperUser`:
-    ``dmac.views.userSynchronization`` sets ``is_staff`` on every SEEK user at
-    login, so an ``is_staff`` test here would widen these endpoints to everyone.
+    old accounts still carry ``is_staff`` without being admins (the users API no
+    longer sets it), so an ``is_staff`` test here would widen these endpoints.
     """
     return bool(
         user

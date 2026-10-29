@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
+
+from nextseek_api.services.excel_safe import text_cell
 from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
@@ -516,7 +518,7 @@ def generate_table_xlsx(tables: list[dict[str, Any]]) -> bytes:
         # Data rows
         for row_idx, row in enumerate(data, 2):
             for col_idx, col_name in enumerate(columns, 1):
-                ws.cell(row=row_idx, column=col_idx, value=_flatten_cell(row.get(col_name)))
+                text_cell(ws.cell(row=row_idx, column=col_idx, value=_flatten_cell(row.get(col_name))))
 
         # Auto-width columns
         for col_idx, col_name in enumerate(columns, 1):
@@ -607,7 +609,7 @@ def generate_search_xlsx(bundle: dict[str, Any]) -> bytes:
     # Data
     for row_idx, row in enumerate(rows, 2):
         for col_idx, col_name in enumerate(columns, 1):
-            ws.cell(row=row_idx, column=col_idx, value=row.get(col_name))
+            text_cell(ws.cell(row=row_idx, column=col_idx, value=row.get(col_name)))
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -1,0 +1,77 @@
+       Disk /var/lib/docker: 268.4 GB total, 111.2 GB free
+       Floor for profile 'dev': 20 GB
+       ✓ 111.2 GB free, at or above the 20 GB floor
+╭───────────────────────────────────────────╮
+│ Rebuilding cc-agent for instance NExtSEEK │
+╰───────────────────────────────────────────╯
+
+       ✓ rollback tag verified: dmac-assistant:pre-20261026T185621-c500ab2c 
+(sha256:387701322327ae71220a9c8ecfaa4440a81871570c3c64b7b9fffe2da2f6f57e)
+
+       ✓ cc-agent image rebuilt; no persistent container to restart
+       ✓ app + front door: nextseek + web + nextseek_nginx running
+       ✓ first-party images: all 5 present (nextseek-nextseek:latest, 
+dmac-assistant:poc, nextseek-ns-sidecar:latest, nextseek-bedrock-proxy:latest, 
+nextseek-cc-spawner:latest)
+       ✓ cc services: bedrock-proxy + nextseek-sidecar + cc-spawner running
+       ✓ cc-agent context: dmac-assistant:poc bakes all 21 canonical context 
+files and the docs snapshot as the checkout has them
+       ✗ app image code: STALE: of 2630 tracked app files, 122 differ 
+(NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md, NessieAI/cc/README.md, 
+NessieAI/cc/cc_engine.py, NessieAI/cc/spawner_client.py, 
+NessieAI/chat_frontend/CLAUDE.md and 116 more); 17 absent 
+(NessieAI/chat_nextseek/src/chat_nextseek/reports/exporters/_text_safe.py, 
+NessieAI/tests/cc/fake_spawner.py, 
+NessieAI/tests/chat_nextseek/test_csv_exporter_formula_guard.py, 
+NessieAI/tests/chat_nextseek/test_entity_house_types.py, 
+nextseek_api/batch_upload/xlsx_guard.py, 
+nextseek_api/migrations/0033_clear_staff_non_superusers.py and 11 more) in the 
+running nextseek. It is not running the checkout's code. Rebuild with: 
+./startup.sh rebuild
+       ✓ cc-agent runtime: dmac-assistant:poc: node v22.23.4, Claude Code 
+2.1.294, markitdown 0.1.6, matplotlib 3.11.2, onnxruntime 1.27.0; 
+matplotlib.pyplot imports
+       ✓ bedrock-proxy allow list: the running bedrock-proxy allows exactly the 
+checkout's 5: global.anthropic.claude-sonnet-5-5, us.anthropic.claude-opus-4-8, 
+us.anthropic.claude-opus-5-5, us.anthropic.claude-opus-4-7, 
+us.anthropic.claude-sonnet-4-6
+       ✓ CC fallback wiring: --model global.anthropic.claude-sonnet-5-5, 
+--fallback-model us.anthropic.claude-opus-4-8, classifier 
+us.anthropic.claude-sonnet-4-6, retries 3, request timeout 60000 ms; every one 
+allowed by the running proxy
+       ✓ model ids reachable: every id the deployed config calls answered, each 
+with the credential its calls carry (free metadata calls; 8 ids, profile default
+(mode mixed)): global.anthropic.claude-sonnet-5-5 via app Bedrock token ok (api,
+chatter, context_engineer, entity +14); gemini-3.8-flash via app GCP_API_KEY ok 
+(fallback of api, chatter, context_engineer, entity +6); 
+us.anthropic.claude-opus-4-7 via app Bedrock token ok (fallback of followup, 
+pipeline_agent); gemini-3.1-pro-preview via app GCP_API_KEY ok (router primary; 
+fallback of multi_parser, parser, planner, report_coder +1; BAML ClassifyQuery, 
+EvaluateFunctionalUsefulness, JudgeRouterAnswer, JudgeUITranscript, RouteQuery);
+us.anthropic.claude-opus-5-5 via app Bedrock token ok (fallback of system); 
+gemini-3.5-flash via app GCP_API_KEY ok (router fallback; BAML Summarize); 
+global.anthropic.claude-sonnet-5-5 via bedrock-proxy token ok (CC main); 
+us.anthropic.claude-opus-4-8 via bedrock-proxy token ok (CC fallback); 
+us.anthropic.claude-sonnet-4-6 via bedrock-proxy token ok (CC classifier)
+       ✗ graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 
+(0 overdue); latest drift check: run 334 drift
+           drift run 334 (finished 2026-10-26T22:55:38.335528+00:00) found drift
+in: catalog.assistant_investigations. It stays red until a newer drift run: 
+after the cause is fixed, run `manage.py graph_sync --drift` in the app 
+container
+╭──────────────────────────────────────────────────────────╮
+│ ⚠ OFF-BOX ROLLBACK BASELINE NOT PUSHED — ACTION NEEDED ⚠ │
+╰──────────────────────────────────────────────────────────╯
+       ✗ no usable GHCR credential at 
+/home/service-account/.config/nextseek/ghcr.env
+       → off-box rollback baselines are NOT being saved — after a disk cleanup 
+this host's images would be unrecoverable (it has happened). Fix: mint a classic
+PAT with the write:packages scope on YOUR OWN GitHub account (the account must 
+be a BioMicroCenter org member), then write it to 
+/home/service-account/.config/nextseek/ghcr.env as GHCR_USER=<github-username> /
+GHCR_TOKEN=<token> (file mode 600). Details: DEPLOYMENT.md §5.2.
+       ! the deploy itself is unaffected; 'startup doctor' will keep flagging 
+this
+       ✗ Rebuild finished but is red: stack health, graph sync health. No 
+rollback is needed: the build and restart succeeded, only the health judgement 
+is red.

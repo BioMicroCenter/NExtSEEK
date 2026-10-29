@@ -620,6 +620,7 @@ class AssistantViewSet(viewsets.ViewSet):
         project = params.get("project") or None
         where = params.get("where") or None
         facets_only = params.get("facets_only") in ("1", "true")
+        want_facets = params.get("facets") in ("1", "true")
         if record_type and not re.fullmatch(r"[A-Z][A-Z.]{0,15}", record_type):
             return invalid("Parameter 'record_type' must be a type code such as TIS or D.SEQ.")
         if project and len(project) > 64:
@@ -650,7 +651,8 @@ class AssistantViewSet(viewsets.ViewSet):
 
         result = session_search.search_sessions(
             request.user.pk, q, all_users=all_users, sources=sources, since_days=int(since) if since else None,
-            limit=limit, record_type=record_type, project=project, where=where, facets_only=facets_only)
+            limit=limit, record_type=record_type, project=project, where=where, facets_only=facets_only,
+            facets=want_facets)
         return Response(SessionSearchResponse.model_validate(result).model_dump(mode="json"),
                         status=status.HTTP_200_OK)
 

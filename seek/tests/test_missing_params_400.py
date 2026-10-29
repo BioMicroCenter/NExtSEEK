@@ -35,6 +35,7 @@ def test_a_missing_required_parameter_is_a_400_that_names_it(module, view, query
     seekdb = MagicMock()
     seekdb.getSeekLogin.return_value = {"status": True, "username": "m", "password": "x", "server": "s"}
     with patch(f"seek.views.{module}.SeekDB", return_value=seekdb), \
+            patch("seek.decorators.SeekDB", return_value=seekdb), \
             patch(f"seek.views.{module}.DBtable_sample", return_value=MagicMock()):
         resp = getattr(mod, view)(request)
     assert resp.status_code == 400

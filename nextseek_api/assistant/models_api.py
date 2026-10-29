@@ -24,8 +24,8 @@ class QueryRequest(BaseModel):
         "legacy assistant/query/ routes reuse; on the routed Nessie endpoints an omitted session_id is already a new chat."))
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
     fresh_session: bool = Field(False, description="If true, run this turn as a clean room: skip the Step-1c cross-session memory layer (no rendered ~/.claude/CLAUDE.md, no raw-transcript mount). 1b resume within this chat still applies.")
-    force_route: Optional[Literal["auto", "ns", "cc"]] = Field(None, description="Admin-only: supersede the BAML router for this query. 'ns' forces the core chat_nextseek path, 'cc' forces Container-Claude-Code, 'auto'/None uses the router. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
-    max_turn_length_s: Optional[int] = Field(None, ge=1, description="Admin-only: per-turn wall-clock cap (seconds) for a Container-CC turn. Clamped server-side to [30, NEXTSEEK_CC_TIMEOUT_HARD_MAX]; None uses the configured default. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
+    force_route: Optional[Literal["auto", "ns", "cc"]] = Field(None, description="Admin-only: supersede the BAML router for this query. 'ns' forces the core chat_nextseek path, 'cc' forces Container-Claude-Code, 'auto'/None uses the router. Ignored for non-admins (the server re-checks is_superuser).")
+    max_turn_length_s: Optional[int] = Field(None, ge=1, description="Admin-only: per-turn wall-clock cap (seconds) for a Container-CC turn. Clamped server-side to [30, NEXTSEEK_CC_TIMEOUT_HARD_MAX]; None uses the configured default. Ignored for non-admins (the server re-checks is_superuser).")
     force_parser_mode: Optional[Literal["graph", "api"]] = Field(None, description=(
         "Admin-only and evaluation-only: force the NExtSEEK parser to the graph or the API path for a retrieval question. "
         "Ignored unless the caller is a superuser and the server process sets NEXTSEEK_EVAL_PARSER_FORCE=1."))
@@ -117,7 +117,8 @@ class SessionSearchResponse(BaseModel):
     total: int = Field(..., description="Every matching chat, before the limit")
     results: List[SessionSearchHit]
     facets: Dict[str, Dict[str, int]] = Field(..., description=(
-        "For record_type, project and where: each value and how many of the matching chats it would keep"))
+        "For record_type, project and where: each value and how many of the matching chats it would keep "
+        "(empty unless facets=1 or facets_only=1)"))
 
     model_config = ConfigDict(extra="forbid")
 

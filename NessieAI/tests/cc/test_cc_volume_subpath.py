@@ -243,15 +243,6 @@ def test_mount_volume_subpath_helper_emits_engine_api_shape():
 # _run_kwargs cutover: mounts=, never volumes=.
 # --------------------------------------------------------------------------
 
-def test_run_kwargs_uses_mounts_not_volumes():
-    mounts = _mounts()
-    kw = cc_engine._run_kwargs(
-        image="img", command=["claude"], environment={"A": "b"},
-        mounts=mounts, run_id="a1", user_id="alice",
-    )
-    assert "mounts" in kw
-    assert "volumes" not in kw
-    assert kw["mounts"] is mounts or kw["mounts"] == mounts
 
 
 # --------------------------------------------------------------------------
@@ -416,11 +407,6 @@ def test_grep_guard_no_host_user_root_in_any_runtime_module():
         assert "host_user_root" not in f.read_text(), f"host_user_root revived in {f}"
 
 
-def test_grep_guard_spawn_path_never_passes_volumes():
-    src = (_CC_DIR / "cc_engine.py").read_text()
-    assert '"volumes": volumes' not in src
-    assert "volumes=volumes" not in src
-    assert '"mounts": mounts' in src
 
 
 def test_grep_guard_engine_uses_logical_root_not_host_root():
@@ -430,14 +416,6 @@ def test_grep_guard_engine_uses_logical_root_not_host_root():
     assert "output_host_root" not in src
 
 
-def test_grep_guard_run_kwargs_docstring_names_segmented_net_not_compose_net():
-    # The stale claim that the agent "joins the nextseek compose network"
-    # misleads a segmentation audit — it defaults to dmac-cc-net.
-    src = (_CC_DIR / "cc_engine.py").read_text()
-    start = src.index("def _run_kwargs")
-    doc = src[start:src.index("def _mount_volume_subpath")]
-    assert "the nextseek compose network" not in doc
-    assert "dmac-cc-net" in doc
 
 
 def test_grep_guard_compose_never_reintroduces_srv_dmac_host_bind():

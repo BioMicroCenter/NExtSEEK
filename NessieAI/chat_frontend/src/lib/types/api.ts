@@ -247,6 +247,8 @@ export interface SessionSearchOptions {
   where?: RecordWhere | null;
   /** Only the filter counts over every chat in scope; no results. */
   facetsOnly?: boolean;
+  /** Also the filter counts over the matches (the sidebar asks only while its options panel is open). */
+  facets?: boolean;
 }
 
 // One turn from a session's results_history projection

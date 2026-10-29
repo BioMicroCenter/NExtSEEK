@@ -207,8 +207,18 @@ class BriefForm(Strict):
     laya_live_revision: Optional[str] = Field(
         default=None, description="the laya revision the operator approved for live routing; null: live must be off")
     acknowledged_flags: list[Ack] = Field(default_factory=list)
+    ship_behind_origin: Optional[str] = Field(
+        default=None, description="the operator's words letting the expected sha be an ancestor of origin/dev "
+                                  "(a sha that tested green while origin/dev moved on), not origin/dev itself")
     tag: Optional[str] = None
     start_utc: Optional[str] = None
+
+    @field_validator("ship_behind_origin")
+    @classmethod
+    def _behind_words(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.strip()) < 10:
+            raise ValueError("ship_behind_origin holds the operator's words, quoted")
+        return v
 
     @field_validator("expected_sha")
     @classmethod
@@ -372,8 +382,9 @@ def brief_rules(brief: BriefForm, now: dt.datetime) -> tuple[list[str], list[str
                     stops.append(f"{c.file}: include_ids {i} may write or launch: check it by hand, "
                                  "then name it in a waiver")
         if spec.get("_measure") and brief.instance in ("dev", "prod"):
-            warns.append(f"{c.file} carries a _measure block: re-pin it on {inst.box} before the run "
-                         "(references/nessie-questions.md section 3)")
+            warns.append(f"{c.file} carries a _measure block: the runner re-pins it on {inst.box} before its "
+                         "run; if the pin fails it skips the file and says FINDING PIN_FAILED, so the launch "
+                         "cannot report shipped (references/nessie-questions.md section 3)")
 
     if not brief.live_markers and ("app" in images or brief.images is None):
         warns.append("no live marker: pick a string the change added from the diff, add it to "
@@ -635,8 +646,12 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
     exp = kv.get("expected", "NOT_FOUND")
     row("expected", exp, exp != "NOT_FOUND" and exp.startswith(brief.expected_sha),
         "the expected sha exists on the box after a fetch")
-    row("origin_match", kv.get("origin_match", "unknown"), kv.get("origin_match") == "yes",
-        "origin/dev IS the expected sha (the supervisor decides what ships)")
+    behind = (kv.get("origin_match") != "yes" and bool(brief.ship_behind_origin)
+              and kv.get("origin_ancestor") == "yes")
+    row("origin_match", "behind origin/dev (ship_behind_origin)" if behind else kv.get("origin_match", "unknown"),
+        kv.get("origin_match") == "yes" or behind,
+        "origin/dev IS the expected sha, or an ancestor of it with the operator's ship_behind_origin words "
+        "(the supervisor decides what ships)")
     row("ff", kv.get("ff", "unknown"), kv.get("ff") == "yes", "the box's HEAD is an ancestor of it")
     unknown_dirty = [d for d in p["dirty"] if d not in inst.known_dirty]
     row("dirty", "; ".join(unknown_dirty) or "only the known list", not unknown_dirty,
@@ -793,6 +808,31 @@ def range_problems(brief: BriefForm, cls: dict) -> tuple[list[str], list[str]]:
     return stops, warns
 
 
+def _defines_web(repo: Path, sha: str) -> bool:
+    r = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:docker-compose.yml"], capture_output=True, text=True)
+    return r.returncode == 0 and re.search(r"^  web:", r.stdout, re.M) is not None
+
+
+def first_split_problems(repo: Path, base: str, head: str, brief: BriefForm, needed: list[str]) -> list[str]:
+    """Stops for a range that creates the `web` service (the box's HEAD has none: the first split,
+    prod-launch-20261026-2116). Read from the range, before any box time; the runner checks the box again
+    (no web container at all) after its fast-forward."""
+    if _defines_web(repo, base) or not _defines_web(repo, head):
+        return []
+    stops = []
+    images = brief.images if brief.images is not None else needed
+    if "app" not in images or "nginx recreate ok" not in brief.allowed_extras:
+        stops.append("the range creates the `web` service (the first split): the app step must recreate nginx, so "
+                     "the brief needs the app in images and 'nginx recreate ok' in allowed_extras. Without it nginx "
+                     "keeps proxying to `nextseek`, which becomes the worker and serves nothing")
+    if subprocess.run(["git", "-C", str(repo), "grep", "-q", "no_recreate=True", head, "--", "startup/cli.py"],
+                      capture_output=True).returncode:
+        stops.append(f"the range creates the `web` service but {head[:8]} lacks the rebuild's no-recreate front-door "
+                     "start (607031e7): its first rebuild would recreate nginx onto `web` before `web` exists "
+                     "(prod 502, 2026-10-26)")
+    return stops
+
+
 def cmd_commits(a) -> int:
     data, brief, d = load_brief(a.brief)
     repo = Path(a.repo).expanduser() if a.repo else rules.workstation_repo()
@@ -827,6 +867,7 @@ def cmd_commits(a) -> int:
     all_paths = [p for p in git(repo, "diff", "--name-only", f"{base_full}..{head_full}").splitlines() if p]
     cls = classify_paths(all_paths)
     stops, warns = range_problems(brief, cls)
+    stops += first_split_problems(repo, base_full, head_full, brief, ordered(cls["images"]))
     form = {
         "schema": "launch-commit-review-form/v1",
         "range": {"base": base_full, "head": head_full, "total": total, "listed": len(commits),
@@ -1082,6 +1123,14 @@ def windows_hhmm(inst: rules.Instance) -> str:
                     for w in inst.windows if w.blocks == "stop")
 
 
+def migration_in_range(brief: BriefForm, d: Path) -> bool:
+    """The two signals: the brief's migrations_expected, or the commits step's migration flag."""
+    if brief.migrations_expected:
+        return True
+    rv = d / "commit-review-form.json"
+    return rv.is_file() and "migration" in load_json(rv, "commit-review-form.json")["derived"].get("flags", {})
+
+
 def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: list[str]) -> dict:
     inst = rules.INSTANCES[brief.instance]
     images = images_for(brief, d)
@@ -1094,7 +1143,7 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
     markers = "\n".join(
         f"  marker {m.container} {shlex.quote(m.file)} '{m.pattern}'" for m in brief.live_markers) or "  :"
     return {
-        "TAG": tag, "EXP": exp_full, "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
+        "TAG": tag, "EXP": exp_full, "BEHIND_OK": "1" if brief.ship_behind_origin else "0", "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
         "HOME": inst.home,
         "COMPONENTS": " ".join(images),
         # The one rebuild that carries --recreate-nginx, only when the range changes docker/nginx.conf AND the
@@ -1102,6 +1151,9 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         # app rebuild creates or replaces), else the first. Otherwise nothing recreates nginx.
         "RECREATE_NGINX_ON": (("app" if "app" in images else images[0]) if images and brief.nginx_change_expected
                               and "nginx recreate ok" in brief.allowed_extras else ""),
+        # The brief allows an nginx recreate: the runner also uses it when the box's nginx service definition differs
+        # from the checkout's (compose's config hash), which the rebuild's front-door start never applies.
+        "NGINX_RECREATE_OK": "1" if "nginx recreate ok" in brief.allowed_extras else "0",
         "CONTINUE_ON_FAILURE": " ".join(brief.continue_on_failure),
         "DO_STATIC": "1", "DO_LABS": "1" if (inst.labs_copy and "app" in images) else "0",
         "DO_CI": "1" if brief.ci else "0", "DO_NESSIE": "1" if brief.nessie else "0",
@@ -1112,9 +1164,11 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         "KNOWN_CI_REDS": ere_alternation(data["derived"]["known_ci_reds"]),
         "KNOWN_HEALTH_REDS": ere_alternation(data["derived"]["known_health_reds"]),
         "SUMMARY_RED": rules.SUMMARY_RED,
+        "SUMMARY_DOWN": rules.SUMMARY_DOWN,
         "WINDOWS": windows_hhmm(inst),
         "DISCARD": " ".join(inst.discard_before_pull),
         "SET_ASIDE": " ".join(inst.set_aside_before_pull),
+        "REHEARSE": "1" if "app" in images and migration_in_range(brief, d) else "0",
         "REFRESH_MARKER": "NessieAI/chat_nextseek/src/chat_nextseek/context/.context_db_refresh",
         "LOGNAME_CASES": "\n".join(f"  {c}) echo {rules.LOG_NAME[c]};;" for c in rules.COMPONENTS),
         "SUCCESS_CASES": "\n".join(f"  {c}) echo {shlex.quote(rules.SUCCESS_LINE[c])};;" for c in rules.COMPONENTS),
@@ -1361,13 +1415,15 @@ def health_reds(text: str) -> list[str]:
     return reds
 
 
-def classify_red(red: str, pending: set[str], known: list[str]) -> str:
+def classify_red(red: str, pending: set[str], known: list[str], first_split: bool = False) -> str:
     if red.startswith(rules.NOT_HEALTH):
         return "skip"
     if any(re.search(p, red) for p in known):
         return "known"
     if re.search(rules.SUMMARY_RED, red):
         return "summary"
+    if first_split and re.search(rules.SUMMARY_DOWN, red):
+        return "pending app" if "app" in pending else "stale app"
     for name, comp in rules.HEALTH_NEEDS:
         if red.startswith(name):
             return f"pending {comp}" if comp in pending else f"stale {comp}"
@@ -1387,7 +1443,8 @@ def parse_status(text: str) -> dict:
     st: dict = {"lines": lines, "all_done": any(ln.startswith("ALL_DONE") for ln in lines),
                 "stopped": None, "head": None, "rebuilds": {}, "rollback": {}, "failed": [],
                 "ci_exit": None, "ci_result": None, "ci_new_reds": [], "findings": [], "reds": [],
-                "nessie": [], "stamps": [], "checks_http": None, "labs": None, "static_exit": None}
+                "nessie": [], "stamps": [], "checks_http": None, "labs": None, "static_exit": None,
+                "first_split": False, "order": []}
     for ln in lines:
         m = STAMP_RE.search(ln)
         body = ln[: m.start()].strip() if m else ln.strip()
@@ -1397,6 +1454,10 @@ def parse_status(text: str) -> dict:
             st["stopped"] = body[len("STOPPED:"):].strip()
         elif body.startswith("HEAD "):
             st["head"] = body[5:]
+        elif body.startswith("FIRST_SPLIT="):
+            st["first_split"] = body.startswith("FIRST_SPLIT=1")
+        elif mm := re.match(r"^(?:SWITCHOVER|MIGRATION)\b.*\border: (.*)$", body):
+            st["order"] = mm.group(1).split()   # the runner's own step order; the last line wins
         elif mm := re.match(r"^REBUILD (\S+) exit=(\d+)", body):
             st["rebuilds"].setdefault(mm.group(1), {})["exit"] = int(mm.group(2))
         elif mm := re.match(r"^REBUILT (\S+)", body):
@@ -1405,7 +1466,8 @@ def parse_status(text: str) -> dict:
             st["rebuilds"].setdefault(mm.group(1), {})["success"] = False
             st["failed"].append(mm.group(1))
         elif mm := re.match(r"^ROLLBACK (\S+) (\S+)", body):
-            st["rollback"][mm.group(1)] = mm.group(2)
+            # the first wins: after a build-only step (the migration rehearsal) the restart's rebuild tags the new image
+            st["rollback"].setdefault(mm.group(1), mm.group(2))
         elif mm := re.match(r"^RED (\S+) \[([^\]]+)\] (.*)$", body):
             st["reds"].append({"after": mm.group(1), "class": mm.group(2), "text": mm.group(3)})
         elif body.startswith("FINDING "):
@@ -1543,6 +1605,12 @@ def parse_nessie_log(text: str) -> dict:
     return {"cases": cases, "gate": gate, "cost_line": cost}
 
 
+def judge_order(comps: list[str], st: dict) -> list[str]:
+    """The components in the order the runner ran them: its SWITCHOVER / MIGRATION line (the app last), else as given."""
+    ran = [c for c in st.get("order", []) if c in comps]
+    return ran + [c for c in comps if c not in ran] if ran else list(comps)
+
+
 def cmd_judge(a) -> int:
     data, brief, d = load_brief(a.brief)
     tag = data["derived"]["tag"]
@@ -1556,13 +1624,14 @@ def cmd_judge(a) -> int:
     known_c = data["derived"]["known_ci_reds"]
     comps = (load_json(d / "runner" / "runner.json", "runner.json")["components"]
              if (d / "runner" / "runner.json").is_file() else images_for(brief, d))
+    comps = judge_order(comps, st)
     pending = set(comps)
     rebuilds = {}
     for c in comps:
         log = ev / f"{rules.LOG_NAME[c]}.log"
         text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
         pending.discard(c)
-        reds = [{"text": r, "class": classify_red(r, pending, known_h)} for r in health_reds(text)]
+        reds = [{"text": r, "class": classify_red(r, pending, known_h, st["first_split"])} for r in health_reds(text)]
         reds = [r for r in reds if r["class"] != "skip"]
         rebuilds[c] = {
             "ran": bool(text), "log": str(log),
@@ -1769,7 +1838,7 @@ def prefill_report(facts: dict, brief: BriefForm, data: dict) -> dict:
                   "evidence": ["static.log"] if ran_app else [], "note": None})
     if rules.INSTANCES[brief.instance].labs_copy:
         labs = facts["status"]["labs"] or ""
-        steps.append({"step": "labs", "status": "ok" if labs.startswith("copied") else
+        steps.append({"step": "labs", "status": "ok" if labs.startswith(("copied", "pre-copied")) else
                       ("not_in_brief" if not ran_app else "failed"), "evidence": ["checks.log"], "note": labs or None})
     steps.append({"step": "checks", "status": "ok" if facts["checks"].get("http") == "200" else
                   ("failed" if facts["checks"] else "stopped"), "evidence": ["checks.log"], "note": None})
