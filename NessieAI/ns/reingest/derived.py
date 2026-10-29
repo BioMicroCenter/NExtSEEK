@@ -42,16 +42,22 @@ DERIVED_METRICS: tuple[str, ...] = (
     "mismatch_pct",
     # Picard MarkDuplicates' PERCENT_DUPLICATION as a percentage, from the 0-1
     # fraction MultiQC's picard module table keeps (a map's `module_tables`
-    # namespace `picard_dups`; general stats show it x100 instead).
+    # namespace `picard_dups`; general stats show it x100 instead), else from
+    # the read counts of MultiQC's Picard deduplication bar plot (namespace
+    # `picard_dedup_plot`), for a MultiQC that writes no table files.
     "duplication_pct",
 )
 
 #: The module-table key duplication_pct reads (maps.ModuleTable namespace + column).
 PICARD_DUPLICATION_FRACTION = "picard_dups-PERCENT_DUPLICATION"
+#: The namespace of MultiQC's Picard deduplication bar-plot data
+#: (picard_deduplication.yaml), whose columns are read counts per category.
+PICARD_DEDUP_PLOT = "picard_dedup_plot"
 
-#: Derived metrics computed from one module table, by that table's namespace, so a
-#: value's provenance names the table (RunManifest.sources["metrics_<namespace>"]).
-MODULE_TABLE_INPUTS = {"duplication_pct": PICARD_DUPLICATION_FRACTION.split("-", 1)[0]}
+#: Derived metrics computed from module tables, by those tables' namespaces in the
+#: order they are tried, so a value's provenance names the table it came from
+#: (RunManifest.sources["metrics_<namespace>"]).
+MODULE_TABLE_INPUTS = {"duplication_pct": (PICARD_DUPLICATION_FRACTION.split("-", 1)[0], PICARD_DEDUP_PLOT)}
 
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
 # applied the way its calculateStrandedness does: to the forward and reverse
@@ -324,6 +330,32 @@ def _salmon_strandedness(value) -> str | None:
     return f"{verdict} ({code})"
 
 
+def _plot_duplication_pct(metrics: dict) -> float | None:
+    """PERCENT_DUPLICATION x100 from the Picard deduplication bar plot's categories
+    (`Duplicate Pairs Optical`, `Duplicate Pairs Nonoptical`, `Duplicate Unpaired`,
+    `Unique Pairs`, `Unique Unpaired`), or None without a usable count."""
+    duplicate = unique = 0.0
+    seen = False
+    for key, value in metrics.items():
+        if not key.startswith(f"{PICARD_DEDUP_PLOT}-"):
+            continue
+        category = key[len(PICARD_DEDUP_PLOT) + 1:]
+        try:
+            count = float(value)
+        except (TypeError, ValueError):
+            continue
+        if category.startswith("Duplicate "):
+            duplicate += count
+        elif category.startswith("Unique "):
+            unique += count
+        else:
+            continue
+        seen = True
+    if not seen or duplicate + unique <= 0:
+        return None
+    return round(duplicate / (duplicate + unique) * 100, 4)
+
+
 def from_metrics(metrics: dict) -> dict[str, float | str]:
     """Derived values computed from a sample's MultiQC general-stats columns,
     for pipelines that leave no per-sample tool file to read instead.
@@ -338,6 +370,9 @@ def from_metrics(metrics: dict) -> dict[str, float | str]:
 
     `duplication_pct` is Picard's PERCENT_DUPLICATION from MultiQC's picard
     module table (`multiqc_picard_dups`), which keeps Picard's own 0-1 fraction.
+    Without that table it is computed from the Picard deduplication bar plot's
+    read counts, the way Picard computes it: duplicate reads over duplicate plus
+    unique reads (paired reads counted one by one; unmapped reads left out).
     """
     out: dict[str, float | str] = {}
     strandedness = _salmon_strandedness(metrics.get("salmon-library_types"))
@@ -346,7 +381,9 @@ def from_metrics(metrics: dict) -> dict[str, float | str]:
     try:
         out["duplication_pct"] = round(float(metrics[PICARD_DUPLICATION_FRACTION]) * 100, 4)
     except (KeyError, TypeError, ValueError):
-        pass
+        from_plot = _plot_duplication_pct(metrics)
+        if from_plot is not None:
+            out["duplication_pct"] = from_plot
     for key, value in metrics.items():
         if "_mqc-generalstats-" in key and key.endswith("-error_rate"):
             try:

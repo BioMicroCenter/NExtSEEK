@@ -1,11 +1,14 @@
 """atacseq and chipseq QC from MultiQC module tables, on synthetic tables.
 
-Both releases exclude MultiQC's general-stats table and write their data files as YAML
+Both releases exclude MultiQC's general-stats table and ask for YAML data files
 (`data_format: yaml`), so their maps read QC from `module_tables`: Picard MarkDuplicates'
-`multiqc_picard_dups` gives DuplicationPercent through `$derived.duplication_pct`. The
-tables here are shaped like MultiQC 1.13's picard module output (rows after the configs'
-extra_fn_clean_exts, Picard's 0-1 fraction); no real run of either release has been seen,
-so the shape is unverified until one is (README "Maps written from the docs alone").
+`multiqc_picard_dups` gives DuplicationPercent through `$derived.duplication_pct`. On the
+releases' own -profile test runs (fixtures `atacseq/2.1.2-local-test` and
+`chipseq/2.1.0-local-test`), atacseq's MultiQC 1.13 writes the table as .txt, and
+chipseq's MultiQC 1.23 writes no table files at all, only the bar plot's data
+(`picard_deduplication.yaml`, read counts per category), from which the value is computed
+instead. The tables here are shaped like those runs' (rows after the configs'
+extra_fn_clean_exts, Picard's 0-1 fraction).
 """
 import json
 from pathlib import Path
@@ -134,6 +137,56 @@ def test_another_pipelines_picard_table_is_not_read(tmp_path):
          f"S1,{_fq('s1')},,auto\n", {"multiqc_picard_dups.txt": _txt({"S1": _dups(0.1, "S1")})})
     run, _ = _apply(tmp_path, {_fq("s1"): "D.SEQ-1"}, "rnaseq")
     assert not [k for s in run.samples for k in s.metrics if k.startswith("picard_dups-")]
+
+
+# SPT5_T0_REP2's MarkDuplicates on chipseq 2.1.0's test run: the bar plot's read counts,
+# and the PERCENT_DUPLICATION Picard wrote for the same library (multiqc_data.json).
+PLOT_ROW = {"Duplicate Pairs Nonoptical": 10364, "Duplicate Unpaired": 251, "Unique Pairs": 174538,
+            "Unique Unpaired": 270, "Unmapped": 13997}
+PLOT_FRACTION = 0.057247
+
+
+def test_chipseq_duplication_comes_from_the_bar_plot_when_no_table_is_written(tmp_path):
+    """MultiQC 1.23 with data_format: yaml writes no multiqc_picard_dups file; the plot's
+    counts give Picard's own rate (duplicate over duplicate plus unique reads)."""
+    plot = {row: PLOT_ROW for row in ("SPT5_REP1", "SPT5_REP2", "INPUT_REP1", "INPUT_REP2")}
+    _run(tmp_path, "chipseq", "2.1.0", CHIP_SHEET, {"picard_deduplication.yaml": _yaml(plot)})
+    run, result = _apply(tmp_path, CHIP_UIDS, "chipseq")
+    backfill = _backfill(result)
+    assert backfill["D.SEQ-1"]["DuplicationPercent"] == pytest.approx(PLOT_FRACTION * 100, abs=1e-4)
+    rows = {r.uid: r for r in result.rows if r.uid}
+    assert rows["D.SEQ-1"].attributes["DuplicationPercent"].source_file == \
+        run.sources["metrics_picard_dedup_plot"]
+    assert run.sources["metrics_picard_dedup_plot"].endswith("picard_deduplication.yaml")
+    # The plot's categories are ruled out, so nothing reaches the review queue.
+    assert result.unmapped == []
+
+
+def test_the_table_wins_over_the_bar_plot(tmp_path):
+    _run(tmp_path, "chipseq", "2.1.0", CHIP_SHEET, {
+        "multiqc_picard_dups.yaml": _yaml(CHIP_DUPS),
+        "picard_deduplication.yaml": _yaml({row: PLOT_ROW for row in CHIP_DUPS})})
+    run, result = _apply(tmp_path, CHIP_UIDS, "chipseq")
+    assert _backfill(result)["D.SEQ-1"]["DuplicationPercent"] == pytest.approx(15.0851)
+    rows = {r.uid: r for r in result.rows if r.uid}
+    assert rows["D.SEQ-1"].attributes["DuplicationPercent"].source_file == \
+        run.sources["metrics_picard_dups"]
+
+
+def test_duplication_pct_from_the_bar_plot_counts():
+    plot = {f"{derived.PICARD_DEDUP_PLOT}-{k}": v for k, v in PLOT_ROW.items()}
+    assert derived.from_metrics(plot)["duplication_pct"] == pytest.approx(PLOT_FRACTION * 100, abs=1e-4)
+    # Optical duplicates count as duplicates; unmapped reads count for nothing.
+    assert derived.from_metrics({f"{derived.PICARD_DEDUP_PLOT}-Duplicate Pairs Optical": 10,
+                                 f"{derived.PICARD_DEDUP_PLOT}-Unique Pairs": 30,
+                                 f"{derived.PICARD_DEDUP_PLOT}-Unmapped": 500})["duplication_pct"] == 25.0
+    assert "duplication_pct" not in derived.from_metrics({f"{derived.PICARD_DEDUP_PLOT}-Unmapped": 5})
+
+
+def test_chipseq_stages_the_bar_plot_data():
+    assert "multiqc/*/multiqc_data/picard_deduplication.yaml" in maps.load("chipseq").harvest_globs
+    assert maps.load("chipseq").module_tables["picard_deduplication.yaml"].namespace == \
+        derived.PICARD_DEDUP_PLOT
 
 
 @pytest.mark.parametrize("pipeline", ["atacseq", "chipseq"])

@@ -11,7 +11,8 @@
     "**/*.consensus_peaks.bed",
     "**/*.consensus_peaks.featureCounts.txt"
   ],
-  "harvest_globs": ["multiqc/*/multiqc_data/multiqc_picard_dups.yaml"],
+  "harvest_globs": ["multiqc/*/multiqc_data/multiqc_picard_dups.yaml",
+                    "multiqc/*/multiqc_data/picard_deduplication.yaml"],
   "derived_metrics": ["duplication_pct"],
   "row_defaults": {
     "Name": "@row_name",
@@ -19,7 +20,8 @@
   },
   "module_tables": {
     "multiqc_picard_dups.yaml": {"namespace": "picard_dups"},
-    "multiqc_picard_dups.txt": {"namespace": "picard_dups"}
+    "multiqc_picard_dups.txt": {"namespace": "picard_dups"},
+    "picard_deduplication.yaml": {"namespace": "picard_dedup_plot"}
   },
   "outputs": [
     {
@@ -137,7 +139,7 @@
     },
     "DuplicationPercent": {
       "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
-      "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.23 writes it as multiqc_picard_dups (.yaml, from the config's data_format: yaml), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. Table name, row names and the fraction are unverified until a real run",
+      "note": "Picard MarkDuplicates on each replicate's merged library, before filtering. Given the config's data_format: yaml, MultiQC 1.23 writes no per-module table files: the multiqc_picard_dups rows reach only multiqc_data.json, which the harvest does not read. So the value comes from the data file of MultiQC's Picard deduplication bar plot, picard_deduplication.yaml (Picard's read counts per category, rows named <sample>_REP<n> after the config's extra_fn_clean_exts): $derived.duplication_pct is duplicate reads over duplicate plus unique reads, x100, which is Picard's PERCENT_DUPLICATION (unmapped reads left out, as Picard leaves them out). The multiqc_picard_dups tables stay first, for a MultiQC that writes them. A replicate sequenced over several runs is a multi-run sample and gets no backfill. Checked against the 2.1.0 -profile test run (fixture 2.1.0-local-test)",
       "provenance": "seed"
     }
   },
@@ -147,11 +149,17 @@
     {"key": "picard_dups-UNPAIRED_READS_EXAMINED", "why": "A read count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
     {"key": "picard_dups-READ_PAIRS_EXAMINED", "why": "A read-pair count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
     {"key": "picard_dups-SECONDARY_OR_SUPPLEMENTARY_RDS", "why": "A count of secondary and supplementary records: no D.SEQ attribute means it."},
-    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent waits for a samtools table this map can tell apart (README, \"Maps written from the docs alone\")."},
+    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent waits for a samtools table this map can tell apart (README, \"Maps written from the docs, then checked on a test run\")."},
     {"key": "picard_dups-UNPAIRED_READ_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
     {"key": "picard_dups-READ_PAIR_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
     {"key": "picard_dups-READ_PAIR_OPTICAL_DUPLICATES", "why": "Optical duplicates, a subset of the duplicates DuplicationPercent counts: no D.SEQ attribute means it."},
-    {"key": "picard_dups-ESTIMATED_LIBRARY_SIZE", "why": "Picard's estimate of unique molecules in the library: a library-complexity measure no D.SEQ attribute means."}
+    {"key": "picard_dups-ESTIMATED_LIBRARY_SIZE", "why": "Picard's estimate of unique molecules in the library: a library-complexity measure no D.SEQ attribute means."},
+    {"key": "picard_dedup_plot-Unique Pairs", "why": "Read count in one category of MultiQC's Picard deduplication bar plot; DuplicationPercent is computed from these counts."},
+    {"key": "picard_dedup_plot-Unique Unpaired", "why": "Read count in one category of MultiQC's Picard deduplication bar plot; DuplicationPercent is computed from these counts."},
+    {"key": "picard_dedup_plot-Duplicate Pairs Optical", "why": "Read count in one category of MultiQC's Picard deduplication bar plot; DuplicationPercent is computed from these counts."},
+    {"key": "picard_dedup_plot-Duplicate Pairs Nonoptical", "why": "Read count in one category of MultiQC's Picard deduplication bar plot; DuplicationPercent is computed from these counts."},
+    {"key": "picard_dedup_plot-Duplicate Unpaired", "why": "Read count in one category of MultiQC's Picard deduplication bar plot; DuplicationPercent is computed from these counts."},
+    {"key": "picard_dedup_plot-Unmapped", "why": "Count of the unmapped reads Picard MarkDuplicates saw in the merged library: not part of its duplication rate, and a count no D.SEQ attribute means."}
   ],
   "unmapped_files": [
     {"glob": "fastqc/*", "why": "FastQC reports on the raw reads; QC, not a result of the analysis."},

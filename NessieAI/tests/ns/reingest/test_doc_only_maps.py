@@ -27,7 +27,8 @@ from NessieAI.ns.reingest import maps
 DOCS = Path(__file__).resolve().parents[2] / "chat_nextseek" / "fixtures" / "nfcore"
 README = maps.MAPS_DIR / "README.md"
 
-#: pipeline -> its pinned output docs. Remove an entry when the pipeline's run fixture lands.
+#: pipeline -> its pinned output docs. Remove an entry when run fixtures cover every rule's
+#: folder: the -profile test runs (`<version>-local-test`) call broad peaks only.
 DOC_ONLY = {"atacseq": "atacseq.output.md", "chipseq": "chipseq.output.md"}
 
 #: Folders an output.md documents only by saying they mirror another, as {pipeline:
@@ -128,9 +129,9 @@ def test_every_twin_folder_is_one_the_docs_say_mirrors_another(pipeline):
 
 
 @pytest.mark.parametrize("pipeline", sorted(DOC_ONLY))
-def test_the_readme_says_the_map_is_unverified(pipeline):
+def test_the_readme_names_the_docs_as_evidence(pipeline):
     rows = [line for line in README.read_text().splitlines()
-            if line.startswith(f"| {pipeline} |") and "pinned docs/output.md only" in line]
+            if line.startswith(f"| {pipeline} |") and "pinned docs/output.md" in line]
     assert rows, f"README's doc-only map table has no row for {pipeline}"
 
 

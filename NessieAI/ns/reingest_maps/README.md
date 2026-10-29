@@ -8,8 +8,8 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 (each map against its run fixture), `test_doc_only_maps.py` (maps written from the docs alone), and
 `test_replicate_samples.py` (replicate handling), `test_methylseq_map.py` (methylseq's tiers against its variant
 fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables) and `test_qc_completeness_dna.py`
-(the QC-completeness check for atacseq, chipseq and methylseq, which skips until a run with MultiQC tables is a
-fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
+(the QC-completeness check for atacseq, chipseq and methylseq against every fixture that holds a run's MultiQC
+data), all under `NessieAI/tests/ns/reingest/`; and the link test
 `NessieAI/tests/chat_nextseek/test_choosable_pipelines_have_maps.py` (a choosable pipeline has a map for its pinned release).
 
 ## What a map may contain
@@ -90,7 +90,8 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
   column `C` of row `<sample>` becomes the metric `<namespace>-C`. For a pipeline whose
   MultiQC writes no general-stats table (atacseq and chipseq exclude it). MultiQC's
   `data_format: yaml` writes `.yaml` tables, which are staged only through this map's
-  `harvest_globs`; list the `.txt` name too when the format is unsure.
+  `harvest_globs`; list the `.txt` name too when the format is unsure. A plot's data file
+  (`picard_deduplication.yaml`) reads the same way, one row per sample.
 - `inventory_globs` — this map's own inventory patterns (see "Inventory" below).
   Each must start with `**/`; the stager lists the union of these across every map
   and `harvest.CORE_INVENTORY_GLOBS`.
@@ -303,21 +304,24 @@ Evidence for a rule (G-7) is a fixture folder under
 `NessieAI/tests/ns/fixtures/reingest_runs/`; how to make one, and how its snapshot is
 regenerated, is in `NessieAI/tests/ns/fixtures/reingest_runs/README.md`.
 
-### Maps written from the docs alone
+### Maps written from the docs, then checked on a test run
 
 The owner waived G-7's fixture for these releases: they have no nf-test snapshot, and
 nf-core's published results hold partial files and no MultiQC. Their file rules come
 from the release's pinned docs/output.md (committed as
 `NessieAI/tests/chat_nextseek/fixtures/nfcore/<pipeline>.output.md`), checked against
 its `conf/modules.config`. `test_doc_only_maps.py` checks that every folder a rule names
-is one that output.md documents. A map file cannot say this itself
-(`PipelineMap` forbids unknown keys), so this table does. Delete a row when the
-release's run fixture lands, with its entry in `DOC_ONLY`.
+is one that output.md documents. Each release's own `-profile test` run is now a fixture
+too (`<version>-local-test`, made with `scripts/reingest/make_fixture.sh --local`), but
+both test profiles call broad peaks only, so the narrow-peak rules still rest on the docs
+alone. A map file cannot say this itself (`PipelineMap` forbids unknown keys), so this
+table does. Delete a row, with its entry in `DOC_ONLY`, when run fixtures cover every
+rule's folder (a narrow-peak run as well).
 
 | Pipeline | Release | Evidence | QC |
 |---|---|---|---|
-| atacseq | 2.1.2 | pinned docs/output.md only; unverified until a real run | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. The same config sets `data_format: yaml`. D.SEQ gets `Link_QC`, `Genome` and `DuplicationPercent`, read from the `multiqc_picard_dups` module table (below); unverified until a real run |
-| chipseq | 2.1.0 | pinned docs/output.md only; unverified until a real run | as for atacseq (MultiQC 1.23 reads both settings the same way) |
+| atacseq | 2.1.2 | pinned docs/output.md, and the `-profile test` run `2.1.2-local-test` (broad peaks) | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. The same config sets `data_format: yaml`, which MultiQC 1.13 does not apply to its tables: they are `.txt`. D.SEQ gets `Link_QC`, `Genome` and `DuplicationPercent`, read from the `multiqc_picard_dups` module table (below) |
+| chipseq | 2.1.0 | pinned docs/output.md, and the `-profile test` run `2.1.0-local-test` (broad peaks) | none from general stats, as for atacseq. With `data_format: yaml`, MultiQC 1.23 writes no table files at all: the module tables reach only `multiqc_data.json`, which the harvest does not read. `DuplicationPercent` is computed from the Picard deduplication bar plot's data file instead (below) |
 
 Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill
 (`Link_QC`, `Genome`, `DuplicationPercent`); only lanes of one replicate, a multi-run sample, get none
@@ -328,10 +332,16 @@ files through `module_tables`. Both maps read `multiqc_picard_dups` (Picard Mark
 each replicate's merged library, before filtering; the configs' only MarkDuplicates section
 without an anchor, so MultiQC names it plainly, while atacseq's merged-replicate one is
 `multiqc_picard_dups_mrep_picard` and is not read). It holds Picard's 0-1 fraction, so
-`DuplicationPercent` reads `$derived.duplication_pct`; its other columns are ruled out. The
+`DuplicationPercent` reads `$derived.duplication_pct`; its other columns are ruled out.
+chipseq's MultiQC 1.23 writes that table only into `multiqc_data.json`, so its map also reads
+`picard_deduplication.yaml`, the bar plot's read counts per category (namespace
+`picard_dedup_plot`), and `$derived.duplication_pct` falls back to duplicate reads over
+duplicate plus unique reads, which is Picard's own rate; the categories are ruled out. The
 releases write no other QC metric that an existing D.SEQ, A.CHRM or A.ALN attribute means.
 These have no attribute yet; each is a schema request, with the table it would come from
-(names from MultiQC's source and the releases' configs, unverified until a real run):
+(names from MultiQC's source and the releases' configs; the FRiP, peak count, NSC/RSC,
+fingerprint and ataqv outputs are present in the test runs, and chipseq's tables are in
+`multiqc_data.json` only, so reading any of them there needs a reader for that file):
 
 | Metric | Pipelines | Where it is | Would fit |
 |---|---|---|---|
@@ -370,8 +380,8 @@ With `--rrbs` or `--skip_deduplication` deduplication is skipped, so the sorted 
 `alignments/<sample>.bam` is ruled out, as Bismark's unsorted BAM is, and the sorted BAM
 before deduplication is a losing candidate of the aln rule: A.ALN's one secondary slot holds
 the index and A.ALN has no `Notes`, so it is named in the build report. A snapshot holds no
-MultiQC values, so the map's QC keys stay unverified until a real run
-(`test_qc_completeness_dna.py`).
+MultiQC values, so the map's QC keys are checked against `4.2.0-local-test`, the release's
+own `-profile test` run (Bismark only), by `test_qc_completeness_dna.py`.
 
 ## Filling in a stub
 

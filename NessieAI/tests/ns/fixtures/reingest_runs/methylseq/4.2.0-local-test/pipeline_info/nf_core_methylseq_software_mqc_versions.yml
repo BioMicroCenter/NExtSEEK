@@ -1,0 +1,29 @@
+BISMARK_DEDUPLICATE:
+  bismark: 0.25.1
+BISMARK_GENOMEPREPARATION_BOWTIE:
+  bismark: 0.25.1
+BISMARK_METHYLATIONEXTRACTOR:
+  bismark: 0.25.1
+BISMARK_REPORT:
+  bismark: 0.25.1
+BISMARK_SUMMARY:
+  bismark: 0.25.1
+GUNZIP:
+  gunzip: 1.13
+SAMTOOLS_INDEX:
+  samtools: 1.22.1
+TRIMGALORE:
+  trimgalore: 0.6.10
+  cutadapt: 4.9
+  pigz: 2.8
+Workflow:
+    nf-core/methylseq: v4.2.0-g5aa5646
+    Nextflow: 26.10.4
+BISMARK_ALIGN:
+  bismark: 0.25.1
+FASTQC:
+  fastqc: 0.12.1
+MULTIQC:
+  multiqc: 1.32
+SAMTOOLS_SORT:
+  samtools: 1.22.1

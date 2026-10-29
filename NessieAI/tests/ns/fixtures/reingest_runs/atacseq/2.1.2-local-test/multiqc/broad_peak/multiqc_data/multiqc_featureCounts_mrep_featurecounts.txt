@@ -1,0 +1,5 @@
+Sample	Total	Assigned	Unassigned_Unmapped	Unassigned_Read_Type	Unassigned_Singleton	Unassigned_MappingQuality	Unassigned_Chimera	Unassigned_FragmentLength	Unassigned_Duplicate	Unassigned_MultiMapping	Unassigned_Secondary	Unassigned_NonSplit	Unassigned_NoFeatures	Unassigned_Overlapping_Length	Unassigned_Ambiguity	percent_assigned
+OSMOTIC_STRESS_T0_PE_REP1	49001	25134	0	0	0	0	0	0	0	0	0	0	23309	558	0	51.29283075855595
+OSMOTIC_STRESS_T0_PE_REP2	40322	21091	0	0	0	0	0	0	0	0	0	0	18798	433	0	52.30643321263826
+OSMOTIC_STRESS_T100_SE_REP1	46713	21754	0	0	0	0	0	0	0	0	0	0	24552	407	0	46.56947744739151
+OSMOTIC_STRESS_T100_SE_REP2	37686	17307	0	0	0	0	0	0	0	0	0	0	20098	281	0	45.92421588918962

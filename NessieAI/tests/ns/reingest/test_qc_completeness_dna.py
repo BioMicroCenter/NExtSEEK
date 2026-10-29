@@ -1,10 +1,10 @@
 """QC completeness for the atacseq, chipseq and methylseq maps, against a real run.
 
-Their QC was mapped without a real run of the pinned releases (README "Maps written
-from the docs alone"; methylseq's fixtures are nf-test snapshots, which hold no MultiQC
-values), and every QC key they read carries "unverified until a real run" in its note.
-These tests wait for a fixture that holds the run's MultiQC tables, and skip until one
-exists. Once it does, they fail until the map is complete for it:
+Their QC was first mapped without a real run of the pinned releases (README "Maps
+written from the docs, then checked on a test run"; methylseq's snapshot fixtures hold no
+MultiQC values), with "unverified until a real run" in each QC key's note. These tests read every fixture that
+holds the run's MultiQC data (a table, or for chipseq's MultiQC 1.23 only plot data) and
+skip a pipeline that has none. For each such run they fail until the map is complete for it:
 
 - every metric the harvest reads is mapped or ruled out (nothing reaches the review queue);
 - every QC rule reads a key or derived value the run actually has;
@@ -27,16 +27,18 @@ UNVERIFIED = "unverified until a real run"
 
 
 def real_runs(pipeline: str) -> list[Path]:
-    """Fixture folders of `pipeline` that hold MultiQC data tables: a Nessie-launched
-    -profile test run, or AWS results that have them. A snapshot import has none."""
+    """Fixture folders of `pipeline` that hold MultiQC data: a -profile test run (Nessie's,
+    or one made with make_fixture.sh --local), or AWS results that have it. A snapshot
+    import has none. Any data file counts, not only multiqc_* tables: chipseq 2.1.0's
+    MultiQC writes no table files, and a run whose QC a map cannot find must still fail."""
     folders = sorted(p for p in (ROOT / pipeline).glob("*") if (p / "inventory.json").is_file())
-    return [f for f in folders if any(f.glob("multiqc*/**/*_data/multiqc_*"))]
+    return [f for f in folders if any(p.is_file() for p in f.glob("multiqc*/**/*_data/*"))]
 
 
 def _real_run_or_skip(pipeline: str) -> list[Path]:
     runs = real_runs(pipeline)
     if not runs:
-        pytest.skip(f"no {pipeline} fixture with MultiQC tables yet: its QC keys stay "
+        pytest.skip(f"no {pipeline} fixture with MultiQC data yet: its QC keys stay "
                     f"{UNVERIFIED} (add one with scripts/reingest/make_fixture.sh or "
                     "import_evidence.py aws)")
     return runs

@@ -1,0 +1,10 @@
+Sample	bismark	gunzip	samtools	trimgalore	cutadapt	pigz	nf-core/methylseq	Nextflow
+BISMARK_DEDUPLICATE	0.25.1							
+BISMARK_GENOMEPREPARATION_BOWTIE	0.25.1							
+BISMARK_METHYLATIONEXTRACTOR	0.25.1							
+BISMARK_REPORT	0.25.1							
+BISMARK_SUMMARY	0.25.1							
+GUNZIP		1.13						
+SAMTOOLS_INDEX			1.22.1					
+TRIMGALORE				0.6.10	4.9	2.8		
+Workflow							v4.2.0-g5aa5646	26.10.4

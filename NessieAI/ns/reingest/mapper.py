@@ -1229,12 +1229,15 @@ def _metric_source(run_manifest: manifest.RunManifest, raw_key: str) -> str:
     for its `<namespace>-<column>` keys and the derived values computed from it, else
     the general-stats table."""
     sources = run_manifest.sources
-    namespace = None
+    namespaces: tuple[str, ...] = ()
     if raw_key.startswith("$derived."):
-        namespace = derived.MODULE_TABLE_INPUTS.get(raw_key[len("$derived."):])
+        namespaces = derived.MODULE_TABLE_INPUTS.get(raw_key[len("$derived."):], ())
     elif "-" in raw_key:
-        namespace = raw_key.split("-", 1)[0]
-    return sources.get(f"metrics_{namespace}") or sources.get("metrics", "")
+        namespaces = (raw_key.split("-", 1)[0],)
+    for namespace in namespaces:
+        if sources.get(f"metrics_{namespace}"):
+            return sources[f"metrics_{namespace}"]
+    return sources.get("metrics", "")
 
 
 def _lookup(rule: maps.AttributeRule, run_manifest: manifest.RunManifest,

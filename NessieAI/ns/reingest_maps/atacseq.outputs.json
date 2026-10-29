@@ -122,7 +122,7 @@
     },
     "DuplicationPercent": {
       "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
-      "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.13 writes it as multiqc_picard_dups (.yaml, from the config's data_format: yaml), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. The merged-replicate MarkDuplicates table MultiQC writes under its own anchor (mrep_picard) is not read: its rows are the replicate groups, which have no D.SEQ of their own. Table name, row names and the fraction are unverified until a real run",
+      "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.13 writes it as multiqc_picard_dups.txt (1.13 writes its tables as text whatever the config's data_format: yaml says), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. The merged-replicate MarkDuplicates table MultiQC writes under its own anchor (mrep_picard) is not read: its rows are the replicate groups, which have no D.SEQ of their own. Table name, row names and the fraction checked against the 2.1.2 -profile test run (fixture 2.1.2-local-test)",
       "provenance": "seed"
     }
   },
@@ -132,7 +132,7 @@
     {"key": "picard_dups-UNPAIRED_READS_EXAMINED", "why": "A read count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
     {"key": "picard_dups-READ_PAIRS_EXAMINED", "why": "A read-pair count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
     {"key": "picard_dups-SECONDARY_OR_SUPPLEMENTARY_RDS", "why": "A count of secondary and supplementary records: no D.SEQ attribute means it."},
-    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent waits for a samtools table this map can tell apart (README, \"Maps written from the docs alone\")."},
+    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent waits for a samtools table this map can tell apart (README, \"Maps written from the docs, then checked on a test run\")."},
     {"key": "picard_dups-UNPAIRED_READ_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
     {"key": "picard_dups-READ_PAIR_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
     {"key": "picard_dups-READ_PAIR_OPTICAL_DUPLICATES", "why": "Optical duplicates, a subset of the duplicates DuplicationPercent counts: no D.SEQ attribute means it."},

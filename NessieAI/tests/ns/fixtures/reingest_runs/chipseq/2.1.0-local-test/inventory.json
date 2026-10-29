@@ -1,0 +1,114 @@
+[
+ {
+  "path": "bwa/merged_library/SPT5_INPUT_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_INPUT_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_INPUT_REP2.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_INPUT_REP2.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T0_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T0_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T0_REP2.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T0_REP2.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T15_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T15_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T15_REP2.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/SPT5_T15_REP2.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/SPT5_INPUT_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/SPT5_INPUT_REP2.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/SPT5_T0_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/SPT5_T0_REP2.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/SPT5_T15_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/SPT5_T15_REP2.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/SPT5_T0_REP1_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/SPT5_T0_REP2_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/SPT5_T15_REP1_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/SPT5_T15_REP2_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/consensus/SPT5/SPT5.consensus_peaks.bed",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/consensus/SPT5/SPT5.consensus_peaks.featureCounts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/consensus/SPT5/deseq2/SPT5.consensus_peaks.dds.RData",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/consensus/SPT5/deseq2/SPT5.consensus_peaks.rds",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs3/broad_peak/consensus/SPT5/deseq2/size_factors/SPT5.consensus_peaks.size_factors.RData",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/broad_peak/multiqc_report.html",
+  "bytes": 0
+ }
+]
