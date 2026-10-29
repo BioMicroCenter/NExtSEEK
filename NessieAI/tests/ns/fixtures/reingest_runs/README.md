@@ -6,7 +6,7 @@ what the stager would copy (pipeline_info/, the samplesheet, MultiQC tables),
 and `snapshot.json` (the expected row shape). `test_fixture_runs.py` checks every
 folder.
 
-There are two ways to make one, and either is evidence for a rule (G-7 in
+There are three ways to make one, and each is evidence for a rule (G-7 in
 `NessieAI/ns/reingest_maps/README.md`, which says which source is preferred):
 
 - **From nf-core's own published evidence**, with `scripts/reingest/import_evidence.py`:
@@ -22,13 +22,18 @@ There are two ways to make one, and either is evidence for a rule (G-7 in
   `scripts/reingest/make_fixture.sh`. Only the run's owner starts it: it reaches the
   cluster. `launch_record.json` is a stub (empty cohort) to complete by hand from the
   PipelineRun.
+- **From a `-profile test,docker` run on a workstation**, with `make_fixture.sh --local`,
+  which touches no cluster. The folder is `<version>-local-test`, and its `EVIDENCE.txt`
+  says where it came from. nf-core writes its iGenomes catalogue (`genomes`) and the
+  `igenomes_base` and `custom_config_base` URLs into the params JSON, which the sanitizer
+  refuses: drop `genomes` and blank the other two in the run's copy before importing.
 
 Both build the fixture in a temporary folder and run `scripts/reingest/sanitize_fixture.py`
 over it, which rewrites the run directory (and any extra prefixes) to `/RUN` and scans
 every file. If any absolute path, email address or URL remains, or any file cannot be
 read as UTF-8 text, it refuses and nothing is written into the repo.
 
-`EVIDENCE.txt`, written by `import_evidence.py`, names where an imported fixture came
+`EVIDENCE.txt`, written by `import_evidence.py` and `make_fixture.sh --local`, names where a fixture came
 from (repository and tag, or bucket and prefix, without a URL scheme, which the sanitizer
 refuses), the day it was read, and what the source lacks. A folder without it came from a
 Nessie run. It is fixture bookkeeping: no map has to claim it.
