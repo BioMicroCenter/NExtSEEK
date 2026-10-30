@@ -108,17 +108,19 @@ def _duplicate_title(client, request, title: str, kind: str = "SOP") -> Optional
     return _json(body, 409)
 
 
-def _unconfirmed(title: str, exc: Exception, timeout_s, *, created=(), not_sent=(), kind="SOP", path="sops") -> HttpResponse:
+def _unconfirmed(title: str, exc: Exception, timeout_s, *, created=(), not_sent=(), kind="SOP", path="sops",
+                 find: Optional[str] = None) -> HttpResponse:
     """The create got no answer from SEEK, so the record may exist. A read timeout is 202 (the proxy cannot say it
     failed, and a client that retries would duplicate); a lost connection is 502. Both carry the title so a client
-    can look the record up before it sends anything again."""
+    can look the record up before it sends anything again. ``find``, when given, is the sentence that says how."""
     extra: Dict[str, Any] = {"title": title}
     if created:
         extra["created"] = list(created)
     if not_sent:
         extra["not_sent"] = list(not_sent)
     sent_note = " The file was not sent." if not_sent else ""
-    find = (f" GET /nextseek_api/{path}/<title>/ finds it while no other {kind} has that title; a {kind} found that way "
+    find = (f" {find}" if find else
+            f" GET /nextseek_api/{path}/<title>/ finds it while no other {kind} has that title; a {kind} found that way "
             f"is finished by sending the file with PATCH /nextseek_api/{path}/<id>/." if kind == "SOP" else
             f" GET /nextseek_api/{path}/<title>/ finds it while no other {kind} has that title.")
     if isinstance(exc, requests.ReadTimeout):
@@ -131,9 +133,11 @@ def _unconfirmed(title: str, exc: Exception, timeout_s, *, created=(), not_sent=
     return _json({"errors": [{"title": "Upstream connection error", "detail": detail}], **extra}, 502)
 
 
-def _seek_refused(body, code: int, headers, title: str, *, created=(), not_sent=(), kind="SOP", path="sops") -> HttpResponse:
-    """SEEK answered the create with an error. A 5xx becomes JSON that says the record may exist; a 4xx is SEEK
-    refusing, forwarded with SEEK's status (as JSON when SEEK's own body is not, such as a Rails error page)."""
+def _seek_refused(body, code: int, headers, title: str, *, created=(), not_sent=(), kind="SOP", path="sops",
+                  find: Optional[str] = None) -> HttpResponse:
+    """SEEK answered the create with an error. A 5xx becomes JSON that says the record may exist (``find``, when
+    given, says how to look it up); a 4xx is SEEK refusing, forwarded with SEEK's status (as JSON when SEEK's own
+    body is not, such as a Rails error page)."""
     ct = (headers.get('Content-Type') or 'application/json')
     extra: Dict[str, Any] = {}
     if created:
@@ -141,7 +145,9 @@ def _seek_refused(body, code: int, headers, title: str, *, created=(), not_sent=
     if not_sent:
         extra["not_sent"] = list(not_sent)
     if code >= 500:
-        detail = (f"SEEK answered {code}. The {kind} may still have been created: GET /nextseek_api/{path}/<title>/ "
+        detail = (f"SEEK answered {code}. The {kind} may still have been created. {find} Check before you send it "
+                  "again." if find else
+                  f"SEEK answered {code}. The {kind} may still have been created: GET /nextseek_api/{path}/<title>/ "
                   "finds it while no other record has that title. Check before you send it again.")
         return _json({"errors": [{"title": f"SEEK could not create the {kind}", "detail": detail}],
                       "seek_status": code, "title": title, **extra}, 502)

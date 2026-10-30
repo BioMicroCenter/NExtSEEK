@@ -121,19 +121,39 @@ from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
 
 
+class TitleLookupUnavailable(Exception):
+    """SEEK's sample_types table could not be read to resolve a title."""
+
+
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
+    """The SEEK id a path segment names: digits as they are, else the one type holding exactly that title (as SEEK's
+    table compares titles); None for no type or several. Not ``getSampleTypeID``, which cuts a title at its first
+    ``_`` (so ``D.HEM_v2`` read as ``D.HEM``) for the legacy search and upload callers that rely on it. Raises
+    ``TitleLookupUnavailable`` when the table cannot be read, so a client following a 202 never reads "not found"
+    as "not created"."""
     s = str(uid_or_id)
     if s.isdigit():
         return s
-    try:
-        dbst = DBtable_sampletype("DEFAULT")
-        # Attempt resolution by title
-        rid = dbst.getSampleTypeID(s)
-        if isinstance(rid, int) and rid > 0:
-            return str(rid)
-    except Exception:
-        return None
-    return None
+    ids = _existing_type_ids(s)
+    if ids is None:
+        raise TitleLookupUnavailable(s)
+    return ids[0] if len(ids) == 1 else None
+
+
+def _lookup_unavailable() -> HttpResponse:
+    return HttpResponse(b'{"errors":[{"title":"Could not look up the title","detail":"The sample types table could '
+                        b'not be read. Nothing was changed. Try again later."}]}', status=503,
+                        content_type='application/json')
+
+
+def _find_by_title(title: str) -> str:
+    """How a client finds the type a create may have made: the path that matches the exact title, or the list for a
+    title of only digits, which that path reads as an id."""
+    if str(title).isdigit():
+        return ("GET /nextseek_api/sample_types/<title>/ reads a title of only digits as an id, so look for this one "
+                "by its title in GET /nextseek_api/sample_types/.")
+    return ("GET /nextseek_api/sample_types/<title>/ finds it by its exact title while no other sample type holds "
+            "that title.")
 
 
 def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
@@ -244,9 +264,8 @@ def _no_seek_login(request) -> Optional[HttpResponse]:
 def _still_unconfirmed(title: str, detail: str) -> HttpResponse:
     """The 202 of a create this request did not send, because another of the same title may still be in SEEK."""
     return _json({"status": "unconfirmed", "sent": False, "title": title,
-                  "detail": f"{detail} Nothing was sent to SEEK for this request. GET "
-                            "/nextseek_api/sample_types/<title>/ finds the type once SEEK has committed it; check "
-                            "before you send the create again."}, 202)
+                  "detail": f"{detail} Nothing was sent to SEEK for this request. Once SEEK has committed the type, "
+                            f"{_find_by_title(title)} Check before you send the create again."}, 202)
 
 
 def _not_checked(title: str, what: str) -> HttpResponse:
@@ -272,6 +291,10 @@ def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpRes
                                         action, seek_id, type(exc).__name__)
     payload = {"errors": [{"title": "Upstream connection error", "detail": "SEEK could not be reached."}]}
     return HttpResponse(json.dumps(payload).encode(), status=502, content_type='application/json')
+
+
+_UID_DESC = ("SEEK id (numeric), or the exact title of one sample type (resolved to its id; a title of only digits "
+             "is read as an id)")
 
 
 class SampleTypeProxyViewSet(viewsets.ViewSet):
@@ -330,10 +353,12 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         description=SAMPLETYPE_FETCH_DESC,
         operation_id="Fetch a SampleType",
         parameters=[
-            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)'),
+            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description=_UID_DESC),
         ],
         responses={
             200: SampleTypeSingleResponse,
+            404: OpenApiResponse(description="No sample type holds this exact title, or more than one does"),
+            503: OpenApiResponse(description="The sample types table could not be read to resolve the title"),
             502: OpenApiResponse(description="SEEK could not be reached, or answered with something that is not "
                                              "a sample type document"),
             504: OpenApiResponse(description="SEEK did not answer within the proxy's timeout"),
@@ -342,7 +367,10 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
     )
     def retrieve(self, request, uid=None, pk=None):
         uid = uid or pk
-        seek_id = _resolve_uid_to_seek_id(uid)
+        try:
+            seek_id = _resolve_uid_to_seek_id(uid)
+        except TitleLookupUnavailable:
+            return _lookup_unavailable()
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
 
@@ -374,8 +402,9 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             200: SampleTypeSingleResponse,
             202: OpenApiResponse(description=(
                 f"SEEK did not answer within {CREATE_TIMEOUT_S} s: it received the create and may still complete it. "
-                "Body: {\"status\": \"unconfirmed\", \"title\": ..., \"detail\": ...}. Look the type up with GET "
-                "/nextseek_api/sample_types/<title>/ before you send the create again. A create of the same title "
+                "Body: {\"status\": \"unconfirmed\", \"title\": ..., \"detail\": ...}. Look the type up by its exact "
+                "title with GET /nextseek_api/sample_types/<title>/ before you send the create again (that path reads "
+                "a title of only digits as an id: find such a title in GET /nextseek_api/sample_types/). A create of the same title "
                 f"sent while another is waiting for SEEK, or within {IN_FLIGHT_S // 60} minutes of one SEEK left "
                 "unanswered, gets this 202 with \"sent\": false and is not sent.")),
             409: OpenApiResponse(description=(
@@ -434,7 +463,8 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             if title and not isinstance(exc, requests.ConnectTimeout):
                 # A connect timeout sent nothing; anything later may have reached SEEK.
                 _mark_in_flight(title)
-            return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types")
+            return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types",
+                                find=_find_by_title(title) if title else None)
         delay = hooks.write_delay(code)
         if delay is not None:
             # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
@@ -445,7 +475,8 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             if code >= 500 and title:
                 # SEEK's 5xx may follow a commit (the 502 says the type may exist): a retry waits, as after a 202.
                 _mark_in_flight(title)
-            return _seek_refused(body, code, headers, title, kind="sample type", path="sample_types")
+            return _seek_refused(body, code, headers, title, kind="sample type", path="sample_types",
+                                 find=_find_by_title(title) if title else None)
 
         try:
             data = json.loads(body or b"{}")
@@ -467,10 +498,13 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         operation_id="Update a SampleType",
         description=SAMPLETYPE_UPDATE_DESC,
         parameters=[
-            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)')
+            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description=_UID_DESC)
         ],
         request=SampleTypeUpdateRequest,
-        responses={200: SampleTypeSingleResponse},
+        responses={
+            200: SampleTypeSingleResponse,
+            503: OpenApiResponse(description="The sample types table could not be read to resolve the title"),
+        },
         tags=['SampleTypes'],
     )
     def partial_update(self, request, uid=None, pk=None):
@@ -481,7 +515,10 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        path_id = _resolve_uid_to_seek_id(uid) if uid is not None else None
+        try:
+            path_id = _resolve_uid_to_seek_id(uid) if uid is not None else None
+        except TitleLookupUnavailable:
+            return _lookup_unavailable()
         body_id = payload.get('data', {}).get('id')
 
         seek_id: Optional[str] = None

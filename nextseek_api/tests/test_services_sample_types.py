@@ -141,34 +141,130 @@ GOOD_ST_UPDATE_PAYLOAD = {
 
 
 class TestSampleTypeResolveUid:
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_numeric_passthrough(self, _):
+    def test_numeric_passthrough(self, _titles):
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("42") == "42"
+        _titles.assert_not_called()
 
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_title_resolved(self, mock_cls):
-        mock_cls.return_value.getSampleTypeID.return_value = 12
+    def test_title_resolved(self, _titles):
+        _titles.return_value = ["12"]
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("TIS") == "12"
+        _titles.assert_called_once_with("TIS")
 
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_title_not_found(self, mock_cls):
-        mock_cls.return_value.getSampleTypeID.return_value = 0
+    def test_title_not_found(self, _titles):
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("UNKNOWN") is None
 
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_title_returns_none(self, mock_cls):
-        mock_cls.return_value.getSampleTypeID.return_value = None
-        from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
-        assert _resolve_uid_to_seek_id("UNKNOWN") is None
-
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_exception_returns_none(self, mock_cls):
-        mock_cls.side_effect = RuntimeError("boom")
+    def test_a_title_two_types_hold_does_not_resolve(self, _titles):
+        _titles.return_value = ["12", "13"]
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("TIS") is None
+
+    def test_an_unreadable_table_raises_rather_than_reading_as_not_found(self, _titles):
+        _titles.return_value = None
+        from nextseek_api.services.sample_types import TitleLookupUnavailable, _resolve_uid_to_seek_id
+        with pytest.raises(TitleLookupUnavailable):
+            _resolve_uid_to_seek_id("TIS")
+
+    # #141 review: getSampleTypeID cuts a title at its first "_", so the GET a 202 sends a client to could answer
+    # D.HEM for a create of D.HEM_v2 that SEEK had not committed, and the client would take it as created.
+    def test_a_title_with_an_underscore_is_matched_whole(self, _titles):
+        _titles.side_effect = lambda title: {"D.HEM": ["117"]}.get(title, [])
+        from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype") as table:
+            table.return_value.getSampleTypeID.return_value = 117  # what the cut lookup answers
+            assert _resolve_uid_to_seek_id("D.HEM_v2") is None
+            assert _resolve_uid_to_seek_id("D.HEM") == "117"
+            table.return_value.getSampleTypeID.assert_not_called()
+
+
+class TestSampleTypeByTitleRoutes:
+    """GET and PATCH by title go through the exact match; a table that cannot be read is 503, never 404."""
+
+    def _viewset(self):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        return vs
+
+    def test_get_of_an_uncommitted_suffixed_title_is_404_not_its_prefix(self, _titles):
+        _titles.side_effect = lambda title: {"D.HEM": ["117"]}.get(title, [])
+        vs = self._viewset()
+        resp = vs.retrieve(_auth_request(), uid="D.HEM_v2")
+        assert resp.status_code == 404
+        vs.client.get_sample_type.assert_not_called()
+
+    def test_get_by_exact_title_reads_that_type(self, _titles):
+        _titles.return_value = ["117"]
+        vs = self._viewset()
+        vs.client.get_sample_type.return_value = _ok(GOOD_ST_SINGLE)
+        assert vs.retrieve(_auth_request(), uid="D.HEM_v2").status_code == 200
+        assert vs.client.get_sample_type.call_args.args[1] == "117"
+
+    def test_get_when_the_table_cannot_be_read_is_503(self, _titles):
+        _titles.return_value = None
+        vs = self._viewset()
+        resp = vs.retrieve(_auth_request(), uid="D.HEM_v2")
+        assert resp.status_code == 503
+        assert resp["Content-Type"] == "application/json"
+        assert json.loads(resp.content)["errors"][0]["title"] == "Could not look up the title"
+
+    def test_patch_of_a_suffixed_title_never_writes_its_prefix(self, _titles):
+        _titles.side_effect = lambda title: {"D.HEM": ["117"]}.get(title, [])
+        vs = self._viewset()
+        payload = {"data": {"type": "sample_types", "id": "UNKNOWN", "attributes": {"title": "Revised"}}}
+        resp = vs.partial_update(_auth_request(method="patch", data=payload), uid="D.HEM_v2")
+        assert resp.status_code == 404
+        vs.client.update_sample_type.assert_not_called()
+
+    def test_patch_when_the_table_cannot_be_read_is_503(self, _titles):
+        _titles.return_value = None
+        vs = self._viewset()
+        payload = {"data": {"type": "sample_types", "id": "117", "attributes": {"title": "Revised"}}}
+        resp = vs.partial_update(_auth_request(method="patch", data=payload), uid="D.HEM_v2")
+        assert resp.status_code == 503
+        vs.client.update_sample_type.assert_not_called()
+
+
+class TestTheGuidanceOfAnUnconfirmedCreate:
+    @pytest.fixture(autouse=True)
+    def _seek_login(self):
+        with patch("nextseek_api.services.sample_types.resolve_seek_auth", return_value=(("u", "p"), {})) as m:
+            yield m
+
+    def _create(self, title, **client):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock(**client)
+        payload = copy.deepcopy(GOOD_ST_CREATE_PAYLOAD)
+        payload["data"]["attributes"]["title"] = title
+        resp = vs.create(_auth_request(method="post", data=payload))
+        return resp, json.loads(resp.content)
+
+    def test_the_202_points_at_the_exact_title_path(self):
+        resp, body = self._create("D.HEM_v2", **{"create_sample_type.side_effect": requests.ReadTimeout("slow")})
+        assert resp.status_code == 202
+        assert "GET /nextseek_api/sample_types/<title>/ finds it by its exact title" in body["detail"]
+
+    def test_the_202_of_an_all_digit_title_points_at_the_list(self):
+        resp, body = self._create("2024", **{"create_sample_type.side_effect": requests.ReadTimeout("slow")})
+        assert resp.status_code == 202
+        assert "reads a title of only digits as an id" in body["detail"]
+        assert "GET /nextseek_api/sample_types/." in body["detail"]
+
+    def test_the_502_of_a_seek_5xx_points_at_the_exact_title_path(self):
+        resp, body = self._create("D.HEM_v2", **{"create_sample_type.return_value": (
+            b"<html>boom</html>", 500, {"Content-Type": "text/html"}, Mock())})
+        assert resp.status_code == 502
+        assert "finds it by its exact title" in body["errors"][0]["detail"]
+
+    def test_the_openapi_text_of_the_202_names_the_exact_match_and_the_digit_case(self):
+        from drf_spectacular.generators import SchemaGenerator
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        create = schema["paths"]["/nextseek_api/sample_types/"]["post"]["responses"]
+        assert "exact title" in create["202"]["description"]
+        assert "only digits" in create["202"]["description"]
 
 
 # ============================================================================
