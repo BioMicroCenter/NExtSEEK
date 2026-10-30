@@ -222,6 +222,8 @@ nextseek-aggregate --query "How many samples of each type are in the study <titl
 Never search a method name as a sample keyword of one sample type, and never stop at `nextseek-parse`
 (it plans, it does not run). Say NExtSEEK has nothing on it only after the title lookup found nothing.
 
+**Survival and other time-to-event questions.** A patient's dated events are its Patient Visit (PAV) children, not the patient record. Unless the question names another method, take the event from the patient's vital status and the time from the largest `DaysToFollowUp` across its PAV children, and say how many patients are in the curve and why the rest are left out.
+
 **Inspect a parser plan — `nextseek-parse` standalone.** To show or verify the plan (mode,
 endpoint, filters) for a question without executing it:
 
