@@ -475,6 +475,20 @@ class TestSampleTypeCreate:
         resp = vs.create(req)
         assert resp.status_code == 502
 
+    # #141 review: the OpenAPI entry promises {"errors": [...], "title": ...} on every 502, but a SEEK 2xx whose body
+    # is not a sample type document gave a bare error with no title, so the client could not look the type up.
+    def test_create_502_bad_response_carries_the_title_as_the_schema_says(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = (b'{"data": {}}', 201, {"Content-Type": "application/json"}, Mock())
+        resp = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert resp.status_code == 502
+        assert resp["Content-Type"] == "application/json"
+        body = json.loads(resp.content)
+        assert body["title"] == "NEW" and body["seek_status"] == 201
+        assert body["errors"][0]["title"] == "Invalid upstream response"
+        assert "may still have been created" in body["errors"][0]["detail"]
+        assert "finds it by its exact title" in body["errors"][0]["detail"]
+
 
 # Issue #140: SEEK finished creating a large type (70+ attributes) after the front proxy had given up, so the caller
 # saw a 504 or 500 for a type that exists, and a retry would have made a second type with the same title.

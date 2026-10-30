@@ -482,7 +482,13 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             data = json.loads(body or b"{}")
             SampleTypeSingleResponse.model_validate(data)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            # SEEK said it created something it did not describe: the 502 the OpenAPI entry promises, with the title.
+            find = f" {_find_by_title(title)}" if title else ""
+            return _json({"errors": [{"title": "Invalid upstream response",
+                                      "detail": f"SEEK answered {code} with something that is not a sample type "
+                                                f"document. The sample type may still have been created.{find} "
+                                                "Check before you send it again."}],
+                          "seek_status": code, "title": title}, 502)
 
         if 200 <= code < 300:
             # A new type is a catalog entry (enqueued above), and its samples take their T_ label from it (spec 5
