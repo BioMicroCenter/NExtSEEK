@@ -15420,7 +15420,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)A\\.VCF"
+                  "value": "(?i)A\\.VCF|T_A_VCF"
                 }
               ]
             },
@@ -15484,7 +15484,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)A\\.VCF"
+                  "value": "(?i)A\\.VCF|T_A_VCF"
                 },
                 {
                   "field": "last_reply",
