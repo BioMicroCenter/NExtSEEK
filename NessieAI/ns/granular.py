@@ -1866,8 +1866,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         PARENTS_JOIN_ASSAY, SOFT, Finding, qa_rows)
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
     from nextseek_api.services.reingest_lookups import (
-        attributes_for, existing_uids_for_primary_files_strict, known_sample_types,
-        lab_code_from_uid, lab_for_code_strict, next_name_ordinal_strict,
+        attributes_for, caller_project_scope, existing_uids_for_primary_files_strict,
+        known_sample_types, lab_code_from_uid, lab_for_code_strict, next_name_ordinal_strict,
         project_ids_for_uids_strict)
 
     def _slug(name: str) -> str:
@@ -1985,11 +1985,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             if row.rule_id and row.sample_type != "D.SEQ":
                 checked.setdefault(row.sample_type, []).append(row)
         dropped: set[int] = set()
+        # Only samples in the projects this caller's upload may write to count as
+        # there (SEC-001); no signed-in user is a build `load` never reads back.
+        scope = caller_project_scope(user) if user is not None else None
         for sample_type, type_rows in checked.items():
             found = existing_uids_for_primary_files_strict(sample_type, [
                 {"link": _cell(row, "Link_PrimaryData"),
                  "checksum": _cell(row, "Checksum_PrimaryData"),
-                 "parent": _cell(row, "Parent")} for row in type_rows])
+                 "parent": _cell(row, "Parent")} for row in type_rows], project_ids=scope)
             uids = sorted({uid for match in found for uid in match["uids"]})
             if uids:
                 dropped |= {id(row) for row, match in zip(type_rows, found) if match["uids"]}
