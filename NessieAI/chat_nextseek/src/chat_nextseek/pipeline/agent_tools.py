@@ -723,7 +723,12 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     # submit_to_luria stages beside the samplesheet; an absolute path is the user's
     # own file on Luria and is passed through.
     contrasts_rows = None
-    state.setdefault("artifacts", {}).pop("contrasts", None)
+    # A launch written beside an earlier contrasts file names that file, so dropping
+    # the file drops that launch too: whatever this call does next, it may not leave a
+    # submittable launch whose contrasts file is no longer staged (PR 135 SF-10).
+    if state.setdefault("artifacts", {}).pop("contrasts", None):
+        state["artifacts"].pop("params", None)
+        state["artifacts"].pop("launch", None)
     contrasts_value = agent_params.get(CONTRASTS_PARAM)
     declares_contrasts = any(s["name"] == CONTRASTS_PARAM for s in required_user_params(pipeline_key))
     if declares_contrasts and contrasts_value is not None and not is_user_path(contrasts_value):
@@ -731,6 +736,9 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         if not bad:
             bad = condition_problems(contrasts_rows, samplesheet_conditions(samplesheet))
         if bad:
+            # The user's comparison was refused, so no earlier launch stands for it.
+            state["artifacts"].pop("params", None)
+            state["artifacts"].pop("launch", None)
             return json.dumps({"ok": False, "invalid_user_params": bad,
                                "message": "Ask the user to correct these; do not guess."})
         base_dir = artifacts.get("base_dir") or str(Path(samplesheet).parent)

@@ -1017,7 +1017,7 @@ _STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
 # worth the wait (up to 10 GB each, 20 GB aggregate); these bound an
 # AUTOMATIC, no-one-asked-for-it hash that happens on every run-harvest call,
 # so they must be small enough that harvest_local's own
-# `_HARVEST_SSH_TIMEOUT_S` (150s, itself under the 180s CC-turn hard cap) is
+# SSH timeout (`_ssh_timeout_s`: what is left of the op's 60 s limit) is
 # never meaningfully at risk from hashing alone -- getting a manifest back at
 # all matters far more than getting a checksum for free. At a conservative
 # shared-cluster-disk throughput of ~150 MB/s (the same figure run-checksum's
@@ -1229,6 +1229,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     """
     import io
     import shlex
+    import subprocess
     import tarfile
 
     from chat_nextseek.luria.ssh import ssh_run_bytes
@@ -1255,8 +1256,13 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     ])
     # Bounded, not indefinite: see _HARVEST_SSH_TIMEOUT_S below for why this
     # backstops a stalled shared filesystem rather than an oversized
-    # request (the size/count caps enforced remotely, above, are that).
-    tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path, timeout=_HARVEST_SSH_TIMEOUT_S)
+    # request (the size/count caps enforced remotely, above, are that). Cut
+    # to the op's limit (_ssh_timeout_s), so the op answers before it ends.
+    timeout = _ssh_timeout_s(_HARVEST_SSH_TIMEOUT_S, "the run's files could be staged")
+    try:
+        tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise OpDeadlineError(f"staging the run's files timed out after {timeout:.0f} s") from exc
     skipped: list[dict] = []
     inventory: list[dict] = []
     run_dir_escapes_runs_root = False
@@ -1281,19 +1287,30 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
 
 
 # Wall-clock backstop for the run-harvest staging SSH call, mirroring
-# run-checksum's _CHECKSUM_SSH_TIMEOUT_S (added in an earlier review pass;
-# see its docstring for the full reasoning). run-harvest's own byte/count
+# run-checksum's _CHECKSUM_SSH_TIMEOUT_S. run-harvest's own byte/count
 # ceilings (harvest.MAX_FILE_BYTES / MAX_TOTAL_BYTES / MAX_FILES, enforced
 # remotely in _STAGE_SCRIPT before any match is added to the tar) bound the
 # LEGITIMATE work; this bounds the illegitimate/unexpected case (a stalled
-# shared filesystem) instead. ssh_run_bytes had no timeout kwarg at all
-# until this review pass (Important 2, 2026-09-16): a stalled remote glob
-# or a wedged network hung the whole CC turn indefinitely, unlike
-# run-checksum's ssh_run call, which already had one. Sized the same as
-# run-checksum's ceiling (150s), comfortably under the 180s CC turn hard
-# cap (NEXTSEEK_CC_TIMEOUT_HARD_MAX, cc_engine.py) with room left for the
-# rest of the turn (local tar extraction + harvest_local parsing).
+# shared filesystem) instead. It is an upper bound only: the op's own limit
+# (op_limits.py, 60 s) is shorter, and _ssh_timeout_s cuts the call to what
+# is left of it (PR 135 SF-5).
 _HARVEST_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_HARVEST_SSH_TIMEOUT_S", 150))
+
+
+def _ssh_timeout_s(base_s: float, what: str) -> float:
+    """The timeout for one reingest SSH call: ``base_s``, cut to what is left of the op's limit less
+    ``ANSWER_MARGIN_S``, so the op still answers inside its limit after the call (PR 135 SF-5). Raises
+    ``OpDeadlineError`` before the call when ``call_scope.DEADLINE_FLOOR_S`` or less would be left: a
+    call that cannot finish is never started."""
+    from chat_nextseek import call_scope
+    from NessieAI.ns.aggregate import ANSWER_MARGIN_S
+
+    current = call_scope.current()
+    remaining = current.remaining() if current is not None else None
+    budget = float(base_s) if remaining is None else min(float(base_s), remaining - ANSWER_MARGIN_S)
+    if budget <= call_scope.DEADLINE_FLOOR_S:
+        raise OpDeadlineError(f"the op ran out of time before {what}")
+    return budget
 
 
 def _pick_waiting_run(user):
@@ -1340,6 +1357,8 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     from NessieAI.ns.reingest.store import save_manifest
 
     if not args.get("run_dir"):
+        # A run whose upload job outlived its call is settled first, so it is not picked again.
+        _settle_late_uploads(session, config)
         picked = _pick_waiting_run(getattr(session, "user", None))
         if isinstance(picked, dict):
             return picked
@@ -1390,8 +1409,11 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     # the user makes explicitly.
     if run_manifest.execution.failed and not args.get("allow_failed_run"):
         raise OpValidationError(
-            f"{run_manifest.execution.failed} process(es) failed in this run. "
-            f"Re-run with --allow-failed-run to reingest it anyway.", field="allow_failed_run", error_type="run_has_failed_processes")
+            f"{run_manifest.execution.failed} process(es) failed in this run, so its outputs may "
+            f"be partial. Ask the user whether to reingest it anyway; only on their yes, re-run "
+            f"with --allow-failed-run.", field="allow_failed_run", error_type="run_has_failed_processes")
+    # Recorded, so every build of this manifest and the upload confirmation say the run failed.
+    run_manifest.failed_run_allowed = bool(run_manifest.execution.failed)
 
     manifest_id = save_manifest(run_manifest)
     return {"run_dir": run_dir, "manifest_id": manifest_id,
@@ -1408,22 +1430,21 @@ _CHECKSUM_MAX_FILES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILES", 200))
 # exists to checksum. These ceilings instead bound the one thing that makes
 # run-checksum the DoS this op was split out to avoid (see the docstring
 # below and Important 1 of the 2026-09-16 review): the remote hashing time.
-# Sized so that _CHECKSUM_MAX_FILES (200) files at the per-file ceiling could
-# never blow the SSH call's own timeout (_CHECKSUM_SSH_TIMEOUT_S below) even
-# at a conservative shared-cluster-disk md5 throughput (~150 MB/s): the
-# aggregate ceiling (20 GB) hashes in ~135s at that rate, comfortably inside
-# a 150s SSH timeout that itself sits under the default 180s CC turn hard cap
-# (NEXTSEEK_CC_TIMEOUT_HARD_MAX, cc_engine.py) with room left for the rest of
-# the turn. The per-file ceiling (10 GB) is generous for one sequencing file
-# without needing to equal the aggregate.
+# They were sized for a 150 s SSH timeout: the aggregate ceiling (20 GB)
+# hashes in ~135 s at a conservative shared-cluster-disk md5 throughput
+# (~150 MB/s). The op's own limit is 60 s (op_limits.py), and the SSH call is
+# now cut to what is left of it (_ssh_timeout_s, PR 135 SF-5), so at that rate
+# about 8 GB fits in one call; a request above that ends as a deadline failure
+# rather than hashing on after the op has answered. The per-file ceiling
+# (10 GB) is generous for one sequencing file without needing to equal the
+# aggregate.
 _CHECKSUM_MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILE_BYTES", 10_000_000_000))
 _CHECKSUM_MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_TOTAL_BYTES", 20_000_000_000))
-# Wall-clock backstop for the SSH call itself: the byte ceilings above bound
-# the LEGITIMATE work to well under this, so this timeout exists to bound the
-# illegitimate/unexpected case (a stalled shared filesystem, a wedged
-# network) rather than to be the primary defense against an oversized
-# request -- that job is the byte ceilings, enforced before any file is
-# opened for reading (see _CHECKSUM_SCRIPT).
+# Wall-clock backstop for the SSH call itself, bounding the unexpected case
+# (a stalled shared filesystem, a wedged network) rather than an oversized
+# request, which the byte ceilings refuse before any file is opened for
+# reading (see _CHECKSUM_SCRIPT). An upper bound only: _ssh_timeout_s cuts
+# the call to what is left of the op's limit.
 _CHECKSUM_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_CHECKSUM_SSH_TIMEOUT_S", 150))
 
 # The remote-side half of run-checksum: unlike run-harvest's GENERIC_GLOBS
@@ -1619,7 +1640,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
                 f"manifest_id {manifest_id!r} was harvested from {manifest_run_dir!r}, "
                 f"not the run_dir being hashed ({run_dir!r})", field="manifest_id", error_type="harvested_from_another_run_dir")
 
-    from chat_nextseek.luria.ssh import prepare_key, ssh_run
+    from chat_nextseek.luria.ssh import SshTimeout, prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
     try:
         remote_cmd = " ".join([
@@ -1630,8 +1651,13 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
         # Bounded, not indefinite: see _CHECKSUM_SSH_TIMEOUT_S above for why
         # the byte ceilings (not this timeout) are the primary defense, and
         # this is the backstop for the unexpected hang (a stalled shared
-        # filesystem) rather than the oversized request.
-        out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=_CHECKSUM_SSH_TIMEOUT_S)
+        # filesystem) rather than the oversized request. Cut to the op's
+        # limit (_ssh_timeout_s), so the op answers before it ends.
+        timeout = _ssh_timeout_s(_CHECKSUM_SSH_TIMEOUT_S, "the files could be checksummed")
+        try:
+            out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=timeout)
+        except SshTimeout as exc:
+            raise OpDeadlineError(str(exc)) from exc
     finally:
         _remove_key_copy(key_path, luria_env["key"])
 
@@ -1906,6 +1932,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             "for testing", field="manifest_id", error_type="test_only_manifest_needs_an_admin")
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
+    # A run taken with --allow-failed-run says so in the reply and in every build's open
+    # warnings, which the agent lists to the user before an upload (PR 135 SF-7).
+    failed_processes = (run_manifest.execution.failed
+                        if run_manifest.failed_run_allowed else 0)
+    failed_run_warning = (
+        f"{failed_processes} process{'' if failed_processes == 1 else 'es'} failed in this "
+        f"run, and it was reingested anyway (--allow-failed-run): its outputs may be partial"
+        if failed_processes else "")
     pipeline_map = maps.load(pipeline)
     # The rules for this run's version. mapper.apply takes the base map and
     # resolves the version itself; everything else here that reads rules (the
@@ -1960,18 +1994,24 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             "outage rather than validating this reingest run's sample types "
             "against an empty schema"
         )
-    # Every d_seq_uid the manifest resolved is, by construction, a legitimate
-    # Parent target (mapper.py only ever sets Parent from one of these -- see
-    # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
-    # needs this cohort or every new-mode row's Parent would fail resolution
-    # against an empty set and hard-reject the whole batch.
+    # Every D.SEQ UID the manifest resolved is, by construction, a legitimate
+    # Parent target: mapper.py sets Parent only from a sample's own d_seq_uid
+    # (its _HAS_PARENT set) or, for a multi-run sample, from its
+    # d_seq_uid_multirun list. qa_rows' new-mode Parent-resolvability check
+    # needs this cohort, both halves of it, or a row's Parent fails resolution
+    # and hard-rejects the whole batch (a multi-run sample's did, PR 135 SF-4).
     existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+    existing_parent_uids |= {uid for s in run_manifest.samples
+                             for uid in s.d_seq_uid_multirun if uid}
 
     # A new row whose data file is already a sample of its type, under the same
     # parent, is left out: reingesting a run that was uploaded must never make a
     # second copy. A partly uploaded run still builds the rows it lacks. A row whose
     # path matches a sample but whose content has changed (a run redone in the same
-    # folder) is built and named in the reply. An outage raises, as every strict
+    # folder) is left out too, and the reply names the older sample: the upload skips
+    # a new row whose data file name is already a sample's (NAME_CHECK in
+    # nextseek_api/batch_upload/orchestrator.py), so building it would promise a
+    # sample the upload never makes (PR 135 F2). An outage raises, as every strict
     # lookup here does; it never reads as "nothing there".
     already_present: dict[str, dict] = {}
     path_changed: dict[str, list] = {}
@@ -1997,6 +2037,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             changed = sorted({uid for match in found if not match["uids"]
                               for uid in match["changed"]})
             if changed:
+                dropped |= {id(row) for row, match in zip(type_rows, found)
+                            if not match["uids"] and match["changed"]}
                 path_changed[sample_type] = changed
         if dropped:
             result = result.model_copy(
@@ -2335,7 +2377,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         builds.append(build_records.write(
             path=path, artifact_key=safe_key, sample_type=sample_type, mode=mode,
             manifest_id=manifest_id, disposition=built.disposition,
-            open_warnings=built.soft, row_count=len(type_rows),
+            open_warnings=([failed_run_warning] if failed_run_warning else []) + list(built.soft),
+            row_count=len(type_rows), run_failed_processes=failed_processes,
             project_id=project_id, project_note=project_note,
             answers_digest=answers.digest(), user_id=user_id,
             test_only=test_only, chat_turn=chat_turn,
@@ -2345,7 +2388,12 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             parent_assays=assay_plan_mod.merge_parent_assays(
                 [e for p in final.assay_plans_by_type.get(sample_type, [])
                  for e in p.parent_assays]),
-            rebuilt_from=rebuilt_from))
+            rebuilt_from=rebuilt_from,
+            # Notes on an update row replace the sample's whole Notes (PR 135 SF-8).
+            notes_uids=[str(row["json_metadata"].get("UID"))
+                        for row in type_rows
+                        if mode == MODE_UPDATE and "Notes" in (row.get("json_metadata") or {})
+                        and row["json_metadata"].get("UID")]))
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
     # `continue` two lines up), so asking the reader to confirm a
@@ -2392,6 +2440,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         _map_notes_log.warning("reingest map note: %s (pipeline %s %s, run %s, manifest %s)",
                                note, pipeline, run_manifest.pipeline.version, run_name,
                                manifest_id)
+    if failed_run_warning:
+        reply = f"FAILED RUN: {failed_run_warning}.\n\n" + reply
     if test_only:
         reply = ("TEST ONLY: this run wasn't launched by Nessie. "
                  "These workbooks can't be uploaded.\n\n" + reply)
@@ -2436,9 +2486,11 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
     uploaded only from a later turn of the chat it was shown in."""
     write_gate("api-write", None, None, args.get("confirmed_write"))
     from NessieAI.ns.reingest import upload
+    from nextseek_api.services.reingest_lookups import uids_updated_after_strict
 
     # The job wait is cut to what is left of the op's limit (upload._wait_budget_s).
     started_at = upload._clock()
+    _settle_late_uploads(session, config)
     upload_context = getattr(session, "upload_context", None)
     if callable(upload_context):
         upload_context = upload_context()
@@ -2454,6 +2506,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
                             create_study_assay=getattr(session, "create_study_assay", None),
                             register_parents=getattr(session, "register_parents", None),
                             limit_s=limit_s, started_at=started_at,
+                            edited_after=uids_updated_after_strict,
                             rebuild=lambda record: _rebuild_record(
                                 record, getattr(session, "user", None), outputs_dir))
     except upload.UploadRefused as exc:
@@ -2502,6 +2555,25 @@ def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
             logger.exception("upload-reingest: could not mark manifest %s reingested", manifest_id)
             continue
         _write_saved_label(config, manifest)
+
+
+def _settle_late_uploads(session, config=None) -> None:
+    """Finish the bookkeeping of the caller's upload jobs that outlived their call (PR 135 F1): a job
+    now done stamps its build uploaded, takes its run off the waiting pick and writes saved.txt, as
+    ``_mark_runs_reingested`` does for a job the call saw finish. Uses the host's ``job_state`` seam on the
+    session; without one, or on any failure, nothing changes. Best-effort: never fails the op."""
+    job_state = getattr(session, "job_state", None)
+    user_id = getattr(getattr(session, "user", None), "pk", None)
+    if not callable(job_state) or not user_id:
+        return
+    from NessieAI.ns.reingest import upload
+
+    try:
+        done = upload.settle_waiting(user_id, job_state)
+    except Exception:  # noqa: BLE001 -- bookkeeping never fails the op
+        logger.exception("reingest: could not settle late upload jobs")
+        return
+    _mark_runs_reingested(done, config)
 
 
 def _start_background(fn: Callable, *args) -> None:

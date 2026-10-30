@@ -405,7 +405,7 @@ class TestExistingUidsForPrimaryFilesStrict:
                             type_ids=()) == [NONE]
 
     def test_the_same_link_with_a_different_checksum_is_a_changed_file(self):
-        # A run redone in the same folder: same path, new content. Built, and flagged.
+        # A run redone in the same folder: same path, new content. Left out, and flagged.
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK,
                               Checksum_PrimaryData="old", Parent="D.SEQ-1")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "new", "parent": "D.SEQ-1"}]) \
@@ -684,3 +684,37 @@ def test_untagged_assays_in_study_raise_on_an_outage(settings):
     with patch("django.db.connections", _down()):
         with pytest.raises(RuntimeError):
             reingest_lookups.untagged_assay_ids_in_study_strict(51, "Genome Alignment - Data Linked")
+
+
+class TestUidsUpdatedAfterStrict:
+    """Which samples were edited after an update workbook was built (PR 135 SF-8)."""
+
+    SINCE = "2026-10-30T12:00:00+00:00"
+
+    def test_names_the_samples_updated_after_the_time(self):
+        import datetime
+
+        with patch("seek.models.Samples.objects") as samples:
+            samples.filter.return_value.values_list.return_value = ["D.SEQ-2"]
+            assert reingest_lookups.uids_updated_after_strict(
+                ["D.SEQ-1", "D.SEQ-2", " "], self.SINCE) == ["D.SEQ-2"]
+        kwargs = samples.filter.call_args.kwargs
+        assert sorted(kwargs["uuid__in"]) == ["D.SEQ-1", "D.SEQ-2"]
+        assert kwargs["updated_at__gt"] == datetime.datetime(
+            2026, 10, 30, 12, tzinfo=datetime.timezone.utc)
+
+    def test_no_uids_asks_nothing(self):
+        with patch("seek.models.Samples.objects") as samples:
+            assert reingest_lookups.uids_updated_after_strict([], self.SINCE) == []
+        samples.filter.assert_not_called()
+
+    @pytest.mark.parametrize("since", ["", None, "yesterday"])
+    def test_an_unreadable_time_raises(self, since):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.uids_updated_after_strict(["D.SEQ-1"], since)
+
+    def test_an_outage_raises(self):
+        with patch("seek.models.Samples.objects") as samples:
+            samples.filter.side_effect = RuntimeError("down")
+            with pytest.raises(RuntimeError):
+                reingest_lookups.uids_updated_after_strict(["D.SEQ-1"], self.SINCE)

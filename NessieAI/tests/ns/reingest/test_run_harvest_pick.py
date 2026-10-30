@@ -256,3 +256,46 @@ def test_a_job_that_started_but_did_not_succeed_leaves_the_run_waiting(monkeypat
              neo4j_exec=None, outputs_dir=None)
     run.refresh_from_db()
     assert run.status == "submitted"
+
+
+def test_a_run_whose_late_job_finished_leaves_the_pick(monkeypatch, tmp_path):
+    """PR 135 F1: the upload answered while its job still ran, so the run was never marked.
+    The next "my run is done" sees the job finished, marks the run and writes saved.txt,
+    instead of picking the uploaded run again."""
+    from NessieAI.ns.reingest import build_records
+
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
+    me = _user("me")
+    run = _run("mine", me)
+    path = tmp_path / "reingest_A_ALN.xlsx"
+    path.write_bytes(b"workbook")
+    record = build_records.write(
+        path=str(path), artifact_key="reingest_A_ALN", sample_type="A.ALN", mode="new",
+        manifest_id="m1", disposition="CLEAN", open_warnings=[], row_count=1, project_id=1,
+        project_note="", answers_digest="d", user_id=me.pk, test_only=False)
+    assert build_records.claim(record["build_id"], me.pk)
+    build_records.mark_waiting(record["build_id"], me.pk, job_id="j1", manifest_id="m1",
+                               uploaded_build_id=record["build_id"])
+    monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
+                        lambda mid: SimpleNamespace(launch_record_id=run.pk, run_dir=run.run_dir))
+    saved = []
+    monkeypatch.setattr(g, "_write_saved_label", lambda config, manifest: saved.append(manifest.run_dir))
+    session = SimpleNamespace(user=me, job_state=lambda job_id: {
+        "state": "SUCCESS", "totals": {"processed": 1, "uids_generated": 1}, "errors": []})
+    with pytest.raises(g.OpValidationError) as err:
+        g.run_op("run-harvest", {}, config=_Cfg(), session=session,
+                 write_gate=None, neo4j_exec=None, outputs_dir=None)
+    assert "no run you launched is waiting" in str(err.value)
+    run.refresh_from_db()
+    assert run.status == launch_record.STATUS_REINGESTED
+    assert saved == [run.run_dir]
+
+
+def test_the_run_harvest_session_carries_the_hosts_job_lookup():
+    from nextseek_api.batch_upload import views as batch_views
+    from nextseek_api.services.assistant import AssistantViewSet
+
+    request = SimpleNamespace(user=SimpleNamespace(pk=7))
+    session = AssistantViewSet()._granular_op_session(request, None, "run-harvest")
+    assert session.user is request.user
+    assert session.job_state is batch_views.job_outcome

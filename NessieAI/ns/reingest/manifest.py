@@ -172,6 +172,10 @@ class RunManifest(BaseModel):
     # folder, as older runs keep it -- the direction is then blank, never guessed.
     contrasts: dict[str, dict[str, str]] = Field(default_factory=dict)
     execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
+    # True when run-harvest took a run with failed processes because the caller sent
+    # --allow-failed-run (set only there). The build says so in its reply and in each
+    # build's open warnings, so the upload confirmation names it (PR 135 SF-7).
+    failed_run_allowed: bool = False
     sources: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     caps: CapsInfo = Field(default_factory=CapsInfo)

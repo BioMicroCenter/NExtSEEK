@@ -59,7 +59,7 @@ is the complete contract; there are no hidden flags.
 | `nextseek-query` | Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present. | `--query "<text>"` | `{reply, debug, bundle_id}` (+ scratch manifest path when applicable) |
 | `nextseek-recall` | Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
 | `nextseek-run-ls` | Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
-| `nextseek-run-harvest` | **Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. | `--run-dir <abs path under the cluster runs root> [--allow-failed-run]` | `{run_dir, manifest_id, manifest, skipped}` |
+| `nextseek-run-harvest` | **Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. `--allow-failed-run` only on the user's yes (step 1 below). | `--run-dir <abs path under the cluster runs root> [--allow-failed-run]` | `{run_dir, manifest_id, manifest, skipped}` |
 | `nextseek-run-checksum` | **Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to `nextseek-build-upload-xlsx`. Without it, checksums are returned but not persisted. | `--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths> [--manifest-id <id>]` | `{run_dir, checksums, skipped}` (+ `manifest_id` when `--manifest-id` was passed) |
 | `nextseek-build-upload-xlsx` | **Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. Re-run with `--answers` to apply the curator's rulings on the flags. | `--manifest-id <id> [--mode {new,update}] [--answers '<json>']` (legacy: `--rows '<json array>' [--existing-parent-uids <csv>]`) | `{saved_files, qa, reply, proposals, answers_deferred, builds}` (legacy: `{saved_files, qa}`) |
 | `nextseek-upload-reingest` | **Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's `builds`). **WRITES to NExtSEEK**: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling. | `--build-ids <id,id> --confirmed-write` | `{jobs: [{artifact_key, mode, job_id or error}], reply}` |
@@ -295,7 +295,12 @@ produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 
    user's one launched run not yet reingested and harvests it. If several are waiting it returns
    `{manifest_id: null, candidates: [...]}` instead: list each candidate's `run_name`, `pipeline`,
    `samples` and `launched_at`, ask which one, then call again with that candidate's `run_dir`. If
-   none is waiting it refuses, and only then ask the user for the run folder. The
+   none is waiting it refuses, and only then ask the user for the run folder. **If it refuses
+   because processes failed in the run (`run_has_failed_processes`), tell the user how many
+   failed and that its outputs may be partial, and ask whether to register them anyway. Send
+   `--allow-failed-run` only after the user says yes; never decide it yourself.** A run taken
+   that way says so at the top of `build-upload-xlsx`'s `reply` and in every build's
+   `open_warnings`, so the step-5 question names it. The
    manifest already carries every parsed value and each sample's `d_seq_uid`. **Do not re-type any
    number from it into a later call.** The server keeps its own copy, keyed by `manifest_id`, and
    `build-upload-xlsx` reads that copy — it does not take values from you.
@@ -314,9 +319,10 @@ produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 
    harvest result's `skipped` list: an auto-hash that got skipped for exceeding the ceiling or the
    run's byte budget says so there, by name. **Only call this op when a specific file you actually
    need checksummed — almost always a multi-GB primary alignment BAM — did not fit under
-   run-harvest's auto-hash ceiling.** A genuine SSH hash of a large file can by itself consume most
-   of the CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`), leaving no budget for the harvest
-   and `build-upload-xlsx` calls that actually produce a workbook — so do not call it speculatively
+   run-harvest's auto-hash ceiling.** The op has 60 s, and it stops its SSH hash before then: a
+   hash of several GB can use all of it, and one that does not finish fails as a deadline with
+   nothing saved, while spending turn time the `build-upload-xlsx` call still needs to produce a
+   workbook — so do not call it speculatively
    "just in case", and do not call it for a file the manifest already carries a checksum for (check
    `manifest.checksums` first). If you do call it: pass `--run-dir` as the EXACT SAME run dir you
    passed to `run-harvest` in step 1 — the op refuses when the manifest's own run_dir does not match

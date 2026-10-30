@@ -960,3 +960,96 @@ def test_a_build_with_no_chat_turn_seam_records_none(rows, tmp_path, monkeypatch
     out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
                     session=_admin_session(False), outputs_dir=str(tmp_path))
     assert out["builds"] and all(b["shown_in"] is None for b in out["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_multirun_samples_parents_resolve_in_new_mode(rows, tmp_path, monkeypatch):
+    """A multi-run sample has no single ``d_seq_uid``: its parents live in
+    ``d_seq_uid_multirun``, and the mapper joins them into ``Parent``. Those
+    UIDs belong in the Parent-resolvability cohort too, or the row hard-rejects
+    as PARENT_UID_NOT_FOUND and the run's analysis workbooks never upload
+    (PR 135 SF-4)."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    _save_manifest(tmp_path, monkeypatch)  # for its roots and lookup patches
+    run_manifest = manifest_mod.RunManifest(
+        run_dir="/net/cluster/runs/r1", launch_record_id=1,
+        pipeline=manifest_mod.PipelineInfo(
+            name="nf-core/rnaseq", version="3.18.0", run_name="test_run_multirun"),
+        params={"genome": "GRCh38", "aligner": "star_salmon"},
+        samples=[manifest_mod.SampleRecord(
+            nfcore_sample="SAMPLE_1", d_seq_uid=None,
+            uid_resolution=manifest_mod.RESOLUTION_MULTIRUN,
+            d_seq_uid_multirun=["D.SEQ-EXAMPLE-1", "D.SEQ-EXAMPLE-2"],
+            parent_sample_type="D.SEQ")],
+        outputs=_default_outputs(["SAMPLE_1"]),
+        sources={"params": "params.json"})
+    manifest_id = store_mod.save_manifest(run_manifest)
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+
+    hard = [f for st in result["qa"].values() for f in st["hard"]]
+    assert not hard, hard
+    assert result["qa"]["A.ALN"]["disposition"] in ("CLEAN", "SOFT_FLAG")
+    from nextseek_api.batch_upload.convert import parse_traditional_file
+    batch = parse_traditional_file(result["saved_files"]["reingest_A_ALN"])
+    assert _meta(batch.rows[0])["Parent"] == "D.SEQ-EXAMPLE-1;D.SEQ-EXAMPLE-2"
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_an_update_build_records_the_samples_whose_notes_it_replaces(rows, tmp_path, monkeypatch):
+    """The workbook's Notes are composed from the Notes read at build time and replace the
+    sample's whole Notes on upload. The build record names those samples, so the upload can
+    refuse when one was edited after ``built_at`` (PR 135 SF-8)."""
+    rows.return_value = [_D_SEQ_ROW]
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.notes_for_uids",
+        lambda uids: {u: "curated text" for u in uids})
+    manifest_id = _save_manifest(
+        tmp_path, monkeypatch,
+        metrics={"star-uniquely_mapped_percent": 91.4,
+                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
+                       outputs_dir=str(tmp_path))
+    (build,) = result["builds"]
+    assert build["notes_uids"] == ["D.SEQ-EXAMPLE-1"]
+    assert build["built_at"]
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_that_writes_no_notes_names_no_samples(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert result["builds"] and all(b["notes_uids"] == [] for b in result["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_of_a_failed_run_says_so_in_its_reply_and_warnings(rows, tmp_path, monkeypatch):
+    """PR 135 SF-7: a run reingested with --allow-failed-run says so where the user reads it,
+    the build reply and each build's open warnings, which the agent lists before the upload."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    run_manifest = store_mod.load_manifest(manifest_id)
+    run_manifest.execution.failed = 3
+    run_manifest.failed_run_allowed = True
+    manifest_id = store_mod.save_manifest(run_manifest)
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert "3 processes failed" in result["reply"]
+    assert result["builds"]
+    for build in result["builds"]:
+        assert build["run_failed_processes"] == 3
+        assert any("3 processes failed" in w for w in build["open_warnings"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_of_a_clean_run_says_nothing_about_failures(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert "processes failed" not in result["reply"]
+    assert all(b["run_failed_processes"] == 0 for b in result["builds"])

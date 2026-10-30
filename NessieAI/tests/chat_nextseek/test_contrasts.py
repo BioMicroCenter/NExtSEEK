@@ -119,6 +119,21 @@ def test_a_group_the_samplesheet_lacks_is_refused(tmp_path):
     assert "contrasts" not in state["artifacts"]
 
 
+def test_a_refused_second_comparison_leaves_no_launch_to_submit(tmp_path):
+    # PR 135 SF-10: the refusal dropped the contrasts file but kept the first call's
+    # params and launch, which name it, so submit_to_luria would stage a run with no
+    # contrasts file.
+    state = _state(tmp_path)
+    assert _configure(tmp_path, state, {"contrasts": "EC vs FB"})["ok"] is True
+    assert state["artifacts"].get("launch")
+    out = _configure(tmp_path, state, {"contrasts": "HUVEC vs FB"})
+    assert out["ok"] is False and out["invalid_user_params"]
+    assert "contrasts" not in state["artifacts"]
+    assert "launch" not in state["artifacts"] and "params" not in state["artifacts"]
+    refused = json.loads(at.tool_submit_to_luria(_Cfg(), state, {}))
+    assert refused["ok"] is False
+
+
 def test_a_users_own_path_passes_through(tmp_path):
     state = _state(tmp_path)
     out = _configure(tmp_path, state, {"contrasts": "/net/bmc-lab/mine.csv"})

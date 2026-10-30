@@ -38,7 +38,7 @@ Plain `key: value` text, times in UTC as `2026-10-21T14:00:00Z`.
 |---|---|---|
 | `runs/.../nessie_status/launched.txt` | the submitter, right after `sbatch` | `run_dir`, `work_dir`, `pipeline`, `revision`, `slurm_job_id`, `accessions`, `launched_at`, `launched_from` |
 | `runs/.../nessie_status/finished.txt` | `run.sh`'s exit trap | `result` (`succeeded` or `failed`), `exit_code`, `finished_at`. The result is the job script's own exit status: nextflow's, or 1 if the download or fill step failed, or 143 on TERM |
-| `runs/.../nessie_status/saved.txt` | upload-reingest, over SSH from a background thread, so the upload does not wait for it | `saved_at`, `pipeline_run_id` |
+| `runs/.../nessie_status/saved.txt` | upload-reingest, over SSH from a background thread, so the upload does not wait for it; for a job that outlived the call, the next upload-reingest or folder-less run-harvest | `saved_at`, `pipeline_run_id` |
 | `runs/.../nessie_status/README.txt` | the submitter | a short note for anyone who finds the folder |
 | `fastq_cache/nessie_status/in_use/<accession>/<job id>` | `fetchngs_helpers.py claim`, removed by `release` | the job is using this accession |
 | `fastq_cache/nessie_status/last_used/<accession>.txt` | `claim` and `release` | `last_used_at` |
