@@ -557,3 +557,47 @@ def test_a_timeout_on_the_label_scp_still_returns_the_run(tmp_path, monkeypatch)
     runs = sub.submit_luria(str(launch), luria_env=LE)
     assert len(runs) == 1 and runs[0]["job_id"] == "4821"
     assert "scp /net/x/bin/nessie_cleanup.py" in order
+
+
+def _sbatch_fails_with(monkeypatch, error):
+    calls = _patch_transport(monkeypatch)
+    real = sub.ssh_run
+
+    def fake(le, cmd, *, key_path, timeout=None):
+        if "sbatch run.sh" in cmd:
+            raise RuntimeError(error)
+        return real(le, cmd, key_path=key_path, timeout=timeout)
+
+    monkeypatch.setattr(sub, "ssh_run", fake)
+    return calls
+
+
+def test_a_dropped_connection_during_sbatch_is_not_a_plain_failure(tmp_path, monkeypatch):
+    """ssh exit 255 on the sbatch call: Luria may have queued the job, so a retry could run it twice."""
+    launch, _ = _fixture(tmp_path)
+    _sbatch_fails_with(monkeypatch, "ssh failed (255): Connection closed by 1.2.3.4")
+    reasons = []
+    assert sub.submit_luria(str(launch), luria_env=LE, reasons=reasons) == []
+    assert "sbatch outcome unknown" in reasons[0]
+
+
+def test_sbatch_refusing_the_job_is_a_plain_failure(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    _sbatch_fails_with(monkeypatch, "ssh failed (1): sbatch: error: QOSMaxSubmitJobPerUserLimit")
+    reasons = []
+    assert sub.submit_luria(str(launch), luria_env=LE, reasons=reasons) == []
+    assert "outcome unknown" not in reasons[0] and "QOSMax" in reasons[0]
+
+
+def test_a_dropped_connection_before_sbatch_is_a_plain_failure(tmp_path, monkeypatch):
+    """Nothing was queued yet, so this one is safe to retry."""
+    launch, _ = _fixture(tmp_path)
+    _patch_transport(monkeypatch)
+
+    def fake_scp(*a, **k):
+        raise RuntimeError("ssh failed (255): Connection closed by 1.2.3.4")
+
+    monkeypatch.setattr(sub, "scp_file", fake_scp)
+    reasons = []
+    assert sub.submit_luria(str(launch), luria_env=LE, reasons=reasons) == []
+    assert "outcome unknown" not in reasons[0]
