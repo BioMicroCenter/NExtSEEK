@@ -960,3 +960,37 @@ def test_a_build_with_no_chat_turn_seam_records_none(rows, tmp_path, monkeypatch
     out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
                     session=_admin_session(False), outputs_dir=str(tmp_path))
     assert out["builds"] and all(b["shown_in"] is None for b in out["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_multirun_samples_parents_resolve_in_new_mode(rows, tmp_path, monkeypatch):
+    """A multi-run sample has no single ``d_seq_uid``: its parents live in
+    ``d_seq_uid_multirun``, and the mapper joins them into ``Parent``. Those
+    UIDs belong in the Parent-resolvability cohort too, or the row hard-rejects
+    as PARENT_UID_NOT_FOUND and the run's analysis workbooks never upload
+    (PR 135 SF-4)."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    _save_manifest(tmp_path, monkeypatch)  # for its roots and lookup patches
+    run_manifest = manifest_mod.RunManifest(
+        run_dir="/net/cluster/runs/r1", launch_record_id=1,
+        pipeline=manifest_mod.PipelineInfo(
+            name="nf-core/rnaseq", version="3.18.0", run_name="test_run_multirun"),
+        params={"genome": "GRCh38", "aligner": "star_salmon"},
+        samples=[manifest_mod.SampleRecord(
+            nfcore_sample="SAMPLE_1", d_seq_uid=None,
+            uid_resolution=manifest_mod.RESOLUTION_MULTIRUN,
+            d_seq_uid_multirun=["D.SEQ-EXAMPLE-1", "D.SEQ-EXAMPLE-2"],
+            parent_sample_type="D.SEQ")],
+        outputs=_default_outputs(["SAMPLE_1"]),
+        sources={"params": "params.json"})
+    manifest_id = store_mod.save_manifest(run_manifest)
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+
+    hard = [f for st in result["qa"].values() for f in st["hard"]]
+    assert not hard, hard
+    assert result["qa"]["A.ALN"]["disposition"] in ("CLEAN", "SOFT_FLAG")
+    from nextseek_api.batch_upload.convert import parse_traditional_file
+    batch = parse_traditional_file(result["saved_files"]["reingest_A_ALN"])
+    assert _meta(batch.rows[0])["Parent"] == "D.SEQ-EXAMPLE-1;D.SEQ-EXAMPLE-2"

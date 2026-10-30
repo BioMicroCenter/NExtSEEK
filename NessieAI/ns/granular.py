@@ -1960,12 +1960,15 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             "outage rather than validating this reingest run's sample types "
             "against an empty schema"
         )
-    # Every d_seq_uid the manifest resolved is, by construction, a legitimate
-    # Parent target (mapper.py only ever sets Parent from one of these -- see
-    # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
-    # needs this cohort or every new-mode row's Parent would fail resolution
-    # against an empty set and hard-reject the whole batch.
+    # Every D.SEQ UID the manifest resolved is, by construction, a legitimate
+    # Parent target: mapper.py sets Parent only from a sample's own d_seq_uid
+    # (its _HAS_PARENT set) or, for a multi-run sample, from its
+    # d_seq_uid_multirun list. qa_rows' new-mode Parent-resolvability check
+    # needs this cohort, both halves of it, or a row's Parent fails resolution
+    # and hard-rejects the whole batch (a multi-run sample's did, PR 135 SF-4).
     existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+    existing_parent_uids |= {uid for s in run_manifest.samples
+                             for uid in s.d_seq_uid_multirun if uid}
 
     # A new row whose data file is already a sample of its type, under the same
     # parent, is left out: reingesting a run that was uploaded must never make a
