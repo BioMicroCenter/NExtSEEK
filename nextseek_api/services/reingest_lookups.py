@@ -244,8 +244,23 @@ def _parent_set(value) -> frozenset[str]:
     return frozenset(p.strip() for p in str(value or "").split(";") if p.strip())
 
 
+def caller_project_scope(user):
+    """The SEEK projects ``user``'s reingest lookups may see (SEC-001).
+
+    ``None`` for a superuser (any project), else a tuple of project ids, and
+    ``()`` when the caller has no SEEK person or the membership read fails: it
+    fails closed, never widens. The batch upload's own definition
+    (``_caller_project_scope`` in ``nextseek_api/batch_upload/views.py``), so a
+    lookup sees exactly the projects the upload it prepares may write to.
+    """
+    from nextseek_api.batch_upload import views as batch_views
+
+    return batch_views._caller_project_scope(user)
+
+
 def existing_uids_for_primary_files_strict(sample_type: str,
-                                           files: list[dict]) -> list[dict]:
+                                           files: list[dict], *,
+                                           project_ids=None) -> list[dict]:
     """For each ``{"link", "checksum", "parent"}``, the ``sample_type`` samples
     under that parent that already hold that file (``uids``) and those whose
     file at that path has changed since (``changed``).
@@ -262,18 +277,26 @@ def existing_uids_for_primary_files_strict(sample_type: str,
     is never uploaded twice. Strict: a failed fetch or metadata that cannot be
     parsed RAISES ``RuntimeError``, since "could not read" must never come back
     as "nothing there yet". A type this instance lacks holds no samples.
+
+    ``project_ids`` is the caller's project scope, as ``caller_project_scope``
+    gives it (SEC-001): only samples in one of those projects are compared, so
+    the reply never names a sample the caller cannot see, nor drops a row
+    because of one. ``None`` compares samples of every project, a superuser's
+    scope and what a caller that passes no scope gets; an empty scope sees no
+    sample and asks nothing.
     """
     if not files:
         return []
     wanted = [(str(f.get("link") or "").strip(), str(f.get("checksum") or "").strip(),
                _parent_set(f.get("parent"))) for f in files]
     needles = sorted({v for link, checksum, _ in wanted for v in (link, checksum) if v})
-    if not needles:
+    scope = None if project_ids is None else sorted({int(p) for p in project_ids})
+    if not needles or scope == []:
         return [{"uids": [], "changed": []} for _ in files]
     try:
         from django.db.models import Q
 
-        from seek.models import Sample_types, Samples
+        from seek.models import Projects_samples, Sample_types, Samples
 
         type_ids = list(Sample_types.objects.filter(title=sample_type)
                         .values_list("id", flat=True))
@@ -282,8 +305,11 @@ def existing_uids_for_primary_files_strict(sample_type: str,
         match_any = Q()
         for needle in needles:
             match_any |= Q(json_metadata__icontains=needle)
-        rows = list(Samples.objects.filter(sample_type_id__in=type_ids).filter(match_any)
-                    .values_list("uuid", "json_metadata"))
+        held_query = Samples.objects.filter(sample_type_id__in=type_ids).filter(match_any)
+        if scope is not None:
+            held_query = held_query.filter(id__in=Projects_samples.objects.filter(
+                project_id__in=scope).values("sample_id"))
+        rows = list(held_query.values_list("uuid", "json_metadata"))
     except Exception as exc:
         raise RuntimeError(
             f"samples unreachable checking {len(files)} {sample_type} file(s): {exc}") from exc

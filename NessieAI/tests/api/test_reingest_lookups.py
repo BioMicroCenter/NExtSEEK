@@ -439,6 +439,78 @@ class TestExistingUidsForPrimaryFilesStrict:
     def test_of_no_files_asks_nothing(self):
         assert reingest_lookups.existing_uids_for_primary_files_strict("A.VCF", []) == []
 
+    # SEC-001: a caller compares only the samples of their own projects.
+
+    def test_a_scope_compares_only_the_samples_of_those_projects(self):
+        rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-1")]
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Samples.objects") as samples, \
+                patch("seek.models.Projects_samples.objects") as projects:
+            sample_types.filter.return_value.values_list.return_value = [7]
+            scoped = samples.filter.return_value.filter.return_value.filter
+            scoped.return_value.values_list.return_value = rows
+            got = reingest_lookups.existing_uids_for_primary_files_strict(
+                "A.VCF", [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}],
+                project_ids=(14, 3, 14))
+        assert got == [{"uids": ["A.VCF-1"], "changed": []}]
+        projects.filter.assert_called_once_with(project_id__in=[3, 14])
+        projects.filter.return_value.values.assert_called_once_with("sample_id")
+        scoped.assert_called_once_with(id__in=projects.filter.return_value.values.return_value)
+
+    def test_an_empty_scope_sees_no_sample_and_asks_nothing(self):
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Samples.objects") as samples:
+            sample_types.filter.side_effect = AssertionError("asked the database")
+            samples.filter.side_effect = AssertionError("asked the database")
+            got = reingest_lookups.existing_uids_for_primary_files_strict(
+                "A.VCF", [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}] * 2,
+                project_ids=())
+        assert got == [NONE, NONE]
+
+    def test_no_scope_compares_every_project(self):
+        # A superuser's scope (None): no project filter, the chain the tests above stub.
+        with patch("seek.models.Projects_samples.objects") as projects:
+            rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-1")]
+            assert self._lookup(rows, [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}]) \
+                == [{"uids": ["A.VCF-1"], "changed": []}]
+        projects.filter.assert_not_called()
+
+    def test_caller_project_scope_is_the_batch_uploads_own(self):
+        user = object()
+        with patch("nextseek_api.batch_upload.views._caller_project_scope",
+                   return_value=(3, 14)) as upload_scope:
+            assert reingest_lookups.caller_project_scope(user) == (3, 14)
+        upload_scope.assert_called_once_with(user)
+
+
+@pytest.mark.django_db(databases=["default", "seek"])
+def test_the_project_scope_runs_on_the_seek_tables():
+    """The scoped query through the ORM on a real (SQLite) seek alias: the projects_samples
+    subquery resolves on the same database and keeps only the in-scope sample."""
+    from django.db import connections
+
+    link = "/net/runs/r1/variant_calling/S1/S1.vcf.gz"
+    meta = json.dumps({"Link_PrimaryData": link, "Parent": "D.SEQ-1"})
+    with connections["seek"].cursor() as cur:
+        cur.execute(
+            "INSERT INTO sample_types (id, title, uuid, created_at, updated_at, first_letter, description,"
+            " uploaded_template, contributor_id, deleted_contributor, template_id, other_creators)"
+            " VALUES (7, 'A.VCF', 'st-7', '2026-01-01', '2026-01-01', 'A', '', 0, 1, '', 0, '')")
+        for sample_id, uid, project_id in ((1, "A.VCF-mine", 3), (2, "A.VCF-theirs", 99)):
+            cur.execute(
+                "INSERT INTO samples (id, title, sample_type_id, json_metadata, uuid, contributor_id,"
+                " policy_id, created_at, updated_at, first_letter, other_creators,"
+                " originating_data_file_id, deleted_contributor)"
+                " VALUES (%s, %s, 7, %s, %s, 1, 1, '2026-01-01', '2026-01-01', 'A', '', 0, '')",
+                [sample_id, uid, meta, uid])
+            cur.execute("INSERT INTO projects_samples (project_id, sample_id) VALUES (%s, %s)",
+                        [project_id, sample_id])
+    files = [{"link": link, "checksum": "", "parent": "D.SEQ-1"}]
+    scoped = reingest_lookups.existing_uids_for_primary_files_strict("A.VCF", files, project_ids=[3])
+    everyone = reingest_lookups.existing_uids_for_primary_files_strict("A.VCF", files)
+    assert scoped == [{"uids": ["A.VCF-mine"], "changed": []}]
+    assert everyone == [{"uids": ["A.VCF-mine", "A.VCF-theirs"], "changed": []}]
+
 
 class TestAttributeValuesForUidsStrict:
     def test_returns_only_the_uids_that_hold_a_value(self):
