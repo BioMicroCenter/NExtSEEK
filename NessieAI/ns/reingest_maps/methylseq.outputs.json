@@ -111,11 +111,11 @@
     },
     "MappedPercent": {"from": "bismark-percent_aligned", "target": "D.SEQ", "datatype": "number",
                       "alternates": ["samtools_stats-reads_mapped_percent"],
-                      "note": "Bismark's percent of reads with a unique best alignment (MultiQC 1.32 bismark module, general-stats column percent_aligned). The alternate, samtools stats on the bwa-meth and bwa-mem alignments as in the rnaseq map, counts any mapped read, multimapped included, so the two paths' values do not mean the same thing. The Bismark key and its value checked against the 4.2.0 -profile test run (fixture 4.2.0-local-test, MultiQC 1.32); the alternate is not yet seen on a real run",
+                      "note": "Bismark's percent of reads with a unique best alignment (MultiQC 1.32 bismark module, general-stats column percent_aligned). The alternate, samtools stats on the bwa-meth and bwa-mem alignments as in the rnaseq map, counts any mapped read, multimapped included, so the two paths' values do not mean the same thing. The Bismark key and its value checked against the 4.2.0 -profile test run (fixture 4.2.0-local-test, MultiQC 1.32); the alternate checked against the --aligner bwameth test run (fixture 4.2.0-local-bwameth): reads_mapped_percent is present for every sample, 1.5 for the E. coli sample and 0.0 for the three human SRR389222 subsets, which the test genome does not hold",
                       "provenance": "seed"},
     "DuplicationPercent": {"from": "bismark-dup_reads_percent", "target": "D.SEQ", "datatype": "number",
                            "alternates": ["picard_mark_duplicates-PERCENT_DUPLICATION"],
-                           "note": "Bismark deduplicate's percent of alignments removed as duplicates (MultiQC 1.32 bismark module, general-stats column dup_reads_percent); the alternate is Picard MarkDuplicates on the bwa-meth and bwa-mem paths, as in the rnaseq map. The Bismark key and its value checked against the 4.2.0 -profile test run (fixture 4.2.0-local-test, MultiQC 1.32); the alternate is not yet seen on a real run",
+                           "note": "Bismark deduplicate's percent of alignments removed as duplicates (MultiQC 1.32 bismark module, general-stats column dup_reads_percent); the alternate is Picard MarkDuplicates on the bwa-meth and bwa-mem paths, as in the rnaseq map. The Bismark key and its value checked against the 4.2.0 -profile test run (fixture 4.2.0-local-test, MultiQC 1.32); the alternate's key seen on the --aligner bwameth test run (fixture 4.2.0-local-bwameth), on the one sample with mapped reads, as 0.0, which cannot tell a fraction from a percentage: its unit rests on the rnaseq map's reading that MultiQC after 1.22 writes general stats after the module's x100 step",
                            "provenance": "seed"}
   },
   "deliberately_unmapped": [
@@ -131,6 +131,9 @@
     {"key": "fastqc-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Bismark deduplicate or Picard), and mixing the two definitions in one field would mislead."},
     {"key": "fastqc-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
     {"key": "fastqc-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "samtools_flagstat-mapped_passed_pct", "why": "samtools flagstat's mapped share on the bwa-meth path; MappedPercent reads samtools stats' reads_mapped_percent from the same alignment."},
+    {"key": "samtools_flagstat-mapped_passed", "why": "A count of mapped reads (MultiQC's millions); MappedPercent records the share."},
+    {"key": "samtools_flagstat-flagstat_total", "why": "A count of alignments (MultiQC's millions), not a measure of the sample."},
     {"key": "samtools_stats-error_rate", "why": "On the bwa-meth and bwa-mem paths, samtools counts every bisulfite C-to-T (or TAPS) conversion as a mismatch against the reference, so the rate measures conversion as much as sequencing error; MismatchPercent would mislead."},
     {"key": "samtools_stats-raw_total_sequences", "why": "BAM-record count in millions, both mates of a pair counted: no stand-in for TotalReads."},
     {"key": "samtools_stats-reads_mapped", "why": "BAM-record count in millions; MappedPercent records the mapped share."},

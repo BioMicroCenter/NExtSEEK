@@ -1,0 +1,12 @@
+Sample	bwameth	gunzip	methyldackel	picard	samtools	trimgalore	cutadapt	pigz	nf-core/methylseq	Nextflow
+BWAMETH_ALIGN	0.2.9									
+BWAMETH_INDEX	0.2.9									
+GUNZIP		1.13								
+METHYLDACKEL_EXTRACT			0.6.1							
+METHYLDACKEL_MBIAS			0.6.1							
+PICARD_MARKDUPLICATES				3.4.0						
+SAMTOOLS_FLAGSTAT					1.22.1					
+SAMTOOLS_INDEX_ALIGNMENTS					1.22.1					
+SAMTOOLS_INDEX_DEDUPLICATED					1.22.1					
+TRIMGALORE						0.6.10	4.9	2.8		
+Workflow									v4.2.0-g5aa5646	26.10.4

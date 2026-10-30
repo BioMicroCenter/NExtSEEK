@@ -1,0 +1,7 @@
+Sample	picard_mark_duplicates-PERCENT_DUPLICATION	samtools_stats-error_rate	samtools_stats-non_primary_alignments	samtools_stats-reads_mapped	samtools_stats-reads_mapped_percent	samtools_stats-reads_properly_paired_percent	samtools_stats-reads_MQ0_percent	samtools_stats-raw_total_sequences	samtools_stats-insert_size_average	samtools_flagstat-flagstat_total	samtools_flagstat-mapped_passed	samtools_flagstat-mapped_passed_pct	cutadapt-percent_trimmed	fastqc-percent_duplicates	fastqc-percent_gc	fastqc-avg_sequence_length	fastqc-median_sequence_length	fastqc-percent_fails	fastqc-total_sequences
+Ecoli_10K_methylated	0.0	9.787519	0.0	0.0003	1.5	0.3	0.005	0.02	77.2	0.02	6.4e-05	0.32							
+Ecoli_10K_methylated_1													0.4406	0.0	33.0	100.0	100	20.0	0.01
+Ecoli_10K_methylated_2													0.4131	0.0	33.0	100.0	100	20.0	0.01
+SRR389222_sub1		0.0	0.0	0.0	0.0	0.0	0.0	0.099829	0.0	0.099829	0.0	0.0	1.8314722222222222	89.982	30.0	36.0	36	36.36363636363637	0.09999999999999999
+SRR389222_sub2		0.0	0.0	0.0	0.0	0.0	0.0	0.11982799999999999	0.0	0.11982799999999999	0.0	0.0	1.8162731481481482	90.47166666666666	30.0	36.0	36	36.36363636363637	0.12
+SRR389222_sub3		0.0	0.0	0.0	0.0	0.0	0.0	0.07987699999999999	0.0	0.07987699999999999	0.0	0.0	1.8238541666666668	89.34125	30.0	36.0	36	36.36363636363637	0.08
