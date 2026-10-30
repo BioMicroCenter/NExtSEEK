@@ -116,3 +116,27 @@ def test_the_blocking_job_checks_for_missing_migrations():
         "the migration check must pass --skip-checks: without it Django stops on the empty "
         "CSRF_TRUSTED_ORIGINS system check before it reaches the migration state"
     )
+
+
+def test_the_blocking_job_runs_the_plugin_bin_dispatch_tests():
+    """The Container-CC plugin's shim tests (upload-reingest's write forward among them) run in no
+    other lane: the lanes step leaves NessieAI/docker out, and they need the cc-runtime environment.
+
+    A failing one sat unseen until this step was added. The step must run them without letting a
+    failure pass: no continue-on-error on it.
+    """
+    raw = (ROOT / ".github" / "workflows" / "ci-pytest.yml").read_text(encoding="utf-8")
+    lines = [line for line in raw.splitlines() if not line.lstrip().startswith("#")]
+    body = "\n".join(lines)
+    assert "pytest build_context/plugins/nextseek/bin/tests" in body, (
+        "no ci-pytest.yml step runs NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/tests"
+    )
+    start = next(i for i, line in enumerate(lines)
+                 if line.strip() == "- name: Blocking plugin bin/ dispatch tests")
+    step = []
+    for line in lines[start + 1:]:
+        if line.lstrip().startswith("- "):
+            break
+        step.append(line)
+    assert "working-directory: NessieAI/docker/cc-runtime" in "\n".join(step)
+    assert "continue-on-error" not in "\n".join(step)
