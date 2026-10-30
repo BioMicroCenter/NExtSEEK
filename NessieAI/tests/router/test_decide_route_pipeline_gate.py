@@ -46,14 +46,41 @@ def test_inactive_pipeline_falls_through(monkeypatch):
     assert seen == {"q": "write me code", "history": "prior turns"}  # history threaded through
 
 
-def test_active_pipeline_does_not_hijack_a_cc_turn(monkeypatch):
-    """4241289: an open build must not capture a turn the router sent to CC."""
-    sentinel = cc_router.RouteDecision(route=cc_router.ROUTE_CC, model_class="opus",
-                                       model_id=None, reasoning="x", source="baml")
-    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: sentinel)
-    d = policy._decide_route(_User(), _Req("find me all D.SEQ samples"),
-                             force_cc=False, session={"pipeline_agent": {"active": True}})
-    assert d is sentinel
+def _router_says_cc(monkeypatch):
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: cc_router.RouteDecision(
+        route=cc_router.ROUTE_CC, model_class="opus", model_id="m", reasoning="x", source="baml"))
+
+
+def test_open_build_takes_a_turn_the_router_sent_to_cc(monkeypatch):
+    """Prod chat e80cee5a: "Submit" with a built run went to CC, whose relay wiped the build. The turn goes to the
+    wizard, which hands back (turn.py runs the router's CC call then) when the turn is not about the build."""
+    _router_says_cc(monkeypatch)
+    d = policy._decide_route(_User(), _Req("Submit"), force_cc=False, session={"pipeline_agent": {"active": True}})
+    assert d.route == cc_router.ROUTE_NS and d.source == "pipeline"
+    assert d.attempted_route == cc_router.ROUTE_CC and d.attempted_source == "baml"
+    assert d.reasoning.startswith("pipeline_active; router said cc")
+
+
+def test_an_ns_turn_kept_by_the_wizard_has_no_cc_to_go_back_to(monkeypatch):
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: cc_router.RouteDecision(
+        route=cc_router.ROUTE_NS, model_class=None, model_id=None, reasoning="x", source="baml"))
+    d = policy._decide_route(_User(), _Req("Submit"), force_cc=False, session={"pipeline_agent": {"active": True}})
+    assert d.source == "pipeline" and d.attempted_route is None
+
+
+def test_plan_mode_keeps_the_routers_cc(monkeypatch):
+    """run_query_plan has no wizard, so a plan turn the router sent to CC stays there."""
+    _router_says_cc(monkeypatch)
+    req = _Req("Submit")
+    req.mode = "plan"
+    d = policy._decide_route(_User(), req, force_cc=False, session={"pipeline_agent": {"active": True}})
+    assert d.route == cc_router.ROUTE_CC
+
+
+def test_no_build_open_keeps_the_routers_cc(monkeypatch):
+    _router_says_cc(monkeypatch)
+    d = policy._decide_route(_User(), _Req("Submit"), force_cc=False, session={"pipeline_agent": {"active": False}})
+    assert d.route == cc_router.ROUTE_CC
 
 
 def test_force_cc_beats_active_pipeline():

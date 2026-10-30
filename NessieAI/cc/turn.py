@@ -21,6 +21,7 @@ here imports ``nextseek_api.services``; the one host edge is
 from __future__ import annotations
 
 import copy
+import dataclasses
 import logging
 import os
 import threading
@@ -635,6 +636,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 creds = {"api_user": api_user, "api_pass": api_pass}
                 ns_send = _save_before_complete(send_event, adapter)
                 vocab_kw = {"vocabulary": prerun} if prerun.started else {}
+                # An open build took a turn the router sent to CC: if the build lets it go, it runs on CC after all.
+                handoff_kw = {"stop_on_handoff": True} if decision.attempted_route == cc_router.ROUTE_CC else {}
+                ns_outcome = None
                 try:
                     if mode == "plan":
                         run_query_plan(adapter, _with_prompt_variant(chat_config, request.user, req),
@@ -642,8 +646,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     else:
                         # The evaluation switches: a per-request copy, made after the
                         # PROD identity check above has compared the singleton.
-                        run_query(adapter, _eval_config(chat_config, request.user, req),
-                                  req.query, ns_send, credentials=creds, **vocab_kw, **scope_kw)
+                        ns_outcome = run_query(adapter, _eval_config(chat_config, request.user, req),
+                                               req.query, ns_send, credentials=creds, **vocab_kw, **scope_kw,
+                                               **handoff_kw)
                 finally:
                     # In a `finally` deliberately. run_query resolves
                     # run_root_dir three statements in (orchestrator.py:620),
@@ -659,7 +664,17 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     # turn of a multi-turn chat session (see the helper's
                     # docstring), so consumers must de-duplicate on run_root.
                     _emit_ns_run_root(send_event, adapter)
-            else:
+                if isinstance(ns_outcome, dict) and ns_outcome.get("handed_off"):
+                    adapter.save()  # the build's cleared state, or the next turn finds it open again
+                    ran_ns = False
+                    decision = dataclasses.replace(
+                        decision, route=cc_router.ROUTE_CC, model_class="opus",
+                        model_id=cc_router._resolve_cc_model_id(), source="pipeline_handoff",
+                        reasoning=f"the open build handed off; {decision.reasoning}")
+                    send_event("route_decided", {"route": decision.route, "model_class": decision.model_class,
+                                                 "source": decision.source, "reasoning": decision.reasoning})
+                    _record_ledger_row(chat_session, decision, query_task=query_task)
+            if decision.route != cc_router.ROUTE_NS:
                 # Spec piece 1: the container gets a one-turn pass, never the user's password. Issued before any
                 # early return below, so the finally revokes it on every way out. The row holds the caller's OWN
                 # login (user_api_*), never the prod-config swap above.
