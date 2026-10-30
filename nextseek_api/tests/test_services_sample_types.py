@@ -606,9 +606,28 @@ class TestExistingTypeIds:
             assert _titles.real("D.HEM") == ["117"]
             table.return_value.queryRecordsByConstraint.assert_called_once_with({"title": "D.HEM"})
 
-    def test_an_unreadable_table_lets_the_create_through(self, _titles):
+    def test_an_unreadable_table_is_none_not_a_free_title(self, _titles):
         with patch("nextseek_api.services.sample_types.DBtable_sampletype", side_effect=RuntimeError("no db")):
-            assert _titles.real("D.HEM") == []
+            assert _titles.real("D.HEM") is None
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype") as table:
+            table.return_value.queryRecordsByConstraint.return_value = "not rows"
+            assert _titles.real("D.HEM") is None
+
+    # #141 review: a database error read as "no type holds this title", and the create went ahead.
+    def test_a_create_whose_title_check_cannot_run_is_503_and_sends_nothing(self, _titles):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype", side_effect=RuntimeError("no db")):
+            _titles.side_effect = _titles.real
+            resp = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert resp.status_code == 503
+        assert resp["Content-Type"] == "application/json"
+        body = json.loads(resp.content)
+        assert body["title"] == "NEW"
+        assert body["errors"][0]["title"] == "Could not check the title"
+        assert "Nothing was created" in body["errors"][0]["detail"]
+        vs.client.create_sample_type.assert_not_called()
 
 
 # ============================================================================

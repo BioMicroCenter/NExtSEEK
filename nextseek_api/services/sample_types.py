@@ -157,21 +157,30 @@ LIST_TIMEOUT_S = 50
 CREATE_TIMEOUT_S = LIST_TIMEOUT_S
 
 
-def _existing_type_ids(title: str) -> List[str]:
-    """Ids of the sample types that already hold this title, read from SEEK's table. [] when it cannot be read."""
+def _existing_type_ids(title: str) -> Optional[List[str]]:
+    """Ids of the sample types that hold exactly this title (as SEEK's table compares titles), read from SEEK's
+    table. None when it cannot be read: the caller must then not act as if the title were free."""
     try:
         rows = DBtable_sampletype("DEFAULT").queryRecordsByConstraint({"title": title})
-        return [str(r["id"]) for r in rows if r.get("id") is not None] if isinstance(rows, list) else []
     except Exception:
-        logging.getLogger(__name__).warning("sample_types_proxy.create: could not read the sample_types table for "
-                                            "the title check", exc_info=True)
-        return []
+        logging.getLogger(__name__).warning("sample_types_proxy: could not read the sample_types table for the "
+                                            "title %r", title, exc_info=True)
+        return None
+    if not isinstance(rows, list):
+        logging.getLogger(__name__).warning("sample_types_proxy: the sample_types table read for the title %r gave "
+                                            "%s, not rows", title, type(rows).__name__)
+        return None
+    return [str(r["id"]) for r in rows if r.get("id") is not None]
 
 
 def _duplicate_title(client, request, title: str) -> Optional[HttpResponse]:
     """409 when a sample type already holds ``title``: SEEK allows two, and a client retrying a create it saw time
-    out would make the second. The id is given only to a caller SEEK lets read that type."""
+    out would make the second. The id is given only to a caller SEEK lets read that type. 503 when the table
+    cannot be read, since a create sent then could be that second type."""
     ids = _existing_type_ids(title)
+    if ids is None:
+        return _not_checked(title, "the sample types table could not be read to check that no other type holds "
+                                   "this title")
     if not ids:
         return None
     if not any(resolve_seek_auth(request)):
