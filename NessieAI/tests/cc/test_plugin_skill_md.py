@@ -236,3 +236,14 @@ def test_batch_upload_harmonize_first_reply_carries_the_ontology_line_even_with_
     # the app sets the ontology link, so the agent writes no note about it (dtd3 S5)
     assert step4.rstrip().endswith("put the question after the table. "
                                    "The app sets the ontology link; never write a note about the link.")
+
+
+def test_skill_survival_questions_use_pav_children_and_max_follow_up():
+    text = _read_skill()
+    para = text[text.index("**Survival and other time-to-event questions.**"):]
+    para = para[:para.index("\n\n")]
+    assert "Patient Visit (PAV) children, not the patient record" in para
+    assert "largest `DaysToFollowUp` across its PAV children" in para
+    assert "say how many patients are in the curve and why the rest are left out" in para
+    # sits right after the named-paper block, before the standalone parser section
+    assert text.index("A named paper, method or lab") < text.index("**Survival and other") < text.index("**Inspect a parser plan")
