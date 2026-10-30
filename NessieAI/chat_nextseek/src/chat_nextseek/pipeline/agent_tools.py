@@ -1098,6 +1098,34 @@ def _staged_extra_files(artifacts: dict) -> dict[str, str]:
     return {CONTRASTS_FILENAME: contrasts} if contrasts else {}
 
 
+#: What a failed submit means to the user: (words in the technical reason, the plain reason). First match wins.
+_LURIA_FAILURES = (
+    (r"Luria key", "NExtSEEK can't read its Luria key on this server. An admin needs to fix this, so trying again won't "
+                   "help until they do."),
+    (r"Permission denied|publickey|Host key verification",
+     "Luria refused NExtSEEK's login. An admin needs to fix this, so trying again won't help until they do."),
+    (r"(?i)timed out|could not resolve|connection (refused|reset|closed|timed)|no route to host|network is unreachable",
+     "NExtSEEK couldn't reach Luria. That is usually short, so try again in a few minutes."),
+    (r"(?i)disk quota|no space left", "Luria's storage refused the run (a quota or a full disk). An admin needs to free "
+                                      "space before it can go."),
+    (r"(?i)sbatch|QOS|invalid (account|partition)", "Luria's scheduler refused the job. Its limits may have been reached; "
+                                                    "try again later, or change the partition, time or memory."),
+    (r"launch\.yml|samplesheet", "The built run's files are gone from the server, so the run has to be built again."),
+)
+
+
+def _luria_failure(state: dict, detail: str) -> str:
+    """The tool result of a failed submit: the plain reason for the user, and ``submit_failed``, which keeps the build
+    open (``agent._conclude``). ``detail`` stays in the stored messages for whoever debugs it."""
+    state["submit_failed"] = True
+    plain = next((text for pattern, text in _LURIA_FAILURES if re.search(pattern, detail)),
+                 "The submit failed for an unexpected reason, so an admin needs to look at it.")
+    return json.dumps({"ok": False, "detail": detail,
+                       "message": f"Not submitted. {plain} Tell the user that in plain words, without the technical "
+                                  "detail. Say the run is still built and that replying \"submit\" tries again. "
+                                  "Do not call conclude."})
+
+
 def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
@@ -1138,10 +1166,10 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
                             process_args=process_args,
                             user_id=state.get("launched_by_user_id"))
     except Exception as exc:
-        return json.dumps({"ok": False, "message": f"Luria submit failed: {exc!r}"})
+        return _luria_failure(state, repr(exc).replace(str(luria_env.get("key")), "<key>"))
     if not runs:
-        return json.dumps({"ok": False, "message": "No runs submitted: " + "; ".join(reasons)
-                           if reasons else "No runs submitted — check Luria logs."})
+        return _luria_failure(state, "; ".join(reasons))
+    state.pop("submit_failed", None)
     state.setdefault("artifacts", {})["luria_runs"] = runs
     # Stash the ssh target now, while we still have config in hand — _conclude builds the
     # follow-up block from state alone and has no ChatConfig to ask.

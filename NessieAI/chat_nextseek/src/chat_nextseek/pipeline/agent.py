@@ -272,6 +272,11 @@ def _conclude(session, state: dict, tool_input: dict) -> dict[str, Any]:
     outcome = tool_input.get("outcome") or "answered"
     message = tool_input.get("message") or ""
     artifacts = state.get("artifacts") or {}
+    # A failed submit leaves the run built, so "submit" has to be able to try again, whatever the model concluded
+    # (prod chat 2c55241a: "rejected", with a reply that said to say submit).
+    if state.get("submit_failed") and outcome != "cancelled":
+        _save(session, state)
+        return {"action": "ask", "reply": message, "params": None}
     state["active"] = False
     _save(session, state)
     if outcome == "submitted":

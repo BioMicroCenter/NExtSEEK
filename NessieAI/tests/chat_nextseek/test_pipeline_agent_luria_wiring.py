@@ -1,4 +1,9 @@
+import json
+
+import pytest
+
 import chat_nextseek.pipeline.agent as agent
+from chat_nextseek.pipeline import agent_tools
 
 
 def test_run_loop_uses_build_pipeline_tool_schemas(monkeypatch):
@@ -172,3 +177,85 @@ def test_the_prompt_hands_reingest_off_with_the_run_done_phrase():
     text = (Path(chat_nextseek.__file__).parent / "prompts" / "pipeline_agent.txt").read_text()
     assert '"my run is done"' in text
     assert "never say you cannot load" in text.lower()
+
+
+# --- a submit that fails keeps the build, and says why in plain words (prod chat 2c55241a) ---
+
+class _LuriaCfg:
+    LURIA_ENV_COMPLETE = True
+    def __init__(self, key):
+        self.LURIA_ENV = {"user": "u", "key": str(key), "working_path": "/w", "host": "luria.example.edu"}
+
+
+def _built(tmp_path):
+    launch = tmp_path / "launch.yml"
+    launch.write_text("launch:\n  - {name: r, pipeline: nf-core/rnaseq, revision: '3.18.0'}\n")
+    return {"active": True, "launch_built_at_user_msgs": 1, "artifacts": {"launch": str(launch)},
+            "messages": [{"role": "user", "content": "a"}, {"role": "user", "content": "submit"}]}
+
+
+def test_a_missing_key_is_a_plain_reason_with_no_path(tmp_path):
+    state = _built(tmp_path)
+    key = tmp_path / "secret-key-name"
+    out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg(key), state))
+    assert out["ok"] is False
+    assert "Luria key" in out["message"] and "admin" in out["message"]
+    assert "FileNotFoundError" not in out["message"] and "secret-key-name" not in json.dumps(out)
+    assert state["submit_failed"] is True
+
+
+@pytest.mark.parametrize("reason, words", [
+    ("entry 'r' failed: RuntimeError('ssh failed (255): user@luria: Permission denied (publickey).')", "refused"),
+    ("entry 'r' failed: SshTimeout('ssh timed out after 60 s')", "try again"),
+    ("entry 'r' failed: RuntimeError('ssh failed (255): ssh: Could not resolve hostname luria')", "try again"),
+    ("entry 'r' failed: RuntimeError('sbatch: error: QOSMaxSubmitJobPerUserLimit')", "scheduler"),
+    ("entry 'r' failed: RuntimeError('scp: write: Disk quota exceeded')", "storage"),
+    ("launch.yml not found: /app/outputs/x/launch.yml", "built again"),
+    ("something nobody has seen", "unexpected"),
+])
+def test_a_luria_failure_says_whose_it_is(monkeypatch, tmp_path, reason, words):
+    def fake(*a, reasons, **k):
+        reasons.append(reason)
+        return []
+    monkeypatch.setattr(agent_tools, "submit_luria", fake)
+    state = _built(tmp_path)
+    out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))
+    assert out["ok"] is False and words in out["message"].lower()
+    assert out["detail"] == reason
+    assert "do not call conclude" in out["message"].lower()
+    assert state["submit_failed"] is True
+
+
+def test_a_raised_submit_is_a_plain_reason_too(monkeypatch, tmp_path):
+    def boom(*a, **k):
+        raise FileNotFoundError(2, "No such file or directory")
+    monkeypatch.setattr(agent_tools, "submit_luria", boom)
+    state = _built(tmp_path)
+    out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))
+    assert out["ok"] is False and "FileNotFoundError" not in out["message"]
+    assert state["submit_failed"] is True
+
+
+@pytest.mark.parametrize("outcome", ["rejected", "answered", "submitted"])
+def test_conclude_after_a_failed_submit_keeps_the_build_open(outcome):
+    """In prod chat 2c55241a the model concluded "rejected", said "say submit to try again", and the build was closed."""
+    state = {"active": True, "submit_failed": True, "artifacts": {"launch": "/x"}}
+    session = {agent.PIPELINE_AGENT_KEY: state}
+    out = agent._conclude(session, state, {"outcome": outcome, "message": "It failed. Say submit to retry."})
+    assert out == {"action": "ask", "reply": "It failed. Say submit to retry.", "params": None}
+    assert state["active"] is True
+
+
+def test_conclude_cancelled_after_a_failed_submit_still_cancels():
+    state = {"active": True, "submit_failed": True}
+    out = agent._conclude({agent.PIPELINE_AGENT_KEY: state}, state, {"outcome": "cancelled", "message": "ok"})
+    assert out["action"] == "cancel" and state["active"] is False
+
+
+def test_a_retry_that_works_clears_the_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(agent_tools, "submit_luria", lambda *a, **k: [_RUN])
+    state = {**_built(tmp_path), "submit_failed": True}
+    out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))
+    assert out["ok"] is True and "submit_failed" not in state
+    done = agent._conclude({agent.PIPELINE_AGENT_KEY: state}, state, {"outcome": "submitted", "message": "Submitted."})
+    assert done["action"] == "execute" and state["active"] is False

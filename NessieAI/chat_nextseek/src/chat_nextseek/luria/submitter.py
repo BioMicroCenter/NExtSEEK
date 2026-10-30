@@ -101,7 +101,12 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
 
     working = str(luria_env["working_path"]).rstrip("/")
     parent = launch_path.parent
-    key_path = prepare_key(luria_env["key"])
+    try:
+        key_path = prepare_key(luria_env["key"])
+    except OSError as exc:  # repr hides the file name; the reason names no path, because it reaches the model
+        print(f"[LURIA][SUBMIT] cannot read the Luria key: {exc!r}")
+        reasons.append("the Luria key file can't be read on this server")
+        return []
     runs: list[dict] = []
     try:
         for idx, entry in enumerate(entries):
