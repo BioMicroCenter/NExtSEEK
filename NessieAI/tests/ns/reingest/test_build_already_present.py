@@ -71,16 +71,31 @@ def test_nothing_uploaded_yet_changes_nothing(rows, tmp_path, monkeypatch):
 
 
 @patch(CATALOG)
-def test_a_changed_file_at_an_uploaded_path_is_built_and_flagged(rows, tmp_path, monkeypatch):
+def test_a_changed_file_at_an_uploaded_path_is_left_out_and_flagged(rows, tmp_path, monkeypatch):
+    """A run redone in the same folder: the path is a sample's, the checksum is new. The
+    upload skips a new row whose data file name is already a sample's (NAME_CHECK in
+    nextseek_api/batch_upload/orchestrator.py), so the row is left out of the workbook,
+    and the reply names the older sample instead of promising a new one (PR 135 F2)."""
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch)
     _existing(monkeypatch, {}, changed={"A.ALN": {"D.SEQ-EXAMPLE-1": "A.ALN-OLD-1"}})
     out = _new(tmp_path, manifest_id)
-    aln = next(b for b in out["builds"] if b["sample_type"] == "A.ALN")
-    assert aln["row_count"] == 1
+    assert {b["sample_type"] for b in out["builds"]} == {"A.GEX"}
     assert "A.ALN-OLD-1" in out["reply"]
-    assert "changed" in out["reply"]
+    assert "changed" in out["reply"] and "left out" in out["reply"]
+    assert "built as new samples" not in out["reply"]
     assert "already in NExtSEEK (" not in out["reply"]
+
+
+@patch(CATALOG)
+def test_only_changed_files_left_says_nothing_new_to_upload(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _existing(monkeypatch, {}, changed={"A.ALN": {"D.SEQ-EXAMPLE-1": "A.ALN-OLD-1"},
+                                        "A.GEX": {"D.SEQ-EXAMPLE-1": "A.GEX-OLD-1"}})
+    out = _new(tmp_path, manifest_id)
+    assert out["builds"] == [] and out["saved_files"] == {}
+    assert out["reply"].startswith("Nothing new to upload")
 
 
 @patch(CATALOG)

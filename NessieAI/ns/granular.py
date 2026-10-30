@@ -1974,7 +1974,10 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     # parent, is left out: reingesting a run that was uploaded must never make a
     # second copy. A partly uploaded run still builds the rows it lacks. A row whose
     # path matches a sample but whose content has changed (a run redone in the same
-    # folder) is built and named in the reply. An outage raises, as every strict
+    # folder) is left out too, and the reply names the older sample: the upload skips
+    # a new row whose data file name is already a sample's (NAME_CHECK in
+    # nextseek_api/batch_upload/orchestrator.py), so building it would promise a
+    # sample the upload never makes (PR 135 F2). An outage raises, as every strict
     # lookup here does; it never reads as "nothing there".
     already_present: dict[str, dict] = {}
     path_changed: dict[str, list] = {}
@@ -2000,6 +2003,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             changed = sorted({uid for match in found if not match["uids"]
                               for uid in match["changed"]})
             if changed:
+                dropped |= {id(row) for row, match in zip(type_rows, found)
+                            if not match["uids"] and match["changed"]}
                 path_changed[sample_type] = changed
         if dropped:
             result = result.model_copy(

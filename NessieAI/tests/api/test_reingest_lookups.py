@@ -405,7 +405,7 @@ class TestExistingUidsForPrimaryFilesStrict:
                             type_ids=()) == [NONE]
 
     def test_the_same_link_with_a_different_checksum_is_a_changed_file(self):
-        # A run redone in the same folder: same path, new content. Built, and flagged.
+        # A run redone in the same folder: same path, new content. Left out, and flagged.
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK,
                               Checksum_PrimaryData="old", Parent="D.SEQ-1")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "new", "parent": "D.SEQ-1"}]) \
