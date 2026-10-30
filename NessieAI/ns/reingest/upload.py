@@ -391,6 +391,18 @@ def _wait_budget_s(limit_s, started_at) -> float:
     return max(0.0, min(wait, float(limit_s) - elapsed - ANSWER_MARGIN_S))
 
 
+def _out_of_time(limit_s, started_at) -> bool:
+    """True when ANSWER_MARGIN_S or less is left of the op's limit: a create or a job started now
+    would run on after the op has answered, while the agent reads that it failed (PR 135 SF-5)."""
+    if limit_s is None or started_at is None:
+        return False
+    return float(limit_s) - (_clock() - started_at) <= ANSWER_MARGIN_S
+
+
+_OUT_OF_TIME = ("the call ran out of its time before any upload job started; nothing was uploaded. "
+                "Ask again to upload these workbooks")
+
+
 def _await_jobs(jobs: list[dict], job_state, wait_s: float | None = None) -> None:
     """Poll each started job until it finishes or the wait runs out, and put its
     outcome on the entry. A lookup that raises counts as not finished yet."""
@@ -678,6 +690,8 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         claimed.append(record["build_id"])
     kept = False
     try:
+        if _out_of_time(limit_s, started_at):
+            raise UploadRefused([_OUT_OF_TIME])
         created = _create_assays(records, create_study_assay, rebuild)
         records = _rebuild_after_create(records, created, rebuild, user_id)
         created_assays = _created_assays(verified, created)
@@ -711,6 +725,11 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
                      *already])
 
         by_build = {r["build_id"]: r for r in records}
+
+        # The creates and rebuilds may have used up the op's limit: start nothing then.
+        if _out_of_time(limit_s, started_at):
+            _discard()
+            raise UploadRefused([_OUT_OF_TIME, *already])
 
         # Phase B: new mode first; a failed start is recorded and never stops the next.
         jobs: list[dict] = []

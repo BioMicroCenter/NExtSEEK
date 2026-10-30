@@ -314,9 +314,10 @@ produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 
    harvest result's `skipped` list: an auto-hash that got skipped for exceeding the ceiling or the
    run's byte budget says so there, by name. **Only call this op when a specific file you actually
    need checksummed — almost always a multi-GB primary alignment BAM — did not fit under
-   run-harvest's auto-hash ceiling.** A genuine SSH hash of a large file can by itself consume most
-   of the CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`), leaving no budget for the harvest
-   and `build-upload-xlsx` calls that actually produce a workbook — so do not call it speculatively
+   run-harvest's auto-hash ceiling.** The op has 60 s, and it stops its SSH hash before then: a
+   hash of several GB can use all of it, and one that does not finish fails as a deadline with
+   nothing saved, while spending turn time the `build-upload-xlsx` call still needs to produce a
+   workbook — so do not call it speculatively
    "just in case", and do not call it for a file the manifest already carries a checksum for (check
    `manifest.checksums` first). If you do call it: pass `--run-dir` as the EXACT SAME run dir you
    passed to `run-harvest` in step 1 — the op refuses when the manifest's own run_dir does not match

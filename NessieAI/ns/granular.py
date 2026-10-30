@@ -1017,7 +1017,7 @@ _STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
 # worth the wait (up to 10 GB each, 20 GB aggregate); these bound an
 # AUTOMATIC, no-one-asked-for-it hash that happens on every run-harvest call,
 # so they must be small enough that harvest_local's own
-# `_HARVEST_SSH_TIMEOUT_S` (150s, itself under the 180s CC-turn hard cap) is
+# SSH timeout (`_ssh_timeout_s`: what is left of the op's 60 s limit) is
 # never meaningfully at risk from hashing alone -- getting a manifest back at
 # all matters far more than getting a checksum for free. At a conservative
 # shared-cluster-disk throughput of ~150 MB/s (the same figure run-checksum's
@@ -1229,6 +1229,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     """
     import io
     import shlex
+    import subprocess
     import tarfile
 
     from chat_nextseek.luria.ssh import ssh_run_bytes
@@ -1255,8 +1256,13 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     ])
     # Bounded, not indefinite: see _HARVEST_SSH_TIMEOUT_S below for why this
     # backstops a stalled shared filesystem rather than an oversized
-    # request (the size/count caps enforced remotely, above, are that).
-    tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path, timeout=_HARVEST_SSH_TIMEOUT_S)
+    # request (the size/count caps enforced remotely, above, are that). Cut
+    # to the op's limit (_ssh_timeout_s), so the op answers before it ends.
+    timeout = _ssh_timeout_s(_HARVEST_SSH_TIMEOUT_S, "the run's files could be staged")
+    try:
+        tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise OpDeadlineError(f"staging the run's files timed out after {timeout:.0f} s") from exc
     skipped: list[dict] = []
     inventory: list[dict] = []
     run_dir_escapes_runs_root = False
@@ -1281,19 +1287,30 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
 
 
 # Wall-clock backstop for the run-harvest staging SSH call, mirroring
-# run-checksum's _CHECKSUM_SSH_TIMEOUT_S (added in an earlier review pass;
-# see its docstring for the full reasoning). run-harvest's own byte/count
+# run-checksum's _CHECKSUM_SSH_TIMEOUT_S. run-harvest's own byte/count
 # ceilings (harvest.MAX_FILE_BYTES / MAX_TOTAL_BYTES / MAX_FILES, enforced
 # remotely in _STAGE_SCRIPT before any match is added to the tar) bound the
 # LEGITIMATE work; this bounds the illegitimate/unexpected case (a stalled
-# shared filesystem) instead. ssh_run_bytes had no timeout kwarg at all
-# until this review pass (Important 2, 2026-09-16): a stalled remote glob
-# or a wedged network hung the whole CC turn indefinitely, unlike
-# run-checksum's ssh_run call, which already had one. Sized the same as
-# run-checksum's ceiling (150s), comfortably under the 180s CC turn hard
-# cap (NEXTSEEK_CC_TIMEOUT_HARD_MAX, cc_engine.py) with room left for the
-# rest of the turn (local tar extraction + harvest_local parsing).
+# shared filesystem) instead. It is an upper bound only: the op's own limit
+# (op_limits.py, 60 s) is shorter, and _ssh_timeout_s cuts the call to what
+# is left of it (PR 135 SF-5).
 _HARVEST_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_HARVEST_SSH_TIMEOUT_S", 150))
+
+
+def _ssh_timeout_s(base_s: float, what: str) -> float:
+    """The timeout for one reingest SSH call: ``base_s``, cut to what is left of the op's limit less
+    ``ANSWER_MARGIN_S``, so the op still answers inside its limit after the call (PR 135 SF-5). Raises
+    ``OpDeadlineError`` before the call when ``call_scope.DEADLINE_FLOOR_S`` or less would be left: a
+    call that cannot finish is never started."""
+    from chat_nextseek import call_scope
+    from NessieAI.ns.aggregate import ANSWER_MARGIN_S
+
+    current = call_scope.current()
+    remaining = current.remaining() if current is not None else None
+    budget = float(base_s) if remaining is None else min(float(base_s), remaining - ANSWER_MARGIN_S)
+    if budget <= call_scope.DEADLINE_FLOOR_S:
+        raise OpDeadlineError(f"the op ran out of time before {what}")
+    return budget
 
 
 def _pick_waiting_run(user):
@@ -1410,22 +1427,21 @@ _CHECKSUM_MAX_FILES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILES", 200))
 # exists to checksum. These ceilings instead bound the one thing that makes
 # run-checksum the DoS this op was split out to avoid (see the docstring
 # below and Important 1 of the 2026-09-16 review): the remote hashing time.
-# Sized so that _CHECKSUM_MAX_FILES (200) files at the per-file ceiling could
-# never blow the SSH call's own timeout (_CHECKSUM_SSH_TIMEOUT_S below) even
-# at a conservative shared-cluster-disk md5 throughput (~150 MB/s): the
-# aggregate ceiling (20 GB) hashes in ~135s at that rate, comfortably inside
-# a 150s SSH timeout that itself sits under the default 180s CC turn hard cap
-# (NEXTSEEK_CC_TIMEOUT_HARD_MAX, cc_engine.py) with room left for the rest of
-# the turn. The per-file ceiling (10 GB) is generous for one sequencing file
-# without needing to equal the aggregate.
+# They were sized for a 150 s SSH timeout: the aggregate ceiling (20 GB)
+# hashes in ~135 s at a conservative shared-cluster-disk md5 throughput
+# (~150 MB/s). The op's own limit is 60 s (op_limits.py), and the SSH call is
+# now cut to what is left of it (_ssh_timeout_s, PR 135 SF-5), so at that rate
+# about 8 GB fits in one call; a request above that ends as a deadline failure
+# rather than hashing on after the op has answered. The per-file ceiling
+# (10 GB) is generous for one sequencing file without needing to equal the
+# aggregate.
 _CHECKSUM_MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILE_BYTES", 10_000_000_000))
 _CHECKSUM_MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_TOTAL_BYTES", 20_000_000_000))
-# Wall-clock backstop for the SSH call itself: the byte ceilings above bound
-# the LEGITIMATE work to well under this, so this timeout exists to bound the
-# illegitimate/unexpected case (a stalled shared filesystem, a wedged
-# network) rather than to be the primary defense against an oversized
-# request -- that job is the byte ceilings, enforced before any file is
-# opened for reading (see _CHECKSUM_SCRIPT).
+# Wall-clock backstop for the SSH call itself, bounding the unexpected case
+# (a stalled shared filesystem, a wedged network) rather than an oversized
+# request, which the byte ceilings refuse before any file is opened for
+# reading (see _CHECKSUM_SCRIPT). An upper bound only: _ssh_timeout_s cuts
+# the call to what is left of the op's limit.
 _CHECKSUM_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_CHECKSUM_SSH_TIMEOUT_S", 150))
 
 # The remote-side half of run-checksum: unlike run-harvest's GENERIC_GLOBS
@@ -1621,7 +1637,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
                 f"manifest_id {manifest_id!r} was harvested from {manifest_run_dir!r}, "
                 f"not the run_dir being hashed ({run_dir!r})", field="manifest_id", error_type="harvested_from_another_run_dir")
 
-    from chat_nextseek.luria.ssh import prepare_key, ssh_run
+    from chat_nextseek.luria.ssh import SshTimeout, prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
     try:
         remote_cmd = " ".join([
@@ -1632,8 +1648,13 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
         # Bounded, not indefinite: see _CHECKSUM_SSH_TIMEOUT_S above for why
         # the byte ceilings (not this timeout) are the primary defense, and
         # this is the backstop for the unexpected hang (a stalled shared
-        # filesystem) rather than the oversized request.
-        out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=_CHECKSUM_SSH_TIMEOUT_S)
+        # filesystem) rather than the oversized request. Cut to the op's
+        # limit (_ssh_timeout_s), so the op answers before it ends.
+        timeout = _ssh_timeout_s(_CHECKSUM_SSH_TIMEOUT_S, "the files could be checksummed")
+        try:
+            out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=timeout)
+        except SshTimeout as exc:
+            raise OpDeadlineError(str(exc)) from exc
     finally:
         _remove_key_copy(key_path, luria_env["key"])
 
