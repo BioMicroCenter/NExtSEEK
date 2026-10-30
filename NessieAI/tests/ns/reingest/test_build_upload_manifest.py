@@ -994,3 +994,32 @@ def test_a_multirun_samples_parents_resolve_in_new_mode(rows, tmp_path, monkeypa
     from nextseek_api.batch_upload.convert import parse_traditional_file
     batch = parse_traditional_file(result["saved_files"]["reingest_A_ALN"])
     assert _meta(batch.rows[0])["Parent"] == "D.SEQ-EXAMPLE-1;D.SEQ-EXAMPLE-2"
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_an_update_build_records_the_samples_whose_notes_it_replaces(rows, tmp_path, monkeypatch):
+    """The workbook's Notes are composed from the Notes read at build time and replace the
+    sample's whole Notes on upload. The build record names those samples, so the upload can
+    refuse when one was edited after ``built_at`` (PR 135 SF-8)."""
+    rows.return_value = [_D_SEQ_ROW]
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.notes_for_uids",
+        lambda uids: {u: "curated text" for u in uids})
+    manifest_id = _save_manifest(
+        tmp_path, monkeypatch,
+        metrics={"star-uniquely_mapped_percent": 91.4,
+                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
+                       outputs_dir=str(tmp_path))
+    (build,) = result["builds"]
+    assert build["notes_uids"] == ["D.SEQ-EXAMPLE-1"]
+    assert build["built_at"]
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_that_writes_no_notes_names_no_samples(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert result["builds"] and all(b["notes_uids"] == [] for b in result["builds"])

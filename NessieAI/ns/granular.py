@@ -2376,7 +2376,12 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             parent_assays=assay_plan_mod.merge_parent_assays(
                 [e for p in final.assay_plans_by_type.get(sample_type, [])
                  for e in p.parent_assays]),
-            rebuilt_from=rebuilt_from))
+            rebuilt_from=rebuilt_from,
+            # Notes on an update row replace the sample's whole Notes (PR 135 SF-8).
+            notes_uids=[str(row["json_metadata"].get("UID"))
+                        for row in type_rows
+                        if mode == MODE_UPDATE and "Notes" in (row.get("json_metadata") or {})
+                        and row["json_metadata"].get("UID")]))
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
     # `continue` two lines up), so asking the reader to confirm a
@@ -2467,6 +2472,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
     uploaded only from a later turn of the chat it was shown in."""
     write_gate("api-write", None, None, args.get("confirmed_write"))
     from NessieAI.ns.reingest import upload
+    from nextseek_api.services.reingest_lookups import uids_updated_after_strict
 
     # The job wait is cut to what is left of the op's limit (upload._wait_budget_s).
     started_at = upload._clock()
@@ -2486,6 +2492,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
                             create_study_assay=getattr(session, "create_study_assay", None),
                             register_parents=getattr(session, "register_parents", None),
                             limit_s=limit_s, started_at=started_at,
+                            edited_after=uids_updated_after_strict,
                             rebuild=lambda record: _rebuild_record(
                                 record, getattr(session, "user", None), outputs_dir))
     except upload.UploadRefused as exc:
