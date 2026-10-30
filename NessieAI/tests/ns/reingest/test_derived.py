@@ -21,6 +21,7 @@ def test_derived_metric_names_are_a_closed_set():
         "genes_detected", "genes_detected_percent", "top30_count_percent",
         "unaligned_reads", "total_reads", "uniquely_mapped_reads",
         "multimapped_pct", "strandedness", "mismatch_pct", "duplication_pct",
+        "frip_pct", "peak_count",
     )
 
 
@@ -232,7 +233,8 @@ def test_every_derived_metric_name_can_appear_in_compute_output():
               "too_many_loci": 30.0, "unmapped": 20.0},
         counts=counts, n_annotated_genes=80)
     out.update(derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.006,
-                                     derived.PICARD_DUPLICATION_FRACTION: 0.12}))
+                                     derived.PICARD_DUPLICATION_FRACTION: 0.12,
+                                     "frip-value": 0.31, "peak_count-value": 812.0}))
     assert set(derived.DERIVED_METRICS) <= set(out.keys())
 
 

@@ -38,9 +38,11 @@
   "peaks_broad": {
    "attributes": [
     "DataType",
+    "FRiPPercent",
     "File_PrimaryData",
     "Link_PrimaryData",
     "Notes",
+    "PeakCount",
     "Pipeline"
    ],
    "rows": 4,

@@ -130,6 +130,10 @@ class RunManifest(BaseModel):
     # and the mapper registers it once for the group, parented by every replicate.
     # Empty for every other pipeline, whose samples stay keyed by `sample`.
     replicate_groups: dict[str, list[str]] = Field(default_factory=dict)
+    # A replicate group's own rows in the map's module tables (atacseq's merged-replicate
+    # FRiP and peak count), keyed `<namespace>-<column>` like a sample's `metrics`: the
+    # metrics of the group's merged row, which no sample of the run carries.
+    group_metrics: dict[str, dict] = Field(default_factory=dict)
     # `outputs` is the INVENTORY: one entry per candidate output file found by
     # matching inventory_globs() against a remote listing (see harvest.py) --
     # never the file's content, just its path and real size. The next reingest

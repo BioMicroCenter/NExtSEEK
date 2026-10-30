@@ -11,6 +11,7 @@ instead. The tables here are shaped like those runs' (rows after the configs'
 extra_fn_clean_exts, Picard's 0-1 fraction).
 """
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -211,3 +212,80 @@ def test_duplication_pct_is_picards_fraction_times_a_hundred():
         == pytest.approx(15.0851)
     assert "duplication_pct" not in derived.from_metrics({derived.PICARD_DUPLICATION_FRACTION: "n/a"})
     assert "duplication_pct" not in derived.from_metrics({})
+
+
+# ---- FRiP and peak count, from the custom-content bar graphs ------------------------------------
+
+ATAC_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "reingest_runs" / "atacseq" / "2.1.2-local-test"
+
+
+def _fixture_peak_rows(folder, pipeline="atacseq"):
+    inventory = json.loads((folder / "inventory.json").read_text())
+    uids: dict[str, str] = {}
+    run = harvest.harvest_local(
+        str(folder), inventory=inventory, run_dir="/RUN",
+        lookup_by_fastq=lambda path, types=None: [uids.setdefault(path, f"D.SEQ-TEST-{len(uids) + 1}")],
+        sample_type_lookup=lambda found: {u: "D.SEQ" for u in found})
+    result = mapper.apply(run, maps.load(pipeline), context=CONTEXT)
+    return run, {r.nfcore_sample: {k: v.value for k, v in r.attributes.items()}
+                 for r in result.rows if r.rule_id.startswith("peaks")}
+
+
+def test_a_bar_graph_table_reads_each_rows_one_value():
+    table = parsers.parse_general_stats(
+        "Sample\tA\tB.mRp.clN_peaks\n"
+        "A\t0.385186\t\n"
+        "B\t\t1134.0\n"
+        "C\t\t\n"
+        "D\t1\t2\n")
+    assert parsers.bargraph_values(table) == {"A": {"value": 0.385186}, "B": {"value": 1134.0}}
+
+
+def test_frip_is_a_percentage_and_the_peak_count_a_whole_number():
+    values = derived.from_metrics({"mrep_frip-value": 0.448815, "mrep_peak_count-value": 1134.0})
+    assert values["frip_pct"] == 44.8815 and values["peak_count"] == 1134
+
+
+def test_atacseq_peak_rows_carry_their_own_peak_sets_frip_and_count():
+    """On the 2.1.2 test run: a merged replicate's row reads the group's own mrep values,
+    which no replicate has; a single replicate's row reads its mlib values."""
+    run, rows = _fixture_peak_rows(ATAC_FIXTURE)
+    assert run.group_metrics["OSMOTIC_STRESS_T0_PE"] == {
+        "mrep_frip-value": 0.448815, "mrep_peak_count-value": 1134.0}
+    assert {name: (row["FRiPPercent"], row["PeakCount"]) for name, row in rows.items()} == {
+        "OSMOTIC_STRESS_T0_PE": (44.8815, 1134),
+        "OSMOTIC_STRESS_T100_SE": (41.6439, 1291),
+        "OSMOTIC_STRESS_T15_PE_REP1": (43.5881, 1409),
+        "OSMOTIC_STRESS_T150_SE_REP1": (41.3034, 1549),
+    }
+
+
+def test_a_peak_row_without_the_bar_graphs_has_no_frip_or_count(tmp_path):
+    root = tmp_path / "run"
+    shutil.copytree(ATAC_FIXTURE, root)
+    for name in ("multiqc_mlib_frip_score-plot.txt", "multiqc_mrep_frip_score-plot.txt",
+                 "multiqc_mlib_peak_count-plot.txt", "multiqc_mrep_peak_count-plot.txt"):
+        (root / "multiqc" / "broad_peak" / "multiqc_data" / name).unlink()
+    _run, rows = _fixture_peak_rows(root)
+    assert rows and not any({"FRiPPercent", "PeakCount"} & set(row) for row in rows.values())
+
+
+def test_atacseq_mapped_percent_is_each_runs_own_flagstat_before_merging():
+    """MultiQC's first flagstat section, one row per sequencing run (`<replicate>_T<run>`),
+    read only for MappedPercent. A replicate sequenced over two runs is a multi-run sample
+    and gets no backfill, so neither run's value lands on a guessed D.SEQ."""
+    folder = ATAC_FIXTURE
+    inventory = json.loads((folder / "inventory.json").read_text())
+    uids: dict[str, str] = {}
+    run = harvest.harvest_local(
+        str(folder), inventory=inventory, run_dir="/RUN",
+        lookup_by_fastq=lambda path, types=None: [uids.setdefault(path, f"D.SEQ-TEST-{len(uids) + 1}")],
+        sample_type_lookup=lambda found: {u: "D.SEQ" for u in found})
+    result = mapper.apply(run, maps.load("atacseq"), context=CONTEXT)
+    mapped = {r.nfcore_sample: r.attributes["MappedPercent"].value
+              for r in result.rows if r.uid and "MappedPercent" in r.attributes}
+    assert mapped == {"OSMOTIC_STRESS_T0_PE_REP1": 95.4, "OSMOTIC_STRESS_T0_PE_REP2": 92.98,
+                      "OSMOTIC_STRESS_T100_SE_REP1": 94.81, "OSMOTIC_STRESS_T100_SE_REP2": 92.2}
+    sample = next(s for s in run.samples if s.nfcore_sample == "OSMOTIC_STRESS_T0_PE_REP1")
+    assert {k for k in sample.metrics if k.startswith("samtools_flagstat_lib-")} == {
+        "samtools_flagstat_lib-mapped_passed_pct"}

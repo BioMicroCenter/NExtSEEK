@@ -65,13 +65,14 @@ _SAMPLESHEET_GLOB = "*.csv"
 # against general_stats' 10.5 KB.
 _MULTIQC_TXT_GLOB = "multiqc*/**/*_data/multiqc_*.txt"
 # Per-module MultiQC tables read for tools that put nothing in general stats:
-# {file name: (key namespace, Sample-column suffix)}. Each column becomes the
+# {file name: (key namespace, Sample-column suffix, shape, columns)}. Each column (each of
+# `columns` when the map names some) becomes the
 # metric `<namespace>-<column>`, the same shape as a general-stats key; general
 # stats wins where both have one. nf-core/hlatyping's OptiType alleles are only
 # in multiqc_optitype.txt, whose Sample column keeps OptiType's "_result"
 # (verified on a real 2.2.0 run). Staged by _MULTIQC_TXT_GLOB, so no new glob.
-_MODULE_TABLES: dict[str, tuple[str, str]] = {
-    "multiqc_optitype.txt": ("optitype", "_result"),
+_MODULE_TABLES: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
+    "multiqc_optitype.txt": ("optitype", "_result", "table", ()),
 }
 # Where a module table is looked for, by its file name: a MultiQC data folder. A map's own
 # tables (`module_tables`) may be .yaml, which only that map's harvest_globs stage.
@@ -465,9 +466,9 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     module_tables: dict[str, tuple[str, dict[str, dict]]] = {}
     wanted_tables = dict(_MODULE_TABLES)
     if pipeline_map is not None:
-        wanted_tables.update({name: (table.namespace, table.suffix)
+        wanted_tables.update({name: (table.namespace, table.suffix, table.shape, tuple(table.columns))
                               for name, table in pipeline_map.module_tables.items()})
-    for filename, (namespace, suffix) in wanted_tables.items():
+    for filename, (namespace, suffix, shape, columns) in wanted_tables.items():
         if namespace in module_tables:
             continue  # the same table as .txt and as .yaml: the first one read wins
         path = _pick_module_table(all_named(_MULTIQC_DATA_DIR + filename, filename), picked, warnings)
@@ -476,7 +477,12 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             sources[f"metrics_{namespace}"] = path
             parse = (parsers.parse_multiqc_yaml_table if filename.endswith((".yaml", ".yml"))
                      else parsers.parse_general_stats)
-            module_tables[namespace] = (suffix, parse(text))
+            table = parse(text)
+            if columns:
+                table = {row: {c: v for c, v in values.items() if c in columns}
+                         for row, values in table.items()}
+            module_tables[namespace] = (suffix, parsers.bargraph_values(table)
+                                        if shape == "bargraph" else table)
 
     sheet = _find_samplesheet(base, read)
     rows: list[dict] = []
@@ -629,6 +635,13 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             derived={**derived.from_metrics(metrics), **_derived_for(base, name, read)},
             samplesheet=_samplesheet_cells(row, sheet_columns),
         ))
+
+    # A replicate group's merged row has metrics of its own in some module tables (atacseq's
+    # merged-replicate FRiP and peak count); no sample carries them, so the group does.
+    for group in out.replicate_groups:
+        group_metrics = _module_metrics(group, module_tables)
+        if group_metrics:
+            out.group_metrics[group] = group_metrics
 
     # SampleRecord.parent_sample_type: one batched call for every resolved
     # parent UID in the whole run, first-occurrence de-duplicated -- never

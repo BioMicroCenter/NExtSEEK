@@ -260,6 +260,20 @@ def parse_general_stats(text: str) -> dict[str, dict[str, float | str]]:
     return out
 
 
+def bargraph_values(table: dict[str, dict[str, float | str]]) -> dict[str, dict[str, float | str]]:
+    """A MultiQC custom-content bar graph read as a table -> {sample: {"value": v}}.
+
+    MultiQC writes a bar graph's data file as a square table: each row's one value sits
+    under a column named after the row (FRiP) or after the file it counted (peak count),
+    and every other cell is blank, which `parse_general_stats` already omits. A row with
+    no value, or with more than one, is not a bar and is left out."""
+    out: dict[str, dict[str, float | str]] = {}
+    for sample, row in table.items():
+        if len(row) == 1:
+            out[sample] = {"value": next(iter(row.values()))}
+    return out
+
+
 def parse_multiqc_yaml_table(text: str) -> dict[str, dict[str, float | str]]:
     """A MultiQC data file written with `data_format: yaml` (nf-core/atacseq and
     nf-core/chipseq set it) -> {sample: {column: value}}, the shape

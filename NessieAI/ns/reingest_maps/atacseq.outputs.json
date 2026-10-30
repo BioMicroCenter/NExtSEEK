@@ -21,7 +21,13 @@
   },
   "module_tables": {
     "multiqc_picard_dups.yaml": {"namespace": "picard_dups"},
-    "multiqc_picard_dups.txt": {"namespace": "picard_dups"}
+    "multiqc_picard_dups.txt": {"namespace": "picard_dups"},
+    "multiqc_mlib_frip_score-plot.txt": {"namespace": "mlib_frip", "shape": "bargraph"},
+    "multiqc_mrep_frip_score-plot.txt": {"namespace": "mrep_frip", "shape": "bargraph"},
+    "multiqc_mlib_peak_count-plot.txt": {"namespace": "mlib_peak_count", "shape": "bargraph"},
+    "multiqc_mrep_peak_count-plot.txt": {"namespace": "mrep_peak_count", "shape": "bargraph"},
+    "multiqc_samtools_flagstat.txt": {"namespace": "samtools_flagstat_lib", "suffix": "_T1",
+                                      "columns": ["mapped_passed_pct"]}
   },
   "outputs": [
     {
@@ -58,7 +64,9 @@
         "DataType": "narrowPeak",
         "Scientist": "@nextseek_user",
         "Assembly": "$params.genome",
-        "Pipeline": "nf-core/atacseq"
+        "Pipeline": "nf-core/atacseq",
+        "FRiPPercent": "$derived.frip_pct",
+        "PeakCount": "$derived.peak_count"
       }
     },
     {
@@ -75,7 +83,9 @@
         "DataType": "broadPeak",
         "Scientist": "@nextseek_user",
         "Assembly": "$params.genome",
-        "Pipeline": "nf-core/atacseq"
+        "Pipeline": "nf-core/atacseq",
+        "FRiPPercent": "$derived.frip_pct",
+        "PeakCount": "$derived.peak_count"
       }
     },
     {
@@ -120,6 +130,11 @@
       "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
       "provenance": "seed"
     },
+    "MappedPercent": {
+      "from": "samtools_flagstat_lib-mapped_passed_pct", "target": "D.SEQ", "datatype": "number",
+      "note": "samtools flagstat on each sequencing run's own alignment, before merging and filtering (MultiQC section 'LIB: SAMTools', rows <sample>_REP<n>_T<run>): the first of the release's four flagstat sections, so MultiQC 1.13 writes it as multiqc_samtools_flagstat.txt and the other three as _1 (merged library, unfiltered), _2 (filtered) and _3 (merged replicates); verified against multiqc_sources.txt on 2.1.2-local-test. mapped_passed_pct is already a percentage. A replicate sequenced once is its run _T1; one sequenced over several runs is a multi-run sample and gets no backfill.",
+      "provenance": "seed"
+    },
     "DuplicationPercent": {
       "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
       "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.13 writes it as multiqc_picard_dups.txt (1.13 writes its tables as text whatever the config's data_format: yaml says), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. The merged-replicate MarkDuplicates table MultiQC writes under its own anchor (mrep_picard) is not read: its rows are the replicate groups, which have no D.SEQ of their own. Table name, row names and the fraction checked against the 2.1.2 -profile test run (fixture 2.1.2-local-test)",
@@ -127,12 +142,14 @@
     }
   },
   "deliberately_unmapped": [
+    {"key": "mlib_frip-value", "why": "The replicate's FRiP score, a 0-1 fraction; its peak row's FRiPPercent reads it as a percentage through $derived.frip_pct (a merged replicate's row reads mrep_frip, the group's own)."},
+    {"key": "mlib_peak_count-value", "why": "The replicate's peak count; its peak row's PeakCount reads it through $derived.peak_count (a merged replicate's row reads mrep_peak_count)."},
     {"key": "picard_dups-PERCENT_DUPLICATION", "why": "Picard's 0-1 fraction; DuplicationPercent reads it as a percentage through $derived.duplication_pct."},
     {"key": "picard_dups-LIBRARY", "why": "Picard's library name (the read group's LB), not a measurement."},
     {"key": "picard_dups-UNPAIRED_READS_EXAMINED", "why": "A read count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
     {"key": "picard_dups-READ_PAIRS_EXAMINED", "why": "A read-pair count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
     {"key": "picard_dups-SECONDARY_OR_SUPPLEMENTARY_RDS", "why": "A count of secondary and supplementary records: no D.SEQ attribute means it."},
-    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent waits for a samtools table this map can tell apart (README, \"Maps written from the docs, then checked on a test run\")."},
+    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent reads samtools flagstat's percentage per sequencing run instead."},
     {"key": "picard_dups-UNPAIRED_READ_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
     {"key": "picard_dups-READ_PAIR_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
     {"key": "picard_dups-READ_PAIR_OPTICAL_DUPLICATES", "why": "Optical duplicates, a subset of the duplicates DuplicationPercent counts: no D.SEQ attribute means it."},
@@ -151,7 +168,7 @@
     {"glob": "*/merged_{library,replicate}/macs2/*/*_peaks.{xls,gappedPeak}", "why": "MACS2's peak table and gapped peaks: the same calls as the narrowPeak or broadPeak file the peaks rules register."},
     {"glob": "*/merged_{library,replicate}/macs2/*/*_summits.bed", "why": "MACS2 summits (narrow mode): one point per registered peak, derived from the same call."},
     {"glob": "*/merged_{library,replicate}/macs2/*/*.annotatePeaks.txt", "why": "HOMER peak-to-gene annotation of the registered peaks (and of the consensus set): an annotation a user can rebuild from the registered files, and a peak row's one secondary slot is kept for its own losing variant (G-4)."},
-    {"glob": "*/merged_{library,replicate}/macs2/*/qc/*", "why": "MACS2 and HOMER QC plots and the FRiP, peak-count and annotation MultiQC custom-content files: QC read through MultiQC."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/qc/*", "why": "MACS2 and HOMER QC plots and the FRiP, peak-count and annotation MultiQC custom-content files: QC, read from MultiQC's copies of the FRiP and peak-count files (module_tables)."},
     {"glob": "*/merged_library/macs2/*/consensus/*.{saf,boolean.txt,boolean.annotatePeaks.txt,boolean.intersect.txt,boolean.intersect.plot.pdf}", "why": "The consensus peak set again as SAF and as presence/absence spreadsheets, and its UpSetR intersection files: reformats of the consensus BED the consensus rule registers."},
     {"glob": "*/merged_library/macs2/*/consensus/{deseq2,sizeFactors}/*", "why": "atacseq's DESeq2 step is QC only: PCA, sample distances and the vst DESeqDataSet over the consensus counts, with no contrast. No differential result exists to register."},
     {"glob": "*/merged_replicate/macs2/*/consensus/deseq2/*", "why": "The same QC-only DESeq2 step over the merged-replicate consensus counts: PCA and sample distances, with no contrast."},

@@ -953,10 +953,13 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
         warnings.append(f"{group}: replicate(s) {', '.join(unresolved)} resolved to no "
                         f"D.SEQ; the group's {rule.id} row names only the others as Parent")
     first = members[0]
+    # The group's own module-table rows (its merged FRiP and peak count) are its metrics.
+    group_metrics = run_manifest.group_metrics.get(group, {})
     stand_in = manifest.SampleRecord(
         nfcore_sample=group, fastq_1=first.fastq_1, fastq_2=first.fastq_2,
         uid_resolution=manifest.RESOLUTION_MULTIRUN, d_seq_uid_multirun=parents,
-        parent_sample_type=first.parent_sample_type)
+        parent_sample_type=first.parent_sample_type, metrics=group_metrics,
+        derived=derived.from_metrics(group_metrics))
     lost: list[manifest.OutputRecord] = []
     for member in members:
         for tier in _candidate_tiers(rule, run_manifest, member.nfcore_sample):

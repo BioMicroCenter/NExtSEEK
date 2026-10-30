@@ -260,10 +260,20 @@ class ModuleTable(BaseModel):
     """A per-module MultiQC data file this map's pipeline writes, read like the harvest's
     own `_MODULE_TABLES`: each column becomes the metric `<namespace>-<column>`, from the
     row named `<sample><suffix>`, else `<sample>`. For a pipeline that writes no
-    general-stats table (atacseq and chipseq exclude it), this is where its QC is."""
+    general-stats table (atacseq and chipseq exclude it), this is where its QC is.
+
+    `shape: bargraph` is MultiQC's custom-content bar graph written as a table (atacseq's
+    `multiqc_mlib_frip_score-plot.txt`): one row per sample with its one value under a
+    column named after that row or its file, every other cell blank. It reads as the single
+    metric `<namespace>-value`.
+
+    `columns`, when set, are the only columns read; the table's others never become
+    metrics (samtools flagstat writes some 35, of which a map wants one)."""
     model_config = ConfigDict(extra="forbid")
     namespace: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     suffix: str = ""
+    shape: Literal["table", "bargraph"] = "table"
+    columns: list[str] = Field(default_factory=list)
 
 
 class VersionOverride(BaseModel):
