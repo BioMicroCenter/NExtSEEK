@@ -1,4 +1,4 @@
--- 1010 attribute definitions for dmac.sample_attributes_unique.
+-- 1016 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
@@ -9,6 +9,8 @@
 -- the A.HLA sample type proposed the same day (HLA_A1 ... HLADatabaseVersion).
 -- So are the three A.ALN coverage attributes for sarek's mosdepth output
 -- (MedianCoverage, Coverage10xPercent, Coverage30xPercent).
+-- So are the six peak-quality attributes for atacseq and chipseq (FRiPPercent and
+-- PeakCount on A.CHRM; NSC, RSC, FingerprintJSD and TSSEnrichment on D.SEQ).
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -304,6 +306,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('ExtractionMethod','','The method used to extract nucleic acid, e.g. TRIzol + Direct-zol.'),
  ('ExtractionWindowDaysMax','','The maximum number of days allowed between collection and extraction.'),
  ('FMO','','The fluorescence-minus-one control used for this marker.'),
+ ('FRiPPercent','','Percentage of the alignment''s mapped reads that fall inside this peak set''s peaks (fraction of reads in peaks, FRiP), as the nf-core pipeline computes it with bedtools; higher means stronger enrichment.'),
  ('F_bp','','Read length in base pairs of the forward mate.'),
  ('Facility','','The facility or lab where this work was carried out.'),
  ('Fc_gamma_Receptor','','The Fc gamma receptor this assay was run against, e.g. FcyR2A.'),
@@ -323,6 +326,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('FilterMethod','','The method used to filter variants, e.g. bcftools isec.'),
  ('FilterSet','','The filter set or benchmark applied, e.g. GIAB HG001 GRCh38 v4.2.1.'),
  ('Filter_Vendor','','The vendor the filter was purchased from, e.g. Fisher; Amicon.'),
+ ('FingerprintJSD','','Synthetic Jensen-Shannon distance from deepTools plotFingerprint: how far the library''s cumulative coverage over genome bins is from uniform coverage, 0 to 1; higher means more enriched.'),
  ('Fixation','','Whether the sample was fixed before analysis.'),
  ('Fixative','','The fixative used, e.g. 4% Paraformaldehyde.'),
  ('Fixed','','Whether the sample was fixed before analysis.'),
@@ -580,6 +584,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('N50','','The N50 read or contig length for this run.'),
  ('N50Units','','Unit for the N50 value, e.g. kb.'),
  ('NKC_Name','','The natural killer cell source used in this assay.'),
+ ('NSC','','Normalized strand cross-correlation coefficient from phantompeakqualtools (SPP): the cross-correlation at the fragment length over its background minimum. A ratio; ENCODE reads above 1.05 as enrichment.'),
  ('Name','','The identifier the submitting lab uses for this sample.'),
  ('NecropsyDate','','The date the animal was necropsied.'),
  ('Needle','','The needle used to form the droplet, with gauge and material.'),
@@ -632,6 +637,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Path_PrimaryData','','Filesystem path to the primary data file on the storage server.'),
  ('PathologyReport','','Whether a pathology report exists for this patient.'),
  ('PeakConcUnits','','Unit for the Peak Conc value, e.g. pg/uL, ng/uL.'),
+ ('PeakCount','','Number of peaks in this peak set, as the peak caller (MACS) wrote them.'),
  ('PerfusingDate','','The date perfusion of the device began.'),
  ('PerinatalHealth','','Whether there were perinatal health complications.'),
  ('Phage','','The phage strain used, e.g. lambda EG10.'),
@@ -694,6 +700,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('RADR_Count','','Count of RaDR foci measured in this image.'),
  ('RIN','','The RNA Integrity Number for this sample, from 1 to 10.'),
  ('RRID','','The Research Resource Identifier for this antibody, e.g. AB_394293.'),
+ ('RSC','','Relative strand cross-correlation coefficient from phantompeakqualtools (SPP): the fragment-length cross-correlation over the read-length (phantom) peak, both above background. A ratio; ENCODE reads above 0.8 as enrichment.'),
  ('R_bp','','Read length in base pairs of the reverse mate. Leave blank for single-end runs.'),
  ('Race','','The patient''s self-reported race.'),
  ('RadiationSource','','The X-ray source used, e.g. Al K-alpha.'),
@@ -844,6 +851,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('TOCStart','','Total organic carbon measured at the start of the deployment.'),
  ('TOCStartTime','','Clock time at which the start-of-deployment TOC reading was taken.'),
  ('TOCUnits','','Unit for the TOC value, e.g. ppm, parts per million.'),
+ ('TSSEnrichment','','TSS enrichment score from ataqv: read coverage at transcription start sites over flanking background; higher means better signal to noise in an ATAC-seq library.'),
  ('TST_Result','','The patient''s tuberculin skin test result.'),
  ('TTDCulture','','The time-to-detection result from culture.'),
  ('Targets','','The molecular targets imaged or assayed, comma-separated.'),
