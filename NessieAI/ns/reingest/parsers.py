@@ -274,6 +274,53 @@ def bargraph_values(table: dict[str, dict[str, float | str]]) -> dict[str, dict[
     return out
 
 
+def _number(cell: str) -> float | str:
+    try:
+        return float(cell)
+    except ValueError:
+        return cell
+
+
+def parse_mqc_value(text: str, sample: str) -> dict[str, float | str]:
+    """A one-value MultiQC custom-content file (`#` header lines, then `<name>\t<value>`,
+    as chipseq writes `<sample>.FRiP_mqc.tsv`) -> {"value": v}: the line naming `sample`,
+    else the file's only line; {} when neither exists."""
+    lines = [line.split("\t") for line in text.splitlines()
+             if line.strip() and not line.startswith("#")]
+    lines = [cells for cells in lines if len(cells) >= 2 and cells[1].strip()]
+    named = [cells for cells in lines if cells[0].strip() == sample]
+    picked = named or (lines if len(lines) == 1 else [])
+    return {"value": _number(picked[0][1].strip())} if picked else {}
+
+
+def parse_sample_row(text: str, sample: str) -> dict[str, float | str]:
+    """A tab-separated table with a `Sample` column -> the row named `sample`, or
+    `sample.<anything>` (deepTools labels its rows `<sample>.mLb.clN`); {} when none is.
+    A plotFingerprint qcmetrics file also holds the control's row, which is not `sample`'s."""
+    for row in csv.DictReader(io.StringIO(text), delimiter="\t"):
+        name = (row.get("Sample") or "").strip()
+        if name == sample or name.startswith(sample + "."):
+            return {column: _number(cell.strip()) for column, cell in row.items()
+                    if column and column != "Sample" and cell is not None and cell.strip()}
+    return {}
+
+
+def parse_ataqv_metrics(text: str) -> dict[str, float | str]:
+    """ataqv's JSON (a list of one run, or the run itself) -> its `metrics` scalars:
+    `tss_enrichment` among them. The per-peak and per-fragment-length series are not scalars
+    and are dropped; text that is not ataqv's shape reads as empty."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return {}
+    run = doc[0] if isinstance(doc, list) and doc else doc
+    metrics = run.get("metrics") if isinstance(run, dict) else None
+    if not isinstance(metrics, dict):
+        return {}
+    return {key: value for key, value in metrics.items()
+            if isinstance(value, (int, float, str)) and not isinstance(value, bool)}
+
+
 def parse_multiqc_yaml_table(text: str) -> dict[str, dict[str, float | str]]:
     """A MultiQC data file written with `data_format: yaml` (nf-core/atacseq and
     nf-core/chipseq set it) -> {sample: {column: value}}, the shape

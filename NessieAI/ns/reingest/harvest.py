@@ -617,6 +617,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                     f"{row_counts[name]} contributing D.SEQ parents; Parent "
                     "will be a partial list")
         metrics = {**_module_metrics(name, module_tables),
+                   **_sample_file_metrics(base, name, pipeline_map, read, sources),
                    **_sample_metrics(name, stats, sample_names=set(row_counts),
                                      claimed=mapper.claimed_raw_keys(pipeline_map),
                                      row_suffixes=tuple(pipeline_map.qc_row_suffixes)
@@ -887,6 +888,36 @@ def _module_metrics(name: str, module_tables: dict[str, tuple[str, dict[str, dic
         row = table.get(f"{name}{suffix}") if suffix else None
         for column, value in (row if row is not None else table.get(name, {})).items():
             metrics[f"{namespace}-{column}"] = value
+    return metrics
+
+
+_SAMPLE_FILE_READERS = {
+    "value": parsers.parse_mqc_value,
+    "table": parsers.parse_sample_row,
+    "ataqv": lambda text, sample: parsers.parse_ataqv_metrics(text),
+}
+
+
+def _sample_file_metrics(base: Path, name: str, pipeline_map, read, sources: dict) -> dict:
+    """`name`'s values from the map's per-sample QC files (`maps.SampleFile`), keyed
+    `<namespace>-<column>`. The first file the glob matches for `name` is read; a file over
+    the harvest caps is recorded in `caps.truncated` by `read`, and leaves no value."""
+    metrics: dict = {}
+    for namespace, spec in (pipeline_map.sample_files.items() if pipeline_map is not None else ()):
+        pattern = spec.glob.replace(maps.SAMPLE_PLACEHOLDER, name)
+        match = next(iter(sorted(base.glob(pattern))), None)
+        if match is None:
+            continue
+        rel = str(match.relative_to(base))
+        text = read(rel)
+        if not text:
+            continue
+        values = _SAMPLE_FILE_READERS[spec.reader](text, name)
+        if spec.columns:
+            values = {c: v for c, v in values.items() if c in spec.columns}
+        if values:
+            sources.setdefault(f"metrics_{namespace}", spec.glob)
+        metrics.update({f"{namespace}-{column}": value for column, value in values.items()})
     return metrics
 
 

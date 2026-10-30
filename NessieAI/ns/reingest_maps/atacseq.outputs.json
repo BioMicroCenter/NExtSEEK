@@ -29,6 +29,12 @@
     "multiqc_samtools_flagstat.txt": {"namespace": "samtools_flagstat_lib", "suffix": "_T1",
                                       "columns": ["mapped_passed_pct"]}
   },
+  "sample_files": {
+    "fingerprint": {"glob": "*/merged_library/deeptools/plotfingerprint/<sample>.mLb.clN.plotFingerprint.qcmetrics.txt",
+                    "reader": "table", "columns": ["Synthetic JS Distance"]},
+    "ataqv": {"glob": "*/merged_library/ataqv/*/<sample>.ataqv.json", "reader": "ataqv",
+              "columns": ["tss_enrichment"]}
+  },
   "outputs": [
     {
       "id": "aln",
@@ -135,6 +141,16 @@
       "note": "samtools flagstat on each sequencing run's own alignment, before merging and filtering (MultiQC section 'LIB: SAMTools', rows <sample>_REP<n>_T<run>): the first of the release's four flagstat sections, so MultiQC 1.13 writes it as multiqc_samtools_flagstat.txt and the other three as _1 (merged library, unfiltered), _2 (filtered) and _3 (merged replicates); verified against multiqc_sources.txt on 2.1.2-local-test. mapped_passed_pct is already a percentage. A replicate sequenced once is its run _T1; one sequenced over several runs is a multi-run sample and gets no backfill.",
       "provenance": "seed"
     },
+    "FingerprintJSD": {
+      "from": "fingerprint-Synthetic JS Distance", "target": "D.SEQ", "datatype": "number",
+      "note": "deepTools plotFingerprint's Synthetic JS Distance: the Jensen-Shannon distance between the library's fingerprint (cumulative coverage over genome bins) and a uniform, synthetic one, 0 to 1, higher meaning more enrichment. The release passes no --JSDsample, so the plain JS Distance column is never written; verified on the narrow-peak -profile test run. Read from <sample>.mLb.clN.plotFingerprint.qcmetrics.txt (each replicate's merged, filtered library). Multi-run samples get no backfill.",
+      "provenance": "seed"
+    },
+    "TSSEnrichment": {
+      "from": "ataqv-tss_enrichment", "target": "D.SEQ", "datatype": "number",
+      "note": "ataqv's TSS enrichment score (metrics.tss_enrichment in <sample>.ataqv.json, each replicate's merged library): coverage at transcription start sites over flanking background, higher meaning better signal to noise. The JSON also lists every peak, so on a large run some files may exceed the harvest's caps and are then recorded as truncated and give no value. Verified on 2.1.2-local-narrow, where ataqv writes tss_enrichment as null for the single-end replicates (T100, T150), so they get none. Multi-run samples get no backfill.",
+      "provenance": "seed"
+    },
     "DuplicationPercent": {
       "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
       "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.13 writes it as multiqc_picard_dups.txt (1.13 writes its tables as text whatever the config's data_format: yaml says), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. The merged-replicate MarkDuplicates table MultiQC writes under its own anchor (mrep_picard) is not read: its rows are the replicate groups, which have no D.SEQ of their own. Table name, row names and the fraction checked against the 2.1.2 -profile test run (fixture 2.1.2-local-test)",
@@ -163,8 +179,8 @@
     {"glob": "*/merged_library/*.mLb.clN.bam", "why": "The orphan-removed alignment before sorting (with --save_align_intermeds): the same reads as the sorted clN BAM the aln rule registers."},
     {"glob": "*/merged_library/{samtools_stats,picard_metrics,preseq}/*", "why": "samtools, Picard and Preseq QC of the merged alignments; summarised in the MultiQC report."},
     {"glob": "*/merged_replicate/{samtools_stats,picard_metrics}/*", "why": "samtools and Picard QC of the merged-replicate alignments; summarised in the MultiQC report."},
-    {"glob": "*/merged_library/deeptools/*", "why": "deepTools plotFingerprint and plotProfile QC (enrichment and TSS profiles): plotted in the MultiQC report, not a sample result."},
-    {"glob": "*/merged_library/ataqv/*", "why": "ataqv's per-sample ATAC-seq QC JSON and its HTML viewer: QC; its TSS enrichment has no attribute yet and is listed for the owner."},
+    {"glob": "*/merged_library/deeptools/*", "why": "deepTools plotFingerprint and plotProfile QC (enrichment and TSS profiles): plotted in the MultiQC report, not a sample result. FingerprintJSD is read from the qcmetrics file (sample_files) onto the D.SEQ."},
+    {"glob": "*/merged_library/ataqv/*", "why": "ataqv's per-sample ATAC-seq QC JSON and its HTML viewer: QC. TSSEnrichment is read from the JSON (sample_files) onto the D.SEQ."},
     {"glob": "*/merged_{library,replicate}/macs2/*/*_peaks.{xls,gappedPeak}", "why": "MACS2's peak table and gapped peaks: the same calls as the narrowPeak or broadPeak file the peaks rules register."},
     {"glob": "*/merged_{library,replicate}/macs2/*/*_summits.bed", "why": "MACS2 summits (narrow mode): one point per registered peak, derived from the same call."},
     {"glob": "*/merged_{library,replicate}/macs2/*/*.annotatePeaks.txt", "why": "HOMER peak-to-gene annotation of the registered peaks (and of the consensus set): an annotation a user can rebuild from the registered files, and a peak row's one secondary slot is kept for its own losing variant (G-4)."},

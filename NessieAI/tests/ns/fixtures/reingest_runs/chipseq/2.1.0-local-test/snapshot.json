@@ -41,8 +41,10 @@
    "attributes": [
     "Antibody",
     "DataType",
+    "FRiPPercent",
     "File_PrimaryData",
     "Link_PrimaryData",
+    "PeakCount",
     "Pipeline"
    ],
    "rows": 4,

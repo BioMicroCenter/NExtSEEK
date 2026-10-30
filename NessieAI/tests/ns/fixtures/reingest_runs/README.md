@@ -23,10 +23,18 @@ There are three ways to make one, and each is evidence for a rule (G-7 in
   cluster. `launch_record.json` is a stub (empty cohort) to complete by hand from the
   PipelineRun.
 - **From a `-profile test,docker` run on a workstation**, with `make_fixture.sh --local`,
-  which touches no cluster. The folder is `<version>-local-test`, and its `EVIDENCE.txt`
-  says where it came from. nf-core writes its iGenomes catalogue (`genomes`) and the
-  `igenomes_base` and `custom_config_base` URLs into the params JSON, which the sanitizer
-  refuses: drop `genomes` and blank the other two in the run's copy before importing.
+  which touches no cluster. The folder is `<version>-local-test`, or
+  `<version>-local-<variant>` for a run with non-default params (`2.1.0-local-narrow`,
+  `4.2.0-local-bwameth`), and its `EVIDENCE.txt` says where it came from. nf-core writes
+  its iGenomes catalogue (`genomes`) and the `igenomes_base` and `custom_config_base` URLs
+  into the params JSON, which the sanitizer refuses: drop `genomes` and blank the other two
+  in the run's copy before importing. Pass the launch folder and the Nextflow home
+  (`$NXF_HOME`, whose asset cache the params name) as extra prefixes.
+- `make_fixture.sh` trims two kinds of file before sanitizing, and lists each trim in
+  `EVIDENCE.txt`: a MultiQC custom-content `*_mqc.tsv` loses its `#` header lines (display
+  settings, and a tool's homepage URL the sanitizer would refuse; the harvest skips them),
+  and an ataqv JSON keeps only its scalar metrics (the per-peak and per-length series make
+  it hundreds of KB, and the harvest reads only `tss_enrichment`).
 
 Both build the fixture in a temporary folder and run `scripts/reingest/sanitize_fixture.py`
 over it, which rewrites the run directory (and any extra prefixes) to `/RUN` and scans

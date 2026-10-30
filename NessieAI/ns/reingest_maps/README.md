@@ -91,7 +91,20 @@ data), all under `NessieAI/tests/ns/reingest/`; and the link test
   MultiQC writes no general-stats table (atacseq and chipseq exclude it). MultiQC's
   `data_format: yaml` writes `.yaml` tables, which are staged only through this map's
   `harvest_globs`; list the `.txt` name too when the format is unsure. A plot's data file
-  (`picard_deduplication.yaml`) reads the same way, one row per sample.
+  (`picard_deduplication.yaml`) reads the same way, one row per sample. `shape: bargraph`
+  reads MultiQC's custom-content bar graph (atacseq's `multiqc_mlib_frip_score-plot.txt`:
+  each row's one value under a column named after the row or its file) as the single metric
+  `<namespace>-value`; `columns` names the only columns read, so a 35-column flagstat
+  table yields the one a rule wants and nothing for the review queue. A replicate group's
+  own rows (atacseq's merged-replicate `mrep` tables) become `RunManifest.group_metrics`,
+  which the group's merged row reads as its metrics.
+- `sample_files` — per-sample QC files outside MultiQC's tables, by metric namespace, each
+  a `glob` with `<sample>` for the sample's name (staged with `*` in its place) and a
+  `reader`: `value` (a one-value custom-content `*_mqc.tsv`), `table` (a `Sample`-headed
+  table, read from the row named `<sample>` or `<sample>.<suffix>`) or `ataqv` (the JSON's
+  scalar metrics); `columns` as for module tables. chipseq reads its FRiP, peak count and
+  phantompeakqualtools coefficients this way, both maps their plotFingerprint metrics, and
+  atacseq ataqv's TSS enrichment.
 - `inventory_globs` — this map's own inventory patterns (see "Inventory" below).
   Each must start with `**/`; the stager lists the union of these across every map
   and `harvest.CORE_INVENTORY_GLOBS`.
@@ -309,58 +322,48 @@ Evidence for a rule (G-7) is a fixture folder under
 `NessieAI/tests/ns/fixtures/reingest_runs/`; how to make one, and how its snapshot is
 regenerated, is in `NessieAI/tests/ns/fixtures/reingest_runs/README.md`.
 
-### Maps written from the docs, then checked on a test run
+### Maps written from the docs
 
-The owner waived G-7's fixture for these releases: they have no nf-test snapshot, and
-nf-core's published results hold partial files and no MultiQC. Their file rules come
-from the release's pinned docs/output.md (committed as
-`NessieAI/tests/chat_nextseek/fixtures/nfcore/<pipeline>.output.md`), checked against
-its `conf/modules.config`. `test_doc_only_maps.py` checks that every folder a rule names
-is one that output.md documents. Each release's own `-profile test` run is now a fixture
-too (`<version>-local-test`, made with `scripts/reingest/make_fixture.sh --local`), but
-both test profiles call broad peaks only, so the narrow-peak rules still rest on the docs
-alone. A map file cannot say this itself (`PipelineMap` forbids unknown keys), so this
-table does. Delete a row, with its entry in `DOC_ONLY`, when run fixtures cover every
-rule's folder (a narrow-peak run as well).
+The owner may waive G-7's fixture for a release with no nf-test snapshot and no usable
+published results. Its file rules then come from the release's pinned docs/output.md
+(committed as `NessieAI/tests/chat_nextseek/fixtures/nfcore/<pipeline>.output.md`), checked
+against its `conf/modules.config`, and `test_doc_only_maps.py` checks that every folder a
+rule names is one that output.md documents (`DOC_ONLY`). A map file cannot say this itself
+(`PipelineMap` forbids unknown keys), so `DOC_ONLY` and a row here do. Delete both when run
+fixtures cover every rule's folder.
 
-| Pipeline | Release | Evidence | QC |
+atacseq 2.1.2 and chipseq 2.1.0 began this way and have left it: each release's broad- and
+narrow-peak `-profile test` runs (`<version>-local-test` and `<version>-local-narrow`, made
+with `scripts/reingest/make_fixture.sh --local`) match every pattern of every rule, so
+`DOC_ONLY` is empty and no map is listed here.
+
+### atacseq and chipseq: QC without general stats
+
+Both releases' `assets/multiqc_config.yml` set `exclude_modules: general_stats`, so no
+`multiqc_general_stats.txt` is written, and `data_format: yaml`, which atacseq's MultiQC 1.13
+does not apply to its tables (they are `.txt`) and chipseq's MultiQC 1.23 does: it writes no
+table files at all, only plot data and `multiqc_data.json`, which the harvest does not read.
+Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill; only
+lanes of one replicate, a multi-run sample, get none (`mapper._NO_BACKFILL`), as in every
+pipeline. Where each value comes from (owner's ruling of 2026-10-30 on the peak-quality
+metrics: a peak set's own on its A.CHRM row, a library's on its D.SEQ):
+
+| Attribute | Row | atacseq 2.1.2 | chipseq 2.1.0 |
 |---|---|---|---|
-| atacseq | 2.1.2 | pinned docs/output.md, and the `-profile test` run `2.1.2-local-test` (broad peaks) | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. The same config sets `data_format: yaml`, which MultiQC 1.13 does not apply to its tables: they are `.txt`. D.SEQ gets `Link_QC`, `Genome` and `DuplicationPercent`, read from the `multiqc_picard_dups` module table (below) |
-| chipseq | 2.1.0 | pinned docs/output.md, and the `-profile test` run `2.1.0-local-test` (broad peaks) | none from general stats, as for atacseq. With `data_format: yaml`, MultiQC 1.23 writes no table files at all: the module tables reach only `multiqc_data.json`, which the harvest does not read. `DuplicationPercent` is computed from the Picard deduplication bar plot's data file instead (below) |
+| `DuplicationPercent` | D.SEQ | `multiqc_picard_dups` (module table; Picard's 0-1 fraction, x100 by `$derived.duplication_pct`) | `picard_deduplication.yaml`, the bar plot's read counts: duplicates over duplicates plus unique, Picard's own rate |
+| `MappedPercent` | D.SEQ | `multiqc_samtools_flagstat.txt`, the first of four flagstat sections (each run's own alignment, rows `<sample>_REP<n>_T<run>`; checked against `multiqc_sources.txt`), column `mapped_passed_pct` only | none: the release publishes flagstat only for the filtered alignment (100% mapped by construction); the per-library one is only in `multiqc_data.json` |
+| `FRiPPercent`, `PeakCount` | A.CHRM peak row | MultiQC's custom-content bar graphs (`shape: bargraph`): `mlib_*` for a replicate's peaks, `mrep_*` for a merged replicate's, through `RunManifest.group_metrics` | the per-sample `<sample>.FRiP_mqc.tsv` and `.peak_count_mqc.tsv` (`sample_files`) |
+| `NSC`, `RSC` | D.SEQ | (no phantompeakqualtools) | `<sample>.spp_nsc_mqc.tsv`, `.spp_rsc_mqc.tsv`; inputs get them too |
+| `FingerprintJSD` | D.SEQ | `<sample>.mLb.clN.plotFingerprint.qcmetrics.txt`, `Synthetic JS Distance` | the same file, the IP's own row; inputs get none |
+| `TSSEnrichment` | D.SEQ | `<sample>.ataqv.json`, `metrics.tss_enrichment`; null, so absent, for single-end libraries | (no ataqv) |
 
-Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill
-(`Link_QC`, `Genome`, `DuplicationPercent`); only lanes of one replicate, a multi-run sample, get none
-(`mapper._NO_BACKFILL`), as in every pipeline.
-
-**QC from module tables.** Without general stats, a map reads MultiQC's per-module data
-files through `module_tables`. Both maps read `multiqc_picard_dups` (Picard MarkDuplicates on
-each replicate's merged library, before filtering; the configs' only MarkDuplicates section
-without an anchor, so MultiQC names it plainly, while atacseq's merged-replicate one is
-`multiqc_picard_dups_mrep_picard` and is not read). It holds Picard's 0-1 fraction, so
-`DuplicationPercent` reads `$derived.duplication_pct`; its other columns are ruled out.
-chipseq's MultiQC 1.23 writes that table only into `multiqc_data.json`, so its map also reads
-`picard_deduplication.yaml`, the bar plot's read counts per category (namespace
-`picard_dedup_plot`), and `$derived.duplication_pct` falls back to duplicate reads over
-duplicate plus unique reads, which is Picard's own rate; the categories are ruled out. The
-releases write no other QC metric that an existing D.SEQ, A.CHRM or A.ALN attribute means.
-These have no attribute yet; each is a schema request, with the table it would come from
-(names from MultiQC's source and the releases' configs; the FRiP, peak count, NSC/RSC,
-fingerprint and ataqv outputs are present in the test runs, and chipseq's tables are in
-`multiqc_data.json` only, so reading any of them there needs a reader for that file):
-
-| Metric | Pipelines | Where it is | Would fit |
-|---|---|---|---|
-| FRiP (fraction of reads in peaks) | both | custom content `multiqc_mlib_frip_score-plot` (atacseq; `multiqc_mrep_...` for merged replicates) or `multiqc_frip_score-plot` (chipseq); one value per row, under a column named after the row | A.CHRM, per peak row |
-| Peak count | both | custom content `multiqc_mlib_peak_count-plot` / `multiqc_peak_count-plot`, same shape | A.CHRM, per peak row |
-| NSC and RSC (strand cross-correlation) | chipseq | `multiqc_phantompeakqualtools` (columns `NSC`, `RSC`), also custom content `multiqc_{nsc,rsc}_coefficient-plot` | D.SEQ or A.ALN |
-| Fingerprint JS distance, synthetic AUC | both | not in MultiQC: only plotFingerprint's raw counts reach it; the `*.plotFingerprint.qcmetrics.txt` beside them is published but not inventoried | A.ALN |
-| Library complexity (Preseq) | both | a curve in MultiQC, no single value; Picard's `ESTIMATED_LIBRARY_SIZE` is the scalar the run has | D.SEQ |
-| TSS enrichment | atacseq | ataqv's JSON only (`*/merged_library/ataqv/`), not in MultiQC | D.SEQ or A.CHRM |
-| Mapped share | both | `multiqc_samtools_flagstat` for four samtools sections (library, merged library before and after filtering, merged replicates) with no anchors, so the tables are told apart only by an order a real run must confirm | D.SEQ `MappedPercent` (exists) |
-
-The custom-content tables keep each value under a column named after its own row (MultiQC's
-two-column bargraph shape), so reading them needs a harvest reader for that shape as well as
-the attribute.
+FRiP is reads in peaks over mapped reads, a 0-1 fraction in both releases' scripts, so
+`$derived.frip_pct` multiplies it by 100. Neither release passes plotFingerprint a
+`--JSDsample`, so only the synthetic Jensen-Shannon distance (against uniform coverage) is
+written. An ataqv JSON lists every peak; a large run's files can exceed the harvest caps, and
+those samples then have no TSS enrichment (recorded as truncated). Consensus peak rows carry
+no FRiP or peak count: no table holds one for them. Library complexity (Preseq is a curve;
+Picard's `ESTIMATED_LIBRARY_SIZE` is ruled out) has no attribute.
 
 A.CHRM rows carry a `Name` (`@row_name`) and, for chipseq, the `Antibody` their
 replicate's samplesheet names (`$samplesheet.antibody`; blank for the input controls),
@@ -369,7 +372,7 @@ each (`consensus_narrow` or `consensus_broad`, one `alternative_group`), parente
 that antibody's samples (`parents_by_samplesheet`), with its `featureCounts.txt` as
 companion. A companion of an A.CHRM row (atacseq's consensus `featureCounts.txt`) goes to
 `File_SecondaryData`, then `Notes`, on an instance whose A.CHRM has them (the local stack,
-until dev and prod are widened: the row above), and to the build report elsewhere. A
+until dev and prod are widened), and to the build report elsewhere. A
 merged-replicate group's row names its replicates' own peaks or bigWigs in `Notes` (or the
 build report), never in `File_SecondaryData`: one replicate's output is not the group's
 secondary data (G-4).
@@ -385,8 +388,9 @@ With `--rrbs` or `--skip_deduplication` deduplication is skipped, so the sorted 
 `alignments/<sample>.bam` is ruled out, as Bismark's unsorted BAM is, and the sorted BAM
 before deduplication is a losing candidate of the aln rule: A.ALN's one secondary slot holds
 the index and A.ALN has no `Notes`, so it is named in the build report. A snapshot holds no
-MultiQC values, so the map's QC keys are checked against `4.2.0-local-test`, the release's
-own `-profile test` run (Bismark only), by `test_qc_completeness_dna.py`.
+MultiQC values, so the map's QC keys are checked against the release's own `-profile test`
+runs by `test_qc_completeness_dna.py`: `4.2.0-local-test` (Bismark) and `4.2.0-local-bwameth`
+(`--aligner bwameth`, whose samtools and Picard keys are the QC rules' alternates).
 
 ## Filling in a stub
 

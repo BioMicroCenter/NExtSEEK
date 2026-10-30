@@ -1,0 +1,7 @@
+Sample	8	13	22	27	32	37	8	13	22	27	32	37	8	13	22	27	32	37	8	13	22	27	32	37	8	13	22	27	32	37	8	13	22	27	32	37
+OSMOTIC_STRESS_T0_PE_REP1																																				
+OSMOTIC_STRESS_T0_PE_REP2																																				
+OSMOTIC_STRESS_T100_SE_REP1																																				
+OSMOTIC_STRESS_T100_SE_REP2																																				
+OSMOTIC_STRESS_T150_SE_REP1																																				
+OSMOTIC_STRESS_T15_PE_REP1																																				

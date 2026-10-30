@@ -1,0 +1,36 @@
+SPT5_INPUT_REP1:
+  Duplicate Pairs Nonoptical: 56
+  Duplicate Unpaired: 3
+  Unique Pairs: 187742
+  Unique Unpaired: 30
+  Unmapped: 11277
+SPT5_INPUT_REP2:
+  Duplicate Pairs Nonoptical: 46
+  Duplicate Unpaired: 4
+  Unique Pairs: 192034
+  Unique Unpaired: 34
+  Unmapped: 6962
+SPT5_T0_REP1:
+  Duplicate Pairs Nonoptical: 8910
+  Duplicate Unpaired: 233
+  Unique Pairs: 180938
+  Unique Unpaired: 256
+  Unmapped: 9175
+SPT5_T0_REP2:
+  Duplicate Pairs Nonoptical: 10364
+  Duplicate Unpaired: 251
+  Unique Pairs: 174538
+  Unique Unpaired: 270
+  Unmapped: 13997
+SPT5_T15_REP1:
+  Duplicate Pairs Nonoptical: 6562
+  Duplicate Unpaired: 147
+  Unique Pairs: 181730
+  Unique Unpaired: 277
+  Unmapped: 10822
+SPT5_T15_REP2:
+  Duplicate Pairs Nonoptical: 5854
+  Duplicate Unpaired: 192
+  Unique Pairs: 182042
+  Unique Unpaired: 320
+  Unmapped: 11066

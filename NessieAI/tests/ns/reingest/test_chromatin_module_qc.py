@@ -1,4 +1,4 @@
-"""atacseq and chipseq QC from MultiQC module tables, on synthetic tables.
+"""atacseq and chipseq QC from MultiQC module tables and per-sample QC files.
 
 Both releases exclude MultiQC's general-stats table and ask for YAML data files
 (`data_format: yaml`), so their maps read QC from `module_tables`: Picard MarkDuplicates'
@@ -289,3 +289,72 @@ def test_atacseq_mapped_percent_is_each_runs_own_flagstat_before_merging():
     sample = next(s for s in run.samples if s.nfcore_sample == "OSMOTIC_STRESS_T0_PE_REP1")
     assert {k for k in sample.metrics if k.startswith("samtools_flagstat_lib-")} == {
         "samtools_flagstat_lib-mapped_passed_pct"}
+
+
+# ---- per-sample QC files (maps.SampleFile) ------------------------------------------------------
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "reingest_runs"
+
+
+def test_a_one_value_custom_content_file_reads_its_samples_line():
+    text = "#id: 'nsc_coefficient'\n#plot_type: 'bargraph'\nSPT5_T0_REP1\t1.465785\n"
+    assert parsers.parse_mqc_value(text, "SPT5_T0_REP1") == {"value": 1.465785}
+    assert parsers.parse_mqc_value(text, "OTHER") == {"value": 1.465785}  # the file's only line
+    assert parsers.parse_mqc_value("A\t1\nB\t2\n", "C") == {}            # neither named nor alone
+
+
+def test_a_fingerprint_table_reads_the_samples_own_row_not_its_controls():
+    text = ("Sample\tAUC\tSynthetic JS Distance\n"
+            "SPT5_T0_REP1\t0.10\t0.596\n"
+            "SPT5_INPUT_REP1\t0.31\t0.261\n")
+    assert parsers.parse_sample_row(text, "SPT5_T0_REP1") == {"AUC": 0.10, "Synthetic JS Distance": 0.596}
+    atac = "Sample\tSynthetic JS Distance\nOSMOTIC_STRESS_T0_PE_REP1.mLb.clN\t0.589\n"
+    assert parsers.parse_sample_row(atac, "OSMOTIC_STRESS_T0_PE_REP1") == {"Synthetic JS Distance": 0.589}
+    assert parsers.parse_sample_row(atac, "OSMOTIC_STRESS_T0_PE") == {}
+
+
+def test_ataqv_metrics_keep_scalars_only():
+    text = json.dumps([{"ataqv_version": "1.3.1", "metrics": {
+        "name": "S", "tss_enrichment": 1.41, "peaks": [[1, 2]], "tss_coverage": [1, 2],
+        "paired": True}}])
+    assert parsers.parse_ataqv_metrics(text) == {"name": "S", "tss_enrichment": 1.41}
+    assert parsers.parse_ataqv_metrics("not json") == {}
+
+
+def test_a_sample_file_glob_must_name_the_sample_and_is_staged_with_a_wildcard():
+    with pytest.raises(ValueError, match="<sample>"):
+        maps.SampleFile(glob="*/qc/frip.tsv", reader="value")
+    spec = maps.SampleFile(glob="*/qc/<sample>.FRiP_mqc.tsv", reader="value")
+    assert spec.staged_glob() == "*/qc/*.FRiP_mqc.tsv"
+    assert "*/merged_library/phantompeakqualtools/*.spp_nsc_mqc.tsv" in harvest.staged_globs()
+    assert "*/merged_library/ataqv/*/*.ataqv.json" in harvest.staged_globs()
+
+
+def test_chipseq_narrow_run_gives_peak_rows_frip_and_count_and_libraries_their_coefficients():
+    run, rows = _fixture_peak_rows(FIXTURES / "chipseq" / "2.1.0-local-narrow", "chipseq")
+    assert {name: (row["FRiPPercent"], row["PeakCount"]) for name, row in rows.items()} == {
+        "SPT5_T0_REP1": (34.4185, 779), "SPT5_T0_REP2": (34.5988, 568),
+        "SPT5_T15_REP1": (30.3395, 713), "SPT5_T15_REP2": (29.9154, 772)}
+    result = mapper.apply(run, maps.load("chipseq"), context=CONTEXT)
+    backfill = {r.nfcore_sample: {k: v.value for k, v in r.attributes.items()}
+                for r in result.rows if r.uid}
+    assert backfill["SPT5_T0_REP1"]["NSC"] == 1.465785
+    assert backfill["SPT5_T0_REP1"]["RSC"] == 0.9126109
+    assert backfill["SPT5_T0_REP1"]["FingerprintJSD"] == 0.596225904658976
+    # An input is fingerprinted only as its IP's control: NSC and RSC, no fingerprint row.
+    assert {"NSC", "RSC"} <= set(backfill["SPT5_INPUT_REP1"])
+    assert "FingerprintJSD" not in backfill["SPT5_INPUT_REP1"]
+    assert result.unmapped == []
+
+
+def test_atacseq_narrow_run_gives_libraries_fingerprint_and_paired_end_tss_enrichment():
+    run, _rows = _fixture_peak_rows(FIXTURES / "atacseq" / "2.1.2-local-narrow")
+    result = mapper.apply(run, maps.load("atacseq"), context=CONTEXT)
+    backfill = {r.nfcore_sample: {k: v.value for k, v in r.attributes.items()}
+                for r in result.rows if r.uid}
+    assert backfill["OSMOTIC_STRESS_T0_PE_REP1"]["TSSEnrichment"] == 1.40932363769605
+    assert backfill["OSMOTIC_STRESS_T0_PE_REP1"]["FingerprintJSD"] == 0.5894747764691485
+    # ataqv writes tss_enrichment as null for a single-end library: no value, not zero.
+    assert "TSSEnrichment" not in backfill["OSMOTIC_STRESS_T100_SE_REP1"]
+    assert "FingerprintJSD" in backfill["OSMOTIC_STRESS_T100_SE_REP1"]
+    assert result.unmapped == []

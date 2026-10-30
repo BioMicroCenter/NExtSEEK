@@ -78,6 +78,9 @@ inventory += [p for m in sorted((work / "maps").glob("*.json"))
               for p in json.loads(m.read_text()).get("inventory_globs", [])]
 extra = [p for m in sorted((work / "maps").glob("*.json"))
          for p in json.loads(m.read_text()).get("harvest_globs", [])]
+# A map's per-sample QC files, with * for <sample>: maps.SampleFile.staged_glob.
+extra += [f["glob"].replace("<sample>", "*") for m in sorted((work / "maps").glob("*.json"))
+          for f in json.loads(m.read_text()).get("sample_files", {}).values()]
 inventory_names = {p.rsplit("/", 1)[-1] for p in inventory}   # same rule as harvest.staged_globs
 staged = list(dict.fromkeys(consts["GENERIC_GLOBS"]
                             + [p for p in extra if p.rsplit("/", 1)[-1] not in inventory_names]))

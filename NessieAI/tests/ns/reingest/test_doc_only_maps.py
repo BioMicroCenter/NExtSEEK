@@ -1,10 +1,11 @@
 """Maps written from a release's pinned docs/output.md alone, with no run fixture.
 
-nf-core/atacseq 2.1.2 and nf-core/chipseq 2.1.0 have no nf-test snapshot and no
-usable published results, so the owner waived G-7's fixture for them: their file
-rules come from the pinned output docs (committed beside the other nf-core docs
-under NessieAI/tests/chat_nextseek/fixtures/nfcore/), and stay unverified until a
-real run. test_fixture_runs.py cannot catch a typo'd folder in such a map, and a
+A release with no nf-test snapshot and no usable published results may have G-7's
+fixture waived by the owner, as nf-core/atacseq 2.1.2 and nf-core/chipseq 2.1.0 did:
+its file rules then come from the pinned output docs (committed beside the other
+nf-core docs under NessieAI/tests/chat_nextseek/fixtures/nfcore/), and stay
+unverified until a real run. Those two now have test-run fixtures for every rule, so
+DOC_ONLY is empty and the checks below wait for the next such map. test_fixture_runs.py cannot catch a typo'd folder in such a map, and a
 rule whose folder is wrong matches nothing on a real run, silently. This file is
 the check that is left: every folder a rule's patterns name is a folder the
 release's output.md documents.
@@ -28,23 +29,20 @@ DOCS = Path(__file__).resolve().parents[2] / "chat_nextseek" / "fixtures" / "nfc
 README = maps.MAPS_DIR / "README.md"
 
 #: pipeline -> its pinned output docs. Remove an entry when run fixtures cover every rule's
-#: folder: the -profile test runs (`<version>-local-test`) call broad peaks only.
-DOC_ONLY = {"atacseq": "atacseq.output.md", "chipseq": "chipseq.output.md"}
+#: folder. Empty since 2026-10-30: atacseq 2.1.2's and chipseq 2.1.0's broad- and narrow-peak
+#: -profile test runs (`<version>-local-test`, `<version>-local-narrow`) match every pattern
+#: of every rule, and their snapshots now catch a rule whose folder is wrong. The checks stay
+#: for the next map written from docs alone (README "Maps written from the docs").
+DOC_ONLY: dict[str, str] = {}
 
 #: Folders an output.md documents only by saying they mirror another, as {pipeline:
 #: {folder: (its documented twin, the sentence of the docs that says so, the subfolders
 #: conf/modules.config publishes under it)}}. A pattern's folder under one of those
 #: subfolders is checked as the twin's; any other subfolder stays undocumented, so a
-#: rule cannot name a merged_replicate/ folder the release never writes. atacseq's
-#: "Merged replicate-level analysis" section lists no files of its own; its
-#: modules.config publishes these under merged_replicate/ (no preseq/, deeptools/,
-#: ataqv/ or sizeFactors/ there).
-TWINS = {"atacseq": {"merged_replicate": (
-    "merged_library",
-    "The analysis steps and directory structure for `<ALIGNER>/merged_library/` and "
-    "`<ALIGNER>/merged_replicate/` are almost identical.",
-    ("", "bigwig", "bigwig/scale", "picard_metrics", "samtools_stats", "macs2/*",
-     "macs2/*/qc", "macs2/*/consensus", "macs2/*/consensus/deseq2"))}}
+#: rule cannot name a merged_replicate/ folder the release never writes. While atacseq 2.1.2
+#: was docs-only, its merged_replicate/ was one: its output.md's "Merged replicate-level
+#: analysis" section lists no files of its own.
+TWINS: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {}
 
 _PLACEHOLDER = re.compile(r"<[A-Z_]+>")
 
@@ -135,7 +133,17 @@ def test_the_readme_names_the_docs_as_evidence(pipeline):
     assert rows, f"README's doc-only map table has no row for {pipeline}"
 
 
-def test_the_check_catches_a_typo_and_a_wildcard_where_a_folder_is_named():
+#: atacseq 2.1.2's entry while it was docs-only: the helper's test keeps it as its example.
+_EXAMPLE_TWINS = {"atacseq": {"merged_replicate": (
+    "merged_library",
+    "The analysis steps and directory structure for `<ALIGNER>/merged_library/` and "
+    "`<ALIGNER>/merged_replicate/` are almost identical.",
+    ("", "bigwig", "bigwig/scale", "picard_metrics", "samtools_stats", "macs2/*",
+     "macs2/*/qc", "macs2/*/consensus", "macs2/*/consensus/deseq2"))}}
+
+
+def test_the_check_catches_a_typo_and_a_wildcard_where_a_folder_is_named(monkeypatch):
+    monkeypatch.setitem(globals(), "TWINS", _EXAMPLE_TWINS)
     folders = documented_folders(
         "- `<ALIGNER>/merged_library/macs2/<PEAK_TYPE>/`\n- `fastqc/zips/`\n")
     assert undocumented("*/merged_library/macs2/narrow_peak/*.narrowPeak", folders) == []

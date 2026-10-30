@@ -46,6 +46,32 @@ if [ ${#local_flag[@]} -gt 0 ]; then
   printf 'nf-core/%s %s, -profile test,docker, run on a workstation (make_fixture.sh --local), read %s.\nThe test profile'"'"'s own samplesheet and data; launch_record.json is a stub with an empty cohort.\n' \
     "$pipeline" "${version%%-*}" "$(date +%F)" > "$stage/EVIDENCE.txt"
 fi
+# Two trims, both recorded in EVIDENCE.txt. A MultiQC custom-content file's `#` lines are its
+# display settings (and a tool's homepage URL, which the sanitizer refuses); the harvest skips
+# them. An ataqv JSON lists every peak and fragment length; the harvest reads only its scalar
+# metrics, so the series go and a fixture stays small.
+python3 - "$stage" <<'PY'
+import json, pathlib, sys
+dest = pathlib.Path(sys.argv[1])
+notes = []
+for path in sorted(dest.rglob("*_mqc.tsv")):
+    lines = path.read_text().splitlines(keepends=True)
+    kept = [line for line in lines if not line.startswith("#")]
+    if len(kept) < len(lines):
+        path.write_text("".join(kept))
+        notes.append(f"{path.relative_to(dest)}: MultiQC header lines (#) removed")
+for path in sorted(dest.rglob("*.ataqv.json")):
+    doc = json.loads(path.read_text())
+    runs = doc if isinstance(doc, list) else [doc]
+    for run in runs:
+        metrics = run.get("metrics") or {}
+        run["metrics"] = {k: v for k, v in metrics.items() if not isinstance(v, (list, dict))}
+    path.write_text(json.dumps(doc, indent=1) + "\n")
+    notes.append(f"{path.relative_to(dest)}: per-peak and per-length series removed, scalar metrics kept")
+if notes and (dest / "EVIDENCE.txt").is_file():
+    with open(dest / "EVIDENCE.txt", "a") as fh:
+        fh.write("Trimmed on import (make_fixture.sh):\n" + "".join(f"- {n}\n" for n in notes))
+PY
 if [ ! -f "$stage/launch_record.json" ]; then
   printf '{"run_dir": "%s", "pipeline": "nf-core/%s", "revision": "%s", "cohort": []}\n' \
     "$remote" "$pipeline" "${version%%-*}" > "$stage/launch_record.json"

@@ -1,0 +1,10 @@
+10.1093/bioinformatics/btw354                      # MultiQC
+10.14806/ej.17.1.200                               # cutadapt
+10.1093/bioinformatics/btp352                      # Samtools
+10.1093/bioinformatics/btp352                      # Samtools-1
+10.1093/bioinformatics/btp352                      # Samtools-2
+10.1093/nar/gkw257                                 # mlib_deeptools
+10.1093/bioinformatics/btt656                      # mlib_featurecounts
+10.1093/bioinformatics/btp352                      # Samtools-3
+10.1093/bioinformatics/btt656                      # mrep_featurecounts
+

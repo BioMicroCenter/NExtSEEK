@@ -276,6 +276,38 @@ class ModuleTable(BaseModel):
     columns: list[str] = Field(default_factory=list)
 
 
+SAMPLE_PLACEHOLDER = "<sample>"
+
+
+class SampleFile(BaseModel):
+    """A per-sample QC file a tool writes outside MultiQC's tables, found by `glob` with
+    `<sample>` standing for the sample's name (`<` and `>` are not glob or brace syntax,
+    so the stager copies the pattern with `*` in its place). Its values become the
+    sample's metrics `<namespace>-<column>`, like a module table's:
+
+    - `value`: a MultiQC custom-content file, `<name>\t<value>` under `#` header lines
+      (chipseq's `<sample>.FRiP_mqc.tsv`, `.spp_nsc_mqc.tsv`): the column `value`;
+    - `table`: a tab-separated table with a `Sample` header, read from the row named
+      `<sample>` or `<sample>.<anything>` (deepTools plotFingerprint's qcmetrics, which
+      also holds the control's row);
+    - `ataqv`: ataqv's JSON, its `metrics` scalars.
+
+    `columns`, when set, are the only ones read."""
+    model_config = ConfigDict(extra="forbid")
+    glob: str
+    reader: Literal["value", "table", "ataqv"]
+    columns: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _names_the_sample(self):
+        if SAMPLE_PLACEHOLDER not in self.glob:
+            raise ValueError(f"a sample file's glob must contain {SAMPLE_PLACEHOLDER}: {self.glob}")
+        return self
+
+    def staged_glob(self) -> str:
+        return self.glob.replace(SAMPLE_PLACEHOLDER, "*")
+
+
 class VersionOverride(BaseModel):
     """Rules for one release range. An output with an existing id replaces that
     base rule, a new id adds a rule, and `drop` removes base rules by id."""
@@ -333,6 +365,10 @@ class PipelineMap(BaseModel):
     #: `data_format: yaml`) also needs a `harvest_globs` entry: only `.txt` tables are
     #: staged for every pipeline.
     module_tables: dict[str, ModuleTable] = Field(default_factory=dict)
+    #: Per-sample QC files outside MultiQC's tables, by metric namespace (chipseq's
+    #: phantompeakqualtools coefficients, deepTools fingerprint metrics, ataqv's TSS
+    #: enrichment). Staged with `<sample>` as `*`; see `SampleFile`.
+    sample_files: dict[str, SampleFile] = Field(default_factory=dict)
     #: When true, the fixture contract test requires every file in a run to be a rule's
     #: candidate or companion, or to match an `unmapped_files` glob.
     claims_every_file: bool = False
@@ -362,6 +398,17 @@ class PipelineMap(BaseModel):
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""
         return {entry.key for entry in self.deliberately_unmapped}
+
+    @model_validator(mode="after")
+    def sample_file_namespaces(self):
+        """A metric key is `<namespace>-<column>`, split at its first `-`, so a sample
+        file's namespace has a module table's shape and is not also a module table's."""
+        tables = {t.namespace for t in self.module_tables.values()}
+        for namespace in self.sample_files:
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", namespace) or namespace in tables:
+                raise ValueError(f"sample file namespace {namespace!r} must be lower_snake_case "
+                                 "and not a module table's")
+        return self
 
     @model_validator(mode="after")
     def computed_names_must_exist(self):
@@ -515,7 +562,8 @@ def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, lis
 
 
 def all_harvest_globs() -> tuple[str, ...]:
-    """Every committed map's ``harvest_globs``, deduplicated, in a stable order.
+    """Every committed map's ``harvest_globs`` and ``sample_files`` (each with ``*`` for
+    ``<sample>``), deduplicated, in a stable order.
 
     The UNION across pipelines, not one map's list, because staging happens
     before the pipeline is known: `run-harvest` copies files off the cluster and
@@ -535,10 +583,13 @@ def all_harvest_globs() -> tuple[str, ...]:
     seen: dict[str, None] = {}
     for pipeline in available():
         try:
-            for pattern in load(pipeline).harvest_globs:
-                seen.setdefault(pattern, None)
+            pipeline_map = load(pipeline)
         except Exception:
             continue
+        for pattern in pipeline_map.harvest_globs:
+            seen.setdefault(pattern, None)
+        for sample_file in pipeline_map.sample_files.values():
+            seen.setdefault(sample_file.staged_glob(), None)
     return tuple(seen)
 
 

@@ -1,0 +1,23 @@
+nf-core/chipseq 2.1.0, -profile test,docker, run on a workstation (make_fixture.sh --local), read 2026-10-30.
+The test profile's own samplesheet and data; launch_record.json is a stub with an empty cohort.
+Trimmed on import (make_fixture.sh):
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T0_REP1.FRiP_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T0_REP1.peak_count_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T0_REP2.FRiP_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T0_REP2.peak_count_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T15_REP1.FRiP_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T15_REP1.peak_count_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T15_REP2.FRiP_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/macs3/narrow_peak/qc/SPT5_T15_REP2.peak_count_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_INPUT_REP1.spp_nsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_INPUT_REP1.spp_rsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_INPUT_REP2.spp_nsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_INPUT_REP2.spp_rsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T0_REP1.spp_nsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T0_REP1.spp_rsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T0_REP2.spp_nsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T0_REP2.spp_rsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T15_REP1.spp_nsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T15_REP1.spp_rsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T15_REP2.spp_nsc_mqc.tsv: MultiQC header lines (#) removed
+- bwa/merged_library/phantompeakqualtools/SPT5_T15_REP2.spp_rsc_mqc.tsv: MultiQC header lines (#) removed
