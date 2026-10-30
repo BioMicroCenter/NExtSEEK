@@ -5915,6 +5915,223 @@
           ],
           "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project. || 2026-10-13 (review R10): the records branch also accepts 12,244 (D.FLOW + D.FCS + D.CYTOF, the count fix 7 asks for).",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 437 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "id": "graph.tcga_erlotinib_with_sequencing",
+          "family": "graph_traversal",
+          "name": "TCGA patients given erlotinib with sequencing data read A.ALN, not D.SEQ",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which TCGA patients received erlotinib and have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*(D\\.SEQ|T_D_SEQ))"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)TCGA"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)erlotinib"
+                }
+              ]
+            }
+          ],
+          "_why": "The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN, never D.SEQ. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "id": "graph.tcga_lung_patients_with_sequencing",
+          "family": "graph_traversal",
+          "name": "Any TCGA lung cancer patients with sequencing data read A.ALN",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Do any TCGA lung cancer patients have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*(D\\.SEQ|T_D_SEQ))"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)TCGA"
+                }
+              ]
+            }
+          ],
+          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN, never D.SEQ. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "id": "graph.tcga_count_patients_with_sequencing",
+          "family": "graph_traversal",
+          "name": "Count of TCGA patients with sequencing data reads A.ALN",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many patients in the TCGA investigation have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*(D\\.SEQ|T_D_SEQ))"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)TCGA"
+                }
+              ]
+            }
+          ],
+          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN, never D.SEQ. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "id": "graph.impact_monkeys_with_sequencing_stays_dseq",
+          "family": "graph_traversal",
+          "name": "Control: Impact monkeys with sequencing data still read D.SEQ",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which monkeys in the Impact investigation have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "D.SEQ"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*(A\\.ALN|T_A_ALN))"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*(A\\.ALN|T_A_ALN))"
+                }
+              ]
+            }
+          ],
+          "_why": "Control for the #143 exception, on dev, local and production: Impact's catalog row does not say it lacks D.SEQ (it holds the NHP sequencing data graph.investigations_nhp_seq expects), so \"sequencing data\" scoped to it must still map to D.SEQ. || TESTS: the exception fires only when the scoped investigation's description says it holds no D.* record of that kind; it does not leak A.ALN into other investigations. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         }
       ]
     },
