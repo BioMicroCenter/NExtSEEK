@@ -1023,3 +1023,33 @@ def test_a_build_that_writes_no_notes_names_no_samples(rows, tmp_path, monkeypat
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
                        outputs_dir=str(tmp_path))
     assert result["builds"] and all(b["notes_uids"] == [] for b in result["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_of_a_failed_run_says_so_in_its_reply_and_warnings(rows, tmp_path, monkeypatch):
+    """PR 135 SF-7: a run reingested with --allow-failed-run says so where the user reads it,
+    the build reply and each build's open warnings, which the agent lists before the upload."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    run_manifest = store_mod.load_manifest(manifest_id)
+    run_manifest.execution.failed = 3
+    run_manifest.failed_run_allowed = True
+    manifest_id = store_mod.save_manifest(run_manifest)
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert "3 processes failed" in result["reply"]
+    assert result["builds"]
+    for build in result["builds"]:
+        assert build["run_failed_processes"] == 3
+        assert any("3 processes failed" in w for w in build["open_warnings"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_of_a_clean_run_says_nothing_about_failures(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert "processes failed" not in result["reply"]
+    assert all(b["run_failed_processes"] == 0 for b in result["builds"])

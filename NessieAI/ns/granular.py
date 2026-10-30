@@ -1409,8 +1409,11 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     # the user makes explicitly.
     if run_manifest.execution.failed and not args.get("allow_failed_run"):
         raise OpValidationError(
-            f"{run_manifest.execution.failed} process(es) failed in this run. "
-            f"Re-run with --allow-failed-run to reingest it anyway.", field="allow_failed_run", error_type="run_has_failed_processes")
+            f"{run_manifest.execution.failed} process(es) failed in this run, so its outputs may "
+            f"be partial. Ask the user whether to reingest it anyway; only on their yes, re-run "
+            f"with --allow-failed-run.", field="allow_failed_run", error_type="run_has_failed_processes")
+    # Recorded, so every build of this manifest and the upload confirmation say the run failed.
+    run_manifest.failed_run_allowed = bool(run_manifest.execution.failed)
 
     manifest_id = save_manifest(run_manifest)
     return {"run_dir": run_dir, "manifest_id": manifest_id,
@@ -1929,6 +1932,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             "for testing", field="manifest_id", error_type="test_only_manifest_needs_an_admin")
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
+    # A run taken with --allow-failed-run says so in the reply and in every build's open
+    # warnings, which the agent lists to the user before an upload (PR 135 SF-7).
+    failed_processes = (run_manifest.execution.failed
+                        if run_manifest.failed_run_allowed else 0)
+    failed_run_warning = (
+        f"{failed_processes} process{'' if failed_processes == 1 else 'es'} failed in this "
+        f"run, and it was reingested anyway (--allow-failed-run): its outputs may be partial"
+        if failed_processes else "")
     pipeline_map = maps.load(pipeline)
     # The rules for this run's version. mapper.apply takes the base map and
     # resolves the version itself; everything else here that reads rules (the
@@ -2366,7 +2377,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         builds.append(build_records.write(
             path=path, artifact_key=safe_key, sample_type=sample_type, mode=mode,
             manifest_id=manifest_id, disposition=built.disposition,
-            open_warnings=built.soft, row_count=len(type_rows),
+            open_warnings=([failed_run_warning] if failed_run_warning else []) + list(built.soft),
+            row_count=len(type_rows), run_failed_processes=failed_processes,
             project_id=project_id, project_note=project_note,
             answers_digest=answers.digest(), user_id=user_id,
             test_only=test_only, chat_turn=chat_turn,
@@ -2428,6 +2440,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         _map_notes_log.warning("reingest map note: %s (pipeline %s %s, run %s, manifest %s)",
                                note, pipeline, run_manifest.pipeline.version, run_name,
                                manifest_id)
+    if failed_run_warning:
+        reply = f"FAILED RUN: {failed_run_warning}.\n\n" + reply
     if test_only:
         reply = ("TEST ONLY: this run wasn't launched by Nessie. "
                  "These workbooks can't be uploaded.\n\n" + reply)

@@ -51,7 +51,7 @@ def _owner_dir(user_id) -> str:
 def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
           open_warnings, row_count, project_id, project_note, answers_digest,
           user_id, test_only, chat_turn=None, answers=None, assays_to_create=(),
-          parent_assays=(), rebuilt_from=None, notes_uids=()) -> dict:
+          parent_assays=(), rebuilt_from=None, notes_uids=(), run_failed_processes=0) -> dict:
     record = {
         "build_id": sha256_of(path), "artifact_key": artifact_key,
         "sample_type": sample_type, "mode": mode, "manifest_id": manifest_id,
@@ -72,6 +72,8 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
         # The samples whose whole Notes this workbook replaces, composed from the Notes
         # read at ``built_at``: the upload refuses when one changed after that.
         "notes_uids": sorted(set(notes_uids)),
+        # Failed processes of a run taken with --allow-failed-run; 0 for a clean run.
+        "run_failed_processes": int(run_failed_processes or 0),
     }
     owner = _owner_dir(user_id)
     os.makedirs(owner, exist_ok=True)
