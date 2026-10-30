@@ -275,3 +275,30 @@ def test_the_group_read_step_sets_only_group_bits() -> None:
             ls.write_text("x"); ls.chmod(before)
             assert volumes.ensure_secret_group_read(Path(d), {"NEXTSEEK_HOST_GID": str(gid)}) == []
             assert ls.stat().st_mode & 0o777 == after, (oct(before), oct(ls.stat().st_mode & 0o777))
+
+
+def test_a_luria_key_named_only_in_nextseek_env_still_reaches_compose(tmp_path: Path) -> None:
+    """Production 10-29: LURIAKEY sat in docker/nextseek.env and not in .env, so compose bound /dev/null, the app read
+    a path that did not exist in its container, and every Luria submit failed. .env now gets the path too."""
+    import os
+    from startup.lib.env import read_env
+    gid = os.getgid()
+    ssh = tmp_path / "home" / ".ssh"; ssh.mkdir(parents=True)
+    key = ssh / "luria"; key.write_text("k1"); key.chmod(0o600)
+    repo = tmp_path / "repo"; (repo / "docker").mkdir(parents=True)
+    (repo / "docker" / "nextseek.env").write_text(f'LURIAKEY="{key}"\n')
+    assert volumes.ensure_secret_group_read(repo, {"NEXTSEEK_HOST_GID": str(gid)}) == []
+    root = read_env(repo / ".env")
+    assert root["LURIAKEY"] == str(key) and root["NEXTSEEK_LURIA_KEY_COPY"] == "./docker/luria-key"
+    assert (repo / "docker" / "luria-key").read_text() == "k1"
+
+
+def test_a_luria_key_path_that_is_not_a_file_never_stops_a_rebuild(tmp_path: Path) -> None:
+    """A box with the path but no key (a laptop, CI) still comes up: compose binds /dev/null and .env gets no path."""
+    import os
+    from startup.lib.env import read_env
+    repo = tmp_path / "repo"; (repo / "docker").mkdir(parents=True)
+    (repo / "docker" / "nextseek.env").write_text(f"LURIAKEY={tmp_path}/gone\n")
+    assert volumes.ensure_secret_group_read(repo, {"NEXTSEEK_HOST_GID": str(os.getgid())}) == []
+    root = read_env(repo / ".env")
+    assert "LURIAKEY" not in root and root.get("NEXTSEEK_LURIA_KEY_COPY", "/dev/null") == "/dev/null"

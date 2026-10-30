@@ -198,9 +198,16 @@ def _sync_luria_key(repo_root: Path, env: dict[str, str], gid: int) -> list[str]
     """Copy the Luria key (LURIAKEY) to docker/luria-key, mode 0640, group `gid`, and point compose at it
     (NEXTSEEK_LURIA_KEY_COPY in .env). The source is never touched: OpenSSH refuses a group-readable key for its
     owner, and on dev it is ~/.ssh/luria. The copy is rewritten in place (a running bind keeps its inode) when
-    the source changes. No key (unset, /dev/null, not a file): the copy goes and compose binds /dev/null."""
+    the source changes. No key (unset, /dev/null, not a file): the copy goes and compose binds /dev/null.
+
+    Compose reads the bind's target from .env while the app reads docker/nextseek.env, so a path named only in the
+    second is copied to the first; otherwise the app looks for a file that was never mounted (production, 2026-10-29)."""
     root_env = Path(repo_root) / ".env"
     key = env.get("LURIAKEY") or read_env(root_env).get("LURIAKEY", "")
+    if not key:
+        key = read_env(Path(repo_root) / "docker" / "nextseek.env").get("LURIAKEY", "")
+        if key and key != "/dev/null" and Path(key).is_file():
+            update_env(root_env, {"LURIAKEY": key})
     copy = Path(repo_root) / LURIA_KEY_COPY
     want = "/dev/null"
     if key and key != "/dev/null" and Path(key).is_file():
