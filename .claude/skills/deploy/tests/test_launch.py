@@ -2181,9 +2181,13 @@ def test_the_loader_recipe_archives_every_nessie_package_the_loader_imports():
     # The offline check dies on ModuleNotFoundError when the archive lacks a package the loader's modules import.
     repo = SKILL.parents[2]
     archived = _recipe_archive_paths()
-    harness = repo / "NessieAI" / "tests" / "nessie_tests"
+    nessie = repo / "NessieAI"
     wanted = set()
-    for name in ("corpus.py", "case_file_check.py", "evaluate.py"):
-        wanted |= set(re.findall(r"^\s*(?:from|import) NessieAI\.(\w+)", (harness / name).read_text(), re.M))
-    missing = [p for p in wanted if not any(a == f"NessieAI/{p}" or a.startswith(f"NessieAI/{p}/") or a == f"NessieAI/{p}.py" for a in archived)]
+    for name in ("tests/nessie_tests/corpus.py", "tests/nessie_tests/case_file_check.py", "tests/nessie_tests/evaluate.py",
+                 "nessie_harness/corpus.py", "nessie_harness/catalog.py"):
+        wanted |= set(re.findall(r"^\s*(?:from|import) (NessieAI(?:\.\w+)+)", (nessie / name).read_text(), re.M))
+    def _covered(module):
+        path = module.replace(".", "/")
+        return any(a == path or a == f"{path}.py" or path.startswith(f"{a}/") for a in archived)
+    missing = sorted(m for m in wanted if not _covered(m))
     assert not missing, f"the recipe's archive lacks {missing}"

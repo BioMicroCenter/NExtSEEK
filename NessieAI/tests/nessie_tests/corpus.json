@@ -12734,7 +12734,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*D\\.SEQ-221031SHA-65-PUB)(?=.*D\\.SEQ-221031SHA-67-PUB)"
+                  "value": "(?is)(?=.*D\\.SEQ-221031SHA-65-PUB)(?=.*D\\.SEQ-221031SHA-67-PUB)(?=.*NovaSeq)"
                 }
               ]
             }
@@ -14101,7 +14101,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(File_PrimaryData|Link_PrimaryData|link|path|file location|ImmPort|repository)"
+                  "value": "(File_PrimaryData|Link_PrimaryData|link|path|file location|ImmPort)"
                 }
               ]
             }
@@ -16192,7 +16192,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
+                  "value": "(?is)(not upload|(won.?t|will not|not) be uploaded|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
                 },
                 {
                   "field": "last_reply",

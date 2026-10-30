@@ -32,6 +32,9 @@ def test_geo_submission_needs_both_uids_not_accessions():
     rx = _regexes("report.geo_submission")[0]
     assert re.search(rx, GEO2)
     assert not re.search(rx, GEO2.replace("D.SEQ-221031SHA-67-PUB", "the other one"))
+    # both UIDs are in the question, so a reply that only repeats them must stay red
+    assert not re.search(rx, "I could not find metadata for D.SEQ-221031SHA-67-PUB or D.SEQ-221031SHA-65-PUB, "
+                             "so the GEO draft is empty.")
 
 
 def test_geo_deposit_needs_the_uid_and_nextseq():

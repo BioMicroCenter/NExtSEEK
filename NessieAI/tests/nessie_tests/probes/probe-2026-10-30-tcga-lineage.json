@@ -1,6 +1,6 @@
 {
   "_name": "probe-2026-10-30-tcga-lineage - TCGA erlotinib, LUAD survival and the mapping link",
-  "_why": "On 10-26 and 10-28 the unforced erlotinib question returned 0 (tasks 2586, 2829: T_D_SEQ required; TCGA holds sequencing as A.ALN; #143) and the survival question 201 (tasks 2585, 2830: patient-level fields); task 2834 named the method and got 513. Ten turns, one fresh chat each, PAID: needs the operator's go. Dev only.",
+  "_why": "On 10-26 and 10-28 the unforced erlotinib question returned 0 (tasks 2586, 2829: T_D_SEQ required; TCGA holds sequencing as A.ALN; #143) and the survival question 201 (tasks 2585, 2830: patient-level fields); task 2834 named the method and got 513. Ten turns, one fresh chat each, plus the two consistency turns --tier full adds, PAID: needs the operator's go. Dev only.",
   "_instance_warning": "Dev only: TCGA is on dev, not on production. The numbers 54 and 513 were measured on dev on 10-28; the runner re-pins them on the box with pin_probe_truths.py.",
   "_measure": {
     "paper.tcga_erlotinib_1": {
@@ -41,6 +41,22 @@
       ],
       "cypher": [
         "MATCH (p:T_PAT) WHERE p.Study = 'TCGA-LUAD' AND p.VitalStatus IS NOT NULL AND EXISTS { MATCH (v:T_PAV)-[:DERIVED_FROM]->(p) WHERE v.DaysToFollowUp IS NOT NULL } RETURN count(p) AS n"
+      ]
+    },
+    "paper.tcga_luad_sequencing": {
+      "locals": [
+        99999
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT) WHERE p.Study = 'TCGA-LUAD' AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(p) AS n"
+      ]
+    },
+    "paper.tcga_carboplatin_sequencing": {
+      "locals": [
+        99999
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation {title:'TCGA'}) WHERE EXISTS { MATCH (v:T_PAV)-[:DERIVED_FROM*1..12]->(p) WHERE toLower(v.search_text) CONTAINS 'carboplatin' } AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n"
       ]
     }
   },
@@ -272,7 +288,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
+                  "value": "(?is)(not upload|(won.?t|will not|not) be uploaded|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
                 },
                 {
                   "field": "last_reply",
@@ -307,7 +323,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
+                  "value": "(?is)(not upload|(won.?t|will not|not) be uploaded|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
                 },
                 {
                   "field": "last_reply",
@@ -327,7 +343,7 @@
           "family": "tcga_sequencing_siblings",
           "id": "paper.tcga_luad_sequencing",
           "name": "TCGA-LUAD patients with sequencing",
-          "_why": "Sibling of the erlotinib case without a drug (#143): sequencing in TCGA is A.ALN, and the count is above zero.",
+          "_why": "Sibling of the erlotinib case without a drug (#143): sequencing in TCGA is A.ALN, and the reply gives the measured count (_measure). 99999 is unmeasured: the re-pin on dev replaces it, and a run without the re-pin goes red.",
           "tags": [
             "nessie",
             "probe",
@@ -362,7 +378,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\A(?!.*\\b(?:no|zero|0|none of the)\\s+(?:\\S+\\s+){0,3}patients\\b)"
+                  "value": "(?<![\\w.,/-])99,?999(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
@@ -372,7 +388,7 @@
           "family": "tcga_sequencing_siblings",
           "id": "paper.tcga_carboplatin_sequencing",
           "name": "TCGA carboplatin patients with sequencing",
-          "_why": "Sibling of the erlotinib case with another drug (#143): sequencing in TCGA is A.ALN, and the count is above zero.",
+          "_why": "Sibling of the erlotinib case with another drug (#143): sequencing in TCGA is A.ALN, and the reply gives the measured count (_measure). 99999 is unmeasured: the re-pin on dev replaces it, and a run without the re-pin goes red.",
           "tags": [
             "nessie",
             "probe",
@@ -407,7 +423,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\A(?!.*\\b(?:no|zero|0|none of the)\\s+(?:\\S+\\s+){0,3}patients\\b)"
+                  "value": "(?<![\\w.,/-])99,?999(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }

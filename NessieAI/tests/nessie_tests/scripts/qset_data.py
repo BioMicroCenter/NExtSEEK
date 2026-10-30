@@ -671,10 +671,10 @@ A(Q("new", "report.longest_running_investigation", "project_summary_report", "Wh
 # ───────────────────────── submission_package (5) ─────────────────────────
 A(Q("keep", "report.geo_submission", "submission_package", "GEO for two scRNA-seq libraries",
     [T("Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
-       r"(?is)(?=.*D\.SEQ-221031SHA-65-PUB)(?=.*D\.SEQ-221031SHA-67-PUB)")],
+       r"(?is)(?=.*D\.SEQ-221031SHA-65-PUB)(?=.*D\.SEQ-221031SHA-67-PUB)(?=.*NovaSeq)")],
     "Both exist. -65 = SRR22257169 (28818_Array6), -67 = SRR22257167 (28818_Array8); NovaSeq 6000, BioProject PRJNA900245, Scientist Sarah Nyquist.",
     SQL + ": json_metadata for both UIDs.",
-    "asserting the two SRA run accessions means an empty skeleton cannot pass — the exact failure mode that let the old PRIDE case pass on both arms."))
+    "asserting the two UIDs and the NovaSeq sequencer means an empty skeleton cannot pass — the exact failure mode that let the old PRIDE case pass on both arms."))
 
 A(Q("keep", "report.sra_submission", "submission_package", "SRA for two amplicon runs",
     [T("Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB.",
@@ -809,7 +809,7 @@ A(Q("keep", "batch.rg_radr_gpt_please_produce_the_b", "batch_upload_preparation"
 A(Q("new", "batch.apply_a_supplied_mapping", "batch_upload_preparation", "Apply a mapping the user supplies inline",
     [T("Here is our genotype key: RGA means \"RaDR+/+; GPT+/+; Aag -/-\" and RGATG means \"RaDR+/+; GPT+/+; AagTg -/+\". Build me an update sheet applying that to the mouse samples, but do not upload it.",
        r"(?is)(?=.*Aag)(?=.*(91|78))",
-       r"(?is)(not upload|without uploading|no upload|didn.?t upload|for review|before you upload)")],
+       r"(?is)(not upload|(won.?t|will not|not) be uploaded|without uploading|no upload|didn.?t upload|for review|before you upload)")],
     "RGA 91 rows, RGATG 78 rows. The long forms already exist in the data with 23 and 32 rows respectively, which is what makes the mapping checkable.",
     SQL + ": MUS $.Genotype -> RGA 91, RGATG 78, 'RaDR+/+; GPT+/+; Aag -/-' 23, 'RaDR+/+; GPT+/+; AagTg -/+' 32.",
     "the curator hands over the vocabulary rather than asking the system to guess it — the pattern the ad-hoc log shows repeatedly. The no-upload half is asserted separately."))
