@@ -244,8 +244,23 @@ def _parent_set(value) -> frozenset[str]:
     return frozenset(p.strip() for p in str(value or "").split(";") if p.strip())
 
 
+def caller_project_scope(user):
+    """The SEEK projects ``user``'s reingest lookups may see (SEC-001).
+
+    ``None`` for a superuser (any project), else a tuple of project ids, and
+    ``()`` when the caller has no SEEK person or the membership read fails: it
+    fails closed, never widens. The batch upload's own definition
+    (``_caller_project_scope`` in ``nextseek_api/batch_upload/views.py``), so a
+    lookup sees exactly the projects the upload it prepares may write to.
+    """
+    from nextseek_api.batch_upload import views as batch_views
+
+    return batch_views._caller_project_scope(user)
+
+
 def existing_uids_for_primary_files_strict(sample_type: str,
-                                           files: list[dict]) -> list[dict]:
+                                           files: list[dict], *,
+                                           project_ids=None) -> list[dict]:
     """For each ``{"link", "checksum", "parent"}``, the ``sample_type`` samples
     under that parent that already hold that file (``uids``) and those whose
     file at that path has changed since (``changed``).
@@ -262,18 +277,26 @@ def existing_uids_for_primary_files_strict(sample_type: str,
     is never uploaded twice. Strict: a failed fetch or metadata that cannot be
     parsed RAISES ``RuntimeError``, since "could not read" must never come back
     as "nothing there yet". A type this instance lacks holds no samples.
+
+    ``project_ids`` is the caller's project scope, as ``caller_project_scope``
+    gives it (SEC-001): only samples in one of those projects are compared, so
+    the reply never names a sample the caller cannot see, nor drops a row
+    because of one. ``None`` compares samples of every project, a superuser's
+    scope and what a caller that passes no scope gets; an empty scope sees no
+    sample and asks nothing.
     """
     if not files:
         return []
     wanted = [(str(f.get("link") or "").strip(), str(f.get("checksum") or "").strip(),
                _parent_set(f.get("parent"))) for f in files]
     needles = sorted({v for link, checksum, _ in wanted for v in (link, checksum) if v})
-    if not needles:
+    scope = None if project_ids is None else sorted({int(p) for p in project_ids})
+    if not needles or scope == []:
         return [{"uids": [], "changed": []} for _ in files]
     try:
         from django.db.models import Q
 
-        from seek.models import Sample_types, Samples
+        from seek.models import Projects_samples, Sample_types, Samples
 
         type_ids = list(Sample_types.objects.filter(title=sample_type)
                         .values_list("id", flat=True))
@@ -282,8 +305,11 @@ def existing_uids_for_primary_files_strict(sample_type: str,
         match_any = Q()
         for needle in needles:
             match_any |= Q(json_metadata__icontains=needle)
-        rows = list(Samples.objects.filter(sample_type_id__in=type_ids).filter(match_any)
-                    .values_list("uuid", "json_metadata"))
+        held_query = Samples.objects.filter(sample_type_id__in=type_ids).filter(match_any)
+        if scope is not None:
+            held_query = held_query.filter(id__in=Projects_samples.objects.filter(
+                project_id__in=scope).values("sample_id"))
+        rows = list(held_query.values_list("uuid", "json_metadata"))
     except Exception as exc:
         raise RuntimeError(
             f"samples unreachable checking {len(files)} {sample_type} file(s): {exc}") from exc
@@ -660,6 +686,77 @@ def lab_code_from_uid(uid: str) -> str | None:
     return hit.group(1).upper() if hit else None
 
 
+#: How long one read of the catalog's Lab spellings is reused. A build resolves a
+#: Lab per row (`_computed_lab` in `NessieAI/ns/reingest/pipelines/common.py`),
+#: and before this every call read every sample in SEEK; this window covers one
+#: build (its op limit is 60 s) and lets the next build read the catalog afresh.
+#: A spelling a curator adds during that window is picked up by the next build.
+_LAB_SPELLINGS_TTL_S = 120.0
+
+#: (monotonic time read, spelling -> sample count), or None before the first read.
+_lab_spellings_cache: tuple[float, dict[str, int]] | None = None
+
+#: Selects only the Lab value of each sample that names a Lab key, never the
+#: whole metadata. ``LIKE`` is a superset filter (case-insensitive under SEEK's
+#: collation); ``JSON_VALID`` keeps ``JSON_EXTRACT`` from failing the query on
+#: one malformed row, which the Python loop it replaced skipped. ``JSON_EXTRACT``
+#: answers SQL NULL when the top-level object has no ``Lab`` key (or is not an
+#: object), and the value as JSON text otherwise, on MySQL 8 and MariaDB alike.
+_LAB_SPELLINGS_SQL = """
+    SELECT JSON_EXTRACT(s.json_metadata, '$.Lab')
+      FROM samples AS s
+     WHERE s.json_metadata LIKE %s
+       AND JSON_VALID(s.json_metadata)
+"""
+
+
+def _read_lab_spellings_strict() -> dict[str, int]:
+    """Every Lab value samples carry, stripped, with how many samples carry it.
+
+    One query on the SEEK alias that returns the Lab fragment of the rows that
+    have one, so no metadata blob leaves the database. Each fragment is decoded
+    and normalised exactly as the per-sample loop this replaced did
+    (``str(value or "").strip()``, blanks dropped), so the counts are the same.
+    Known, deliberate differences, none of which SEEK writes: a key spelled with
+    a JSON escape (``"L\\u0061b"``) misses the ``LIKE`` filter, and a row that
+    only Python's parser accepts (``NaN``) fails ``JSON_VALID``. Raises on any
+    database error; the caller wraps it.
+    """
+    from django.conf import settings
+    from django.db import connections
+
+    with connections[settings.SEEK_DATABASE].cursor() as cur:
+        cur.execute(_LAB_SPELLINGS_SQL, ['%"Lab"%'])
+        rows = cur.fetchall()
+    counts: dict[str, int] = {}
+    for (fragment,) in rows:
+        if fragment is None:
+            continue
+        try:
+            value = json.loads(fragment) if isinstance(fragment, (str, bytes, bytearray)) \
+                else fragment
+        except ValueError:
+            continue
+        value = str(value or "").strip()
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _lab_spellings_strict() -> dict[str, int]:
+    """`_read_lab_spellings_strict`, reused for `_LAB_SPELLINGS_TTL_S` seconds."""
+    global _lab_spellings_cache
+    import time
+
+    now = time.monotonic()
+    cached = _lab_spellings_cache
+    if cached is not None and now - cached[0] < _LAB_SPELLINGS_TTL_S:
+        return cached[1]
+    counts = _read_lab_spellings_strict()
+    _lab_spellings_cache = (now, counts)
+    return counts
+
+
 def lab_for_code_strict(code: str) -> str | None:
     """The Lab string the database ALREADY uses for this UID lab code.
 
@@ -669,17 +766,21 @@ def lab_for_code_strict(code: str) -> str | None:
     "<SURNAME>_lab"), and which spelling dominates differs per lab. Inventing
     "<Surname> Lab" would add one more; copying the most-used existing value at
     least lands on a string already in use. Count the spellings for yourself
-    with a Counter over `Samples.values_list("json_metadata")` -- deliberately
-    not quoted here, since it changes as the catalog is curated.
+    with a Counter over `_read_lab_spellings_strict()` -- deliberately not
+    quoted here, since it changes as the catalog is curated.
 
     Matching is on the first three letters of the value with non-alphabetic
-    characters stripped, so "DANFORTH_lab" and "Danforth Lab" both match
-    "DEF". Among matches the most frequent wins; ties break alphabetically so
-    the answer is deterministic run to run.
+    characters stripped, so "ABCDEF_lab" and "Abcdef Lab" both match "ABC".
+    Among matches the most frequent wins; ties break alphabetically so the
+    answer is deterministic run to run.
 
     None when no existing value matches. Real lab codes do exist for which no
     sample anywhere carries a Lab value, so this is an ordinary outcome, not an
     edge case: there is nothing to copy and the cell stays blank for a curator.
+
+    The spellings come from one filtered query, reused for the span of a build
+    (`_lab_spellings_strict`): a build calls this once per row, and SEEK holds
+    about a million samples.
 
     RAISES on an unreachable catalog, never returns None for it: a blank Lab
     that means "we could not reach the database" is indistinguishable from one
@@ -690,19 +791,7 @@ def lab_for_code_strict(code: str) -> str | None:
     if not code:
         return None
     try:
-        from seek.models import Samples
-
-        counts: dict[str, int] = {}
-        for raw in Samples.objects.values_list("json_metadata", flat=True):
-            try:
-                meta = json.loads(raw) if isinstance(raw, str) else (raw or {})
-            except ValueError:
-                continue
-            if not isinstance(meta, dict):
-                continue
-            value = str(meta.get("Lab") or "").strip()
-            if value:
-                counts[value] = counts.get(value, 0) + 1
+        counts = _lab_spellings_strict()
     except Exception as exc:
         raise RuntimeError(
             f"sample catalog unreachable while resolving lab code {code!r}: {exc}"

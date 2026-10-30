@@ -109,8 +109,9 @@
 - `ci/diff_baseline.py` always exits 0, by decision (`ci/diff_baseline.py:8-9`,
   `ci/diff_baseline.py:131-132`). A wrapper that treats its exit code as a
   verdict will call every run a pass, including one that reports new failures.
-  Only the gate step, the blocking unit tests step, and a lanes step whose
-  pytest did not run at all can fail that job (the comment above the gate step
+  Only the gate step, the migration check, the blocking unit tests step, the
+  plugin `bin/` dispatch step, and a lanes step whose pytest did not run at all
+  can fail that job (the comment above the gate step
   in `.github/workflows/ci-pytest.yml`).
 - `seek/tests/test_sample_search_js.py` skips every test where `node` is missing,
   and the application image has no node, so the gate lane reports them skipped,

@@ -20,15 +20,36 @@ def _existing(monkeypatch, present: dict[str, dict[str, str]], changed=None):
     holding the row's file and one whose file at that path has changed. Records the asks."""
     asked = []
 
-    def lookup(sample_type, files):
+    def lookup(sample_type, files, *, project_ids=None):
         asked.append((sample_type, files))
+        _existing.scopes.append(project_ids)
         same = present.get(sample_type, {})
         moved = (changed or {}).get(sample_type, {})
         return [{"uids": [same[f["parent"]]] if f["parent"] in same else [],
                  "changed": [moved[f["parent"]]] if f["parent"] in moved else []}
                 for f in files]
+    _existing.scopes = []
     monkeypatch.setattr(LOOKUP, lookup)
     return asked
+
+
+@patch(CATALOG)
+def test_the_lookup_compares_only_the_callers_projects(rows, tmp_path, monkeypatch):
+    """SEC-001: a sample in a project the caller cannot write to never counts as there."""
+    from types import SimpleNamespace
+
+    from NessieAI.tests.ns.reingest.test_build_upload_manifest import _dispatch
+
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _existing(monkeypatch, {})
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.caller_project_scope",
+                        lambda user: (3, 5))
+    session = SimpleNamespace(user=SimpleNamespace(pk=7, is_superuser=False,
+                                                   get_full_name=lambda: "A Curator"))
+    _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+              session=session, outputs_dir=str(tmp_path))
+    assert _existing.scopes and set(_existing.scopes) == {(3, 5)}
 
 
 @patch(CATALOG)
@@ -88,7 +109,7 @@ def test_an_outage_in_the_lookup_stops_the_build(rows, tmp_path, monkeypatch):
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch)
 
-    def down(sample_type, files):
+    def down(sample_type, files, *, project_ids=None):
         raise RuntimeError("samples unreachable")
     monkeypatch.setattr(LOOKUP, down)
     with pytest.raises(RuntimeError):

@@ -1,13 +1,13 @@
 """DRF ViewSet for batch upload endpoints."""
 from __future__ import annotations
 
+import contextlib
 import csv
 import logging
 import os
 import json
 import tempfile
 import time
-import uuid
 
 from celery.result import AsyncResult
 from django.conf import settings
@@ -795,13 +795,25 @@ def job_outcome(job_id: str) -> dict:
 
 
 def stage_workbook_copy(path: str) -> str:
-    """Copy a server-side workbook to where uploaded files live, for the worker."""
+    """Copy a server-side workbook to where uploaded sheets live, for the worker, and return the copy's path.
+
+    The copy goes to <state_dir>/uploads/, beside the sheets ``_save_upload`` saves: the durable volume the worker
+    reads, outside MEDIA_ROOT and so outside the served uploads/production tree, and the directory the daily sweep
+    (``purge_durable_state`` in ``nextseek_api/periodic_tasks.py``) clears once no queued job names a sheet. The name
+    is unpredictable and created exclusively (SEC-H37), so two copies of one workbook never share a path.
+    """
     import shutil
 
-    upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
+    upload_dir = os.path.join(state_dir(), _UPLOAD_DIR)
     os.makedirs(upload_dir, exist_ok=True)
-    dest = os.path.join(upload_dir, f"{uuid.uuid4().hex}_{os.path.basename(path)}")
-    shutil.copyfile(path, dest)
+    fd, dest = tempfile.mkstemp(prefix=f"{int(time.time())}_", suffix=f"_{os.path.basename(path)}", dir=upload_dir)
+    try:
+        with os.fdopen(fd, "wb") as out, open(path, "rb") as src:
+            shutil.copyfileobj(src, out)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(dest)
+        raise
     return dest
 
 

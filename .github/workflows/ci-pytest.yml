@@ -3,7 +3,7 @@ name: pytest (informational)
 # Informational by decision: this job surfaces NEW failures against a committed
 # baseline, and a failing test in the lanes never blocks. The suite is not green
 # and will not be; a "must be green" gate fails on run one and is ignored by run
-# five. Only the two blocking steps at the end, which run checks that are green
+# five. Only the blocking steps at the end, which run checks that are green
 # today, can fail the job on a test result.
 #
 # Measured 2026-09-01 on ghcr.io/astral-sh/uv:debian, cold cache, with the lane
@@ -124,16 +124,16 @@ jobs:
             --baseline ci/pytest-baseline.txt \
             --summary "$GITHUB_STEP_SUMMARY"
 
-      # The first of three blocking steps in this otherwise informational job.
+      # The first of four blocking steps in this otherwise informational job.
       # ci/gate holds the deterministic checks: the route registry completeness
       # gate, the docs map (ci/docs_map.py), the writer registry and the route
       # effects. `pytest ci/gate -q` is the count, not this comment. None of them
       # carries the "red on run one" risk that made the rest of the job
       # informational. The blocking steps run last so that a failing one never
       # suppresses the informational summary above them. Once the setup steps are
-      # through, only four results can fail the job: this step, the migration
-      # check and the blocking unit tests below, and the lanes step when pytest
-      # did not run at all. Failing tests in the lanes never fail it.
+      # through, only five results can fail the job: this step, the migration
+      # check, the blocking unit tests and the plugin bin/ dispatch tests below,
+      # and the lanes step when pytest did not run at all. Failing tests in the lanes never fail it.
       # The if: keeps this step running after a lanes-step failure, and skips it
       # only when setup failed before the lanes step was reached.
       - name: Blocking gates (route registry, docs map)
@@ -193,6 +193,21 @@ jobs:
           paths=$(python ci/blocking_lanes.py)
           uv run pytest $paths -q
 
+      # The fourth blocking step: the Container-CC plugin's bin/ dispatch tests (the shims every nextseek-* op tool
+      # runs, upload-reingest's write forward among them). They live in the plugin tree, which is baked into the
+      # cc-agent image, and run in the cc-runtime environment, not the application's, so the lanes step above leaves
+      # them out. NExtSEEK and the sidecar are fakes (httpx.MockTransport, monkeypatched clients); nothing listens on
+      # a socket. The command is the "Plugin bin/ dispatch" row of NessieAI/tests/README.md; -o addopts="" because
+      # cc-runtime's own addopts name coverage targets this tree lacks (NessieAI/docker/CLAUDE.md).
+      - name: Blocking plugin bin/ dispatch tests
+        if: ${{ !cancelled() && steps.lanes.outcome != 'skipped' }}
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        working-directory: NessieAI/docker/cc-runtime
+        run: >-
+          uv run --no-project --with pytest --with httpx --with pydantic --with websockets
+          python -m pytest build_context/plugins/nextseek/bin/tests -q -o addopts=""
+
       # The MariaDB lane: the tests that need a real MariaDB/MySQL, which the SQLite lanes above skip.
       # (a) the fixture files read SPIKE_DB_* and build a throwaway database; (b) the two-connection UID
       # reservation test runs with the default database on the service (dmac/test_settings_mysql.py reads
@@ -217,7 +232,8 @@ jobs:
           DJANGO_SETTINGS_MODULE=dmac.test_settings uv run pytest -q \
             nextseek_api/batch_upload/tests/test_insert_returning_mariadb.py \
             nextseek_api/batch_upload/tests/test_migration_name_identity.py \
-            nextseek_api/batch_upload/tests/test_identity_drift_integration.py
+            nextseek_api/batch_upload/tests/test_identity_drift_integration.py \
+            NessieAI/tests/api/test_reingest_lookups_mariadb.py
           rc1=$?
           DJANGO_SETTINGS_MODULE=dmac.test_settings_mysql uv run pytest -q \
             nextseek_api/batch_upload/tests/test_uid_sequence_concurrency.py \

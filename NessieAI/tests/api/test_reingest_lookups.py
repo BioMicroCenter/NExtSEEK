@@ -1,4 +1,5 @@
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -438,6 +439,78 @@ class TestExistingUidsForPrimaryFilesStrict:
     def test_of_no_files_asks_nothing(self):
         assert reingest_lookups.existing_uids_for_primary_files_strict("A.VCF", []) == []
 
+    # SEC-001: a caller compares only the samples of their own projects.
+
+    def test_a_scope_compares_only_the_samples_of_those_projects(self):
+        rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-1")]
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Samples.objects") as samples, \
+                patch("seek.models.Projects_samples.objects") as projects:
+            sample_types.filter.return_value.values_list.return_value = [7]
+            scoped = samples.filter.return_value.filter.return_value.filter
+            scoped.return_value.values_list.return_value = rows
+            got = reingest_lookups.existing_uids_for_primary_files_strict(
+                "A.VCF", [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}],
+                project_ids=(14, 3, 14))
+        assert got == [{"uids": ["A.VCF-1"], "changed": []}]
+        projects.filter.assert_called_once_with(project_id__in=[3, 14])
+        projects.filter.return_value.values.assert_called_once_with("sample_id")
+        scoped.assert_called_once_with(id__in=projects.filter.return_value.values.return_value)
+
+    def test_an_empty_scope_sees_no_sample_and_asks_nothing(self):
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Samples.objects") as samples:
+            sample_types.filter.side_effect = AssertionError("asked the database")
+            samples.filter.side_effect = AssertionError("asked the database")
+            got = reingest_lookups.existing_uids_for_primary_files_strict(
+                "A.VCF", [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}] * 2,
+                project_ids=())
+        assert got == [NONE, NONE]
+
+    def test_no_scope_compares_every_project(self):
+        # A superuser's scope (None): no project filter, the chain the tests above stub.
+        with patch("seek.models.Projects_samples.objects") as projects:
+            rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-1")]
+            assert self._lookup(rows, [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}]) \
+                == [{"uids": ["A.VCF-1"], "changed": []}]
+        projects.filter.assert_not_called()
+
+    def test_caller_project_scope_is_the_batch_uploads_own(self):
+        user = object()
+        with patch("nextseek_api.batch_upload.views._caller_project_scope",
+                   return_value=(3, 14)) as upload_scope:
+            assert reingest_lookups.caller_project_scope(user) == (3, 14)
+        upload_scope.assert_called_once_with(user)
+
+
+@pytest.mark.django_db(databases=["default", "seek"])
+def test_the_project_scope_runs_on_the_seek_tables():
+    """The scoped query through the ORM on a real (SQLite) seek alias: the projects_samples
+    subquery resolves on the same database and keeps only the in-scope sample."""
+    from django.db import connections
+
+    link = "/net/runs/r1/variant_calling/S1/S1.vcf.gz"
+    meta = json.dumps({"Link_PrimaryData": link, "Parent": "D.SEQ-1"})
+    with connections["seek"].cursor() as cur:
+        cur.execute(
+            "INSERT INTO sample_types (id, title, uuid, created_at, updated_at, first_letter, description,"
+            " uploaded_template, contributor_id, deleted_contributor, template_id, other_creators)"
+            " VALUES (7, 'A.VCF', 'st-7', '2026-01-01', '2026-01-01', 'A', '', 0, 1, '', 0, '')")
+        for sample_id, uid, project_id in ((1, "A.VCF-mine", 3), (2, "A.VCF-theirs", 99)):
+            cur.execute(
+                "INSERT INTO samples (id, title, sample_type_id, json_metadata, uuid, contributor_id,"
+                " policy_id, created_at, updated_at, first_letter, other_creators,"
+                " originating_data_file_id, deleted_contributor)"
+                " VALUES (%s, %s, 7, %s, %s, 1, 1, '2026-01-01', '2026-01-01', 'A', '', 0, '')",
+                [sample_id, uid, meta, uid])
+            cur.execute("INSERT INTO projects_samples (project_id, sample_id) VALUES (%s, %s)",
+                        [project_id, sample_id])
+    files = [{"link": link, "checksum": "", "parent": "D.SEQ-1"}]
+    scoped = reingest_lookups.existing_uids_for_primary_files_strict("A.VCF", files, project_ids=[3])
+    everyone = reingest_lookups.existing_uids_for_primary_files_strict("A.VCF", files)
+    assert scoped == [{"uids": ["A.VCF-mine"], "changed": []}]
+    assert everyone == [{"uids": ["A.VCF-mine", "A.VCF-theirs"], "changed": []}]
+
 
 class TestAttributeValuesForUidsStrict:
     def test_returns_only_the_uids_that_hold_a_value(self):
@@ -684,3 +757,153 @@ def test_untagged_assays_in_study_raise_on_an_outage(settings):
     with patch("django.db.connections", _down()):
         with pytest.raises(RuntimeError):
             reingest_lookups.untagged_assay_ids_in_study_strict(51, "Genome Alignment - Data Linked")
+
+
+# --- lab_for_code_strict: one filtered query per build ------------------------
+# The fixture is raw `samples.json_metadata` as SEEK stores it, edge cases
+# included. `_old_lab_for_code` is the per-sample loop the lookup used to run
+# over the WHOLE table; the new one must answer exactly as it did. The SQLite
+# lane feeds the new code what its query returns (`_lab_fragments`, which
+# states the query's contract), and the MariaDB lane runs the real query over
+# the same rows (`test_reingest_lookups_mariadb.py`).
+
+LAB_FIXTURE = [
+    json.dumps({"UID": "A-1", "Lab": "Abcdef Lab"}),
+    json.dumps({"UID": "A-2", "Lab": "Abcdef Lab"}),
+    json.dumps({"UID": "A-3", "Lab": "ABCDEF_lab"}),
+    json.dumps({"UID": "A-4", "Lab": "  ABCDEF_lab  "}),        # strips to the same spelling
+    json.dumps({"UID": "A-5", "Lab": "abcdef"}),
+    json.dumps({"UID": "A-6", "Lab": "Ghijk lab"}),
+    json.dumps({"UID": "A-7", "Lab": "Ghijk Lab"}),             # a tie with the line above
+    json.dumps({"UID": "A-8", "Lab": "O'Mnop Lab"}),            # letters split by punctuation
+    json.dumps({"UID": "A-9", "Lab": "Qr"}),                    # a two-letter code
+    json.dumps({"UID": "A-10", "Lab": "Ünter Lab"}),       # non-ASCII letters are dropped
+    json.dumps({"UID": "A-11", "Lab": "Ünter Lab"}, ensure_ascii=False),
+    json.dumps({"UID": "A-12", "Lab": 'x "quoted" y'}),
+    json.dumps({"UID": "A-13", "Lab": ""}),                     # blank: not a spelling
+    json.dumps({"UID": "A-14", "Lab": "   "}),
+    json.dumps({"UID": "A-15", "Lab": None}),
+    json.dumps({"UID": "A-16", "Lab": 42}),
+    json.dumps({"UID": "A-17", "Lab": True}),                   # str(True) == "True"
+    json.dumps({"UID": "A-18", "lab": "Stuvw Lab"}),            # another key: not a Lab
+    json.dumps({"UID": "A-19", "Nested": {"Lab": "Stuvw Lab"}}),  # not at the top level
+    json.dumps({"UID": "A-20", "Notes": "the Lab was closed"}),
+    json.dumps(["Lab", "Abcdef Lab"]),                          # not an object
+    '{"UID": "A-22", "Lab": "Abcdef Lab"',                      # malformed
+    "",
+    json.dumps({"UID": "A-24"}),
+]
+
+LAB_CODES = ["ABC", "abc", " Abc ", "GHI", "OMN", "QR", "NTE", "XQU", "TRU", "STU", "THE",
+             "ABCD", "ZZZ", "", None]
+
+
+def _old_lab_for_code(raws, code):
+    """The lookup as it was: every sample's metadata, parsed in Python."""
+    code = str(code or "").strip().upper()
+    if not code:
+        return None
+    counts = {}
+    for raw in raws:
+        try:
+            meta = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except ValueError:
+            continue
+        if not isinstance(meta, dict):
+            continue
+        value = str(meta.get("Lab") or "").strip()
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    matches = [(v, n) for v, n in counts.items()
+               if re.sub(r"[^A-Za-z]", "", v)[:3].upper() == code]
+    if not matches:
+        return None
+    matches.sort(key=lambda vn: (-vn[1], vn[0]))
+    return matches[0][0]
+
+
+def _lab_fragments(raws):
+    """What `_LAB_SPELLINGS_SQL` returns for these rows: one row per sample whose
+    metadata contains '"Lab"' (any case) and is valid JSON, holding
+    JSON_EXTRACT(json_metadata, '$.Lab'): the value as JSON text, or NULL when
+    the top level is not an object or has no Lab key."""
+    out = []
+    for raw in raws:
+        if '"lab"' not in raw.lower():
+            continue
+        try:
+            meta = json.loads(raw)
+        except ValueError:
+            continue
+        lab = json.dumps(meta["Lab"]) if isinstance(meta, dict) and "Lab" in meta else None
+        out.append((lab,))
+    return out
+
+
+@pytest.fixture
+def fresh_lab_cache(monkeypatch):
+    monkeypatch.setattr(reingest_lookups, "_lab_spellings_cache", None, raising=False)
+
+
+@pytest.mark.usefixtures("fresh_lab_cache")
+class TestLabForCodeStrict:
+    def _resolve(self, settings, code, rows):
+        _seek_settings(settings)
+        recorder = _Recorder(rows=rows)
+        with patch("django.db.connections", recorder), \
+                patch("seek.models.Samples.objects") as samples:
+            samples.values_list.side_effect = AssertionError("read the whole samples table")
+            got = reingest_lookups.lab_for_code_strict(code)
+        return got, recorder.calls
+
+    @pytest.mark.parametrize("code", LAB_CODES)
+    def test_answers_exactly_as_the_whole_table_loop_did(self, settings, code):
+        got, _ = self._resolve(settings, code, _lab_fragments(LAB_FIXTURE))
+        assert got == _old_lab_for_code(LAB_FIXTURE, code)
+
+    def test_the_fixture_exercises_the_rules(self):
+        # Guards the equality test against a fixture on which any answer would agree.
+        assert _old_lab_for_code(LAB_FIXTURE, "ABC") == "ABCDEF_lab"
+        assert _old_lab_for_code(LAB_FIXTURE, "GHI") == "Ghijk Lab"
+        assert _old_lab_for_code(LAB_FIXTURE, "OMN") == "O'Mnop Lab"
+        assert _old_lab_for_code(LAB_FIXTURE, "QR") == "Qr"
+        assert _old_lab_for_code(LAB_FIXTURE, "TRU") == "True"
+        assert _old_lab_for_code(LAB_FIXTURE, "STU") is None
+
+    def test_reads_one_filtered_query_on_the_seek_connection(self, settings):
+        got, calls = self._resolve(settings, "ABC", [('"Abcdef Lab"',)])
+        assert got == "Abcdef Lab"
+        [(alias, sql, params)] = calls
+        assert alias == "seek"
+        assert "JSON_EXTRACT(s.json_metadata, '$.Lab')" in sql
+        assert "JSON_VALID(s.json_metadata)" in sql
+        assert params == ['%"Lab"%']
+
+    def test_a_build_reads_the_spellings_once(self, settings):
+        _seek_settings(settings)
+        recorder = _Recorder(rows=_lab_fragments(LAB_FIXTURE))
+        with patch("django.db.connections", recorder):
+            answers = [reingest_lookups.lab_for_code_strict(c) for c in ("ABC", "GHI", "ABC", "ZZZ")]
+        assert answers == ["ABCDEF_lab", "Ghijk Lab", "ABCDEF_lab", None]
+        assert len(recorder.calls) == 1
+
+    def test_reads_again_once_the_build_window_has_passed(self, settings, monkeypatch):
+        _seek_settings(settings)
+        recorder = _Recorder(rows=[('"Abcdef Lab"',)])
+        clock = iter([1000.0, 1000.0 + reingest_lookups._LAB_SPELLINGS_TTL_S + 1])
+        monkeypatch.setattr("time.monotonic", lambda: next(clock))
+        with patch("django.db.connections", recorder):
+            reingest_lookups.lab_for_code_strict("ABC")
+            reingest_lookups.lab_for_code_strict("ABC")
+        assert len(recorder.calls) == 2
+
+    def test_raises_on_an_outage_and_caches_nothing(self, settings):
+        _seek_settings(settings)
+        with patch("django.db.connections", _down()):
+            with pytest.raises(RuntimeError):
+                reingest_lookups.lab_for_code_strict("ABC")
+        assert reingest_lookups._lab_spellings_cache is None
+
+    def test_a_blank_code_asks_nothing(self, settings):
+        got, calls = self._resolve(settings, "  ", [])
+        assert got is None and calls == []
