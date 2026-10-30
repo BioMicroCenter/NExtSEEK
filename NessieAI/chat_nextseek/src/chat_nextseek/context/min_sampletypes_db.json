@@ -154,6 +154,13 @@
     "Tags": "gene expression analysis, RNA-seq analysis, transcriptomics analysis, differential expression analysis, DESeq2, count matrix, bulk RNA analysis, expression profiling, transcript abundance, A.GEX, RNAseq analysis, RNA seq analysis, bulk RNA-seq analysis, differential gene expression, microarray analysis"
   },
   {
+    "SampleType": "A.HLA",
+    "ID": 152,
+    "Name": "HLA Typing Analysis",
+    "Description": "An HLA typing analysis file contains the HLA class I alleles (HLA-A, HLA-B and HLA-C) called for one individual from sequencing reads. It represents one typing tool's genotype for one sample, with the tool's read support and fit score, used for immunogenetics and neoantigen work. Each file typically corresponds to a single sequencing sample.\nTypical file types: .tsv, .pdf",
+    "Tags": "HLA typing analysis, HLA typing, HLA genotyping, HLA alleles, HLA class I, MHC class I, HLA-A, HLA-B, HLA-C, immunogenetics, OptiType, nf-core/hlatyping, A.HLA"
+  },
+  {
     "SampleType": "A.ICM",
     "ID": 148,
     "Name": "Ion Chromatography Analysis",
