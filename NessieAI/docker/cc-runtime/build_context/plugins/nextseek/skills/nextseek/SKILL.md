@@ -282,7 +282,10 @@ reads can call: which variants, mutations or SNPs they carry or express, whether
 fused, which HLA alleles a donor carries. When they point back at earlier results ("these
 cells", "those files"), add the sample UIDs from that turn's `rows.csv` after the verbatim
 question. A request for variant-call records already registered (the A.VCF samples, their files)
-is still a `nextseek-graph` question. Never tell the user which pipelines NExtSEEK can or cannot
+is still a `nextseek-graph` question, and so is a question about samples that already hold
+variant calls or have no reads, such as an investigation whose catalog description says it holds
+no raw sequencing data (D.SEQ): the registered calls answer it, and no run could start.
+Never tell the user which pipelines NExtSEEK can or cannot
 run: the pipeline agent's catalog decides that, and it covers far more than rnaseq and scrnaseq.
 
 ```bash

@@ -246,3 +246,11 @@ def test_a_variant_question_is_handed_to_the_pipeline_agent():
     assert '"which variants or mutations do these samples carry or express" (offers a pipeline run)' in text
     assert "which variants, mutations or SNPs they carry or express" in text
     assert "Never tell the user which pipelines NExtSEEK can or cannot\nrun" in text
+
+
+def test_a_variant_question_on_samples_without_reads_stays_on_the_graph():
+    """Review of #145: an investigation holding variant calls and no reads must be answered
+    from its registered calls, not handed to a pipeline run that could never start."""
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    assert "so is a question about samples that already hold\nvariant calls or have no reads" in text
+    assert "the registered calls answer it, and no run could start." in text
