@@ -19,6 +19,32 @@ describe("debugEntries formatters", () => {
     expect(s).toContain("\nstructured lookup");
   });
 
+  it("routeDecidedSummary says a pin was applied when the server forced that route", () => {
+    expect(routeDecidedSummary({ route: "container_cc", source: "forced" }, "cc")).toBe(
+      "→ container_cc  ·  source=forced  ·  pinned CC: applied",
+    );
+    expect(routeDecidedSummary({ route: "nextseek_query", source: "forced" }, "ns")).toContain(
+      "pinned C_NS: applied",
+    );
+  });
+
+  it("routeDecidedSummary says so when a pin was not applied (router ran, or the wrong route)", () => {
+    // The server ignored the field: the router decided.
+    expect(routeDecidedSummary({ route: "nextseek_query", source: "baml" }, "cc")).toBe(
+      "→ nextseek_query  ·  source=baml  ·  pinned CC: NOT applied",
+    );
+    // Forced, but not to what was asked.
+    expect(routeDecidedSummary({ route: "container_cc", source: "forced" }, "ns")).toContain(
+      "pinned C_NS: NOT applied",
+    );
+  });
+
+  it("routeDecidedSummary is unchanged when nothing was pinned", () => {
+    const d = { route: "nextseek_query", source: "baml" };
+    expect(routeDecidedSummary(d, "auto")).toBe(routeDecidedSummary(d));
+    expect(routeDecidedSummary(d, "auto")).not.toContain("pinned");
+  });
+
   it("ccTurnMetaSummary shows model, session, budget, timeout", () => {
     expect(
       ccTurnMetaSummary({

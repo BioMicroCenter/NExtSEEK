@@ -6,7 +6,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
 import { AboutDialog, HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
-import { getForceRoute } from "@/lib/forceRoute";
+import { getForceRoute, type ForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
 import { getMaxTurnLength } from "@/lib/maxTurnLength";
 import { adoptTerminalSession } from "@/lib/sessionAdoption";
@@ -43,6 +43,8 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
   const pendingDebugRef = useRef<DebugEntry[]>([]);
+  // The pin the turn in flight was sent with, so its route_decided can say whether the server applied it.
+  const pinnedRouteRef = useRef<ForceRoute>("auto");
   const {
     processingState,
     handlePreludeStep,
@@ -131,7 +133,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
         case "route_decided": {
           handleRouteDecided(event.data as RouteDecidedData);
-          const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
+          const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData, pinnedRouteRef.current));
           pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
           break;
@@ -224,9 +226,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
+      const forceRoute: ForceRoute = isAdmin ? getForceRoute() : "auto";
+      pinnedRouteRef.current = forceRoute;
       const opts = {
         ...base,
-        forceRoute: isAdmin ? getForceRoute() : ("auto" as const),
+        forceRoute,
         useProd: isAdmin ? getUseProd() : false,
         maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
