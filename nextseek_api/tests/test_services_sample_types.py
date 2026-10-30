@@ -8,7 +8,9 @@ Covers:
 - SamplesByChildTypesViewSet: parents_by_child_types action
 """
 
+import copy
 import json
+import re
 import pytest
 import requests
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
@@ -25,6 +27,15 @@ def _titles():
     with patch.object(sample_types, "_existing_type_ids", return_value=[], create=True) as m:
         m.real = real
         yield m
+
+
+@pytest.fixture(autouse=True)
+def _no_creates_in_flight():
+    """No test inherits another's record of an unanswered create."""
+    from django.core.cache import caches
+    caches["throttle"].clear()
+    yield
+    caches["throttle"].clear()
 
 
 # ---------------------------------------------------------------------------
@@ -130,34 +141,130 @@ GOOD_ST_UPDATE_PAYLOAD = {
 
 
 class TestSampleTypeResolveUid:
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_numeric_passthrough(self, _):
+    def test_numeric_passthrough(self, _titles):
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("42") == "42"
+        _titles.assert_not_called()
 
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_title_resolved(self, mock_cls):
-        mock_cls.return_value.getSampleTypeID.return_value = 12
+    def test_title_resolved(self, _titles):
+        _titles.return_value = ["12"]
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("TIS") == "12"
+        _titles.assert_called_once_with("TIS")
 
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_title_not_found(self, mock_cls):
-        mock_cls.return_value.getSampleTypeID.return_value = 0
+    def test_title_not_found(self, _titles):
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("UNKNOWN") is None
 
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_title_returns_none(self, mock_cls):
-        mock_cls.return_value.getSampleTypeID.return_value = None
-        from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
-        assert _resolve_uid_to_seek_id("UNKNOWN") is None
-
-    @patch("nextseek_api.services.sample_types.DBtable_sampletype")
-    def test_exception_returns_none(self, mock_cls):
-        mock_cls.side_effect = RuntimeError("boom")
+    def test_a_title_two_types_hold_does_not_resolve(self, _titles):
+        _titles.return_value = ["12", "13"]
         from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
         assert _resolve_uid_to_seek_id("TIS") is None
+
+    def test_an_unreadable_table_raises_rather_than_reading_as_not_found(self, _titles):
+        _titles.return_value = None
+        from nextseek_api.services.sample_types import TitleLookupUnavailable, _resolve_uid_to_seek_id
+        with pytest.raises(TitleLookupUnavailable):
+            _resolve_uid_to_seek_id("TIS")
+
+    # #141 review: getSampleTypeID cuts a title at its first "_", so the GET a 202 sends a client to could answer
+    # D.HEM for a create of D.HEM_v2 that SEEK had not committed, and the client would take it as created.
+    def test_a_title_with_an_underscore_is_matched_whole(self, _titles):
+        _titles.side_effect = lambda title: {"D.HEM": ["117"]}.get(title, [])
+        from nextseek_api.services.sample_types import _resolve_uid_to_seek_id
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype") as table:
+            table.return_value.getSampleTypeID.return_value = 117  # what the cut lookup answers
+            assert _resolve_uid_to_seek_id("D.HEM_v2") is None
+            assert _resolve_uid_to_seek_id("D.HEM") == "117"
+            table.return_value.getSampleTypeID.assert_not_called()
+
+
+class TestSampleTypeByTitleRoutes:
+    """GET and PATCH by title go through the exact match; a table that cannot be read is 503, never 404."""
+
+    def _viewset(self):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        return vs
+
+    def test_get_of_an_uncommitted_suffixed_title_is_404_not_its_prefix(self, _titles):
+        _titles.side_effect = lambda title: {"D.HEM": ["117"]}.get(title, [])
+        vs = self._viewset()
+        resp = vs.retrieve(_auth_request(), uid="D.HEM_v2")
+        assert resp.status_code == 404
+        vs.client.get_sample_type.assert_not_called()
+
+    def test_get_by_exact_title_reads_that_type(self, _titles):
+        _titles.return_value = ["117"]
+        vs = self._viewset()
+        vs.client.get_sample_type.return_value = _ok(GOOD_ST_SINGLE)
+        assert vs.retrieve(_auth_request(), uid="D.HEM_v2").status_code == 200
+        assert vs.client.get_sample_type.call_args.args[1] == "117"
+
+    def test_get_when_the_table_cannot_be_read_is_503(self, _titles):
+        _titles.return_value = None
+        vs = self._viewset()
+        resp = vs.retrieve(_auth_request(), uid="D.HEM_v2")
+        assert resp.status_code == 503
+        assert resp["Content-Type"] == "application/json"
+        assert json.loads(resp.content)["errors"][0]["title"] == "Could not look up the title"
+
+    def test_patch_of_a_suffixed_title_never_writes_its_prefix(self, _titles):
+        _titles.side_effect = lambda title: {"D.HEM": ["117"]}.get(title, [])
+        vs = self._viewset()
+        payload = {"data": {"type": "sample_types", "id": "UNKNOWN", "attributes": {"title": "Revised"}}}
+        resp = vs.partial_update(_auth_request(method="patch", data=payload), uid="D.HEM_v2")
+        assert resp.status_code == 404
+        vs.client.update_sample_type.assert_not_called()
+
+    def test_patch_when_the_table_cannot_be_read_is_503(self, _titles):
+        _titles.return_value = None
+        vs = self._viewset()
+        payload = {"data": {"type": "sample_types", "id": "117", "attributes": {"title": "Revised"}}}
+        resp = vs.partial_update(_auth_request(method="patch", data=payload), uid="D.HEM_v2")
+        assert resp.status_code == 503
+        vs.client.update_sample_type.assert_not_called()
+
+
+class TestTheGuidanceOfAnUnconfirmedCreate:
+    @pytest.fixture(autouse=True)
+    def _seek_login(self):
+        with patch("nextseek_api.services.sample_types.resolve_seek_auth", return_value=(("u", "p"), {})) as m:
+            yield m
+
+    def _create(self, title, **client):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock(**client)
+        payload = copy.deepcopy(GOOD_ST_CREATE_PAYLOAD)
+        payload["data"]["attributes"]["title"] = title
+        resp = vs.create(_auth_request(method="post", data=payload))
+        return resp, json.loads(resp.content)
+
+    def test_the_202_points_at_the_exact_title_path(self):
+        resp, body = self._create("D.HEM_v2", **{"create_sample_type.side_effect": requests.ReadTimeout("slow")})
+        assert resp.status_code == 202
+        assert "GET /nextseek_api/sample_types/<title>/ finds it by its exact title" in body["detail"]
+
+    def test_the_202_of_an_all_digit_title_points_at_the_list(self):
+        resp, body = self._create("2024", **{"create_sample_type.side_effect": requests.ReadTimeout("slow")})
+        assert resp.status_code == 202
+        assert "reads a title of only digits as an id" in body["detail"]
+        assert "GET /nextseek_api/sample_types/." in body["detail"]
+
+    def test_the_502_of_a_seek_5xx_points_at_the_exact_title_path(self):
+        resp, body = self._create("D.HEM_v2", **{"create_sample_type.return_value": (
+            b"<html>boom</html>", 500, {"Content-Type": "text/html"}, Mock())})
+        assert resp.status_code == 502
+        assert "finds it by its exact title" in body["errors"][0]["detail"]
+
+    def test_the_openapi_text_of_the_202_names_the_exact_match_and_the_digit_case(self):
+        from drf_spectacular.generators import SchemaGenerator
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        create = schema["paths"]["/nextseek_api/sample_types/"]["post"]["responses"]
+        assert "exact title" in create["202"]["description"]
+        assert "only digits" in create["202"]["description"]
 
 
 # ============================================================================
@@ -368,6 +475,20 @@ class TestSampleTypeCreate:
         resp = vs.create(req)
         assert resp.status_code == 502
 
+    # #141 review: the OpenAPI entry promises {"errors": [...], "title": ...} on every 502, but a SEEK 2xx whose body
+    # is not a sample type document gave a bare error with no title, so the client could not look the type up.
+    def test_create_502_bad_response_carries_the_title_as_the_schema_says(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = (b'{"data": {}}', 201, {"Content-Type": "application/json"}, Mock())
+        resp = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert resp.status_code == 502
+        assert resp["Content-Type"] == "application/json"
+        body = json.loads(resp.content)
+        assert body["title"] == "NEW" and body["seek_status"] == 201
+        assert body["errors"][0]["title"] == "Invalid upstream response"
+        assert "may still have been created" in body["errors"][0]["detail"]
+        assert "finds it by its exact title" in body["errors"][0]["detail"]
+
 
 # Issue #140: SEEK finished creating a large type (70+ attributes) after the front proxy had given up, so the caller
 # saw a 504 or 500 for a type that exists, and a retry would have made a second type with the same title.
@@ -463,6 +584,131 @@ class TestSampleTypeCreateUnconfirmed:
         assert taken.content == free.content
 
 
+# #141 review: the title check sees only committed rows. A create SEEK has not answered is still invisible to it, so
+# a client that retried after the 202 (its GET by title still 404) made a second type with the same title.
+class TestSampleTypeCreateInFlight:
+    @pytest.fixture(autouse=True)
+    def _seek_login(self):
+        with patch("nextseek_api.services.sample_types.resolve_seek_auth", return_value=(("u", "p"), {})) as m:
+            yield m
+
+    def _viewset(self):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        return vs
+
+    def _create(self, vs, payload=GOOD_ST_CREATE_PAYLOAD):
+        resp = vs.create(_auth_request(method="post", data=payload))
+        return resp, json.loads(resp.content)
+
+    def _mysql(self, answer=(1,)):
+        conn = MagicMock(vendor="mysql")
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = answer
+        return conn, cur
+
+    def test_a_retry_after_an_unanswered_create_is_202_and_sends_nothing(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        first, _ = self._create(vs)
+        assert first.status_code == 202
+        # SEEK has not committed yet: the title check still finds nothing.
+        retry, body = self._create(vs)
+        assert retry.status_code == 202
+        assert body["status"] == "unconfirmed" and body["sent"] is False and body["title"] == "NEW"
+        assert "Nothing was sent" in body["detail"]
+        assert vs.client.create_sample_type.call_count == 1
+
+    def test_the_record_is_case_blind_and_ignores_surrounding_spaces(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        self._create(vs)
+        other = copy.deepcopy(GOOD_ST_CREATE_PAYLOAD)
+        other["data"]["attributes"]["title"] = " new "
+        retry, _ = self._create(vs, other)
+        assert retry.status_code == 202
+        assert vs.client.create_sample_type.call_count == 1
+
+    def test_a_retry_after_a_seek_5xx_waits_as_well(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = (b"<html>boom</html>", 500, {"Content-Type": "text/html"}, Mock())
+        first, _ = self._create(vs)
+        assert first.status_code == 502
+        retry, body = self._create(vs)
+        assert retry.status_code == 202 and body["sent"] is False
+        assert vs.client.create_sample_type.call_count == 1
+
+    def test_a_connect_timeout_sent_nothing_so_a_retry_is_sent(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = [requests.ConnectTimeout("no route"), _ok(GOOD_ST_SINGLE, 201)]
+        self._create(vs)
+        retry, _ = self._create(vs)
+        assert retry.status_code == 201
+        assert vs.client.create_sample_type.call_count == 2
+
+    def test_a_created_type_is_then_409_not_202(self, _titles):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        self._create(vs)
+        _titles.return_value = ["117"]  # SEEK has committed it since
+        vs.client.get_sample_type.return_value = _ok(GOOD_ST_SINGLE)
+        retry, body = self._create(vs)
+        assert retry.status_code == 409 and body["id"] == "117"
+
+    def test_a_caller_without_a_seek_login_gets_401_while_a_create_is_in_flight(self, _seek_login):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        self._create(vs)
+        _seek_login.return_value = (None, {})
+        retry = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert retry.status_code == 401
+        assert retry.content == b'{"detail":"Authentication required"}'
+
+    def test_an_unreadable_record_is_503_and_sends_nothing(self):
+        vs = self._viewset()
+        with patch("nextseek_api.services.sample_types._in_flight_since", side_effect=OSError("disk")):
+            resp, body = self._create(vs)
+        assert resp.status_code == 503
+        assert body["title"] == "NEW" and "Nothing was created" in body["errors"][0]["detail"]
+        vs.client.create_sample_type.assert_not_called()
+
+    def test_on_mysql_the_title_lock_is_held_across_the_check_and_the_create(self, _titles):
+        conn, cur = self._mysql()
+        calls = []
+        cur.execute.side_effect = lambda sql, params: calls.append((re.search(r"\w+_LOCK", sql).group(0), params[0]))
+        _titles.side_effect = lambda title: calls.append("check") or []
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = lambda *a, **k: calls.append("create") or _ok(GOOD_ST_SINGLE, 201)
+        with patch("nextseek_api.services.sops.connections", {"seek": conn}, create=True):
+            resp, _ = self._create(vs)
+        assert resp.status_code == 201
+        assert [c if isinstance(c, str) else c[0] for c in calls] == ["GET_LOCK", "check", "create", "RELEASE_LOCK"]
+        name = calls[0][1]
+        assert name == calls[-1][1] and name.startswith("nextseek_st_title_") and len(name) <= 64
+
+    def test_on_mysql_a_create_while_another_holds_the_lock_is_202_and_sends_nothing(self, _titles):
+        conn, cur = self._mysql(answer=(0,))  # GET_LOCK's answer when the wait ran out
+        vs = self._viewset()
+        with patch("nextseek_api.services.sops.connections", {"seek": conn}, create=True):
+            resp, body = self._create(vs)
+        assert resp.status_code == 202 and body["sent"] is False
+        _titles.assert_not_called()
+        vs.client.create_sample_type.assert_not_called()
+        assert [c.args[0].split("(")[0] for c in cur.execute.call_args_list] == ["SELECT GET_LOCK"]
+
+    def test_on_mysql_a_lock_that_cannot_be_asked_for_is_503(self, _titles):
+        from django.db import DatabaseError
+        conn, cur = self._mysql()
+        cur.execute.side_effect = DatabaseError("gone away")
+        vs = self._viewset()
+        with patch("nextseek_api.services.sops.connections", {"seek": conn}, create=True):
+            resp, body = self._create(vs)
+        assert resp.status_code == 503 and body["title"] == "NEW"
+        _titles.assert_not_called()
+        vs.client.create_sample_type.assert_not_called()
+
+
 class TestExistingTypeIds:
     def test_ids_of_the_types_holding_the_title(self, _titles):
         with patch("nextseek_api.services.sample_types.DBtable_sampletype") as table:
@@ -470,9 +716,28 @@ class TestExistingTypeIds:
             assert _titles.real("D.HEM") == ["117"]
             table.return_value.queryRecordsByConstraint.assert_called_once_with({"title": "D.HEM"})
 
-    def test_an_unreadable_table_lets_the_create_through(self, _titles):
+    def test_an_unreadable_table_is_none_not_a_free_title(self, _titles):
         with patch("nextseek_api.services.sample_types.DBtable_sampletype", side_effect=RuntimeError("no db")):
-            assert _titles.real("D.HEM") == []
+            assert _titles.real("D.HEM") is None
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype") as table:
+            table.return_value.queryRecordsByConstraint.return_value = "not rows"
+            assert _titles.real("D.HEM") is None
+
+    # #141 review: a database error read as "no type holds this title", and the create went ahead.
+    def test_a_create_whose_title_check_cannot_run_is_503_and_sends_nothing(self, _titles):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype", side_effect=RuntimeError("no db")):
+            _titles.side_effect = _titles.real
+            resp = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert resp.status_code == 503
+        assert resp["Content-Type"] == "application/json"
+        body = json.loads(resp.content)
+        assert body["title"] == "NEW"
+        assert body["errors"][0]["title"] == "Could not check the title"
+        assert "Nothing was created" in body["errors"][0]["detail"]
+        vs.client.create_sample_type.assert_not_called()
 
 
 # ============================================================================

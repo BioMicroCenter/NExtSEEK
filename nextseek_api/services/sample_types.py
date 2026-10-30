@@ -1,6 +1,8 @@
 from typing import Optional, List
 
+import hashlib
 import json
+import time
 from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -9,13 +11,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 # from drf_spectacular.types import OpenApiTypes
 from django.conf import settings
+from django.core.cache import caches
 from pydantic import ValidationError
 import requests
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_sync import hooks
-from nextseek_api.services.sops import _json, _seek_refused, _unconfirmed
+from nextseek_api.services.sops import _json, _seek_refused, _title_lock, _unconfirmed
 from nextseek_api.graph_search.query import _LINEAGE_PATH_SCOPE, _SCOPE_MATCH
 from nextseek_api.graph_search.scope import Scope, resolve_scope
 import logging
@@ -118,19 +121,39 @@ from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
 
 
+class TitleLookupUnavailable(Exception):
+    """SEEK's sample_types table could not be read to resolve a title."""
+
+
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
+    """The SEEK id a path segment names: digits as they are, else the one type holding exactly that title (as SEEK's
+    table compares titles); None for no type or several. Not ``getSampleTypeID``, which cuts a title at its first
+    ``_`` (so ``D.HEM_v2`` read as ``D.HEM``) for the legacy search and upload callers that rely on it. Raises
+    ``TitleLookupUnavailable`` when the table cannot be read, so a client following a 202 never reads "not found"
+    as "not created"."""
     s = str(uid_or_id)
     if s.isdigit():
         return s
-    try:
-        dbst = DBtable_sampletype("DEFAULT")
-        # Attempt resolution by title
-        rid = dbst.getSampleTypeID(s)
-        if isinstance(rid, int) and rid > 0:
-            return str(rid)
-    except Exception:
-        return None
-    return None
+    ids = _existing_type_ids(s)
+    if ids is None:
+        raise TitleLookupUnavailable(s)
+    return ids[0] if len(ids) == 1 else None
+
+
+def _lookup_unavailable() -> HttpResponse:
+    return HttpResponse(b'{"errors":[{"title":"Could not look up the title","detail":"The sample types table could '
+                        b'not be read. Nothing was changed. Try again later."}]}', status=503,
+                        content_type='application/json')
+
+
+def _find_by_title(title: str) -> str:
+    """How a client finds the type a create may have made: the path that matches the exact title, or the list for a
+    title of only digits, which that path reads as an id."""
+    if str(title).isdigit():
+        return ("GET /nextseek_api/sample_types/<title>/ reads a title of only digits as an id, so look for this one "
+                "by its title in GET /nextseek_api/sample_types/.")
+    return ("GET /nextseek_api/sample_types/<title>/ finds it by its exact title while no other sample type holds "
+            "that title.")
 
 
 def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
@@ -154,21 +177,30 @@ LIST_TIMEOUT_S = 50
 CREATE_TIMEOUT_S = LIST_TIMEOUT_S
 
 
-def _existing_type_ids(title: str) -> List[str]:
-    """Ids of the sample types that already hold this title, read from SEEK's table. [] when it cannot be read."""
+def _existing_type_ids(title: str) -> Optional[List[str]]:
+    """Ids of the sample types that hold exactly this title (as SEEK's table compares titles), read from SEEK's
+    table. None when it cannot be read: the caller must then not act as if the title were free."""
     try:
         rows = DBtable_sampletype("DEFAULT").queryRecordsByConstraint({"title": title})
-        return [str(r["id"]) for r in rows if r.get("id") is not None] if isinstance(rows, list) else []
     except Exception:
-        logging.getLogger(__name__).warning("sample_types_proxy.create: could not read the sample_types table for "
-                                            "the title check", exc_info=True)
-        return []
+        logging.getLogger(__name__).warning("sample_types_proxy: could not read the sample_types table for the "
+                                            "title %r", title, exc_info=True)
+        return None
+    if not isinstance(rows, list):
+        logging.getLogger(__name__).warning("sample_types_proxy: the sample_types table read for the title %r gave "
+                                            "%s, not rows", title, type(rows).__name__)
+        return None
+    return [str(r["id"]) for r in rows if r.get("id") is not None]
 
 
 def _duplicate_title(client, request, title: str) -> Optional[HttpResponse]:
     """409 when a sample type already holds ``title``: SEEK allows two, and a client retrying a create it saw time
-    out would make the second. The id is given only to a caller SEEK lets read that type."""
+    out would make the second. The id is given only to a caller SEEK lets read that type. 503 when the table
+    cannot be read, since a create sent then could be that second type."""
     ids = _existing_type_ids(title)
+    if ids is None:
+        return _not_checked(title, "the sample types table could not be read to check that no other type holds "
+                                   "this title")
     if not ids:
         return None
     if not any(resolve_seek_auth(request)):
@@ -191,6 +223,57 @@ def _duplicate_title(client, request, title: str) -> Optional[HttpResponse]:
     return _json(body, 409)
 
 
+# How long a create SEEK left unanswered keeps its title in flight: a retry of that title inside it is answered 202
+# again and sends nothing, because SEEK may still be committing the first create, which the title check cannot see
+# until it does (#141 review). As long as graph_sync holds back the rows of an unconfirmed write.
+IN_FLIGHT_S = hooks.UNCONFIRMED_DELAY_S
+
+
+def _in_flight_key(title: str) -> str:
+    """The cache key of ``title``'s unanswered create: stripped and case-blind, as the title lock's."""
+    return "sample_type_create_in_flight:" + hashlib.sha256(title.strip().casefold().encode()).hexdigest()
+
+
+def _in_flight_store():
+    """The ``throttle`` cache alias: a file cache every gunicorn worker in the container shares (dmac/settings.py)."""
+    return caches["throttle"]
+
+
+def _mark_in_flight(title: str) -> None:
+    """Record that SEEK may still be creating ``title``. A failed write is logged: the title lock still covers two
+    creates at once, only a retry after the 202 is then unguarded."""
+    try:
+        _in_flight_store().set(_in_flight_key(title), int(time.time()), IN_FLIGHT_S)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("sample_types_proxy.create: could not record the unanswered create of "
+                                            "%r", title, exc_info=True)
+
+
+def _in_flight_since(title: str) -> Optional[int]:
+    """When an unanswered create of ``title`` was sent, or None. Raises when the store cannot be read."""
+    return _in_flight_store().get(_in_flight_key(title))
+
+
+def _no_seek_login(request) -> Optional[HttpResponse]:
+    """The create's own 401 for a caller with no SEEK login, so a title being created answers as a free one."""
+    if any(resolve_seek_auth(request)):
+        return None
+    return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+
+def _still_unconfirmed(title: str, detail: str) -> HttpResponse:
+    """The 202 of a create this request did not send, because another of the same title may still be in SEEK."""
+    return _json({"status": "unconfirmed", "sent": False, "title": title,
+                  "detail": f"{detail} Nothing was sent to SEEK for this request. Once SEEK has committed the type, "
+                            f"{_find_by_title(title)} Check before you send the create again."}, 202)
+
+
+def _not_checked(title: str, what: str) -> HttpResponse:
+    """503: the guard against a second type with this title could not run, so nothing was sent."""
+    return _json({"errors": [{"title": "Could not check the title",
+                              "detail": f"Nothing was created: {what}. Try again later."}], "title": title}, 503)
+
+
 def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpResponse:
     """The response for a SEEK call that raised instead of answering: 504 on a timeout, 502 otherwise.
 
@@ -208,6 +291,10 @@ def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpRes
                                         action, seek_id, type(exc).__name__)
     payload = {"errors": [{"title": "Upstream connection error", "detail": "SEEK could not be reached."}]}
     return HttpResponse(json.dumps(payload).encode(), status=502, content_type='application/json')
+
+
+_UID_DESC = ("SEEK id (numeric), or the exact title of one sample type (resolved to its id; a title of only digits "
+             "is read as an id)")
 
 
 class SampleTypeProxyViewSet(viewsets.ViewSet):
@@ -266,10 +353,12 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         description=SAMPLETYPE_FETCH_DESC,
         operation_id="Fetch a SampleType",
         parameters=[
-            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)'),
+            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description=_UID_DESC),
         ],
         responses={
             200: SampleTypeSingleResponse,
+            404: OpenApiResponse(description="No sample type holds this exact title, or more than one does"),
+            503: OpenApiResponse(description="The sample types table could not be read to resolve the title"),
             502: OpenApiResponse(description="SEEK could not be reached, or answered with something that is not "
                                              "a sample type document"),
             504: OpenApiResponse(description="SEEK did not answer within the proxy's timeout"),
@@ -278,7 +367,10 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
     )
     def retrieve(self, request, uid=None, pk=None):
         uid = uid or pk
-        seek_id = _resolve_uid_to_seek_id(uid)
+        try:
+            seek_id = _resolve_uid_to_seek_id(uid)
+        except TitleLookupUnavailable:
+            return _lookup_unavailable()
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
 
@@ -310,8 +402,11 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             200: SampleTypeSingleResponse,
             202: OpenApiResponse(description=(
                 f"SEEK did not answer within {CREATE_TIMEOUT_S} s: it received the create and may still complete it. "
-                "Body: {\"status\": \"unconfirmed\", \"title\": ..., \"detail\": ...}. Look the type up with GET "
-                "/nextseek_api/sample_types/<title>/ before you send the create again.")),
+                "Body: {\"status\": \"unconfirmed\", \"title\": ..., \"detail\": ...}. Look the type up by its exact "
+                "title with GET /nextseek_api/sample_types/<title>/ before you send the create again (that path reads "
+                "a title of only digits as an id: find such a title in GET /nextseek_api/sample_types/). A create of the same title "
+                f"sent while another is waiting for SEEK, or within {IN_FLIGHT_S // 60} minutes of one SEEK left "
+                "unanswered, gets this 202 with \"sent\": false and is not sent.")),
             409: OpenApiResponse(description=(
                 "A sample type with this title already exists and nothing was created. Body: {\"errors\": [...], "
                 "\"title\": ...}, with \"id\" only when the caller can read that type.")),
@@ -319,6 +414,9 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             502: OpenApiResponse(description=(
                 "SEEK could not be reached, answered with an error, or answered with something that is not a sample "
                 "type document. The type may still exist: Body: {\"errors\": [...], \"title\": ...}.")),
+            503: OpenApiResponse(description=(
+                "The check that no other sample type holds this title could not run, so nothing was sent to SEEK. "
+                "Body: {\"errors\": [...], \"title\": ...}. Try again later.")),
         },
         tags=['SampleTypes'],
     )
@@ -329,18 +427,44 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
         title = payload["data"]["attributes"].get("title")
-        if title:
+        if not title:
+            return self._create(request, payload, title)
+        # One create of a title at a time, across every worker: the check below sees only committed rows, so two
+        # creates sent together would each find the title free (#141 review).
+        with _title_lock(title, kind="sample_type") as held:
+            if held is None:
+                return _not_checked(title, "the lock that keeps two creates of one title apart could not be taken")
+            if not held:
+                return _no_seek_login(request) or _still_unconfirmed(
+                    title, "Another create of this title is still waiting for SEEK.")
             taken = _duplicate_title(self.client, request, title)
             if taken is not None:
                 return taken
+            try:
+                since = _in_flight_since(title)
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).warning("sample_types_proxy.create: could not read the record of "
+                                                    "unanswered creates", exc_info=True)
+                return _not_checked(title, "the record of creates SEEK has not yet answered could not be read")
+            if since is not None:
+                return _no_seek_login(request) or _still_unconfirmed(
+                    title, f"A create of this title sent less than {IN_FLIGHT_S // 60} minutes ago got no answer "
+                           "from SEEK, which may still complete it.")
+            return self._create(request, payload, title)
 
+    def _create(self, request, payload, title):
+        """SEEK's create; ``create`` holds the title's lock around the title check and this."""
         try:
             body, code, headers, resp = self.client.create_sample_type(request, payload,
                                                                        timeout_s=(10, CREATE_TIMEOUT_S))
         except requests.RequestException as exc:
             # SEEK may have committed the write it did not answer: its rows go in, held back.
             hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
-            return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types")
+            if title and not isinstance(exc, requests.ConnectTimeout):
+                # A connect timeout sent nothing; anything later may have reached SEEK.
+                _mark_in_flight(title)
+            return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types",
+                                find=_find_by_title(title) if title else None)
         delay = hooks.write_delay(code)
         if delay is not None:
             # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
@@ -348,13 +472,23 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
         if code >= 400:
-            return _seek_refused(body, code, headers, title, kind="sample type", path="sample_types")
+            if code >= 500 and title:
+                # SEEK's 5xx may follow a commit (the 502 says the type may exist): a retry waits, as after a 202.
+                _mark_in_flight(title)
+            return _seek_refused(body, code, headers, title, kind="sample type", path="sample_types",
+                                 find=_find_by_title(title) if title else None)
 
         try:
             data = json.loads(body or b"{}")
             SampleTypeSingleResponse.model_validate(data)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            # SEEK said it created something it did not describe: the 502 the OpenAPI entry promises, with the title.
+            find = f" {_find_by_title(title)}" if title else ""
+            return _json({"errors": [{"title": "Invalid upstream response",
+                                      "detail": f"SEEK answered {code} with something that is not a sample type "
+                                                f"document. The sample type may still have been created.{find} "
+                                                "Check before you send it again."}],
+                          "seek_status": code, "title": title}, 502)
 
         if 200 <= code < 300:
             # A new type is a catalog entry (enqueued above), and its samples take their T_ label from it (spec 5
@@ -370,10 +504,13 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         operation_id="Update a SampleType",
         description=SAMPLETYPE_UPDATE_DESC,
         parameters=[
-            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)')
+            OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description=_UID_DESC)
         ],
         request=SampleTypeUpdateRequest,
-        responses={200: SampleTypeSingleResponse},
+        responses={
+            200: SampleTypeSingleResponse,
+            503: OpenApiResponse(description="The sample types table could not be read to resolve the title"),
+        },
         tags=['SampleTypes'],
     )
     def partial_update(self, request, uid=None, pk=None):
@@ -384,7 +521,10 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        path_id = _resolve_uid_to_seek_id(uid) if uid is not None else None
+        try:
+            path_id = _resolve_uid_to_seek_id(uid) if uid is not None else None
+        except TitleLookupUnavailable:
+            return _lookup_unavailable()
         body_id = payload.get('data', {}).get('id')
 
         seek_id: Optional[str] = None

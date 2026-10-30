@@ -216,12 +216,12 @@ WRITERS: tuple[Writer, ...] = (
            note="the SEEK sample proxy; Rails commits the rows, by SEEK convention, and the destroy enqueues a "
                 "retire rather than a sync"),
     Writer(id="WR-08",
-           sites=("nextseek_api/services/sample_types.py::SampleTypeProxyViewSet.create",
+           sites=("nextseek_api/services/sample_types.py::SampleTypeProxyViewSet._create",
                   "nextseek_api/services/sample_types.py::SampleTypeProxyViewSet.partial_update"),
            tables=("sample_types", "sample_attributes"),
            how=("seek_client",),
            hook="hooks.enqueue",
-           hook_site=("nextseek_api/services/sample_types.py::SampleTypeProxyViewSet.create",
+           hook_site=("nextseek_api/services/sample_types.py::SampleTypeProxyViewSet._create",
                       "nextseek_api/services/sample_types.py::SampleTypeProxyViewSet.partial_update"),
            note="the SEEK sample-type proxy; a rename moves every sample's type label, which is why it enqueues "
                 "samples_of_type beside the catalog"),
