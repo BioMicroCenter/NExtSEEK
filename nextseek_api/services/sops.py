@@ -231,38 +231,45 @@ def _in_use_body(seek_id: str, title: str) -> dict:
             "id": seek_id, "title": title}
 
 
-# NExtSEEK's own SOP deletes go one at a time per title key, so two deletes of the two SOPs that share a cited
-# title cannot each see the other still holding it. Whole seconds: MySQL's GET_LOCK wait.
+# NExtSEEK's own writes go one at a time per title key: two SOP deletes of the two SOPs that share a cited title cannot
+# each see the other still holding it, and two sample type creates of one title cannot each see it free. Whole
+# seconds: MySQL's GET_LOCK wait.
 _TITLE_LOCK_WAIT_S = 10
-# ponytail: where the seek database is not MySQL (the SQLite test lane) one process lock stands in for every title.
-_TITLE_LOCK_LOCAL = threading.Lock()
+# The MySQL lock name of each kind of title, under MySQL's 64-character limit with the 40-character digest.
+_TITLE_LOCK_PREFIX = {"sop": "nextseek_sop_title_", "sample_type": "nextseek_st_title_"}
+# ponytail: where the seek database is not MySQL (the SQLite test lane) one process lock per kind stands in for every
+# title.
+_TITLE_LOCK_LOCAL = {kind: threading.Lock() for kind in _TITLE_LOCK_PREFIX}
 
 
 @contextmanager
-def _title_lock(title: str):
-    """Hold the delete lock of ``title``'s key (stripped and case-blind, as the graph's) for the ``with`` block. Yields
-    False when another delete held it past the wait or it could not be asked for: the block must then delete nothing.
-    MySQL: GET_LOCK on the seek connection, so every worker process shares it."""
+def _title_lock(title: str, kind: str = "sop"):
+    """Hold the lock of ``title``'s key (stripped and case-blind, as the graph's) for the ``with`` block. Yields True
+    when held, False when another holder kept it past the wait, and None when it could not be asked for: on anything
+    but True the block must write nothing. MySQL: GET_LOCK on the seek connection, so every worker process shares it."""
     conn = connections["seek"]
     if conn.vendor != "mysql":
-        got = _TITLE_LOCK_LOCAL.acquire(timeout=_TITLE_LOCK_WAIT_S)
-        release = _TITLE_LOCK_LOCAL.release
+        local = _TITLE_LOCK_LOCAL[kind]
+        got = local.acquire(timeout=_TITLE_LOCK_WAIT_S)
+        release = local.release
     else:
-        name = "nextseek_sop_title_" + hashlib.sha256(title.strip().casefold().encode()).hexdigest()[:40]
+        name = _TITLE_LOCK_PREFIX[kind] + hashlib.sha256(title.strip().casefold().encode()).hexdigest()[:40]
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT GET_LOCK(%s, %s)", [name, _TITLE_LOCK_WAIT_S])
-                got = (cur.fetchone() or [None])[0] == 1
+                answer = (cur.fetchone() or [None])[0]
+            # 1 held, 0 the wait ran out, NULL an error inside MySQL.
+            got = True if answer == 1 else (False if answer == 0 else None)
         except DatabaseError:
-            log.warning("sops_proxy.destroy: could not ask for the delete lock %s", name, exc_info=True)
-            got = False
+            log.warning("%s title lock: could not ask for %s", kind, name, exc_info=True)
+            got = None
 
         def release():
             try:
                 with conn.cursor() as cur:
                     cur.execute("SELECT RELEASE_LOCK(%s)", [name])
             except DatabaseError:
-                log.warning("sops_proxy.destroy: could not release %s (MySQL does when the session ends)", name)
+                log.warning("%s title lock: could not release %s (MySQL does when the session ends)", kind, name)
     try:
         yield got
     finally:

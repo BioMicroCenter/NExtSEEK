@@ -8,7 +8,9 @@ Covers:
 - SamplesByChildTypesViewSet: parents_by_child_types action
 """
 
+import copy
 import json
+import re
 import pytest
 import requests
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
@@ -25,6 +27,15 @@ def _titles():
     with patch.object(sample_types, "_existing_type_ids", return_value=[], create=True) as m:
         m.real = real
         yield m
+
+
+@pytest.fixture(autouse=True)
+def _no_creates_in_flight():
+    """No test inherits another's record of an unanswered create."""
+    from django.core.cache import caches
+    caches["throttle"].clear()
+    yield
+    caches["throttle"].clear()
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +472,131 @@ class TestSampleTypeCreateUnconfirmed:
         free = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
         assert taken.status_code == free.status_code == 401
         assert taken.content == free.content
+
+
+# #141 review: the title check sees only committed rows. A create SEEK has not answered is still invisible to it, so
+# a client that retried after the 202 (its GET by title still 404) made a second type with the same title.
+class TestSampleTypeCreateInFlight:
+    @pytest.fixture(autouse=True)
+    def _seek_login(self):
+        with patch("nextseek_api.services.sample_types.resolve_seek_auth", return_value=(("u", "p"), {})) as m:
+            yield m
+
+    def _viewset(self):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        return vs
+
+    def _create(self, vs, payload=GOOD_ST_CREATE_PAYLOAD):
+        resp = vs.create(_auth_request(method="post", data=payload))
+        return resp, json.loads(resp.content)
+
+    def _mysql(self, answer=(1,)):
+        conn = MagicMock(vendor="mysql")
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = answer
+        return conn, cur
+
+    def test_a_retry_after_an_unanswered_create_is_202_and_sends_nothing(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        first, _ = self._create(vs)
+        assert first.status_code == 202
+        # SEEK has not committed yet: the title check still finds nothing.
+        retry, body = self._create(vs)
+        assert retry.status_code == 202
+        assert body["status"] == "unconfirmed" and body["sent"] is False and body["title"] == "NEW"
+        assert "Nothing was sent" in body["detail"]
+        assert vs.client.create_sample_type.call_count == 1
+
+    def test_the_record_is_case_blind_and_ignores_surrounding_spaces(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        self._create(vs)
+        other = copy.deepcopy(GOOD_ST_CREATE_PAYLOAD)
+        other["data"]["attributes"]["title"] = " new "
+        retry, _ = self._create(vs, other)
+        assert retry.status_code == 202
+        assert vs.client.create_sample_type.call_count == 1
+
+    def test_a_retry_after_a_seek_5xx_waits_as_well(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = (b"<html>boom</html>", 500, {"Content-Type": "text/html"}, Mock())
+        first, _ = self._create(vs)
+        assert first.status_code == 502
+        retry, body = self._create(vs)
+        assert retry.status_code == 202 and body["sent"] is False
+        assert vs.client.create_sample_type.call_count == 1
+
+    def test_a_connect_timeout_sent_nothing_so_a_retry_is_sent(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = [requests.ConnectTimeout("no route"), _ok(GOOD_ST_SINGLE, 201)]
+        self._create(vs)
+        retry, _ = self._create(vs)
+        assert retry.status_code == 201
+        assert vs.client.create_sample_type.call_count == 2
+
+    def test_a_created_type_is_then_409_not_202(self, _titles):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        self._create(vs)
+        _titles.return_value = ["117"]  # SEEK has committed it since
+        vs.client.get_sample_type.return_value = _ok(GOOD_ST_SINGLE)
+        retry, body = self._create(vs)
+        assert retry.status_code == 409 and body["id"] == "117"
+
+    def test_a_caller_without_a_seek_login_gets_401_while_a_create_is_in_flight(self, _seek_login):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        self._create(vs)
+        _seek_login.return_value = (None, {})
+        retry = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert retry.status_code == 401
+        assert retry.content == b'{"detail":"Authentication required"}'
+
+    def test_an_unreadable_record_is_503_and_sends_nothing(self):
+        vs = self._viewset()
+        with patch("nextseek_api.services.sample_types._in_flight_since", side_effect=OSError("disk")):
+            resp, body = self._create(vs)
+        assert resp.status_code == 503
+        assert body["title"] == "NEW" and "Nothing was created" in body["errors"][0]["detail"]
+        vs.client.create_sample_type.assert_not_called()
+
+    def test_on_mysql_the_title_lock_is_held_across_the_check_and_the_create(self, _titles):
+        conn, cur = self._mysql()
+        calls = []
+        cur.execute.side_effect = lambda sql, params: calls.append((re.search(r"\w+_LOCK", sql).group(0), params[0]))
+        _titles.side_effect = lambda title: calls.append("check") or []
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = lambda *a, **k: calls.append("create") or _ok(GOOD_ST_SINGLE, 201)
+        with patch("nextseek_api.services.sops.connections", {"seek": conn}, create=True):
+            resp, _ = self._create(vs)
+        assert resp.status_code == 201
+        assert [c if isinstance(c, str) else c[0] for c in calls] == ["GET_LOCK", "check", "create", "RELEASE_LOCK"]
+        name = calls[0][1]
+        assert name == calls[-1][1] and name.startswith("nextseek_st_title_") and len(name) <= 64
+
+    def test_on_mysql_a_create_while_another_holds_the_lock_is_202_and_sends_nothing(self, _titles):
+        conn, cur = self._mysql(answer=(0,))  # GET_LOCK's answer when the wait ran out
+        vs = self._viewset()
+        with patch("nextseek_api.services.sops.connections", {"seek": conn}, create=True):
+            resp, body = self._create(vs)
+        assert resp.status_code == 202 and body["sent"] is False
+        _titles.assert_not_called()
+        vs.client.create_sample_type.assert_not_called()
+        assert [c.args[0].split("(")[0] for c in cur.execute.call_args_list] == ["SELECT GET_LOCK"]
+
+    def test_on_mysql_a_lock_that_cannot_be_asked_for_is_503(self, _titles):
+        from django.db import DatabaseError
+        conn, cur = self._mysql()
+        cur.execute.side_effect = DatabaseError("gone away")
+        vs = self._viewset()
+        with patch("nextseek_api.services.sops.connections", {"seek": conn}, create=True):
+            resp, body = self._create(vs)
+        assert resp.status_code == 503 and body["title"] == "NEW"
+        _titles.assert_not_called()
+        vs.client.create_sample_type.assert_not_called()
 
 
 class TestExistingTypeIds:

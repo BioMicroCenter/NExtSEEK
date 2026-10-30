@@ -43,9 +43,13 @@ JSON_H = {"Content-Type": "application/json"}
 
 @pytest.fixture(autouse=True)
 def _no_sample_type_title_lookup():
-    """The sample-type create's title check reads SEEK's sample_types table; there is none here."""
+    """The sample-type create's title check reads SEEK's sample_types table; there is none here. Each case starts
+    with no create in flight, since an earlier case's unanswered create would hold its title."""
+    from django.core.cache import caches
+    caches["throttle"].clear()
     with patch("nextseek_api.services.sample_types._existing_type_ids", return_value=[]):
         yield
+    caches["throttle"].clear()
 
 
 _EMPTY_REF = {"data": []}

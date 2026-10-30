@@ -1,6 +1,8 @@
 from typing import Optional, List
 
+import hashlib
 import json
+import time
 from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -9,13 +11,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 # from drf_spectacular.types import OpenApiTypes
 from django.conf import settings
+from django.core.cache import caches
 from pydantic import ValidationError
 import requests
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_sync import hooks
-from nextseek_api.services.sops import _json, _seek_refused, _unconfirmed
+from nextseek_api.services.sops import _json, _seek_refused, _title_lock, _unconfirmed
 from nextseek_api.graph_search.query import _LINEAGE_PATH_SCOPE, _SCOPE_MATCH
 from nextseek_api.graph_search.scope import Scope, resolve_scope
 import logging
@@ -191,6 +194,58 @@ def _duplicate_title(client, request, title: str) -> Optional[HttpResponse]:
     return _json(body, 409)
 
 
+# How long a create SEEK left unanswered keeps its title in flight: a retry of that title inside it is answered 202
+# again and sends nothing, because SEEK may still be committing the first create, which the title check cannot see
+# until it does (#141 review). As long as graph_sync holds back the rows of an unconfirmed write.
+IN_FLIGHT_S = hooks.UNCONFIRMED_DELAY_S
+
+
+def _in_flight_key(title: str) -> str:
+    """The cache key of ``title``'s unanswered create: stripped and case-blind, as the title lock's."""
+    return "sample_type_create_in_flight:" + hashlib.sha256(title.strip().casefold().encode()).hexdigest()
+
+
+def _in_flight_store():
+    """The ``throttle`` cache alias: a file cache every gunicorn worker in the container shares (dmac/settings.py)."""
+    return caches["throttle"]
+
+
+def _mark_in_flight(title: str) -> None:
+    """Record that SEEK may still be creating ``title``. A failed write is logged: the title lock still covers two
+    creates at once, only a retry after the 202 is then unguarded."""
+    try:
+        _in_flight_store().set(_in_flight_key(title), int(time.time()), IN_FLIGHT_S)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("sample_types_proxy.create: could not record the unanswered create of "
+                                            "%r", title, exc_info=True)
+
+
+def _in_flight_since(title: str) -> Optional[int]:
+    """When an unanswered create of ``title`` was sent, or None. Raises when the store cannot be read."""
+    return _in_flight_store().get(_in_flight_key(title))
+
+
+def _no_seek_login(request) -> Optional[HttpResponse]:
+    """The create's own 401 for a caller with no SEEK login, so a title being created answers as a free one."""
+    if any(resolve_seek_auth(request)):
+        return None
+    return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+
+def _still_unconfirmed(title: str, detail: str) -> HttpResponse:
+    """The 202 of a create this request did not send, because another of the same title may still be in SEEK."""
+    return _json({"status": "unconfirmed", "sent": False, "title": title,
+                  "detail": f"{detail} Nothing was sent to SEEK for this request. GET "
+                            "/nextseek_api/sample_types/<title>/ finds the type once SEEK has committed it; check "
+                            "before you send the create again."}, 202)
+
+
+def _not_checked(title: str, what: str) -> HttpResponse:
+    """503: the guard against a second type with this title could not run, so nothing was sent."""
+    return _json({"errors": [{"title": "Could not check the title",
+                              "detail": f"Nothing was created: {what}. Try again later."}], "title": title}, 503)
+
+
 def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpResponse:
     """The response for a SEEK call that raised instead of answering: 504 on a timeout, 502 otherwise.
 
@@ -311,7 +366,9 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             202: OpenApiResponse(description=(
                 f"SEEK did not answer within {CREATE_TIMEOUT_S} s: it received the create and may still complete it. "
                 "Body: {\"status\": \"unconfirmed\", \"title\": ..., \"detail\": ...}. Look the type up with GET "
-                "/nextseek_api/sample_types/<title>/ before you send the create again.")),
+                "/nextseek_api/sample_types/<title>/ before you send the create again. A create of the same title "
+                f"sent while another is waiting for SEEK, or within {IN_FLIGHT_S // 60} minutes of one SEEK left "
+                "unanswered, gets this 202 with \"sent\": false and is not sent.")),
             409: OpenApiResponse(description=(
                 "A sample type with this title already exists and nothing was created. Body: {\"errors\": [...], "
                 "\"title\": ...}, with \"id\" only when the caller can read that type.")),
@@ -319,6 +376,9 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             502: OpenApiResponse(description=(
                 "SEEK could not be reached, answered with an error, or answered with something that is not a sample "
                 "type document. The type may still exist: Body: {\"errors\": [...], \"title\": ...}.")),
+            503: OpenApiResponse(description=(
+                "The check that no other sample type holds this title could not run, so nothing was sent to SEEK. "
+                "Body: {\"errors\": [...], \"title\": ...}. Try again later.")),
         },
         tags=['SampleTypes'],
     )
@@ -329,17 +389,42 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
         title = payload["data"]["attributes"].get("title")
-        if title:
+        if not title:
+            return self._create(request, payload, title)
+        # One create of a title at a time, across every worker: the check below sees only committed rows, so two
+        # creates sent together would each find the title free (#141 review).
+        with _title_lock(title, kind="sample_type") as held:
+            if held is None:
+                return _not_checked(title, "the lock that keeps two creates of one title apart could not be taken")
+            if not held:
+                return _no_seek_login(request) or _still_unconfirmed(
+                    title, "Another create of this title is still waiting for SEEK.")
             taken = _duplicate_title(self.client, request, title)
             if taken is not None:
                 return taken
+            try:
+                since = _in_flight_since(title)
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).warning("sample_types_proxy.create: could not read the record of "
+                                                    "unanswered creates", exc_info=True)
+                return _not_checked(title, "the record of creates SEEK has not yet answered could not be read")
+            if since is not None:
+                return _no_seek_login(request) or _still_unconfirmed(
+                    title, f"A create of this title sent less than {IN_FLIGHT_S // 60} minutes ago got no answer "
+                           "from SEEK, which may still complete it.")
+            return self._create(request, payload, title)
 
+    def _create(self, request, payload, title):
+        """SEEK's create; ``create`` holds the title's lock around the title check and this."""
         try:
             body, code, headers, resp = self.client.create_sample_type(request, payload,
                                                                        timeout_s=(10, CREATE_TIMEOUT_S))
         except requests.RequestException as exc:
             # SEEK may have committed the write it did not answer: its rows go in, held back.
             hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            if title and not isinstance(exc, requests.ConnectTimeout):
+                # A connect timeout sent nothing; anything later may have reached SEEK.
+                _mark_in_flight(title)
             return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types")
         delay = hooks.write_delay(code)
         if delay is not None:
@@ -348,6 +433,9 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
         if code >= 400:
+            if code >= 500 and title:
+                # SEEK's 5xx may follow a commit (the 502 says the type may exist): a retry waits, as after a 202.
+                _mark_in_flight(title)
             return _seek_refused(body, code, headers, title, kind="sample type", path="sample_types")
 
         try:
