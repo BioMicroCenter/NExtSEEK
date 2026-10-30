@@ -15340,6 +15340,273 @@
           "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
         },
         {
+          "id": "pipeline.variant_offer_named_pair",
+          "family": "pipeline_launch",
+          "name": "two named RNA-seq samples and a which-mutations question get an rnavar offer, not a launch",
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which mutations do they carry?",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.report_type",
+                  "op": "eq",
+                  "value": "NFCORE"
+                },
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": "rnavar"
+                },
+                {
+                  "field": "pipeline_agent.selection.verdict",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\bVCF\\b|\\bvariants?\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only. The same public bulk RNA-seq pair as pipeline.compare_offer_named_pair (reads fetched from SRA), asked what they carry instead of what changes. NEVER add a 'submit' turn: on a stack with Luria configured that is a real sbatch. || TESTS: a variant question on samples with reads is NFCORE and the pipeline agent offers rnavar, saying it gives variant calls, and submits nothing.",
+          "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
+        },
+        {
+          "id": "pipeline.variant_followup_on_vcf_results",
+          "family": "pipeline_launch",
+          "name": "which mutations do these carry, after a search that returned variant-call samples, stays graph_query",
+          "tags": [
+            "nessie",
+            "full",
+            "multi-turn"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find variant-call (A.VCF) samples.",
+              "pass_criteria": [
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)A\\.VCF"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Which mutations do these samples carry?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\bvariants?\\b|\\bmutations?\\b|\\bVCF\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*reply \\W?submit)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only. Dev and local hold A.VCF samples (TCGA's among them); a box with none fails the seed, not the fix. || TESTS: when 'these' point at results that are already variant calls, the follow-up reads the registered calls and offers no run. parser_plan.mode is dropped by route_policy, so the seed asserts the graph read A.VCF and the follow-up asserts a reply about the variants with no offer.",
+          "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
+        },
+        {
+          "id": "pipeline.variant_question_on_investigation_without_reads",
+          "family": "pipeline_launch",
+          "name": "which mutations do TCGA-LUAD patients carry reads the registered variant calls, not an rnavar offer",
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which mutations do TCGA-LUAD patients carry?",
+              "pass_criteria": [
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.VCF"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)A\\.VCF"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*reply \\W?submit)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no D.SEQ and names its A.VCF (#143); rnavar takes only D.SEQ, so an offer could never start. || TESTS: the entity agent emits A.VCF for a variant question scoped to an investigation that holds variant calls and no reads, and the parser keeps it on graph_query. parser_plan.mode is dropped by route_policy, so 'stays graph_query' is asserted as a graph read of A.VCF.",
+          "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
+        },
+        {
+          "id": "pipeline.hla_offer_named_sample",
+          "family": "pipeline_launch",
+          "name": "a named RNA-seq sample and a which-HLA-alleles question get an hlatyping offer, not a launch",
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find D.SEQ-250409KAM-1-PUB. Which HLA alleles does it carry?",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.report_type",
+                  "op": "eq",
+                  "value": "NFCORE"
+                },
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": "hlatyping"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only. Same public sample as pipeline.compare_offer_named_pair. hlatyping's seq_type is data-driven, so the agent may stop to ask; that keeps it active and passes. NEVER add a 'submit' turn. || TESTS: an HLA question on samples with reads is NFCORE and the pipeline agent picks hlatyping, not rnavar.",
+          "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
+        },
+        {
+          "id": "pipeline.expression_question_stays_rnaseq",
+          "family": "pipeline_launch",
+          "name": "how expression differs between two named RNA-seq samples still gets rnaseq, not rnavar",
+          "tags": [
+            "nessie",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. How does gene expression differ between these two cell types?",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.report_type",
+                  "op": "eq",
+                  "value": "NFCORE"
+                },
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": "rnaseq"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only. Control for the variant offer: the same pair asked about expression. NEVER add a 'submit' turn. || TESTS: widening the NFCORE rule to variant questions does not pull a plain expression comparison to rnavar.",
+          "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
+        },
+        {
           "id": "pipeline.run_on_other_type_search",
           "family": "pipeline_launch",
           "name": "Run rnaseq on those, after a search of another sample type",
