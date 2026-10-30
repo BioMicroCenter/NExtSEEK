@@ -61,6 +61,14 @@ def test_open_build_takes_a_turn_the_router_sent_to_cc(monkeypatch):
     assert d.reasoning.startswith("pipeline_active; router said cc")
 
 
+def test_the_gate_keeps_the_routers_family_for_the_ledger(monkeypatch):
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: cc_router.RouteDecision(
+        route=cc_router.ROUTE_CC, model_class="opus", model_id="m", reasoning="x", source="baml",
+        task_family="harmonization", family_source="baml", generation_id=7, generation_hash="h"))
+    d = policy._decide_route(_User(), _Req("Submit"), force_cc=False, session={"pipeline_agent": {"active": True}})
+    assert (d.task_family, d.family_source, d.generation_id, d.generation_hash) == ("harmonization", "baml", 7, "h")
+
+
 def test_an_ns_turn_kept_by_the_wizard_has_no_cc_to_go_back_to(monkeypatch):
     monkeypatch.setattr(cc_router, "decide", lambda q, history=None: cc_router.RouteDecision(
         route=cc_router.ROUTE_NS, model_class=None, model_id=None, reasoning="x", source="baml"))

@@ -476,6 +476,7 @@ def run_pipeline_launch(
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
     deadline_epoch: float | None = None,
+    relay_turn: str | None = None,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -487,6 +488,7 @@ def run_pipeline_launch(
     credentials — see _identity_gate. An incomplete per-request identity refuses
     the turn rather than launching a pipeline as the service account.
     deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
+    relay_turn -- the Container-CC turn relaying this message; see pipeline_agent.handle_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
@@ -503,11 +505,14 @@ def run_pipeline_launch(
     # "submit" used to wipe the run it was for (prod chat e80cee5a). A handoff means the message asks for something
     # else, a new run on other samples, and that is what start() is for.
     pa_start = None
-    if pipeline_agent.is_active(session):
-        pa_start = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir, send_event=send_event)
+    continued = pipeline_agent.is_active(session)
+    if continued:
+        pa_start = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir, send_event=send_event,
+                                              relay_turn=relay_turn)
     if pa_start is None or pa_start.get("action") == "passthrough":
+        continued = False
         pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir,
-                                        send_event=send_event)
+                                        send_event=send_event, relay_turn=relay_turn)
     reply = pa_start.get("reply") or ""
     snapshot = pipeline_agent.snapshot_for_chat_log(session)
     debug_payload = {"pipeline_agent": snapshot}
@@ -516,7 +521,7 @@ def run_pipeline_launch(
         session,
         user_query=user_text,
         mode="pipeline_agent",
-        intent_summary="pipeline_agent launched (cc bridge)",
+        intent_summary=f"pipeline_agent {'continued' if continued else 'launched'} (cc bridge)",
         tool_summary={"pipeline_key": snapshot.get("pipeline_key"),
                       "cohorts": snapshot.get("cohort_count")},
         assistant_reply=reply,
@@ -2124,8 +2129,7 @@ def _handle_pipeline_agent_turn(
     result = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir,
                                         send_event=send_event)
     action = result.get("action")
-    if action == "passthrough":
-        pipeline_agent.clear(session)
+    if action == "passthrough":  # the agent cleared the build, or kept a built run for after the side question
         return None
     if action == "cancel":
         reply = result.get("reply") or ""
@@ -2321,7 +2325,7 @@ def run_query(
         # The router sent this turn to Container-CC and only an open build brought it here (router/policy.py): the
         # build let it go, so nothing is emitted and the caller runs it on Container-CC.
         if stop_on_handoff and build_was_open:
-            return {"handed_off": True}
+            return {"handed_off": True, **turn_spend.cost_fields()}
 
         # A click on a chip that carries a rerun skips the entity agent and the parser (operator ruling 2026-09-25):
         # the chip's statement, or the graph agent with the one change, then the reviewer and the chatter.

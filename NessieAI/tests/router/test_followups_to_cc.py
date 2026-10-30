@@ -499,6 +499,11 @@ def test_an_expression_comparison_over_earlier_samples_stays_with_the_pipeline_a
     "plot a comparison of gene expression between those two mice",
     "Compare gene expression between those samples and save it as a csv",
     "summarize those samples",
+    "do a plot comparing gene expression between those two mice",
+    "run a script comparing gene expression across those samples",
+    "start a report comparing gene expression between those two mice",
+    "analyze the plot of expression for those samples",
+    "compare the metadata and expression of those samples",
 ])
 def test_other_comparisons_and_artifacts_over_earlier_results_stay_cc_shaped(query):
     assert followup.followup_shape(query) == "cc"

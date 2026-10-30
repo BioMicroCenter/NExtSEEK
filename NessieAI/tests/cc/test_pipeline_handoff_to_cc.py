@@ -74,6 +74,19 @@ def test_a_handoff_of_a_turn_the_router_sent_to_cc_runs_the_cc_branch(monkeypatc
     assert saved and saved[0]["pipeline_agent"] == {}  # saved before CC starts, or the next turn finds the build open
 
 
+def test_terminal_cost_counts_the_wizards_spend_on_a_handoff(monkeypatch):
+    from NessieAI.ns import turn_memory
+    monkeypatch.setattr(turn_memory, "_rows", lambda turn: SimpleNamespace(
+        values=lambda *a: SimpleNamespace(first=lambda: {"ops_cost_usd": 0.1})))
+    monkeypatch.setattr(turn_memory, "nested_turn_costs", lambda turn: (0.0, []))
+    import nextseek_api.assistant.models_db as db
+    monkeypatch.setattr(db.QueryTask.objects, "filter", lambda **k: SimpleNamespace(exists=lambda: False))
+    out = turn_memory.terminal_cost(object(), {"cost_by_price_table_usd": 1.0}, router_fields={}, prerun_settled=None,
+                                    wizard_fields={"total_cost_usd": 0.05, "cost_partial": True})
+    assert out["ops_cost_usd"] == 0.15 and out["turn_cost_usd"] == 1.15
+    assert out["cost_partial"] is True and "open build" in out["cost_partial_reason"]
+
+
 def test_a_turn_the_router_sent_to_ns_is_not_offered_a_way_back(monkeypatch):
     events, _, seen = _run(monkeypatch, {"reply": "ok"}, None)
     assert "stop_on_handoff" not in seen

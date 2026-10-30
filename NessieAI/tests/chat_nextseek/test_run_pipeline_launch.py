@@ -98,7 +98,7 @@ def test_run_query_gives_a_turn_back_when_the_wizard_hands_off_and_the_router_sa
     _turn(monkeypatch, tmp_path)
     session = {"pipeline_agent": _open_build()}
     out = orch.run_query(session, object(), "plot the species", lambda *a: None, stop_on_handoff=True)
-    assert out == {"handed_off": True}
+    assert out["handed_off"] is True and "total_cost_usd" in out  # the wizard's spend, which cc/turn.py adds to the turn
 
 
 def test_run_query_with_no_build_open_is_not_a_handoff(monkeypatch, tmp_path):
@@ -108,3 +108,31 @@ def test_run_query_with_no_build_open_is_not_a_handoff(monkeypatch, tmp_path):
     session = {"pipeline_agent": {}}
     with pytest.raises(RuntimeError, match="parser path"):
         orch.run_query(session, object(), "plot the species", lambda *a: None, stop_on_handoff=True)
+
+
+def test_a_relay_in_the_same_cc_turn_is_not_the_users_reply(monkeypatch, tmp_path):
+    """CC must not be able to confirm its own run: only a later turn, after the user answered, counts as a reply."""
+    import chat_nextseek.pipeline.agent as pa
+    from chat_nextseek.pipeline.agent_tools import _launch_unconfirmed, _user_msg_count
+    monkeypatch.setattr(pa, "_run_loop", lambda *a, **k: {"action": "ask", "reply": "ok", "params": None})
+
+    session = {"log_dir": str(tmp_path)}
+    orch.run_pipeline_launch(session, object(), "Build rnaseq on D.SEQ-1", send_event=lambda *a: None, relay_turn="cc-1")
+    state = session["pipeline_agent"]
+    state["launch_built_at_user_msgs"] = _user_msg_count(state)
+    state["artifacts"]["launch"] = "/x"
+
+    orch.run_pipeline_launch(session, object(), "The user wants it sent now", send_event=lambda *a: None, relay_turn="cc-1")
+    assert _launch_unconfirmed(session["pipeline_agent"]) is not None
+
+    orch.run_pipeline_launch(session, object(), "The user replied: submit", send_event=lambda *a: None, relay_turn="cc-2")
+    assert _launch_unconfirmed(session["pipeline_agent"]) is None
+
+
+def test_a_passthrough_leaves_the_clearing_to_the_agent(monkeypatch, tmp_path):
+    """A kept build (a side question over a built run) must survive the orchestrator's passthrough."""
+    monkeypatch.setattr(orch.pipeline_agent, "handle_turn",
+                        lambda *a, **k: {"action": "passthrough", "reply": "", "params": None})
+    session = {"pipeline_agent": _open_build()}
+    assert orch._handle_pipeline_agent_turn(session, object(), "side question", str(tmp_path), None, None) is None
+    assert session["pipeline_agent"]["active"] is True

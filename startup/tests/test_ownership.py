@@ -302,3 +302,31 @@ def test_a_luria_key_path_that_is_not_a_file_never_stops_a_rebuild(tmp_path: Pat
     assert volumes.ensure_secret_group_read(repo, {"NEXTSEEK_HOST_GID": str(os.getgid())}) == []
     root = read_env(repo / ".env")
     assert "LURIAKEY" not in root and root.get("NEXTSEEK_LURIA_KEY_COPY", "/dev/null") == "/dev/null"
+
+
+def test_nextseek_env_wins_over_a_stale_root_env(tmp_path: Path) -> None:
+    """The app reads nextseek.env, so that is the path compose must bind and the file to copy."""
+    import os
+    from startup.lib.env import read_env, update_env
+    new = tmp_path / "new"; new.write_text("new"); new.chmod(0o600)
+    repo = tmp_path / "repo"; (repo / "docker").mkdir(parents=True)
+    update_env(repo / ".env", {"LURIAKEY": "/dev/null"})
+    (repo / "docker" / "nextseek.env").write_text(f"LURIAKEY={new}\n")
+    assert volumes.ensure_secret_group_read(repo, {"NEXTSEEK_HOST_GID": str(os.getgid())}) == []
+    assert read_env(repo / ".env")["LURIAKEY"] == str(new)
+    assert (repo / "docker" / "luria-key").read_text() == "new"
+
+
+def test_a_key_path_in_a_folder_that_cannot_be_entered_is_no_crash(tmp_path: Path, monkeypatch) -> None:
+    import os
+    repo = tmp_path / "repo"; (repo / "docker").mkdir(parents=True)
+    (repo / "docker" / "nextseek.env").write_text("LURIAKEY=/root/.ssh/luria\n")
+    real = Path.is_file
+
+    def is_file(self):  # what Python 3.12 and 3.13 do when the folder cannot be entered
+        if str(self).startswith("/root"):
+            raise PermissionError(13, "denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    assert volumes.ensure_secret_group_read(repo, {"NEXTSEEK_HOST_GID": str(os.getgid())}) == []

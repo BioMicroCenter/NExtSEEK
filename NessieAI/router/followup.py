@@ -178,8 +178,8 @@ _CC_SHAPE = re.compile(
 # so it does not make a follow-up a CC-shaped "comparison" or "analysis". Anything else the message asks for (a plot, a
 # file) still does. Prod chat e80cee5a: the router said NExtSEEK and "comparing" alone moved the build to CC.
 _EXPRESSION_ASK = re.compile(
-    r"(?:\b(?:set\s*up|run|do|perform|start)\s+(?:an?\s+|the\s+)?(?:\w+\s+)?)?"
-    r"\b(?:compar\w*|analy[sz]\w*)\s+(?:\w+\s+){0,3}?(?:gene\s+)?expression\b",
+    r"(?:\b(?:set\s*up|run|do|perform|start)\s+(?:an?\s+|the\s+)?(?:analysis\s+|comparison\s+)?)?"
+    r"\b(?:compar\w*|analy[sz]\w*)\s+(?:(?:the|of|in|for|between)\s+){0,3}?(?:gene\s+)?expression\b",
     re.IGNORECASE,
 )
 
