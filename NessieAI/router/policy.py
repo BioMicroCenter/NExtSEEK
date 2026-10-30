@@ -197,7 +197,11 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     # reporter can open a fresh pipeline wizard for it, so this runs before the pipeline
     # gate, and it takes an `unrelated` answer too: in this chat a finished run is never
     # off-topic. Like the follow-up guard below, it runs AFTER the router and only ever
-    # moves a turn to CC.
+    # moves a turn to CC. Whether a turn hands a run off is the router's intent call (the
+    # run-done paragraph of router.baml); this is its backstop, and fires only when the
+    # whole message is the hand-off (SF-9, 2026-10-30): a finished run named as context
+    # for another request ("the run is done; how many D.SEQ samples are in project 12?")
+    # keeps the router's route.
     try:
         run_cue = (run_done.run_done_reason(req.query)
                    if decision.route != cc_router.ROUTE_CC else None)
