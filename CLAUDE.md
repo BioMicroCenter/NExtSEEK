@@ -60,6 +60,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | `nessie-run-review` | the Nessie run report: triaging a nessie_tests run or real users' questions into an HTML review | `.claude/skills/nessie-run-review/SKILL.md` | auto |
 | `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `.claude/skills/nessie-bayes-report/SKILL.md` | auto |
 | `clean_up` | a box disk filling or low, old images or rollback tags, build cache to prune; surveys read-only, hands back command blocks the operator approves | `.claude/skills/clean_up/SKILL.md` | auto |
+| `local-dev` | working on a laptop or workstation: local tests, front end, graph reads, or the machine out of memory; what to start for each change, never the whole stack | `.claude/skills/local-dev/SKILL.md` | auto |
 <!-- END DOCS-MAP:skills -->
 
 What each skill does and what it needs locally: [`.claude/skills/README.md`](.claude/skills/README.md).
