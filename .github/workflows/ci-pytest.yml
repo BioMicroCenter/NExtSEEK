@@ -232,7 +232,8 @@ jobs:
           DJANGO_SETTINGS_MODULE=dmac.test_settings uv run pytest -q \
             nextseek_api/batch_upload/tests/test_insert_returning_mariadb.py \
             nextseek_api/batch_upload/tests/test_migration_name_identity.py \
-            nextseek_api/batch_upload/tests/test_identity_drift_integration.py
+            nextseek_api/batch_upload/tests/test_identity_drift_integration.py \
+            NessieAI/tests/api/test_reingest_lookups_mariadb.py
           rc1=$?
           DJANGO_SETTINGS_MODULE=dmac.test_settings_mysql uv run pytest -q \
             nextseek_api/batch_upload/tests/test_uid_sequence_concurrency.py \
