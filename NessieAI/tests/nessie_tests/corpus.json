@@ -12734,7 +12734,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*SRR22257169)(?=.*SRR22257167)"
+                  "value": "(?is)(?=.*D\\.SEQ-221031SHA-65-PUB)(?=.*D\\.SEQ-221031SHA-67-PUB)"
                 }
               ]
             }
@@ -13048,7 +13048,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*SRR21023818)(?=.*NextSeq)"
+                  "value": "(?is)(?=.*D\\.SEQ-241219BRY-5-PUB)(?=.*NextSeq)"
                 }
               ]
             }
@@ -14101,7 +14101,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(File_PrimaryData|Link_PrimaryData|link|path)"
+                  "value": "(File_PrimaryData|Link_PrimaryData|link|path|file location|ImmPort|repository)"
                 }
               ]
             }

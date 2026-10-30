@@ -671,7 +671,7 @@ A(Q("new", "report.longest_running_investigation", "project_summary_report", "Wh
 # ───────────────────────── submission_package (5) ─────────────────────────
 A(Q("keep", "report.geo_submission", "submission_package", "GEO for two scRNA-seq libraries",
     [T("Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
-       r"(?is)(?=.*SRR22257169)(?=.*SRR22257167)")],
+       r"(?is)(?=.*D\.SEQ-221031SHA-65-PUB)(?=.*D\.SEQ-221031SHA-67-PUB)")],
     "Both exist. -65 = SRR22257169 (28818_Array6), -67 = SRR22257167 (28818_Array8); NovaSeq 6000, BioProject PRJNA900245, Scientist Sarah Nyquist.",
     SQL + ": json_metadata for both UIDs.",
     "asserting the two SRA run accessions means an empty skeleton cannot pass — the exact failure mode that let the old PRIDE case pass on both arms."))
@@ -700,7 +700,7 @@ A(Q("reword", "report.build_a_pride_deposit_for_d_ms", "submission_package",
 
 A(Q("keep", "report.create_a_geo_deposit_file_for", "submission_package", "GEO for a single RNA-seq sample",
     [T("Create a GEO deposit file for D.SEQ-241219BRY-5-PUB",
-       r"(?is)(?=.*SRR21023818)(?=.*NextSeq)")],
+       r"(?is)(?=.*D\.SEQ-241219BRY-5-PUB)(?=.*NextSeq)")],
     "Exists. File s3://sra-pub-src-18/SRR21023818/A2_R1.fastq.gz.1, Sequencer 'NextSeq 500', LibraryStrategy RNA-Seq, polyA RNA, Scientist Joshua Peters.",
     SQL + ": json_metadata for D.SEQ-241219BRY-5-PUB.",
     "single-sample deposit, and the only submission case whose sample has NO Accession or Repository recorded — so a correct answer must say what is missing."))
