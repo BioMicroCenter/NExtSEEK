@@ -233,9 +233,11 @@ def test_batch_upload_harmonize_first_reply_carries_the_ontology_line_even_with_
     assert "also when it must ask a question first" in step4
     assert "put the question after the table" in step4
     # it follows the table's introduction, so "the table" names one the step already described;
-    # the app sets the ontology link, so the agent writes no note about it (dtd3 S5)
+    # the app checks the ontology link, so the agent writes no note about it (dtd3 S5)
+    assert "or has already built the workbook" in step4
     assert step4.rstrip().endswith("put the question after the table. "
-                                   "The app sets the ontology link; never write a note about the link.")
+                                   "Write the link as above; the app checks its address, "
+                                   "so never write a note about the link.")
 
 
 def test_skill_survival_questions_use_pav_children_and_max_follow_up():
