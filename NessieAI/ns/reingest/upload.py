@@ -589,7 +589,8 @@ def _parents_line(job: dict) -> str | None:
 
 def _settle_claims(verified: list[dict], jobs: list[dict], user_id) -> None:
     """After the wait: a build whose job succeeded stays claimed and is stamped uploaded; one whose job did
-    not start or failed is given back; one still running keeps its claim (a repeat would double-write)."""
+    not start or failed is given back; one still running keeps its claim (a repeat would double-write) and
+    remembers its job, so ``settle_waiting`` can finish this once the job ends (PR 135 F1)."""
     by_key = {entry["artifact_key"]: entry for entry in jobs}
     for record in verified:
         entry = by_key.get(record["artifact_key"])
@@ -599,6 +600,44 @@ def _settle_claims(verified: list[dict], jobs: list[dict], user_id) -> None:
         elif job_is_done(entry.get("outcome")):
             build_records.mark_uploaded(record["build_id"], user_id)
             build_records.mark_uploaded(entry["build_id"], user_id)
+        elif status == "running":
+            build_records.mark_waiting(record["build_id"], user_id, job_id=entry["job_id"],
+                                       manifest_id=entry.get("manifest_id"),
+                                       uploaded_build_id=entry["build_id"])
+
+
+def settle_waiting(user_id, job_state) -> list[dict]:
+    """Settle ``user_id``'s builds whose job outlived the upload call, as ``_settle_claims`` would have:
+    a done job stamps its build (and the rebuild it uploaded) uploaded, a failed one gives the build back,
+    one still running, or whose state cannot be read, is left waiting. Returns ``[{manifest_id, job_id,
+    outcome}]`` for each job found done, the shape the caller marks runs reingested from. Never raises
+    for one record: the others are still settled."""
+    if not callable(job_state):
+        return []
+    done: list[dict] = []
+    for record in build_records.waiting(user_id):
+        waiting_job = record["waiting_job"]
+        job_id = waiting_job.get("job_id")
+        if not job_id:
+            continue
+        try:
+            outcome = _summarise(job_id, job_state(job_id))
+        except Exception:  # noqa: BLE001 -- unreadable now; try again on the next op
+            logger.warning("upload-reingest: status of late job %s unavailable", job_id, exc_info=True)
+            continue
+        if outcome["status"] == "running":
+            continue
+        if job_is_done(outcome):
+            build_records.mark_uploaded(record["build_id"], user_id)
+            uploaded = waiting_job.get("uploaded_build_id")
+            if uploaded and uploaded != record["build_id"]:
+                build_records.mark_uploaded(uploaded, user_id)
+            done.append({"manifest_id": waiting_job.get("manifest_id"), "job_id": job_id,
+                         "outcome": outcome})
+        else:
+            build_records.clear_waiting(record["build_id"], user_id)
+            build_records.release(record["build_id"], user_id)
+    return done
 
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,

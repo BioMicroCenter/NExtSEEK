@@ -107,19 +107,72 @@ def load(build_id: str, user_id) -> dict:
         raise BuildRecordError(f"build {build_id[:12]} record is unreadable") from exc
 
 
+def _update(build_id: str, user_id, changes: dict) -> None:
+    """Rewrite one record atomically with ``changes`` (a None value removes the key)."""
+    record = load(build_id, user_id)
+    for key, value in changes.items():
+        if value is None:
+            record.pop(key, None)
+        else:
+            record[key] = value
+    path = os.path.join(_owner_dir(user_id), f"{build_id}.json")
+    with tempfile.NamedTemporaryFile("w", dir=_owner_dir(user_id), delete=False, suffix=".tmp",
+                                     encoding="utf-8") as fh:
+        json.dump(record, fh, indent=2)
+    os.replace(fh.name, path)
+
+
 def mark_uploaded(build_id: str, user_id) -> None:
-    """Stamp the record once its upload job has started, so the same build is never uploaded twice.
-    Best-effort: the upload already started."""
+    """Stamp the record once its upload job is done, so the same build is never uploaded twice.
+    Clears any job it was waiting on. Best-effort: the upload already started."""
     try:
-        record = load(build_id, user_id)
-        record["uploaded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        path = os.path.join(_owner_dir(user_id), f"{build_id}.json")
-        with tempfile.NamedTemporaryFile("w", dir=_owner_dir(user_id), delete=False, suffix=".tmp",
-                                         encoding="utf-8") as fh:
-            json.dump(record, fh, indent=2)
-        os.replace(fh.name, path)
+        _update(build_id, user_id, {
+            "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "waiting_job": None})
     except Exception:  # noqa: BLE001 -- bookkeeping must not fail an upload that started
         pass
+
+
+def mark_waiting(build_id: str, user_id, *, job_id: str, manifest_id, uploaded_build_id: str) -> None:
+    """Remember the job a call stopped waiting for while it still ran (the build keeps its claim), so a
+    later reingest op can settle it once it ends (``upload.settle_waiting``). ``uploaded_build_id`` is
+    the workbook the job uploaded: this build, or the rebuild the call made from it. Best-effort."""
+    try:
+        _update(build_id, user_id, {"waiting_job": {
+            "job_id": str(job_id), "manifest_id": manifest_id,
+            "uploaded_build_id": uploaded_build_id}})
+    except Exception:  # noqa: BLE001 -- bookkeeping must not fail an upload that started
+        pass
+
+
+def clear_waiting(build_id: str, user_id) -> None:
+    """Forget the job a build waited on (it failed: the build is given back). Best-effort."""
+    try:
+        _update(build_id, user_id, {"waiting_job": None})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def waiting(user_id) -> list[dict]:
+    """``user_id``'s records whose upload job outlived its call and has not been settled yet."""
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+        return []
+    out: list[dict] = []
+    try:
+        names = sorted(os.listdir(_owner_dir(user_id)))
+    except OSError:
+        return []
+    for name in names:
+        build_id, ext = os.path.splitext(name)
+        if ext != ".json" or not _BUILD_ID.fullmatch(build_id):
+            continue
+        try:
+            record = load(build_id, user_id)
+        except BuildRecordError:
+            continue
+        if isinstance(record.get("waiting_job"), dict) and not record.get("uploaded_at"):
+            out.append(record)
+    return out
 
 
 def _claim_path(build_id: str, user_id) -> str:

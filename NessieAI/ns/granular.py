@@ -1340,6 +1340,8 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     from NessieAI.ns.reingest.store import save_manifest
 
     if not args.get("run_dir"):
+        # A run whose upload job outlived its call is settled first, so it is not picked again.
+        _settle_late_uploads(session, config)
         picked = _pick_waiting_run(getattr(session, "user", None))
         if isinstance(picked, dict):
             return picked
@@ -2447,6 +2449,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
 
     # The job wait is cut to what is left of the op's limit (upload._wait_budget_s).
     started_at = upload._clock()
+    _settle_late_uploads(session, config)
     upload_context = getattr(session, "upload_context", None)
     if callable(upload_context):
         upload_context = upload_context()
@@ -2510,6 +2513,25 @@ def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
             logger.exception("upload-reingest: could not mark manifest %s reingested", manifest_id)
             continue
         _write_saved_label(config, manifest)
+
+
+def _settle_late_uploads(session, config=None) -> None:
+    """Finish the bookkeeping of the caller's upload jobs that outlived their call (PR 135 F1): a job
+    now done stamps its build uploaded, takes its run off the waiting pick and writes saved.txt, as
+    ``_mark_runs_reingested`` does for a job the call saw finish. Uses the host's ``job_state`` seam on the
+    session; without one, or on any failure, nothing changes. Best-effort: never fails the op."""
+    job_state = getattr(session, "job_state", None)
+    user_id = getattr(getattr(session, "user", None), "pk", None)
+    if not callable(job_state) or not user_id:
+        return
+    from NessieAI.ns.reingest import upload
+
+    try:
+        done = upload.settle_waiting(user_id, job_state)
+    except Exception:  # noqa: BLE001 -- bookkeeping never fails the op
+        logger.exception("reingest: could not settle late upload jobs")
+        return
+    _mark_runs_reingested(done, config)
 
 
 def _start_background(fn: Callable, *args) -> None:
