@@ -7,6 +7,14 @@ from dmac.session_login import seek_password
 import logging
 logger = logging.getLogger(__name__)
 
+
+def lab_abbreviation(institution_title):
+    """The lab code new sample UIDs carry: the first three characters of the SEEK institution's title,
+    upper-cased, a space written as an underscore. Shared by ``SeekDB.getUserInfo`` and the batch upload's
+    read of SEEK's tables, so the two cannot drift."""
+    return (institution_title or "")[:3].upper().replace(" ", "_")
+
+
 class SeekDB(object):
     def __init__(self, server, username, password):
         if username is not None:
@@ -111,15 +119,7 @@ class SeekDB(object):
         if 'id' in institutionInfo:
             userInfo['institutionid'] = institutionInfo['id']
             userInfo['institutionname'] = institutionInfo['title']
-            institutionname = userInfo['institutionname']
-            if len(institutionname)>3:
-                lababbv = institutionname[0:3]
-                lababbv = lababbv.upper()
-            else:
-                lababbv = institutionname.upper()
-            if " " in lababbv:
-                lababbv = lababbv.replace(" ", "_")
-            userInfo['lababbv'] = lababbv
+            userInfo['lababbv'] = lab_abbreviation(userInfo['institutionname'])
         else:
             userInfo['institutionid'] = 0
             userInfo['institutionname'] = 'NA'

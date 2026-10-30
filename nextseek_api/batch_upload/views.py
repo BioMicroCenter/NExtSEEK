@@ -8,9 +8,11 @@ import json
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 
 from celery.result import AsyncResult
 from django.conf import settings
+from django.db import connections
 from django.http import FileResponse
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from pydantic import BaseModel, Field
@@ -25,6 +27,7 @@ from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 from nextseek_api.graph_search.scope import resolve_scope
 from nextseek_api.services.assistant import SeekSessionAuthentication
+from seek.seekdb import lab_abbreviation
 
 from .celery_app import app as celery_app
 from nextseek_api.throttles import UPLOAD_THROTTLES
@@ -160,7 +163,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
         },
         responses={
             202: BatchUploadStartResponse,
-            400: OpenApiResponse(description="Missing input or structural error"),
+            400: OpenApiResponse(description="Missing input, structural error, or no lab code (no SEEK institution)"),
             401: OpenApiResponse(description="Authentication required"),
             413: OpenApiResponse(description="Total upload size exceeds limit"),
             422: OpenApiResponse(description="Pydantic validation error on rows or request body"),
@@ -315,6 +318,8 @@ class BatchUploadViewSet(viewsets.ViewSet):
             effective_lababbv = explicit_lababbv.strip().upper()
         else:
             effective_lababbv = user_ctx["lababbv"]
+        if not _is_lab_code(effective_lababbv):
+            return Response({"detail": NO_LAB_CODE_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
 
         if input_warnings:
             config_overrides["_input_warnings"] = input_warnings
@@ -726,6 +731,8 @@ def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id
     """
     if (rows is None) == (xlsx_paths is None):
         raise ValueError("exactly one of rows or xlsx_paths")
+    if not _is_lab_code(lababbv):
+        raise ValueError(f"no lab code for the new UIDs: {lababbv!r}")
     if scope_project_ids is not None and project_id not in scope_project_ids:
         raise PermissionError(f"not a member of project {project_id}")
     task_kwargs = dict(
@@ -830,6 +837,54 @@ def _not_a_member(project_id: int) -> Response:
     )
 
 
+#: What the SEEK API lookups report for a person with no institution. Never a lab code: every UID a
+#: job mints carries its lab code, so a job is refused rather than started with it.
+NO_LAB_CODE = "NA"
+
+NO_LAB_CODE_DETAIL = (
+    "No lab code for this upload's new sample UIDs: the SEEK person it is filed under belongs to no "
+    "institution. Add them to their lab's institution in SEEK, then upload again."
+)
+
+# The institutions of a person's work groups, current memberships first (the rule
+# nextseek_api.graph_search.scope applies), then in the order they were joined.
+_LAB_INSTITUTION_SQL = (
+    "SELECT i.title FROM group_memberships gm "
+    "JOIN work_groups wg ON wg.id = gm.work_group_id "
+    "JOIN institutions i ON i.id = wg.institution_id "
+    "WHERE gm.person_id = %s "
+    "ORDER BY CASE WHEN (gm.has_left IS NULL OR gm.has_left = 0) "
+    "AND (gm.time_left_at IS NULL OR gm.time_left_at > %s) THEN 0 ELSE 1 END, gm.id"
+)
+
+
+def _is_lab_code(value) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and value.strip().upper() != NO_LAB_CODE
+
+
+def _lab_code_from_seek_db(person_id: int) -> str | None:
+    """The lab code of SEEK person ``person_id``, read from SEEK's own tables, or None.
+
+    The fallback for when SEEK's API cannot be asked as the caller (no SEEK session and no
+    password: token and turn-pass callers, in-process uploads). It needs no credential and
+    applies the API path's rule (``seek.seekdb.lab_abbreviation``) to the person's first
+    institution. None when the person belongs to no institution or the read fails.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")  # SEEK stores time_left_at in UTC
+    try:
+        with connections[settings.SEEK_DATABASE].cursor() as cursor:
+            cursor.execute(_LAB_INSTITUTION_SQL, [int(person_id), now])
+            titles = [row[0] for row in cursor.fetchall()]
+    except Exception:
+        log.warning("Could not read SEEK person %s's institution", person_id, exc_info=True)
+        return None
+    for title in titles:
+        code = lab_abbreviation(title)
+        if _is_lab_code(code):
+            return code
+    return None
+
+
 def _resolve_user_context(request) -> dict | None:
     """Resolve contributor_id and lababbv from the authenticated user.
 
@@ -837,9 +892,12 @@ def _resolve_user_context(request) -> dict | None:
       Phase 1 — Resolve authenticated user's SEEK identity (person_id + lababbv)
                 via resolve_seek_auth, getSeekLogin, or Users ORM lookup.
       Phase 2 — Determine effective person_id (admin override vs own identity).
-      Phase 3 — Resolve lababbv for the effective person.
+      Phase 3 — Resolve lababbv for the effective person: SEEK's API when it was
+                reachable as the caller, else SEEK's tables (_lab_code_from_seek_db).
 
-    Returns {"contributor_id": int, "lababbv": str} or None.
+    Returns {"contributor_id": int, "lababbv": str | None} or None. lababbv is None
+    when the effective person belongs to no institution; callers refuse the upload
+    then (NO_LAB_CODE_DETAIL), never mint "NA".
     May include "person_id_ignored": True when a non-admin's override was rejected.
     """
     # ── PHASE 1: Resolve authenticated user's SEEK identity ──────────────
@@ -963,35 +1021,29 @@ def _resolve_user_context(request) -> dict | None:
         return None
 
     # ── PHASE 3: Resolve lababbv for effective person ────────────────────
+    # The lab code goes into every UID the job mints, so it is the effective
+    # person's own: never the "NA" placeholder, and never the admin's own code
+    # when an admin files the upload under someone else.
+    lababbv = None
     if effective_person_id == authenticated_person_id:
-        lababbv = authenticated_lababbv
-    else:
+        if _is_lab_code(authenticated_lababbv):
+            lababbv = authenticated_lababbv
+    elif _seekdb is not None:
         # Admin override — resolve target's lababbv using initialized SeekDB
-        lababbv = authenticated_lababbv  # default fallback
-        if _seekdb is not None:
-            try:
-                target_info, t_status, _msg = _seekdb.getUserInfo(effective_person_id)
-                if t_status and target_info.get("lababbv"):
-                    lababbv = target_info["lababbv"]
-                else:
-                    log.debug(
-                        "getUserInfo(%s) returned no lababbv; using admin's lababbv=%s",
-                        effective_person_id,
-                        authenticated_lababbv,
-                    )
-            except Exception:
-                log.debug(
-                    "getUserInfo(%s) failed; using admin's lababbv=%s",
-                    effective_person_id,
-                    authenticated_lababbv,
-                    exc_info=True,
-                )
+        try:
+            target_info, t_status, _msg = _seekdb.getUserInfo(effective_person_id)
+            if t_status and _is_lab_code(target_info.get("lababbv")):
+                lababbv = target_info["lababbv"]
+        except Exception:
+            log.debug("getUserInfo(%s) failed", effective_person_id, exc_info=True)
+    if lababbv is None:
+        lababbv = _lab_code_from_seek_db(effective_person_id)
+        if lababbv is None:
+            log.warning("SEEK person %s belongs to no institution: no lab code for an upload",
+                        effective_person_id)
         else:
-            log.debug(
-                "No initialized SeekDB for getUserInfo(%s); using lababbv=%s",
-                effective_person_id,
-                authenticated_lababbv,
-            )
+            log.info("Lab code %s for SEEK person %s read from SEEK's tables", lababbv,
+                     effective_person_id)
 
     result = {"contributor_id": effective_person_id, "lababbv": lababbv}
     if person_id_ignored:

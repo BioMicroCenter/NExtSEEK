@@ -149,6 +149,16 @@ def test_no_resolved_identity_is_refused(env):
             session=_session(upload_context=None))
 
 
+def test_an_identity_with_no_lab_code_is_refused_before_anything_starts(env):
+    """No SEEK institution means no lab code for the new UIDs: refused, never minted as "NA"."""
+    new = _build(env, "reingest_A_ALN", "new")
+    dispatch = MagicMock()
+    with pytest.raises(g.OpValidationError, match="no institution"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True},
+            session=_session(dispatch=dispatch, upload_context={"contributor_id": 42, "lababbv": None}))
+    dispatch.assert_not_called()
+
+
 def test_per_workbook_scope_requires_exactly_one_build(env, monkeypatch):
     monkeypatch.setattr(upload, "CONFIRMATION_SCOPE", "per_workbook")
     a = _build(env, "reingest_A_ALN", "new")

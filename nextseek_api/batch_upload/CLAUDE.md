@@ -55,6 +55,13 @@ lineage, and none of them fails loudly.
   passes the scope on to `resolve_orphans_task`). Anything else fails as `PERMISSION_DENIED`. A
   superuser passes `None`, meaning any project. Both tasks treat a message without the key as no
   project, so a new dispatcher that forgets it changes nothing rather than everything.
+- **No job starts without the lab code of the person it is filed under.** Every UID the job
+  mints carries it (`nextseek_api/batch_upload/uid_gen.py`, `full_prefix`), so a wrong one is
+  permanent. `_resolve_user_context` takes it from SEEK's API when it can ask as the caller,
+  else from SEEK's tables (`_lab_code_from_seek_db`), and returns None, never `NA`, for a person
+  in no institution; `start`, the reingest op (`NessieAI/ns/reingest/upload.py`) and
+  `dispatch_batch_job` each refuse a missing or `NA` code. An upload an admin files under
+  another person carries that person's code, not the admin's.
 - **Job ownership is the only authorization on status, cancel and summary.**
   `nextseek_api/batch_upload/views.py:105-112` turns a non-owner into a 404 by consulting
   the per-user index file (`nextseek_api/batch_upload/job_index.py:80-94`). A job id is a

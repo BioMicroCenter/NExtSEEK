@@ -623,6 +623,11 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         raise UploadRefused(["no signed-in user"])
     if not upload_context:
         raise UploadRefused(["could not resolve your SEEK identity"])
+    if not upload_context.get("lababbv"):
+        # Every new UID carries the lab code; refused before any assay is created.
+        raise UploadRefused(["your SEEK account belongs to no institution, so the new samples' UIDs "
+                             "would have no lab code; ask a NExtSEEK admin to add you to your lab's "
+                             "institution in SEEK"])
     ids = parse_build_ids(build_ids_raw)
     _check_scope(len(ids))
     records = verify(ids, user_id=user_id, chat_turn=chat_turn(),

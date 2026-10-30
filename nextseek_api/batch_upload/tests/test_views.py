@@ -1000,7 +1000,8 @@ class TestResolveUserContextV2:
 
     @pytest.mark.django_db
     def test_admin_override_lababbv_fallback(self):
-        """Admin with person_id=99 but getUserInfo(99) fails → contributor_id=99, lababbv from admin's own."""
+        """Admin with person_id=99 but getUserInfo(99) fails → contributor_id=99, lababbv from SEEK's tables
+        for 99, never the admin's own: every UID the job mints carries it."""
         from nextseek_api.batch_upload.views import _resolve_user_context
         from django.contrib.auth import get_user_model
 
@@ -1024,7 +1025,9 @@ class TestResolveUserContextV2:
 
         with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_admin_labfallback", "pass"), {})), \
              patch("seek.models.Users") as MockUsers, \
-             patch("seek.seekdb.SeekDB") as MockSeekDB:
+             patch("seek.seekdb.SeekDB") as MockSeekDB, \
+             patch("nextseek_api.batch_upload.views._lab_code_from_seek_db",
+                   side_effect=lambda pid: {42: "MIT", 99: "KOC"}.get(pid)) as from_db:
             MockUsers.objects.using.return_value.get.return_value = mock_seek_user
             MockUsers._DATABASE = "default"
             instance = MockSeekDB.return_value
@@ -1035,7 +1038,8 @@ class TestResolveUserContextV2:
 
         assert result is not None
         assert result["contributor_id"] == 99
-        assert result["lababbv"] == "MIT"  # Fallback to admin's own lababbv
+        assert result["lababbv"] == "KOC"  # 99's own code, from SEEK's tables
+        from_db.assert_called_once_with(99)
 
     @pytest.mark.django_db
     def test_empty_person_id_treated_as_none(self):

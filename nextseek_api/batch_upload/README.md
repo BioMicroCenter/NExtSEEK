@@ -13,19 +13,22 @@ every write to Neo4j.
 It is shaped like a Django app and is not one. The package holds no `apps.py`, no
 `migrations/` directory, no `urls.py` and no `admin.py`: a `find` over
 `nextseek_api/batch_upload` for those four names returns nothing at all. Its `models.py`
-is a Pydantic module (`nextseek_api/batch_upload/models.py:146` is the input row), and no
-module in the package subclasses `models.Model` or touches `django.db` outside `tests/`:
-grep for both strings over every `*.py` under the package matches four lines in all, and all
-four sit inside `nextseek_api/batch_upload/tests/test_migration_name_identity.py:356-359`. The
+is a Pydantic module (`nextseek_api/batch_upload/models.py:146` is the input row); the one
+Django model in the package is `UidSequence` (`nextseek_api/batch_upload/uid_sequence.py`). The
 code rides inside the `nextseek_api` app installed at `dmac/settings.py:178`, and its one
 HTTP surface is registered from outside the boundary at `nextseek_api/urls.py:37`.
 
 Writes bypass the Django ORM entirely. A SQLAlchemy engine is built from the `seek`
 database alias (`nextseek_api/batch_upload/config.py:131`) as a MySQLdb URL
 (`nextseek_api/batch_upload/config.py:137`), and every statement is hand-written SQL
-against the Rails-owned schema that alias names (`dmac/settings.py:38-45`). The Django ORM
-appears only in the ViewSet's identity resolution, which reads SEEK's `users` table through
-the mirror model at `seek/models/seek_mirror.py:20-21`.
+against the Rails-owned schema that alias names (`dmac/settings.py:38-45`). Besides
+`UidSequence`, Django's database layer appears only in the ViewSet's identity resolution
+(`_resolve_user_context`): it reads SEEK's `users` table through the mirror model
+`seek.models.Users`, and, when SEEK's API cannot be asked as the caller (no SEEK session and
+no password: token, turn-pass and in-process callers), the uploader's institution through one
+raw SELECT on the `seek` alias (`_lab_code_from_seek_db`). That institution gives the lab code
+every new UID carries (`seek.seekdb.lab_abbreviation`); a person in no institution has none,
+and the upload is refused rather than minting the `NA` placeholder.
 
 The package also owns the process's only Celery application
 (`nextseek_api/batch_upload/celery_app.py:20`), on which two unrelated subsystems register
