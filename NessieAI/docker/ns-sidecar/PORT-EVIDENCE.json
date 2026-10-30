@@ -8,7 +8,6 @@
   "__init__.py",
   "app/__init__.py",
   "app/config.py",
-  "app/healthcheck.py",
   "app/write_gate.py"
  ],
  "adapted_files": [
@@ -19,6 +18,10 @@
   {
    "path": ".dockerignore",
    "adaptation": "new file -- the pinned source did not carry a .dockerignore of its own (its Dockerfile relied on the repo-root .dockerignore via `context: ..`). Adapted from docker/bedrock-proxy/.dockerignore's pattern (PLAN-7 Task 4 precedent) for this build context root; excludes the upstream local-dev env overlay files (local-nextseek*.env) and any .env file from ever entering the Docker build context."
+  },
+  {
+   "path": "app/healthcheck.py",
+   "adaptation": "probes the public /docs/ and takes only a 200 as healthy; the source probed assistant/me and took a 401, about 7,900 of them a day on prod"
   }
  ],
  "not_ported": [
@@ -60,8 +63,8 @@
   },
   {
    "path": "app/healthcheck.py",
-   "size_bytes": 1551,
-   "sha256": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3"
+   "size_bytes": 1249,
+   "sha256": "8d601b675fb0159893d7624f10ba1ffe92f0d8cf0b5b8cac2401c0ab6f066a70"
   },
   {
    "path": "app/ns_client.py",
@@ -133,7 +136,7 @@
   {
    "dest": "docker/ns-sidecar/app/healthcheck.py",
    "source": "sidecar/app/healthcheck.py",
-   "status": "byte-identical"
+   "status": "adapted"
   },
   {
    "dest": "docker/ns-sidecar/app/ns_client.py",
