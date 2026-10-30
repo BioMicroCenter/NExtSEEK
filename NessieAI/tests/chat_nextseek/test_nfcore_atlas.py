@@ -175,3 +175,11 @@ def test_a_variant_question_that_says_express_is_still_rnavar():
     pipelines = load_atlas()["pipelines"]
     assert "express" in pipelines["rnavar"]["versus"]["rnaseq"]["differs_by"]
     assert "variant question" in pipelines["rnaseq"]["versus"]["rnavar"]["differs_by"]
+
+
+def test_rnavar_prep_kit_hints_name_only_library_preps():
+    """Selection reads prep_kit_hints as text, so a word about the biology there ("tumour",
+    "mutation") would lean any vague request on tumour RNA-seq toward rnavar."""
+    hints = [h.lower() for h in load_atlas()["pipelines"]["rnavar"]["data_signals"]["prep_kit_hints"]]
+    for word in ("tumour", "tumor", "cancer", "mutation"):
+        assert not any(word in hint for hint in hints), word

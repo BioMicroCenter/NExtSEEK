@@ -257,11 +257,7 @@
         "prep_kit_hints": [
           "TruSeq Stranded mRNA",
           "poly-A selection",
-          "rRNA depletion",
-          "tumour",
-          "tumor",
-          "cancer cell line",
-          "mutation"
+          "rRNA depletion"
         ]
       },
       "versus": {
