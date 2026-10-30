@@ -134,6 +134,11 @@ toggle (`NessieAI/chat_frontend/src/lib/useProd.ts:7`) and per-turn wall clock
 `NessieAI/chat_frontend/src/components/Layout/ProdToggle.tsx:14`,
 `NessieAI/chat_frontend/src/components/Layout/MaxTurnLengthInput.tsx:16`) and are mounted
 together in the Debug sheet (`NessieAI/chat_frontend/src/components/Layout/RightSidebar.tsx:79-81`).
+The route override also holds the tab's last choice in memory, so a browser that will not store the
+pin still sends it (storage wins when it can be read). Each shell remembers the pin a turn was sent
+with, and the Debug panel's router entry ends its first line with `pinned CC: applied` or
+`pinned CC: NOT applied` (`routeDecidedSummary` in `NessieAI/chat_frontend/src/lib/debugEntries.ts`),
+shown on the closed entry.
 
 Components sit in six directories under `NessieAI/chat_frontend/src/components/`, beside
 a seventh holding shared tests: `ChatPanel/` (the transcript, composer, stepper,
