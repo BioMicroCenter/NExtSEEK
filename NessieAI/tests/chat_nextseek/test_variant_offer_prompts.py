@@ -18,12 +18,32 @@ def test_the_parser_sends_a_what_do_the_samples_carry_question_to_nfcore():
     text = _read("parser_core_routing.txt")
     assert "Questions asking what the user's sequenced samples carry" in text
     assert "does not make it a metadata or expression lookup" in text
-    assert "HLA alleles the user's sequenced samples carry or express, naming no registered analysis records (NFCORE)" in text
+    assert "HLA alleles the user's sequenced samples carry or express, naming no registered analysis records" in text
 
 
 def test_registered_variant_records_stay_a_graph_query():
     text = _read("parser_core_routing.txt")
     assert "A request for analysis records already registered" in text
+
+
+def test_samples_with_variant_calls_and_no_reads_stay_a_graph_query():
+    """Review of #145: "which mutations do <an investigation's> patients carry?", where the
+    investigation holds A.VCF and no D.SEQ, read NFCORE and offered an rnavar run that could
+    never start (rnavar takes only D.SEQ). The entity agent, which sees the catalog
+    descriptions, emits A.VCF in place of D.SEQ; the parser keeps that on graph_query."""
+    entity = _read("entity_agent.txt")
+    assert "A question asking which variants or mutations samples carry or express follows the same\nrule" in entity
+    assert "emit the\nvariant-call type (A.VCF), not D.SEQ" in entity
+    parser = _read("parser_core_routing.txt")
+    assert "So is a question about samples that already hold registered variant calls or have no reads" in parser
+    assert "ENTITY_RESULT carries a variant-call type (A.VCF) and no raw sequencing type (D.SEQ)" in parser
+    assert '"these"/"those" point at recent results that are themselves variant-call (A.VCF) samples' in parser
+    assert "not about samples that already hold variant calls or have no reads (NFCORE;" in parser
+
+
+def test_the_pipeline_agent_never_offers_a_run_without_reads():
+    text = _read("pipeline_agent.txt")
+    assert "Never offer a run the samples have no reads for." in text
 
 
 def test_no_case_from_the_session_is_a_prompt_example():
@@ -32,6 +52,8 @@ def test_no_case_from_the_session_is_a_prompt_example():
         text = _read(name)
         assert "breast cancer" not in text.lower(), name
         assert "Kamm" not in text, name
+        assert "TCGA" not in text, name
+        assert "LUAD" not in text, name
 
 
 def test_the_reporter_keeps_a_variant_question_on_report_generation():
