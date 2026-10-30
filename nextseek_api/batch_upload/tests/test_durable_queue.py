@@ -135,8 +135,25 @@ def test_the_purge_removes_old_state_and_keeps_live_state(tmp_path):
         f.write_text("")
         os.utime(f, (now - age, now - age))
 
+    # MEDIA_ROOT/uploads/, where upload-reingest staged its workbook copies before they moved to uploads/ above:
+    # only an old file named like such a copy goes; the served production tree and any other file stay.
+    media_uploads = tmp_path / "media_uploads"
+    (media_uploads / "production").mkdir(parents=True)
+    old_copy = "0123456789abcdef0123456789abcdef_reingest_A_ALN.xlsx"
+    for name, age in ((old_copy, ttl + 3600), ("fedcba9876543210fedcba9876543210_reingest_A_GEX.xlsx", 60),
+                      ("someone_elses.xlsx", ttl + 3600), ("production/0123456789abcdef0123456789abcdef_x.xlsx",
+                                                           ttl + 3600)):
+        f = media_uploads / name
+        f.write_text("x")
+        os.utime(f, (now - age, now - age))
+
     out = purge_durable_state(now=now, backend=backend, broker_url=f"sqla+sqlite:///{db}", uploads_dir=str(up),
-                              cancel_dir=str(cancel))
+                              cancel_dir=str(cancel), legacy_copies_dir=str(media_uploads))
+    assert out["legacy_copies"] == 1
+    assert sorted(p.name for p in media_uploads.iterdir()) == [
+        "fedcba9876543210fedcba9876543210_reingest_A_GEX.xlsx", "production", "someone_elses.xlsx"]
+    assert [p.name for p in (media_uploads / "production").iterdir()] == [
+        "0123456789abcdef0123456789abcdef_x.xlsx"]
     assert out["markers"] == 1
     assert [p.name for p in cancel.iterdir()] == ["new-job"]
 
