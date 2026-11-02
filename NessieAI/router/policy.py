@@ -200,12 +200,11 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     # off-topic. Like the follow-up guard below, it runs AFTER the router and only ever
     # moves a turn to CC.
     try:
-        run_cue = (run_done.run_done_reason(req.query)
-                   if decision.route != cc_router.ROUTE_CC else None)
+        run_cue = run_done.run_done_reason(req.query)
     except Exception:  # noqa: BLE001 - routing must never crash on a cue check
         logger.warning("CC router: run-done check failed", exc_info=True)
         run_cue = None
-    if run_cue:
+    if run_cue and decision.route != cc_router.ROUTE_CC:
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_CC, model_class="opus",
             model_id=cc_router._resolve_cc_model_id(),
@@ -226,7 +225,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             source="sop_file",
         )
     not_plan = getattr(req, "mode", "standard") != "plan"
-    router_said_cc = decision.route == cc_router.ROUTE_CC and not_plan
+    # A run-done turn the router sent to CC goes straight there, like one it did not: an open wizard never takes it.
+    router_said_cc = decision.route == cc_router.ROUTE_CC and not_plan and not run_cue
     # Follow-ups and sticky CC (2026-09-23 rulings: "have all follow ups go to
     # container_cc", and once a chat is on container_cc a turn that refers back stays
     # there). One guard, because the two rules are one test: an NS-bound turn that
