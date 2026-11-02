@@ -114,3 +114,28 @@ def test_an_outage_in_the_lookup_stops_the_build(rows, tmp_path, monkeypatch):
     monkeypatch.setattr(LOOKUP, down)
     with pytest.raises(RuntimeError):
         _new(tmp_path, manifest_id)
+
+
+@patch(CATALOG)
+def test_a_failed_membership_read_stops_the_build(rows, tmp_path, monkeypatch):
+    """Read as "no project", the check would report nothing there and the reviewer would get a
+    clean workbook; an upload that reads the scope again would recreate every sample."""
+    from types import SimpleNamespace
+
+    from django.db import OperationalError
+
+    from NessieAI.tests.ns.reingest.test_build_upload_manifest import _dispatch
+
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    asked = _existing(monkeypatch, {})
+
+    def membership_down(user):
+        raise OperationalError("seek database gone away")
+    monkeypatch.setattr("nextseek_api.graph_search.scope.resolve_scope", membership_down)
+    session = SimpleNamespace(user=SimpleNamespace(pk=7, is_superuser=False, username="curator",
+                                                   get_full_name=lambda: "A Curator"))
+    with pytest.raises(RuntimeError, match="project membership unreachable"):
+        _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                  session=session, outputs_dir=str(tmp_path))
+    assert asked == []

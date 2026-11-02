@@ -247,15 +247,28 @@ def _parent_set(value) -> frozenset[str]:
 def caller_project_scope(user):
     """The SEEK projects ``user``'s reingest lookups may see (SEC-001).
 
-    ``None`` for a superuser (any project), else a tuple of project ids, and
-    ``()`` when the caller has no SEEK person or the membership read fails: it
-    fails closed, never widens. The batch upload's own definition
+    ``None`` for a superuser (any project), else the tuple of project ids the
+    caller belongs to, the same scope the batch upload checks
     (``_caller_project_scope`` in ``nextseek_api/batch_upload/views.py``), so a
     lookup sees exactly the projects the upload it prepares may write to.
-    """
-    from nextseek_api.batch_upload import views as batch_views
 
-    return batch_views._caller_project_scope(user)
+    ``()`` (sees nothing) only for a caller with no SEEK person
+    (``ScopeUnavailable``), whose upload is refused anyway. Strict otherwise: a
+    membership read that fails RAISES ``RuntimeError``. The upload refuses on
+    that failure, which is right for a write, but here "sees no project" would
+    make the already-present check report nothing there, and a later upload
+    that reads the scope again would make a second copy of every sample.
+    """
+    from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope
+
+    try:
+        scope = resolve_scope(user)
+    except ScopeUnavailable:
+        log.warning("reingest lookup: the caller maps to no SEEK person; it sees no project")
+        return ()
+    except Exception as exc:  # noqa: BLE001 (any membership read failure stops the caller)
+        raise RuntimeError(f"project membership unreachable for the caller: {exc}") from exc
+    return None if scope.is_admin else scope.project_ids
 
 
 def existing_uids_for_primary_files_strict(sample_type: str,

@@ -1986,7 +1986,9 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
                 checked.setdefault(row.sample_type, []).append(row)
         dropped: set[int] = set()
         # Only samples in the projects this caller's upload may write to count as
-        # there (SEC-001); no signed-in user is a build `load` never reads back.
+        # there (SEC-001); no signed-in user is a build `load` never reads back. A
+        # membership read that fails raises like the lookup's own outage: read as
+        # "no project", it would hide every sample already there.
         scope = caller_project_scope(user) if user is not None else None
         for sample_type, type_rows in checked.items():
             found = existing_uids_for_primary_files_strict(sample_type, [

@@ -475,12 +475,49 @@ class TestExistingUidsForPrimaryFilesStrict:
                 == [{"uids": ["A.VCF-1"], "changed": []}]
         projects.filter.assert_not_called()
 
-    def test_caller_project_scope_is_the_batch_uploads_own(self):
+
+class TestCallerProjectScope:
+    """The scope the already-present lookup compares in (SEC-001): never wider than the
+    caller's projects, and never "sees nothing" because the membership read failed."""
+
+    RESOLVE = "nextseek_api.graph_search.scope.resolve_scope"
+
+    def test_a_member_gets_their_projects(self):
+        from nextseek_api.graph_search.scope import Scope
+
         user = object()
-        with patch("nextseek_api.batch_upload.views._caller_project_scope",
-                   return_value=(3, 14)) as upload_scope:
+        with patch(self.RESOLVE, return_value=Scope(False, 9, (3, 14))) as resolve:
             assert reingest_lookups.caller_project_scope(user) == (3, 14)
-        upload_scope.assert_called_once_with(user)
+        resolve.assert_called_once_with(user)
+
+    def test_a_superuser_is_unscoped(self):
+        from nextseek_api.graph_search.scope import Scope
+
+        with patch(self.RESOLVE, return_value=Scope(True, None, ())):
+            assert reingest_lookups.caller_project_scope(object()) is None
+
+    def test_a_caller_with_no_seek_person_sees_nothing(self):
+        from nextseek_api.graph_search.scope import ScopeUnavailable
+
+        with patch(self.RESOLVE, side_effect=ScopeUnavailable("no person")):
+            scope = reingest_lookups.caller_project_scope(object())
+        assert scope == ()
+        # ...and the lookup in that scope matches nothing, without asking the database.
+        with patch("seek.models.Sample_types.objects") as sample_types:
+            sample_types.filter.side_effect = AssertionError("asked the database")
+            got = reingest_lookups.existing_uids_for_primary_files_strict(
+                "A.VCF", [{"link": "/net/runs/r1/S1.vcf.gz", "checksum": "", "parent": "D.SEQ-1"}],
+                project_ids=scope)
+        assert got == [NONE]
+
+    def test_a_failed_membership_read_raises(self):
+        # Read as "no project", the already-present check would report nothing there and
+        # a later upload, reading the scope again, would duplicate every sample.
+        from django.db import OperationalError
+
+        with patch(self.RESOLVE, side_effect=OperationalError("seek database gone away")):
+            with pytest.raises(RuntimeError, match="project membership unreachable"):
+                reingest_lookups.caller_project_scope(object())
 
 
 @pytest.mark.django_db(databases=["default", "seek"])
