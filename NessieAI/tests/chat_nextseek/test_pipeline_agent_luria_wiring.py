@@ -480,3 +480,35 @@ def test_a_side_question_closes_a_run_already_submitted(monkeypatch, tmp_path):
     assert agent.handle_turn(session, cfg, "how many are female?")["action"] == "passthrough"
     assert agent.is_active(session) is False
     assert session[agent.PIPELINE_AGENT_KEY]["artifacts"]["luria_runs"] == [_RUN]
+
+
+def test_a_side_question_lets_these_mean_the_newest_search(monkeypatch, tmp_path):
+    """The kept build was pinned to the search it started from. After a side search, "these" means the side search:
+    the pin would offer a run on the old samples, and a "yes" would queue it."""
+    state = _built(tmp_path)
+    state["source_bundle_id"] = 7
+    session, cfg = _handoff_turn(monkeypatch, state)
+    agent.handle_turn(session, cfg, "find me the female ones")
+    assert "source_bundle_id" not in session[agent.PIPELINE_AGENT_KEY]
+
+
+@pytest.mark.parametrize("message, reply", [("Those samples have no reads.", "Those samples have no reads."),
+                                            ("  ", "The run is still built.")])
+def test_a_rejected_question_keeps_a_built_run(message, reply):
+    """conclude(rejected) answers the question it was asked about. It must not take a built run with it, or a later
+    "submit" finds nothing."""
+    state = {"active": True, "artifacts": {"launch": "/x"},
+             "messages": [{"role": "assistant", "content": [{"type": "tool_use", "name": "conclude", "id": "t"}]}]}
+    session = {agent.PIPELINE_AGENT_KEY: state}
+    out = agent._conclude(session, state, {"outcome": "rejected", "message": message})
+    assert out == {"action": "ask", "reply": reply, "params": None}
+    assert state["active"] is True
+    assert state["messages"][-1]["content"] == [{"type": "text", "text": reply}]
+
+
+def test_a_rejected_question_after_a_submit_closes_the_build():
+    state = {"active": True, "artifacts": {"launch": "/x", "luria_runs": [_RUN]},
+             "messages": [{"role": "assistant", "content": [{"type": "tool_use", "name": "conclude", "id": "t"}]}]}
+    agent._conclude({agent.PIPELINE_AGENT_KEY: state}, state, {"outcome": "rejected", "message": "No."})
+    assert state["active"] is False
+

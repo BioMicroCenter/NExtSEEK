@@ -266,6 +266,8 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=
                     _save(session, state)
                 elif artifacts.get("launch"):
                     _close_tool_call(state, "That went to the main assistant. The run is still built.")
+                    # The pin was for the search the build started from. "These" now means the newest one.
+                    state.pop("source_bundle_id", None)
                     _save(session, state)
                 else:
                     clear(session)
@@ -302,6 +304,12 @@ def _conclude(session, state: dict, tool_input: dict) -> dict[str, Any]:
         # "submitted" here was written before the model saw the failure (both tools in one response). A blank message
         # says nothing, and Converse would refuse the stored block on every later turn.
         reply = state["submit_failed"] if outcome == "submitted" or not message.strip() else message
+        _close_tool_call(state, reply)
+        _save(session, state)
+        return {"action": "ask", "reply": reply, "params": None}
+    # A rejection answers the question it was asked about; the built run is still there for "submit".
+    if outcome == "rejected" and artifacts.get("launch") and not artifacts.get("luria_runs"):
+        reply = message if message.strip() else "The run is still built."
         _close_tool_call(state, reply)
         _save(session, state)
         return {"action": "ask", "reply": reply, "params": None}
