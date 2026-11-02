@@ -299,8 +299,9 @@ def _conclude(session, state: dict, tool_input: dict) -> dict[str, Any]:
     # A failed submit leaves the run built, so "submit" has to be able to try again, whatever the model concluded
     # (prod chat 2c55241a: "rejected", with a reply that said to say submit).
     if state.get("submit_failed") and outcome != "cancelled":
-        # "submitted" here was written before the model saw the failure (both tools in one response).
-        reply = state["submit_failed"] if outcome == "submitted" else message
+        # "submitted" here was written before the model saw the failure (both tools in one response). A blank message
+        # says nothing, and Converse would refuse the stored block on every later turn.
+        reply = state["submit_failed"] if outcome == "submitted" or not message.strip() else message
         _close_tool_call(state, reply)
         _save(session, state)
         return {"action": "ask", "reply": reply, "params": None}

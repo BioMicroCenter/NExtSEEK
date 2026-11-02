@@ -259,6 +259,17 @@ def test_conclude_submitted_after_a_failed_submit_says_the_reason_not_submitted(
     assert out == {"action": "ask", "reply": "No key.", "params": None}
 
 
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_a_blank_conclude_after_a_failed_submit_stores_the_reason_not_a_blank_block(blank):
+    """llm_clients sends a stored text block to Converse as it is, and Converse refuses a blank one, so every later turn
+    of the build would fail until "cancel"."""
+    state = {"active": True, "submit_failed": "No key.", "artifacts": {"launch": "/x"},
+             "messages": [{"role": "assistant", "content": [{"type": "tool_use", "name": "conclude", "id": "t"}]}]}
+    out = agent._conclude({agent.PIPELINE_AGENT_KEY: state}, state, {"outcome": "rejected", "message": blank})
+    assert out == {"action": "ask", "reply": "No key.", "params": None}
+    assert state["messages"][-1]["content"] == [{"type": "text", "text": "No key."}]
+
+
 class _PairingClient:
     """As Bedrock Converse: a tool_use with no tool_result in the next message is refused."""
     def __init__(self, scripted):
