@@ -864,7 +864,9 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["launch_plan"] = plan.model_dump()
     state["pipeline_key"] = pipeline_key
     state["launch_built_at_user_msgs"] = _user_msg_count(state)
-    state.pop("submit_failed", None)  # a new launch: conclude may close the build again
+    # A new launch: it may be submitted, and conclude may close the build again.
+    state["artifacts"].pop("luria_runs", None)
+    state.pop("submit_failed", None)
     _note_user_confirmed(state, base)
 
     ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
@@ -1119,6 +1121,8 @@ _LURIA_RETRY = ("Tell the user that in plain words, without the technical detail
 _LURIA_UNKNOWN = ("The connection to Luria dropped while the job was being sent, so it may have started. An admin should "
                   "check Luria's queue before anyone submits this run again.")
 _LURIA_FILES_GONE = "The built run's files are gone from the server, so the run has to be built again."
+_LURIA_ALREADY_SENT = ('Not submitted again: this run was already sent to Luria. '
+                       'Call conclude(outcome="submitted") so the user gets its job details.')
 
 
 def _luria_failure(state: dict, detail: str) -> str:
@@ -1142,6 +1146,11 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     launch = artifacts.get("launch")
     if not launch:
         return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    # One build, one job. An instruction to the model does not stop a user's "submit": only configure_run opens this again.
+    if artifacts.get("luria_runs"):
+        return json.dumps({"ok": False, "message": _LURIA_ALREADY_SENT})
+    if state.get("submit_failed") == _LURIA_UNKNOWN:
+        return _luria_failure(state, "sbatch outcome unknown on an earlier submit")
     if (refusal := _launch_unconfirmed(state)):
         return refusal
     if not getattr(config, "LURIA_ENV_COMPLETE", False):

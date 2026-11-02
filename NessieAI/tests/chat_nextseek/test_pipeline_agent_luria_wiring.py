@@ -369,3 +369,96 @@ def test_files_gone_offers_a_rebuild_not_a_retry(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_tools, "submit_luria", fake)
     out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), _built(tmp_path)))
     assert "built again" in out["message"] and "tries again" not in out["message"]
+
+
+# --- one build, one job: a second submit is refused in code, not by instruction ---
+
+_ALREADY_SENT = ('Not submitted again: this run was already sent to Luria. '
+                 'Call conclude(outcome="submitted") so the user gets its job details.')
+
+
+def _no_second_job(monkeypatch):
+    monkeypatch.setattr(agent_tools, "submit_luria", lambda *a, **k: pytest.fail("a second job went to sbatch"))
+
+
+def _submit_unknown(monkeypatch, state):
+    def fake(*a, reasons, **k):
+        reasons.append("entry 'r' failed: RuntimeError('sbatch outcome unknown: ssh failed (255): Connection closed')")
+        return []
+    monkeypatch.setattr(agent_tools, "submit_luria", fake)
+    return json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))
+
+
+def _rebuilt(state, tmp_path):
+    """configure_run again, then the user's reply to the new build."""
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,fastq_1,fastq_2,strandedness\n")
+    state["artifacts"].update(samplesheet=str(sheet), base_dir=str(tmp_path))
+    built = json.loads(agent_tools.tool_configure_run(_PairingCfg(None), state, {"pipeline_key": "rnaseq"}, str(tmp_path)))
+    assert built["ok"] is True, built
+    state["messages"].append({"role": "user", "content": "submit"})
+
+
+def test_a_second_submit_of_a_submitted_run_is_refused(monkeypatch, tmp_path):
+    """sbatch worked and the next model call failed: the build is still open, and "submit" must not queue a second job
+    or lose the first job's record."""
+    state = _built(tmp_path)
+    monkeypatch.setattr(agent_tools, "submit_luria", lambda *a, **k: [_RUN])
+    assert json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))["ok"] is True
+    _no_second_job(monkeypatch)
+    out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))
+    assert out == {"ok": False, "message": _ALREADY_SENT}
+    assert state["artifacts"]["luria_runs"] == [_RUN]
+
+
+def test_the_refused_second_submit_ends_with_the_first_jobs_details(monkeypatch, tmp_path):
+    _no_second_job(monkeypatch)
+    monkeypatch.setattr(agent, "catalog_for_prompt", lambda: "")
+    state = _built(tmp_path)
+    state["artifacts"]["luria_runs"] = [_RUN]
+    session = {agent.PIPELINE_AGENT_KEY: state}
+    cfg = _PairingCfg(_PairingClient([_use("submit_to_luria"), _use("conclude", outcome="submitted", message="Submitted.")]))
+    out = agent.handle_turn(session, cfg, "submit")
+    assert out["action"] == "execute" and "sacct -j 11240786" in out["reply"] and state["active"] is False
+
+
+def test_a_submit_after_an_unknown_outcome_is_refused(monkeypatch, tmp_path):
+    """The job may be queued on Luria, so "submit" must not call sbatch again, whatever the model was told."""
+    state = _built(tmp_path)
+    _submit_unknown(monkeypatch, state)
+    _no_second_job(monkeypatch)
+    out = json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))
+    assert out["ok"] is False and "may have started" in out["message"]
+    assert "Do not offer another submit" in out["message"]
+    assert "may have started" in state["submit_failed"]
+
+
+def test_a_rebuilt_run_can_submit_after_a_submitted_one(monkeypatch, tmp_path):
+    state = _built(tmp_path)
+    state["artifacts"]["luria_runs"] = [_RUN]
+    _rebuilt(state, tmp_path)
+    assert "luria_runs" not in state["artifacts"]
+    second = {**_RUN, "job_id": "11240787"}
+    monkeypatch.setattr(agent_tools, "submit_luria", lambda *a, **k: [second])
+    assert json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))["ok"] is True
+    assert state["artifacts"]["luria_runs"] == [second]
+
+
+def test_a_rebuilt_run_can_submit_after_an_unknown_outcome(monkeypatch, tmp_path):
+    state = _built(tmp_path)
+    _submit_unknown(monkeypatch, state)
+    _rebuilt(state, tmp_path)
+    assert "submit_failed" not in state
+    monkeypatch.setattr(agent_tools, "submit_luria", lambda *a, **k: [_RUN])
+    assert json.loads(agent_tools.tool_submit_to_luria(_LuriaCfg("k"), state))["ok"] is True
+
+
+def test_a_side_question_closes_a_run_already_submitted(monkeypatch, tmp_path):
+    """sbatch worked and conclude was never reached: a handoff must not keep that build open for good. The record stays,
+    as after conclude, so the chat still knows it launched the run."""
+    state = _built(tmp_path)
+    state["artifacts"]["luria_runs"] = [_RUN]
+    session, cfg = _handoff_turn(monkeypatch, state)
+    assert agent.handle_turn(session, cfg, "how many are female?")["action"] == "passthrough"
+    assert agent.is_active(session) is False
+    assert session[agent.PIPELINE_AGENT_KEY]["artifacts"]["luria_runs"] == [_RUN]

@@ -258,7 +258,13 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=
                 # The turn is not about the build, so the orchestrator runs it elsewhere. A built run outlives the side
                 # question (operator 2026-10-30), so "submit" still works after it; a build with nothing built is dropped.
                 print(f"[DEBUG][PIPELINE] handoff: {tool_input.get('reason')!r}")
-                if (state.get("artifacts") or {}).get("launch"):
+                artifacts = state.get("artifacts") or {}
+                if artifacts.get("luria_runs"):
+                    # Submitted, and conclude was never reached (a failed model call): nothing is left to keep open.
+                    # As after conclude, the chat keeps its record of the run.
+                    state["active"] = False
+                    _save(session, state)
+                elif artifacts.get("launch"):
                     _close_tool_call(state, "That went to the main assistant. The run is still built.")
                     _save(session, state)
                 else:
