@@ -2,6 +2,7 @@ from typing import Optional, List
 
 import hashlib
 import json
+import socket
 import time
 from django.http import HttpResponse
 from rest_framework import viewsets, status
@@ -14,6 +15,7 @@ from django.conf import settings
 from django.core.cache import caches
 from pydantic import ValidationError
 import requests
+import urllib3.exceptions
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
@@ -249,6 +251,39 @@ def _mark_in_flight(title: str) -> None:
                                             "%r", title, exc_info=True)
 
 
+# Raised before any byte of the request left: a connection that timed out opening, a TLS handshake that failed (the
+# SSLError requests raises from urllib3's), or a request that could not be built.
+_NOT_SENT = (requests.ConnectTimeout, requests.exceptions.SSLError, requests.exceptions.InvalidURL,
+             requests.exceptions.InvalidHeader, requests.exceptions.URLRequired, requests.exceptions.InvalidJSONError)
+
+
+def _may_have_reached_seek(exc: BaseException) -> bool:
+    """Whether the create that raised ``exc`` may have reached SEEK, which may then still commit it.
+
+    No for the errors in ``_NOT_SENT``, and for a ``requests.ConnectionError`` whose cause is a connection that never
+    opened: urllib3's NewConnectionError (refused, unreachable, and its NameResolutionError for a name that does not
+    resolve) inside the MaxRetryError requests wraps, or a bare ConnectionRefusedError or ``socket.gaierror``. Yes for
+    anything later, such as a read timeout, a connection dropped once made (urllib3's ProtocolError "Connection
+    aborted.", around RemoteDisconnected or a reset) or a body cut short (ChunkedEncodingError), and for an error
+    whose cause cannot be told, since a retry that duplicates the type is the worse mistake."""
+    if isinstance(exc, _NOT_SENT):
+        return False
+    if not isinstance(exc, requests.ConnectionError):
+        return True
+    causes, todo = [], [exc]
+    while todo:  # exc.args, MaxRetryError.reason, __cause__ and __context__, each link once
+        link = todo.pop()
+        if not isinstance(link, BaseException) or any(link is seen for seen in causes):
+            continue
+        causes.append(link)
+        todo.extend(link.args)
+        todo.extend((getattr(link, "reason", None), link.__cause__, link.__context__))
+    if any(isinstance(c, urllib3.exceptions.ProtocolError) for c in causes):
+        return True  # urllib3 raises it only on a connection it had opened
+    return not any(isinstance(c, (urllib3.exceptions.NewConnectionError, ConnectionRefusedError, socket.gaierror))
+                   for c in causes)
+
+
 def _in_flight_since(title: str) -> Optional[int]:
     """When an unanswered create of ``title`` was sent, or None. Raises when the store cannot be read."""
     return _in_flight_store().get(_in_flight_key(title))
@@ -458,11 +493,12 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             body, code, headers, resp = self.client.create_sample_type(request, payload,
                                                                        timeout_s=(10, CREATE_TIMEOUT_S))
         except requests.RequestException as exc:
-            # SEEK may have committed the write it did not answer: its rows go in, held back.
-            hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
-            if title and not isinstance(exc, requests.ConnectTimeout):
-                # A connect timeout sent nothing; anything later may have reached SEEK.
-                _mark_in_flight(title)
+            if _may_have_reached_seek(exc):
+                # SEEK may have committed the write it did not answer: its rows go in, held back, and a retry of the
+                # title waits. A create that never left (refused, unresolved, TLS or connect timeout) did neither.
+                hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+                if title:
+                    _mark_in_flight(title)
             return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types",
                                 find=_find_by_title(title) if title else None)
         delay = hooks.write_delay(code)

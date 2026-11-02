@@ -11,8 +11,14 @@ Covers:
 import copy
 import json
 import re
+import socket
+import ssl
+from http.client import RemoteDisconnected
+
 import pytest
 import requests
+import urllib3.exceptions
+from urllib3.exceptions import MaxRetryError, NameResolutionError, NewConnectionError, ProtocolError
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 from django.test import override_settings
@@ -584,6 +590,25 @@ class TestSampleTypeCreateUnconfirmed:
         assert taken.content == free.content
 
 
+def _refused():
+    """What requests 2.33 raises for a refused connection: urllib3's NewConnectionError inside a MaxRetryError."""
+    reason = NewConnectionError(None, "Failed to establish a new connection: [Errno 111] Connection refused")
+    reason.__context__ = ConnectionRefusedError(111, "Connection refused")
+    return requests.ConnectionError(MaxRetryError(None, "/sample_types", reason=reason))
+
+
+def _unresolved():
+    """A SEEK host name that does not resolve: NameResolutionError, a NewConnectionError, inside a MaxRetryError."""
+    reason = NameResolutionError("seek", None, socket.gaierror(-2, "Name or service not known"))
+    return requests.ConnectionError(MaxRetryError(None, "/sample_types", reason=reason))
+
+
+def _tls_failed():
+    """A TLS handshake that failed: requests' SSLError around urllib3's, inside a MaxRetryError."""
+    reason = urllib3.exceptions.SSLError(ssl.SSLError(1, "[SSL: WRONG_VERSION_NUMBER] wrong version number"))
+    return requests.exceptions.SSLError(MaxRetryError(None, "/sample_types", reason=reason))
+
+
 # #141 review: the title check sees only committed rows. A create SEEK has not answered is still invisible to it, so
 # a client that retried after the 202 (its GET by title still 404) made a second type with the same title.
 class TestSampleTypeCreateInFlight:
@@ -646,6 +671,40 @@ class TestSampleTypeCreateInFlight:
         retry, _ = self._create(vs)
         assert retry.status_code == 201
         assert vs.client.create_sample_type.call_count == 2
+
+    @pytest.mark.parametrize("error", [_refused(), _unresolved(), _tls_failed()], ids=["refused", "dns", "tls"])
+    def test_a_create_that_never_left_holds_nothing_so_a_retry_is_sent(self, error):
+        # SEEK being recreated refuses connections: nothing reached it, so the retry once it is back must not be
+        # answered "SEEK may still complete it" for five minutes while GET by title is 404.
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = [error, _ok(GOOD_ST_SINGLE, 201)]
+        with patch("nextseek_api.services.sample_types.hooks.enqueue") as enqueue:
+            first, body = self._create(vs)
+        assert first.status_code == 502 and body["title"] == "NEW"
+        assert "may still complete" not in body["errors"][0]["detail"]
+        enqueue.assert_not_called()  # SEEK committed nothing, so no held-back catalog row either
+        retry, _ = self._create(vs)
+        assert retry.status_code == 201
+        assert vs.client.create_sample_type.call_count == 2
+
+    @pytest.mark.parametrize("error", [
+        requests.ReadTimeout("slow"),
+        requests.ConnectionError(ProtocolError("Connection aborted.",
+                                               RemoteDisconnected("Remote end closed connection without response"))),
+        requests.ConnectionError(ProtocolError("Connection aborted.", ConnectionResetError(104, "reset by peer"))),
+        requests.exceptions.ChunkedEncodingError(ProtocolError("Response ended prematurely")),
+        requests.ConnectionError("down"),  # a cause that cannot be told: SEEK may have it
+    ], ids=["read-timeout", "aborted", "reset", "chunked", "unknown"])
+    def test_a_create_that_may_have_reached_seek_holds_its_title(self, error):
+        from nextseek_api.graph_sync import hooks
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = error
+        with patch("nextseek_api.services.sample_types.hooks.enqueue") as enqueue:
+            self._create(vs)
+        enqueue.assert_called_once_with("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+        retry, body = self._create(vs)
+        assert retry.status_code == 202 and body["sent"] is False
+        assert vs.client.create_sample_type.call_count == 1
 
     def test_a_created_type_is_then_409_not_202(self, _titles):
         vs = self._viewset()
