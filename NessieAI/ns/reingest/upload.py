@@ -635,7 +635,8 @@ def _refuse_later_edits(records: list[dict], edited_after) -> None:
 def _settle_claims(verified: list[dict], jobs: list[dict], user_id) -> None:
     """After the wait: a build whose job succeeded stays claimed and is stamped uploaded; one whose job did
     not start or failed is given back; one still running keeps its claim (a repeat would double-write) and
-    remembers its job, so ``settle_waiting`` can finish this once the job ends (PR 135 F1)."""
+    remembers its job, so the next upload-reingest's ``settle_waiting`` can finish this once the job ends
+    (PR 135 F1)."""
     by_key = {entry["artifact_key"]: entry for entry in jobs}
     for record in verified:
         entry = by_key.get(record["artifact_key"])
@@ -683,6 +684,30 @@ def settle_waiting(user_id, job_state) -> list[dict]:
             build_records.clear_waiting(record["build_id"], user_id)
             build_records.release(record["build_id"], user_id)
     return done
+
+
+def pending_uploads(user_id, job_state=None) -> list[dict]:
+    """The read-only twin of ``settle_waiting``, for run-harvest, which never writes: ``user_id``'s builds
+    whose job outlived the upload call and no upload-reingest has settled yet, as ``[{manifest_id, job_id,
+    status}]``. ``status`` is ``done``, ``failed`` or ``running`` as the host's ``job_state`` reads the
+    job now, or ``unknown`` without a lookup or when it fails. Stamps, releases and clears nothing: only
+    the next upload-reingest settles these (``settle_waiting``)."""
+    out: list[dict] = []
+    for record in build_records.waiting(user_id):
+        waiting_job = record["waiting_job"]
+        job_id = waiting_job.get("job_id")
+        if not job_id:
+            continue
+        status = "unknown"
+        if callable(job_state):
+            try:
+                outcome = _summarise(job_id, job_state(job_id))
+                status = ("done" if job_is_done(outcome)
+                          else "running" if outcome["status"] == "running" else "failed")
+            except Exception:  # noqa: BLE001 -- unreadable now: the run stays held
+                logger.warning("run-harvest: status of late job %s unavailable", job_id, exc_info=True)
+        out.append({"manifest_id": waiting_job.get("manifest_id"), "job_id": job_id, "status": status})
+    return out
 
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,

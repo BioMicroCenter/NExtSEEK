@@ -1462,9 +1462,10 @@ class AssistantViewSet(viewsets.ViewSet):
         if op == "run-harvest":
             # With no run_dir the op picks the caller's waiting launched run;
             # without a session it sees nobody and reports that no run is waiting.
-            # Before it picks, it settles the caller's upload jobs that outlived
-            # their call, through the same job lookup upload-reingest waits with
-            # (deferred: batch_upload.views pulls in Celery).
+            # Before it picks, it reads (never settles) the caller's upload jobs
+            # that outlived their call, through the same job lookup upload-reingest
+            # waits with, so it does not offer their runs again; the next
+            # upload-reingest settles them (deferred: batch_upload.views pulls in Celery).
             from nextseek_api.batch_upload import views as batch_views
 
             return SimpleNamespace(user=request.user, job_state=batch_views.job_outcome)

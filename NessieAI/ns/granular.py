@@ -1313,16 +1313,59 @@ def _ssh_timeout_s(base_s: float, what: str) -> float:
     return budget
 
 
-def _pick_waiting_run(user):
+def _held_by_late_uploads(session) -> dict:
+    """``{launch_record_id: status}`` for the caller's runs whose upload job outlived its call and no
+    upload-reingest has settled yet (``upload.pending_uploads``), so the pick does not offer them for a
+    second upload. ``status`` is ``done``, ``running`` or ``unknown``; a job that failed holds nothing (its
+    run still waits). Read-only: run-harvest never settles these, the next upload-reingest does
+    (``_settle_late_uploads``). Best-effort: a failure holds nothing back."""
+    user_id = getattr(getattr(session, "user", None), "pk", None)
+    if not user_id:
+        return {}
+    from NessieAI.ns.reingest import upload
+    from NessieAI.ns.reingest.store import load_manifest
+
+    held: dict = {}
+    try:
+        pending = upload.pending_uploads(user_id, getattr(session, "job_state", None))
+    except Exception:  # noqa: BLE001 -- the pick still works without this
+        logger.exception("run-harvest: could not read late upload jobs")
+        return {}
+    for entry in pending:
+        if entry["status"] == "failed":
+            continue
+        try:
+            launch_record_id = load_manifest(entry["manifest_id"]).launch_record_id
+        except Exception:  # noqa: BLE001 -- an unreadable manifest holds no run
+            continue
+        if launch_record_id and held.get(launch_record_id) != "running":
+            held[launch_record_id] = entry["status"]
+    return held
+
+
+def _pick_waiting_run(user, held=None):
     """run-harvest with no run_dir: "my run is done" names no folder.
 
     One waiting run (launched for ``user``, not yet reingested) is the run.
     Several come back as ``candidates`` for the agent to ask which, without
-    staging anything. None is a refusal that asks for the folder.
+    staging anything. None is a refusal that asks for the folder. A run in
+    ``held`` (``_held_by_late_uploads``) has an upload still being confirmed,
+    so it is not offered; when only such runs wait, the refusal says so.
     """
     from NessieAI.ns.reingest import launch_record
 
-    waiting = launch_record.waiting_runs(user)
+    held = held or {}
+    all_waiting = launch_record.waiting_runs(user)
+    waiting = [run for run in all_waiting if run.pk not in held]
+    if not waiting and all_waiting:
+        notes = [f"{run.run_name or run.run_dir}: "
+                 + ("its upload has finished, and the run is recorded as reingested at your next upload"
+                    if held[run.pk] == "done" else "its upload is still being confirmed")
+                 for run in all_waiting]
+        raise OpValidationError(
+            "no run you launched is waiting to be reingested; the uploads of these runs outlived "
+            "their call, so they are not offered again: " + "; ".join(notes),
+            field="run_dir", error_type="no_launched_run_is_waiting")
     if not waiting:
         raise OpValidationError(
             "no run you launched is waiting to be reingested; pass --run-dir with the "
@@ -1349,7 +1392,10 @@ def _remove_key_copy(key_path: str, source_key: str) -> None:
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Reingest step 1 — stage the allowlisted files off the cluster and parse
     them into a RunManifest. Read-only; like run-ls it never calls the write
-    gate (see nextseek_api/assistant/CONTRACT.md).
+    gate (see nextseek_api/assistant/CONTRACT.md). It never settles an upload
+    job that outlived its call either (no build stamp, no run status, no
+    saved.txt): it only reads such jobs, so the pick does not offer their
+    runs again, and leaves settling them to the next upload-reingest.
     """
     import tempfile
 
@@ -1357,9 +1403,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     from NessieAI.ns.reingest.store import save_manifest
 
     if not args.get("run_dir"):
-        # A run whose upload job outlived its call is settled first, so it is not picked again.
-        _settle_late_uploads(session, config)
-        picked = _pick_waiting_run(getattr(session, "user", None))
+        picked = _pick_waiting_run(getattr(session, "user", None), _held_by_late_uploads(session))
         if isinstance(picked, dict):
             return picked
         args = {**args, "run_dir": picked}
@@ -2561,7 +2605,9 @@ def _settle_late_uploads(session, config=None) -> None:
     """Finish the bookkeeping of the caller's upload jobs that outlived their call (PR 135 F1): a job
     now done stamps its build uploaded, takes its run off the waiting pick and writes saved.txt, as
     ``_mark_runs_reingested`` does for a job the call saw finish. Uses the host's ``job_state`` seam on the
-    session; without one, or on any failure, nothing changes. Best-effort: never fails the op."""
+    session; without one, or on any failure, nothing changes. Best-effort: never fails the op. Called only
+    by upload-reingest, after its write gate: run-harvest is read-only and only reads these jobs
+    (``_held_by_late_uploads``)."""
     job_state = getattr(session, "job_state", None)
     user_id = getattr(getattr(session, "user", None), "pk", None)
     if not callable(job_state) or not user_id:

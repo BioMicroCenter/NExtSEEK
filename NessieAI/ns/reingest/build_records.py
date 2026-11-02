@@ -140,7 +140,7 @@ def mark_uploaded(build_id: str, user_id) -> None:
 
 def mark_waiting(build_id: str, user_id, *, job_id: str, manifest_id, uploaded_build_id: str) -> None:
     """Remember the job a call stopped waiting for while it still ran (the build keeps its claim), so a
-    later reingest op can settle it once it ends (``upload.settle_waiting``). ``uploaded_build_id`` is
+    later upload-reingest can settle it once it ends (``upload.settle_waiting``). ``uploaded_build_id`` is
     the workbook the job uploaded: this build, or the rebuild the call made from it. Best-effort."""
     try:
         _update(build_id, user_id, {"waiting_job": {
