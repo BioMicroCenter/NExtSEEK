@@ -48,6 +48,24 @@
     "must_not": ["smrnaseq", "scrnaseq", "riboseq", "hlatyping"]
   },
   {
+    "id": "variants-cells-express",
+    "question": "Which genetic variants do these tumour cells express?",
+    "acceptable": [["rnavar"]],
+    "must_not": ["rnaseq", "smrnaseq", "scrnaseq", "riboseq", "hlatyping"]
+  },
+  {
+    "id": "mutations-tumour-carry",
+    "question": "Which mutations do these tumour samples carry?",
+    "acceptable": [["rnavar"]],
+    "must_not": ["rnaseq", "smrnaseq", "scrnaseq", "riboseq", "hlatyping", "rnafusion"]
+  },
+  {
+    "id": "expression-tumour-vs-normal",
+    "question": "Which genes are expressed differently in these tumour cells than in the normal cells?",
+    "acceptable": [["rnaseq"], ["rnaseq", "differentialabundance"]],
+    "must_not": ["rnavar", "smrnaseq", "scrnaseq", "hlatyping", "rnafusion"]
+  },
+  {
     "id": "translation-footprints",
     "question": "We digested the polysomes and sequenced the protected fragments — what is being translated?",
     "acceptable": [["riboseq"]],
