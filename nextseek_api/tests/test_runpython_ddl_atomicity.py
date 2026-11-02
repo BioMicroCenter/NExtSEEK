@@ -28,6 +28,7 @@ DDL_RUNPYTHON_MIGRATIONS = [
     "nextseek_api.migrations.0008_heal_cc_transcript_fk",
     "nextseek_api.migrations.0010_turn_ledger",
     "nextseek_api.migrations.0025_cc_turn",
+    "nextseek_api.migrations.0034_chat_text_utf8mb4",
 ]
 
 
