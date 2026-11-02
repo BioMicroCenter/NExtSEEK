@@ -214,6 +214,13 @@ def test_a_missing_key_is_a_plain_reason_with_no_path(tmp_path):
     ("entry 'r' failed: RuntimeError('sbatch: error: QOSMaxSubmitJobPerUserLimit')", "scheduler"),
     ("entry 'r' failed: RuntimeError('scp: write: Disk quota exceeded')", "storage"),
     ("launch.yml not found: /app/outputs/x/launch.yml", "built again"),
+    ("no launch entries in launch.yml", "built again"),
+    ("entry 'r': local samplesheet not found", "built again"),
+    # A file's name in a remote error does not mean the built run's files are gone.
+    ("entry 'r' failed: RuntimeError('scp: /net/x/samplesheet.csv: Disk quota exceeded')", "storage"),
+    ("entry 'r' failed: RuntimeError('scp: /net/x/samplesheet.csv: No space left on device')", "storage"),
+    ("entry 'r' failed: RuntimeError('scp: /net/x/samplesheet.csv: Permission denied')", "unexpected"),
+    ("entry 'r' failed: RuntimeError('ssh failed (1): bash: sbatch: command not found')", "scheduler"),
     ("something nobody has seen", "unexpected"),
 ])
 def test_a_luria_failure_says_whose_it_is(monkeypatch, tmp_path, reason, words):

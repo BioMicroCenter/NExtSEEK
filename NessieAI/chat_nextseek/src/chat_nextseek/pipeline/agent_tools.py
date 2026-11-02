@@ -1131,7 +1131,7 @@ def _luria_failure(state: dict, detail: str) -> str:
     if "sbatch outcome unknown" in detail:
         state["submit_failed"] = _LURIA_UNKNOWN
         tail = "Tell the user that in plain words. Do not offer another submit. Do not call conclude."
-    elif re.search(r"launch\.yml|samplesheet", detail):
+    elif re.search(r"(?:launch\.yml|samplesheet) not found|no launch entries", detail):  # submit_luria's own reasons
         state["submit_failed"] = _LURIA_FILES_GONE
         tail = "Tell the user that in plain words and offer to build it again. Do not call conclude."
     else:
