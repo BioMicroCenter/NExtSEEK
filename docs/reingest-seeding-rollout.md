@@ -73,7 +73,7 @@ lacks today:
 
 | Type | Needed by | Missing from `context/sample_types.json` | SEEK |
 |---|---|---|---|
-| A.HLA | hlatyping `hla_class_i` | the whole row | the whole type (28 attributes, list in the workbook) |
+| A.HLA | hlatyping `hla_class_i` | the whole row | the whole type (39 attributes: the workbook's 28 plus DataType and the ten class II allele fields, listed in 4.6) |
 | D.SEQ | `qc_attributes` of every map | 18: DuplicationPercent, Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent, GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent, ValidBarcodesPercent | the same 18 |
 | A.VCF | rnavar `vcf` (an output attribute, not a QC entry) | TsTvRatio | TsTvRatio |
 | A.ALN | rnaseq `aln` writes `Software` | Software | to be read; without it every rnaseq A.ALN row fails at upload |
@@ -102,8 +102,8 @@ source does not carry is undone by the next `--emit update`, which deletes every
 `sample_types_context` row the file does not name (A.HLA) and rewrites every column of the rest
 (the 18 D.SEQ attributes). So before the first box write, a reviewed change must:
 
-1. add the A.HLA row and the 20 attributes above (18 D.SEQ, TsTvRatio, A.ALN Software if kept) to
-   `context/sample_types.json`;
+1. add the A.HLA row (all 39 attributes) and the 20 attributes above (18 D.SEQ, TsTvRatio, A.ALN
+   Software) to `context/sample_types.json`; #152 is this change;
 2. run `python scripts/context_gen.py --emit exports --table all` and `--emit seed --table all` in the
    same change, and the test lanes `context/README.md` names;
 3. after merge, rebuild the app and the cc-agent on each box as `DEPLOYMENT.md` §3.2 says for the
@@ -321,9 +321,13 @@ Only if 4.1 printed `SEEK ids NONE` for A.HLA. `POST /nextseek_api/sample_types/
 (`SampleTypeProxyViewSet.create`, `SampleTypeCreateRequest` in `nextseek_api/models.py`) creates it in
 SEEK as the caller and refuses a title that exists (409).
 
-The 28 attributes are the workbook's A.HLA list; their descriptions are the
-`sample_attributes_unique_data.sql` meanings. The code does not fix the rest, so the owner fills in,
-from a box that already holds A.HLA (`GET /nextseek_api/sample_types/A.HLA/` there) or by decision:
+The 39 attributes are the ones #152's A.HLA catalog row names (4.8 inserts that row, and its three
+lists must name every SEEK attribute of the type): the workbook's 28 A.HLA attributes, plus
+`DataType` and the ten class II allele fields `HLA_DRB1_1`, `HLA_DRB1_2`, `HLA_DQA1_1`, `HLA_DQA1_2`,
+`HLA_DQB1_1`, `HLA_DQB1_2`, `HLA_DPA1_1`, `HLA_DPA1_2`, `HLA_DPB1_1`, `HLA_DPB1_2`. Their descriptions
+are the `sample_attributes_unique_data.sql` meanings; that file has none for the ten class II
+fields, so the owner takes those from a box that holds A.HLA or writes them. The code does not fix
+the rest, so the owner fills in, from a box that already holds A.HLA (`GET /nextseek_api/sample_types/A.HLA/` there) or by decision:
 each attribute's value type, `required`, `is_title` and position, the type's description, and the
 `projects` relationship for this box.
 
@@ -339,11 +343,12 @@ curl -sS -X POST "$BASE_URL/nextseek_api/sample_types/" -H "Authorization: Token
 
 ### 4.7 SEEK attributes (gated)
 
-The 18 D.SEQ attributes and TsTvRatio on A.VCF, minus what 4.1 showed present; A.ALN `Software` only
-if the operator keeps it in the rnaseq map (otherwise the map change removes it); the A.GEX six per
+The 18 D.SEQ attributes, TsTvRatio on A.VCF and `Software` on A.ALN (the rnaseq `aln` rule writes
+it; #152 keeps it in the catalog), minus what 4.1 showed present; the A.GEX six per
 [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) §1. Use the Attribute API,
 `dry_run` first. Build the body from the committed meanings, with the value types 4.1's last query
-showed (the maps' `datatype` is `number` for all but `Strandedness`, which is `string`):
+showed (the maps' `datatype` is `number` for all but `Strandedness`, which is `string`; A.ALN
+`Software` holds a tool version, so it takes the text type):
 
 ```bash
 NUM='<value type of MappedPercent on this box>' TEXT='<value type of Genome on this box>' python3 - > /tmp/reingest-attrs.json <<'PY'
@@ -361,7 +366,8 @@ def attr(name, kind):
     return {"title": name, "sample_attribute_type": kind, "required": False, "description": meaning(name)}
 body = {"dry_run": True, "targets": [
     {"sample_type": "D.SEQ", "attributes": [attr(n, text if n == "Strandedness" else num) for n in dseq]},
-    {"sample_type": "A.VCF", "attributes": [attr("TsTvRatio", num)]}]}
+    {"sample_type": "A.VCF", "attributes": [attr("TsTvRatio", num)]},
+    {"sample_type": "A.ALN", "attributes": [attr("Software", text)]}]}
 print(json.dumps(body, indent=1))
 PY
 ```
@@ -373,17 +379,18 @@ curl -sS -X POST "$BASE_URL/nextseek_api/attributes/batch-create/" -H "Authoriza
   -H "Content-Type: application/json" --data @/tmp/reingest-attrs.json
 ```
 
-- **Check the preview:** one `created` per attribute sent, on D.SEQ and A.VCF only; `affected_samples`
-  is the box's D.SEQ and A.VCF sample counts. Then send the same body with `"dry_run": false`. Above 5000
-  affected samples the answer is 202 and a job to poll at its `status_url`.
+- **Check the preview:** one `created` per attribute sent, on D.SEQ, A.VCF and A.ALN only;
+  `affected_samples` is the box's D.SEQ, A.VCF and A.ALN sample counts. Then send the same body with
+  `"dry_run": false`. Above 5000 affected samples the answer is 202 and a job to poll at its `status_url`.
 - **Verify:** the `app_shell` check's "not in SEEK" lists are empty.
 - **Roll back:** `POST /nextseek_api/attributes/batch-delete/` with the same titles, `dry_run` first,
   and only while no sample holds a value for them (it rewrites every sample's `json_metadata`).
 
 ### 4.8 Catalog rows in `sample_types_context` (gated)
 
-Each statement matches the §2 change to `context/sample_types.json`; apply it after that change is
-merged, so the file and the table say the same thing.
+Each statement matches the §2 change to `context/sample_types.json`, #152; apply it from a checkout
+that has #152 (merged, or its branch `feat/catalog-reingest-types`), so the file and the table say
+the same thing.
 
 Append each missing attribute to its row's `possible_metadata_fields`. Each statement is a no-op
 when the name is already in any of the three lists:
@@ -395,29 +402,35 @@ add() { printf "UPDATE sample_types_context SET possible_metadata_fields = CONCA
            IsomiRPercent UMIUniquePercent EstimatedCells MeanReadsPerCell ReadsInCellsPercent ValidBarcodesPercent; do
     add D.SEQ "$a"; done
   add A.VCF TsTvRatio
-  # add A.ALN Software      # only if kept, as in 4.7
+  add A.ALN Software
 } | dmac_sql
 ```
 
-Insert the A.HLA row if 4.1 showed none. `sampletype_id` is this box's SEEK id from 4.6. The three
-lists must name every SEEK attribute of the type exactly once (`context/README.md` "Conventions");
-the owner confirms the split and fills the prose:
+Insert the A.HLA row if 4.1 showed none. Do not write it by hand: take the guarded INSERT that
+`scripts/context_gen.py` generates from #152's row, which names all 39 attributes (4.6), each once
+across the three lists (`context/README.md` "Conventions"), and carries the reviewed prose. Its
+`sampletype_id` is production's, 152, on every box, as in every other catalog row: readers join by
+code, so this box's own SEEK id from 4.6 does not go in. The generator writes a script for the whole
+table; apply only the A.HLA INSERT from it. A second run inserts nothing.
 
-```sql
-INSERT INTO sample_types_context (sample_type, sampletype_id, name, clade, description, Tags,
-  required_metadata, standard_metadata, possible_metadata_fields, parent_sampletypes, child_sampletypes,
-  associated_assay_parents, associated_assay_children)
-SELECT 'A.HLA', <SEEK id>, '<name>', 'Analyzed', '<description>', '<tags>',
-  'UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent',
-  'Software, Pipeline, PipelineVersion, HLA_A1, HLA_A2, HLA_B1, HLA_B2, HLA_C1, HLA_C2, HLADatabaseVersion',
-  'Name, SampleCreationDate, Lab, Protocol, HLAReads, HLATypingObjective, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Publish_uri',
-  'D.SEQ, A.ALN', NULL, 'HLA Typing', NULL
-FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sample_types_context WHERE sample_type = 'A.HLA');
+```bash
+python3 scripts/context_gen.py --emit update --table sample_types --out /tmp/context-sample-types.sql
+sed -n "/ SELECT 'A\.HLA', 152, /,/WHERE NOT EXISTS .*'A\.HLA');\$/p" /tmp/context-sample-types.sql \
+  > /tmp/reingest-a-hla.sql
+grep -c 'WHERE NOT EXISTS' /tmp/reingest-a-hla.sql   # 1: the one guarded INSERT, nothing else
+{ echo 'SET NAMES utf8mb4;'; cat /tmp/reingest-a-hla.sql; } | dmac_sql
 ```
+
+A `0` from the `grep` means the checkout does not have #152: stop. Never apply the whole generated
+file in place of this step (§2), and least of all from a checkout without #152, where its first
+row statement deletes every row the file does not name, A.HLA included. The INSERT names the
+`repository_attributes` and `sampletype_file_link` columns; an "Unknown column" error means this
+box's table predates them, which goes to the operator rather than into an edited statement.
 
 A.GEX: [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) §2.
 
-- **Verify:** the `app_shell` check's "not in catalog" lists are empty and A.HLA prints "catalog row".
+- **Verify:** the `app_shell` check's "not in catalog" lists are empty, A.HLA prints "catalog row", and
+  4.1's last `dmac_sql` query shows A.HLA with `sampletype_id` 152.
 - **Roll back:** restore the changed columns from 4.2's dump, or
   `DELETE FROM sample_types_context WHERE sample_type = 'A.HLA'` for the inserted row.
 
