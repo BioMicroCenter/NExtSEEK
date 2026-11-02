@@ -228,8 +228,9 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "anything else they ask while a pipeline build happens to be open — a sample "
             "search, a lineage or study question, a report, an unrelated question. Do not "
             "answer it yourself and do not tell them you cannot search; just hand off and "
-            "the right agent will take it. Your build state is discarded, so only hand off "
-            "when they have genuinely moved on."
+            "the right agent will take it. A built run stays built, so the user can still say "
+            "submit after the side question. With nothing built yet, the build state is "
+            "discarded, so in that case only hand off when they have genuinely moved on."
         ),
         "input_schema": {
             "type": "object",

@@ -50,6 +50,14 @@ def test_handoff_is_always_exposed():
         assert "handoff" in _names(at.build_pipeline_tool_schemas(_Cfg(tower=tower, luria=luria)))
 
 
+def test_handoff_says_a_built_run_stays_built():
+    """Told that a handoff destroys the run, the model answers a side question itself, which is the captured-turn bug."""
+    desc = next(t for t in at.PIPELINE_TOOL_SCHEMAS if t["name"] == "handoff")["description"]
+    assert ("A built run stays built, so the user can still say submit after the side question. With nothing built yet, "
+            "the build state is discarded, so in that case only hand off when they have genuinely moved on.") in desc
+    assert "Your build state is discarded" not in desc
+
+
 def test_tool_submit_to_luria_calls_submitter(monkeypatch):
     monkeypatch.setattr(at, "submit_luria",
                         lambda launch, **kw: [{"job_id": "9", "remote_dir": "/d", "log": "/d/nf-9.out", "run_name": "r"}])

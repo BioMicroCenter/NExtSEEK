@@ -255,10 +255,9 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=
             if name == "conclude":
                 return _conclude(session, state, tool_input)
             if name == "handoff":
-                # The user moved on. Drop the build and let the orchestrator run
-                # its normal parser for this turn (it clears us on passthrough).
+                # The turn is not about the build, so the orchestrator runs it elsewhere. A built run outlives the side
+                # question (operator 2026-10-30), so "submit" still works after it; a build with nothing built is dropped.
                 print(f"[DEBUG][PIPELINE] handoff: {tool_input.get('reason')!r}")
-                # A built run outlives a side question (operator 2026-10-30), so "submit" still works after it.
                 if (state.get("artifacts") or {}).get("launch"):
                     _close_tool_call(state, "That went to the main assistant. The run is still built.")
                     _save(session, state)
