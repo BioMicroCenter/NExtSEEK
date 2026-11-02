@@ -180,7 +180,7 @@ q -e "SELECT JSON_OBJECT(
         'error',   COALESCE(
                      JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.error'),'\$[0]')),
                      JSON_UNQUOTE(JSON_EXTRACT(result,'\$.error'))),
-        'route',   JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.route'),'\$[0]')),
+        'route',   JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.route'),'\$[last]')),
         'src',     JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.source'),'\$[0]')),
         'why',     JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.reasoning'),'\$[0]')),
         'model',   JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.model_id'),'\$[0]')),

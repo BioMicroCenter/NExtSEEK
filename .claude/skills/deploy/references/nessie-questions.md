@@ -73,7 +73,7 @@ in that chat (use a `seed` turn, then `main`, for a follow-up).
 
 ```bash
 rm -rf $S/nt && mkdir -p $S/nt && git -C <workstation_repo> archive origin/dev \
-  NessieAI/__init__.py NessieAI/paths.py NessieAI/tests | tar -x -C $S/nt
+  NessieAI/__init__.py NessieAI/paths.py NessieAI/nessie_harness NessieAI/tests | tar -x -C $S/nt
 (cd $S/nt && uv run --no-project --with pydantic --with requests --with beautifulsoup4 --with orjson python -c "
 from NessieAI.tests.nessie_tests.corpus import load_case_file
 inc, v = load_case_file('$S/launch-$TAG-cases-1.json')

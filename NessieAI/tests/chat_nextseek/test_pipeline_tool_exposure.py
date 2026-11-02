@@ -172,11 +172,11 @@ def test_submit_to_luria_message_carries_skip_reasons(monkeypatch):
     monkeypatch.setattr(at, "submit_luria", fake)
     monkeypatch.setattr(at, "_launch_unconfirmed", lambda s: None)
     out = json.loads(at.tool_submit_to_luria(Cfg(), {"artifacts": {"launch": "/x"}}))
-    assert out["ok"] is False and out["message"].startswith("No runs submitted: launch.yml not found")
+    assert out["ok"] is False and out["detail"] == "launch.yml not found: /x"
 
     monkeypatch.setattr(at, "submit_luria", lambda launch, **kw: [])
     out = json.loads(at.tool_submit_to_luria(Cfg(), {"artifacts": {"launch": "/x"}}))
-    assert "check Luria logs" in out["message"]
+    assert "unexpected" in out["message"]
 
 
 def test_tool_submit_to_luria_passes_the_launching_user(monkeypatch):

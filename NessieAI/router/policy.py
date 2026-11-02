@@ -158,9 +158,9 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     scans instead of the window.
     An explicit force (``force_cc`` or an admin's ``force_route``) wins first,
     THEN the BAML router (:func:`cc_router.decide`) decides. A run-done announcement
-    the router kept off CC goes to CC (``reingest``), and two guards may
-    still redirect an NS-bound turn: an active ``pipeline_agent`` wizard keeps
-    it on NExtSEEK, and a chat whose previous turn completed on CC keeps it on
+    the router kept off CC goes to CC (``reingest``), an active ``pipeline_agent``
+    wizard takes the turn wherever the router sent it unless it was ``unrelated``,
+    and a chat whose previous turn completed on CC keeps an NS-bound turn on
     CC (A1 "sticky CC"). A non-admin's
     ``force_route`` is ignored and falls back to the router (mirrors
     ``use_prod``'s server-side admin gate). Forced decisions are
@@ -224,10 +224,11 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             reasoning=f"named SOP file; router said container_cc ({decision.reasoning})",
             source="sop_file",
         )
+    router_said_cc = decision.route == cc_router.ROUTE_CC and getattr(req, "mode", "standard") != "plan"
     if (
         session is not None
         and pipeline_agent.is_active(session)
-        and decision.route == cc_router.ROUTE_NS
+        and (decision.route == cc_router.ROUTE_NS or router_said_cc)
     ):
         # A pipeline wizard is mid-flow: keep confirm/tweak/launch turns on the NS
         # route so they reach pipeline_agent.handle_turn.
@@ -236,13 +237,24 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
         # open build capture every following turn — a plain sample search got
         # answered by the samplesheet builder ("searching the database isn't
         # something I can do") because the model never saw the query. Now the
-        # router decides first and only an NS-bound turn is handed to the wizard;
-        # the wizard itself calls `handoff` when the turn is not about the build,
-        # which the orchestrator turns into a passthrough.
+        # router decides first, and the wizard itself calls `handoff` when the turn
+        # is not about the build, which the orchestrator turns into a passthrough.
+        #
+        # A turn the router sent to CC comes here too (operator 2026-10-30, prod chat
+        # e80cee5a): after one CC turn the router's follow-up rule keeps "Submit" on CC, so
+        # the build's own answers never reached it. On a handoff of such a turn the
+        # router's CC call stands (attempted_route; `run_query`'s stop_on_handoff in
+        # cc/turn.py). A plan turn stays out: run_query_plan has no wizard.
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_NS, model_class=None, model_id=None,
-            reasoning=f"pipeline_active; router said ns ({decision.reasoning})",
+            reasoning=f"pipeline_active; router said {'cc' if router_said_cc else 'ns'} ({decision.reasoning})",
             source="pipeline",
+            attempted_route=decision.route if router_said_cc else None,
+            attempted_source=decision.source if router_said_cc else None,
+            task_family=decision.task_family,
+            family_source=decision.family_source,
+            generation_id=decision.generation_id,
+            generation_hash=decision.generation_hash,
             # The router still decided first: which model answered it, any fallback,
             # and what its calls cost.
             **cc_router.router_record(decision),

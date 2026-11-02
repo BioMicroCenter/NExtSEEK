@@ -65,7 +65,8 @@ def _engine(route, parser_mode, debug, model_class):
 
 
 def observe(payload: dict) -> RouteObservation:
-    rd = _first(payload, "route_decided") or {}
+    # The last: a build's handoff sends a second one when the turn moves to CC.
+    rd = _last(payload, "route_decided") or {}
     debug = (_last(payload, "query_complete") or {}).get("debug") or {}
     mode = _parser_mode(payload, debug)
     return RouteObservation(
