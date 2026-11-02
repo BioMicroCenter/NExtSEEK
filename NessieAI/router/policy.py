@@ -159,7 +159,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     An explicit force (``force_cc`` or an admin's ``force_route``) wins first,
     THEN the BAML router (:func:`cc_router.decide`) decides. A run-done announcement
     the router kept off CC goes to CC (``reingest``), an active ``pipeline_agent``
-    wizard takes the turn wherever the router sent it unless it was ``unrelated``,
+    wizard takes the turn wherever the router sent it unless it was ``unrelated``
+    (its handoff of a turn the router or the refers-back guard meant for CC runs on CC),
     and a chat whose previous turn completed on CC keeps an NS-bound turn on
     CC (A1 "sticky CC"). A non-admin's
     ``force_route`` is ignored and falls back to the router (mirrors
@@ -224,41 +225,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             reasoning=f"named SOP file; router said container_cc ({decision.reasoning})",
             source="sop_file",
         )
-    router_said_cc = decision.route == cc_router.ROUTE_CC and getattr(req, "mode", "standard") != "plan"
-    if (
-        session is not None
-        and pipeline_agent.is_active(session)
-        and (decision.route == cc_router.ROUTE_NS or router_said_cc)
-    ):
-        # A pipeline wizard is mid-flow: keep confirm/tweak/launch turns on the NS
-        # route so they reach pipeline_agent.handle_turn.
-        #
-        # This used to short-circuit BEFORE consulting the router, which let an
-        # open build capture every following turn — a plain sample search got
-        # answered by the samplesheet builder ("searching the database isn't
-        # something I can do") because the model never saw the query. Now the
-        # router decides first, and the wizard itself calls `handoff` when the turn
-        # is not about the build, which the orchestrator turns into a passthrough.
-        #
-        # A turn the router sent to CC comes here too (operator 2026-10-30, prod chat
-        # e80cee5a): after one CC turn the router's follow-up rule keeps "Submit" on CC, so
-        # the build's own answers never reached it. On a handoff of such a turn the
-        # router's CC call stands (attempted_route; `run_query`'s stop_on_handoff in
-        # cc/turn.py). A plan turn stays out: run_query_plan has no wizard.
-        return cc_router.RouteDecision(
-            route=cc_router.ROUTE_NS, model_class=None, model_id=None,
-            reasoning=f"pipeline_active; router said {'cc' if router_said_cc else 'ns'} ({decision.reasoning})",
-            source="pipeline",
-            attempted_route=decision.route if router_said_cc else None,
-            attempted_source=decision.source if router_said_cc else None,
-            task_family=decision.task_family,
-            family_source=decision.family_source,
-            generation_id=decision.generation_id,
-            generation_hash=decision.generation_hash,
-            # The router still decided first: which model answered it, any fallback,
-            # and what its calls cost.
-            **cc_router.router_record(decision),
-        )
+    not_plan = getattr(req, "mode", "standard") != "plan"
+    router_said_cc = decision.route == cc_router.ROUTE_CC and not_plan
     # Follow-ups and sticky CC (2026-09-23 rulings: "have all follow ups go to
     # container_cc", and once a chat is on container_cc a turn that refers back stays
     # there). One guard, because the two rules are one test: an NS-bound turn that
@@ -274,7 +242,7 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     # and the ledger), "followup" when only NS turns came before.
     #
     # ORDER IS LOAD-BEARING, for the same reason spelled out on the pipeline gate
-    # above: a guard that short-circuits BEFORE the router captures every following
+    # below: a guard that short-circuits BEFORE the router captures every following
     # turn without the model ever seeing the query. It runs AFTER cc_router.decide and
     # only ever redirects an NS-bound turn. ROUTE_UNRELATED is deliberately excluded:
     # converting it would spin up an Opus container for an out-of-scope question
@@ -300,13 +268,52 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             cue = None
     except Exception:  # noqa: BLE001 - routing must never crash on a shape check
         logger.warning("CC router: follow-up shape check failed", exc_info=True)
+    guard_source = ("sticky" if on_cc else "followup") if cue else None
+    if (
+        session is not None
+        and pipeline_agent.is_active(session)
+        and (decision.route == cc_router.ROUTE_NS or router_said_cc)
+    ):
+        # A pipeline wizard is mid-flow: keep confirm/tweak/launch turns on the NS
+        # route so they reach pipeline_agent.handle_turn.
+        #
+        # This used to short-circuit BEFORE consulting the router, which let an
+        # open build capture every following turn — a plain sample search got
+        # answered by the samplesheet builder ("searching the database isn't
+        # something I can do") because the model never saw the query. Now the
+        # router decides first, and the wizard itself calls `handoff` when the turn
+        # is not about the build, which the orchestrator turns into a passthrough.
+        #
+        # A turn the router sent to CC comes here too (operator 2026-10-30, prod chat
+        # e80cee5a): after one CC turn the router's follow-up rule keeps "Submit" on CC, so
+        # the build's own answers never reached it. On a handoff of such a turn the
+        # router's CC call stands (attempted_route; `run_query`'s stop_on_handoff in
+        # cc/turn.py). So does the follow-up guard's, when it fired: the wizard sees the
+        # turn first, and only then does it go where the guard would have sent it. A plan
+        # turn stays out: run_query_plan has no wizard.
+        handoff_source = decision.source if router_said_cc else (guard_source if not_plan else None)
+        said = "cc" if router_said_cc else (f"ns, {guard_source} ({cue})" if guard_source else "ns")
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_NS, model_class=None, model_id=None,
+            reasoning=f"pipeline_active; router said {said} ({decision.reasoning})",
+            source="pipeline",
+            attempted_route=cc_router.ROUTE_CC if handoff_source else None,
+            attempted_source=handoff_source,
+            task_family=decision.task_family,
+            family_source=decision.family_source,
+            generation_id=decision.generation_id,
+            generation_hash=decision.generation_hash,
+            # The router still decided first: which model answered it, any fallback,
+            # and what its calls cost.
+            **cc_router.router_record(decision),
+        )
     if cue:
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_CC, model_class="opus",
             model_id=cc_router._resolve_cc_model_id(),
             reasoning=(f"{'sticky_cc' if on_cc else 'followup_cc'} ({cue}); "
                        f"router said ns ({decision.reasoning})"),
-            source="sticky" if on_cc else "followup",
+            source=guard_source,
             task_family=decision.task_family,
             family_source=decision.family_source,
             generation_id=decision.generation_id,
@@ -335,10 +342,12 @@ def _fallback_when_cc_unavailable(decision: cc_router.RouteDecision,
     "Container-CC route is not available" error on every turn of a chat on a box
     without the agent image. A turn the ROUTER sent to CC, or an admin forced there,
     keeps its error: nothing else can answer it. The fallback lasts one turn; the chat
-    stays sticky and the next turn tries CC again.
+    stays sticky and the next turn tries CC again. Under an open build the wizard keeps the
+    turn either way; only where its handoff goes changes.
     """
-    if (decision.route != cc_router.ROUTE_CC or decision.source not in POLICY_CC_SOURCES
-            or decision.attempted_route != cc_router.ROUTE_NS):
+    build_holds_it = decision.source == "pipeline" and decision.attempted_source in POLICY_CC_SOURCES
+    if not build_holds_it and (decision.route != cc_router.ROUTE_CC or decision.source not in POLICY_CC_SOURCES
+                               or decision.attempted_route != cc_router.ROUTE_NS):
         return decision
     try:
         ok, detail = available()
@@ -348,6 +357,8 @@ def _fallback_when_cc_unavailable(decision: cc_router.RouteDecision,
         return decision
     logger.warning("CC router: %s turn falls back to nextseek_query, CC unavailable: %s",
                    decision.source, detail)
+    if build_holds_it:
+        return dataclasses.replace(decision, attempted_route=None, attempted_source=None)
     return cc_router.RouteDecision(
         route=cc_router.ROUTE_NS, model_class=None, model_id=None,
         reasoning=f"cc_unavailable ({detail}); was {decision.source}: {decision.reasoning}",

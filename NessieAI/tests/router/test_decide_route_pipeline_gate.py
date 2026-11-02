@@ -1,3 +1,6 @@
+import pytest
+
+from NessieAI.router import followup
 from NessieAI.router import policy
 from NessieAI.router import router as cc_router
 
@@ -89,6 +92,65 @@ def test_no_build_open_keeps_the_routers_cc(monkeypatch):
     _router_says_cc(monkeypatch)
     d = policy._decide_route(_User(), _Req("Submit"), force_cc=False, session={"pipeline_agent": {"active": False}})
     assert d.route == cc_router.ROUTE_CC
+
+
+def _router_says_ns(monkeypatch):
+    monkeypatch.delenv(followup.FOLLOWUP_ROUTING_ENV, raising=False)  # the default split
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: cc_router.RouteDecision(
+        route=cc_router.ROUTE_NS, model_class=None, model_id=None, reasoning="x", source="baml"))
+
+
+def _answered(choice):
+    return [{"turn_id": 1, "user_query": "q", "router_choice": choice, "status": "completed",
+             "mode": "cc" if choice == cc_router.ROUTE_CC else "graph_query"}]
+
+
+def _kept_build(query, chat_log, mode="standard"):
+    req = _Req(query)
+    req.mode = mode
+    return policy._decide_route(_User(), req, force_cc=False, session={"pipeline_agent": {"active": True}}, chat_log=chat_log)
+
+
+def test_a_follow_up_for_cc_runs_on_cc_when_the_build_lets_it_go(monkeypatch):
+    """The wizard still sees the turn first; only its handoff goes where the follow-up guard would have sent the turn."""
+    _router_says_ns(monkeypatch)
+    d = _kept_build("make a chart of those by sex", _answered(cc_router.ROUTE_NS))
+    assert d.route == cc_router.ROUTE_NS and d.source == "pipeline"
+    assert d.attempted_route == cc_router.ROUTE_CC and d.attempted_source == "followup"
+
+
+def test_any_follow_up_in_a_chat_on_cc_runs_on_cc_when_the_build_lets_it_go(monkeypatch):
+    _router_says_ns(monkeypatch)
+    d = _kept_build("how many of those are female", _answered(cc_router.ROUTE_CC))
+    assert d.source == "pipeline" and d.attempted_route == cc_router.ROUTE_CC and d.attempted_source == "sticky"
+
+
+def test_a_follow_up_nextseek_can_answer_stays_on_the_ns_path_after_a_handoff(monkeypatch):
+    _router_says_ns(monkeypatch)
+    d = _kept_build("how many of those are female", _answered(cc_router.ROUTE_NS))
+    assert d.source == "pipeline" and d.attempted_route is None
+
+
+def test_a_plan_turn_has_no_handoff_to_cc(monkeypatch):
+    """run_query_plan has no wizard, so nothing would hand the turn on."""
+    _router_says_ns(monkeypatch)
+    d = _kept_build("make a chart of those by sex", _answered(cc_router.ROUTE_NS), mode="plan")
+    assert d.source == "pipeline" and d.attempted_route is None
+
+
+def test_with_cc_down_the_build_hands_a_follow_up_to_the_ns_path(monkeypatch):
+    """The guard's fallback holds under a kept build too: an answer from NExtSEEK, not "Container-CC is not available"."""
+    _router_says_ns(monkeypatch)
+    d = _kept_build("make a chart of those by sex", _answered(cc_router.ROUTE_NS))
+    back = policy._fallback_when_cc_unavailable(d, lambda: (False, "down"))
+    assert back.route == cc_router.ROUTE_NS and back.source == "pipeline" and back.attempted_route is None
+    assert policy._fallback_when_cc_unavailable(d, lambda: (True, "")) is d
+
+
+def test_with_cc_down_a_turn_the_router_sent_there_keeps_its_cc_call(monkeypatch):
+    _router_says_cc(monkeypatch)
+    d = policy._decide_route(_User(), _Req("Submit"), force_cc=False, session={"pipeline_agent": {"active": True}})
+    assert policy._fallback_when_cc_unavailable(d, lambda: pytest.fail("not a policy move")) is d
 
 
 def test_force_cc_beats_active_pipeline():
