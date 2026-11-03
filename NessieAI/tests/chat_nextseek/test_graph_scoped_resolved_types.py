@@ -31,3 +31,20 @@ def test_the_scoped_resolved_type_rule_is_in_the_resolved_entities_paragraph():
 def test_the_rule_names_no_project_investigation_or_type():
     for word in ("TCGA", "A.ALN", "D.SEQ", "T_A_ALN", "T_D_SEQ", "LUAD"):
         assert word not in RULE
+
+
+# r5b (2026-11-03): with F2's sentence alone the graph agent bound the user's spelling of a project ("IMPAcTb")
+# instead of its stored title ("Impact") in 4 of 5 dev runs, against 0 of 4 before r5. The operator's clause
+# (his yes, 11-03, verbatim) says the rule is about sample types only.
+CLAUSE = ("This is about sample types only: a project or investigation is still matched by the title it is stored "
+          "under (the PROJECTS NAMED block or the vocabulary), never the user's spelling.")
+
+
+def test_the_project_title_clause_follows_the_scoped_type_rule():
+    para = resolved_entities_paragraph(GRAPH)
+    assert RULE + " " + CLAUSE in para
+
+
+def test_the_clause_names_no_project():
+    for word in ("Impact", "IMPAcTb", "TCGA"):
+        assert word not in CLAUSE
