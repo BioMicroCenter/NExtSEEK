@@ -1,5 +1,7 @@
 # This workstation (`instance: local`)
 
+For any other laptop or workstation, the `local-dev` skill applies the same rule.
+
 **Off on this device** (operator ruling 2026-09-24: the machine was down to 434 MiB free with the
 stack up, and the local stack is now stopped): `./startup.sh rebuild`, `./startup.sh ci`,
 `docker compose up`, starting the whole local stack, any image build. They stay off unless the

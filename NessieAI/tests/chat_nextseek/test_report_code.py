@@ -278,3 +278,21 @@ def test_str_format_stays_blocked():
     # A format string can walk attributes ("{0.__class__}"), so format and format_map are not harmless.
     with pytest.raises(ReportCodeSafetyError):
         execute_report_code("result = {'x': '{0}'.format(data)}", SAMPLE_DATA)
+
+
+def test_reads_regex_match_objects():
+    # Dev 11-02: an SRA package's coder read m.group(1) and the sandbox refused `group`.
+    code = (
+        "m = re.search(r'(\\d+)-(\\w+)', 'abc 42-xy')\n"
+        "result = {'g': m.group(1), 'gs': list(m.groups()), 'sp': list(m.span()),\n"
+        "          's': m.start(), 'e': m.end()}\n"
+    )
+    out = execute_report_code(code, SAMPLE_DATA)
+    assert out == {"g": "42", "gs": ["42", "xy"], "sp": [4, 9], "s": 4, "e": 9}
+
+
+def test_match_methods_do_not_open_dunders_or_format():
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("m = re.search('a', 'a')\nresult = {'v': m.__class__}", SAMPLE_DATA)
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("result = {'v': '{0.__class__}'.format(1)}", SAMPLE_DATA)

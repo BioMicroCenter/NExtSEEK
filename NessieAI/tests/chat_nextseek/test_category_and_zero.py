@@ -180,3 +180,26 @@ def test_premise_compares_against_the_total_not_the_row_count():
     assert _premise_count(t) is None
     t = _T("how many of these 900 samples have y", [{"overall_samples": 800, "with_y": 0}])
     assert _premise_count(t) is not None
+
+
+# dtd3 G2: house_types is written by code only. The parser's resolved block is an EntityAgentOutput, so the parser
+# model can write the field too; the clamp always takes it from the entity result, empty when the entity has none.
+@pytest.mark.parametrize("as_dict", [False, True])
+def test_the_clamp_carries_house_types_to_the_graph_agent(as_dict):
+    from chat_nextseek import orchestrator as orch
+    from chat_nextseek.agents.graph import project_parser_plan
+    from chat_nextseek.schemas.router import ParserPlan
+    ent = EntityAgentOutput(sampletypes=[EntityItem(code="TIS")], house_types={"WORD_X": "TIS"})
+    plan = ParserPlan(resolved=EntityAgentOutput(sampletypes=[EntityItem(code="TIS")]))
+    out = orch._clamp_lab_codes_to_entity(plan, ent.model_dump() if as_dict else ent)
+    assert project_parser_plan(out.model_dump())["resolved"]["house_types"] == {"WORD_X": "TIS"}
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+def test_the_clamp_drops_house_types_the_entity_step_did_not_record(as_dict):
+    from chat_nextseek import orchestrator as orch
+    from chat_nextseek.schemas.router import ParserPlan
+    plan = ParserPlan(resolved=EntityAgentOutput(sampletypes=[EntityItem(code="TIS")], house_types={"WORD_X": "TIS"}))
+    ent = EntityAgentOutput(sampletypes=[EntityItem(code="TIS")])
+    out = orch._clamp_lab_codes_to_entity(plan, ent.model_dump() if as_dict else ent)
+    assert out.resolved.house_types == {}

@@ -49,6 +49,21 @@ describe("SessionSidebar search", () => {
     expect([...result.querySelectorAll("mark")].map((m) => m.textContent)).toEqual(["NDMA", "NDMA", "liver"]); // title, then snippet
   });
 
+  it("a result's title shows whole, never cut: a cut inside a mark paints the ellipsis yellow", async () => {
+    setup();
+    await type("ndma");
+    const title = screen.getByTestId("session-search-result").querySelector("mark")!.parentElement!;
+    expect(title).not.toHaveClass("truncate");
+    expect(title).toHaveClass("break-words");
+  });
+
+  it("the box pads with pl/pr: the host page's Bootstrap px-3 is !important and would put text under the icon", () => {
+    setup();
+    const tokens = screen.getByRole("searchbox", { name: /search chats/i }).className.split(/\s+/);
+    expect(tokens).toContain("pl-7");
+    expect(tokens.filter((t) => /^px-/.test(t))).toEqual([]);
+  });
+
   it("with the options panel closed, a search asks for no counts", async () => {
     const { searchService } = setup();
     await type("ndma");

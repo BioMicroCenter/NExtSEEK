@@ -394,6 +394,8 @@ def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable, *,
         if turn is not None:
             from django.db import connection
             connection.close()  # op_plan read and wrote the turn's row on this pool thread's own connection
+    from chat_nextseek.agents.entity import carry_code_owned_types
+    base = carry_code_owned_types(base, entity_out)  # the entity step's house and category types, as the graph op
     plans = [base if f is None else base.model_copy(update={"filters": f}) for f in own]
     return entity_out, agent_note, reply_notes, plans, source
 

@@ -503,3 +503,30 @@ def test_router_baml_keeps_choosing_or_launching_a_pipeline_on_nextseek_query():
     baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
     assert ("Choosing, building or launching an nf-core pipeline over NExtSEEK samples\n"
             "    is not such an analysis question: select `nextseek_query`") in baml
+
+
+@pytest.mark.parametrize("query", [
+    # Prod chat e80cee5a: the router sent this to the pipeline agent, and "comparing" sent it to CC.
+    "Set up an analysis comparing gene expression between those two mice",
+    "Compare gene expression between those samples",
+    "compare expression of those two groups",
+    "Run an analysis of gene expression on those 12 samples",
+    "analyze the expression of those mice",
+])
+def test_an_expression_comparison_over_earlier_samples_stays_with_the_pipeline_agent(query):
+    assert followup.followup_shape(query) == "ns"
+
+
+@pytest.mark.parametrize("query", [
+    "compare those two samples' metadata",
+    "plot a comparison of gene expression between those two mice",
+    "Compare gene expression between those samples and save it as a csv",
+    "summarize those samples",
+    "do a plot comparing gene expression between those two mice",
+    "run a script comparing gene expression across those samples",
+    "start a report comparing gene expression between those two mice",
+    "analyze the plot of expression for those samples",
+    "compare the metadata and expression of those samples",
+])
+def test_other_comparisons_and_artifacts_over_earlier_results_stay_cc_shaped(query):
+    assert followup.followup_shape(query) == "cc"

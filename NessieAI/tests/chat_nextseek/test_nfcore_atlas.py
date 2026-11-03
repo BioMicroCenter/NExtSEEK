@@ -249,3 +249,42 @@ def test_taps_is_not_offered_until_the_template_supports_it():
     prep = entry["assumes_prep"]
     assert "TAPS" in prep and "not offered" in prep and "--taps" in prep and "bwamem" in prep
     assert "PBAT or TAPS" not in prep
+
+
+# ---------------------------------------------------------------------------
+# rnavar
+#
+# On 2026-10-29 a dev user asked which genetic variants a lab's breast cancer
+# cells express. rnavar was the answer and was never offered. Its entry was the
+# thinnest in the atlas: no input or data signals, and an `answers` line in
+# pipeline words ("appear in the transcripts") that a scientist's "which
+# variants do these cells express" does not echo, while "express" pulls
+# toward rnaseq.
+# ---------------------------------------------------------------------------
+
+def test_rnavar_carries_the_fields_the_selector_reads():
+    entry = load_atlas()["pipelines"]["rnavar"]
+    for field in ("answers", "assumes_prep", "input_you_must_have", "data_signals"):
+        assert entry.get(field), f"rnavar has no {field}"
+    assert entry["data_signals"]["library_strategy"] == ["RNA-Seq"]
+    assert entry["data_signals"]["library_source"] == ["TRANSCRIPTOMIC"]
+
+
+def test_rnavar_answers_in_the_words_a_scientist_uses():
+    answers = load_atlas()["pipelines"]["rnavar"]["answers"].lower()
+    for word in ("genetic variants", "mutations", "snps", "carry", "express"):
+        assert word in answers, word
+
+
+def test_a_variant_question_that_says_express_is_still_rnavar():
+    pipelines = load_atlas()["pipelines"]
+    assert "express" in pipelines["rnavar"]["versus"]["rnaseq"]["differs_by"]
+    assert "variant question" in pipelines["rnaseq"]["versus"]["rnavar"]["differs_by"]
+
+
+def test_rnavar_prep_kit_hints_name_only_library_preps():
+    """Selection reads prep_kit_hints as text, so a word about the biology there ("tumour",
+    "mutation") would lean any vague request on tumour RNA-seq toward rnavar."""
+    hints = [h.lower() for h in load_atlas()["pipelines"]["rnavar"]["data_signals"]["prep_kit_hints"]]
+    for word in ("tumour", "tumor", "cancer", "mutation"):
+        assert not any(word in hint for hint in hints), word

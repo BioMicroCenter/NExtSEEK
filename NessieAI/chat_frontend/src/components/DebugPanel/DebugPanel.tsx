@@ -33,13 +33,17 @@ export function DebugPanel({ debugData }: DebugPanelProps) {
           data-agent={entry.agent}
         >
           <AccordionTrigger className="text-base">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-left">
               <Badge variant="outline" className="text-sm">
                 {entry.agent}
               </Badge>
               <span className="text-sm text-muted-foreground">
                 {format(entry.timestamp, "HH:mm:ss")}
               </span>
+              {/* The route is the point of the router entry: it shows closed, not only once opened. */}
+              {entry.agent === "router" ? (
+                <span className="text-sm font-normal">{entry.summary.split("\n")[0]}</span>
+              ) : null}
             </div>
           </AccordionTrigger>
           <AccordionContent>

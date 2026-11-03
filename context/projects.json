@@ -419,7 +419,7 @@
       "The Cancer Genome Atlas"
     ],
     "pi": null,
-    "description": "Public reference data from The Cancer Genome Atlas, loaded into the local and dev graphs under a TCGA project whose id differs by instance. Production does not hold it.",
+    "description": "Public reference data from The Cancer Genome Atlas, loaded into the local and dev graphs under a TCGA project whose id differs by instance. Production does not hold it. It holds no raw sequencing data (D.SEQ): its sequencing is held as alignments (A.ALN), beside variant calls (A.VCF), copy number (A.CNV), expression (A.GEX), methylation (A.MET) and protein arrays (A.RPPA). Its clinical events are Patient Visit (PAV) records.",
     "research_focus": "Public pan-cancer reference data from The Cancer Genome Atlas, with patients, tumor and normal tissue samples and their sequencing data",
     "key_data_types": [],
     "tags": "TCGA, The Cancer Genome Atlas, pan-cancer, tumor, public data",

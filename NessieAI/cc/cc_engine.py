@@ -41,6 +41,7 @@ from . import cc_transcript_store, spawner_client
 from .ops_road import DIRECT, ROAD_ENV, SIDECAR
 from NessieAI.cc import cc_session
 from NessieAI.cc import safe_fs
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,97 @@ def rewrite_container_paths(text: Any, path_mappings: Mapping[str, Any] | None) 
     if not alternatives:
         return text
     return re.sub("|".join(alternatives), lambda m: roots[m.lastgroup], text)
+
+
+_ONTOLOGIES_JSON = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/context/ONTOLOGIES.json"
+_MD_LINK = re.compile(r"\[([^\]\n]*)\]\(([^)\s]*)\)")
+
+
+def _ontology_index() -> list[dict]:
+    try:
+        return json.loads(_ONTOLOGIES_JSON.read_text(encoding="utf-8")).get("ontologies") or []
+    except (OSError, ValueError) as exc:
+        logger.warning("cc: cannot read the house ontology index %s (%s); "
+                       "ontology links in the reply are left as written",
+                       _ONTOLOGIES_JSON, type(exc).__name__)
+        return []
+
+
+def fix_ontology_links(text: Any, index: list[dict] | None = None) -> Any:
+    """Two fixes on a Container-CC reply.
+
+    1. Point a house-ontology link at that entry's real ``url``. A markdown link is set to
+       it when its text equals an entry ``title`` (case and spacing folded) or its href ends
+       with an entry ``file`` name; every other link is untouched.
+    2. Write the link line a harmonization table skipped: see ``_add_missing_ontology_line``.
+    """
+    if not isinstance(text, str):
+        return text
+    entries = _ontology_index() if index is None else index
+    if "](" in text:
+        text = _repoint_ontology_links(text, entries)
+    return _add_missing_ontology_line(text, entries)
+
+
+def _add_missing_ontology_line(text: str, entries: list[dict]) -> str:
+    """Insert ``Matched against [title](url).`` above a harmonization table (header has
+    Before, After and Ontology) whose Ontology cells name an entry the reply never links.
+
+    A cell counts only when, minus a trailing parenthetical, it equals an entry title
+    ("Mouse genotypes (house list)"). Fenced code is skipped, and nothing is added when the
+    reply already has a line starting "Matched against".
+    """
+    if "|" not in text or re.search(r"(?im)^\s*matched against", text):
+        return text
+    by_title = {" ".join(str(e.get("title", "")).casefold().split()): e
+                for e in entries if e.get("url") and e.get("title")}
+    lines = text.split("\n")
+    out: list[str] = []
+    fenced = False
+    i = 0
+    while i < len(lines):
+        row = lines[i]
+        if row.lstrip().startswith("```"):
+            fenced = not fenced
+        cells = [c.strip().casefold() for c in row.strip().strip("|").split("|")]
+        if fenced or not row.lstrip().startswith("|") or not {"before", "after", "ontology"} <= set(cells):
+            out.append(row)
+            i += 1
+            continue
+        col = cells.index("ontology")
+        j = i + 1
+        while j < len(lines) and lines[j].lstrip().startswith("|"):
+            j += 1
+        named: list[dict] = []
+        for body in lines[i + 2:j]:
+            parts = body.strip().strip("|").split("|")
+            cell = re.sub(r"\s*\([^)]*\)\s*$", "", parts[col]) if col < len(parts) else ""
+            e = by_title.get(" ".join(cell.casefold().split()))
+            if e and e not in named:
+                named.append(e)
+        for e in named:
+            if e["url"] not in text:
+                out += [f"Matched against [{e['title']}]({e['url']}).", ""]
+                text += " " + e["url"]  # idempotent within this pass
+        out.extend(lines[i:j])
+        i = j
+    return "\n".join(out)
+
+
+def _repoint_ontology_links(text: str, entries: list[dict]) -> str:
+    by_title = {" ".join(str(e.get("title", "")).casefold().split()): e["url"] for e in entries if e.get("url")}
+    by_file = {e["file"]: e["url"] for e in entries if e.get("url") and e.get("file")}
+
+    def one(m: re.Match) -> str:
+        label, href = m.group(1), m.group(2)
+        # Known ceiling: a link whose text is exactly a house title (e.g. "Species") is
+        # repointed even when it went to another real page.
+        url = by_title.get(" ".join(label.casefold().split()))
+        if url is None:
+            url = next((u for f, u in by_file.items() if href.endswith(f)), None)
+        return m.group(0) if url is None else f"[{label}]({url})"
+
+    return _MD_LINK.sub(one, text)
 
 
 _CONTAINER_INPUT = "/data/input"
@@ -1638,7 +1730,8 @@ def run_cc_turn(
             # far it got, with the agent's own words left only in the transcript row.
             partial = ""
             try:
-                partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
+                partial = fix_ontology_links(
+                    rewrite_container_paths(translator.partial_reply(), path_mappings))
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
             # Review M2: stopped while Claude Code was still retrying a model call, the
@@ -1677,7 +1770,7 @@ def run_cc_turn(
             data["mode"] = "cc"
             # D7: the reply names this turn's real paths, never the container's, and it
             # is rewritten here, before on_turn_complete persists it.
-            data["reply"] = rewrite_container_paths(data.get("reply"), path_mappings)
+            data["reply"] = fix_ontology_links(rewrite_container_paths(data.get("reply"), path_mappings))
             data["artifacts"] = result["artifacts"] or None
             data["cc_raw_files"] = result["raw"]
         if event == "query_complete" and on_turn_complete and chat_session is not None:

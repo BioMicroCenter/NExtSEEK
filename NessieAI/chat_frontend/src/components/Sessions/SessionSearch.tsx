@@ -213,7 +213,8 @@ export function SessionSearchResults({ search, disabled, onOpen }: SessionSearch
             ].join(" ")}
           >
             <span className="flex min-w-0 items-baseline gap-2">
-              <span className="min-w-0 flex-1 truncate font-medium">{highlightTerms(h.title, terms)}</span>
+              {/* Whole, not truncated: a cut inside a mark paints the ellipsis yellow. Auto titles are <= 60 characters; a renamed one (<= 200) wraps to a few lines. */}
+              <span className="min-w-0 flex-1 break-words font-medium">{highlightTerms(h.title, terms)}</span>
               <span className="shrink-0 text-xs text-muted-foreground">{day(h.updated_at)}</span>
             </span>
             {h.owner && <span className="block truncate text-xs text-muted-foreground">{h.owner}</span>}

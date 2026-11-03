@@ -310,10 +310,11 @@ def test_submit_is_refused_by_name_even_over_a_complete_config(name, monkeypatch
                                                     name=name, tool_input={}, log_dir="/tmp"))
     assert out["ok"] is False and "called without" not in out["message"] and "not configured" in out["message"]
     # the control: the same built, confirmed state over the real, complete config does reach the submitter
-    # (the tool turns the submitter's exception into a failed reply)
+    # (the tool turns the submitter's exception into a failed reply; the Luria tool keeps the
+    # exception in `detail` and gives the user a plain `message`)
     reached = json.loads(at.dispatch_pipeline_tool_call(config=real, session={}, state=_built_state(), name=name,
                                                         tool_input={}, log_dir="/tmp"))
-    assert "called without" in reached["message"]
+    assert "called without" in (reached.get("detail") or reached["message"])
     cfg = rn.RunConfig(real, None)
     assert (cfg.TOWER_ENV, cfg.TOWER_ENV_COMPLETE, cfg.LURIA_ENV, cfg.SEQERA_AUTO_LAUNCH) == ({}, False, {}, False)
 

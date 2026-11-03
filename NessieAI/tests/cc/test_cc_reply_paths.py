@@ -22,6 +22,7 @@ import pytest
 from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
 
 SCRATCH = "/dmac/users/proj/alice/scratch/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 OUTPUT = "/dmac/users/proj/alice/output"
@@ -222,14 +223,24 @@ def _real_roots(tmp_path):
     return (f"{tmp_path}/proj/alice/scratch/{RUN_ID}", f"{tmp_path}/proj/alice/output")
 
 
+def _an_ontology():
+    """A real house ontology's title and url, read from the file the engine reads."""
+    index = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/context/ONTOLOGIES.json"
+    entry = json.loads(index.read_text(encoding="utf-8"))["ontologies"][0]
+    return entry["title"], entry["url"]
+
+
 def test_the_completed_reply_is_rewritten_before_it_is_persisted_and_sent(tmp_path, monkeypatch):
+    title, url = _an_ontology()
     reply = ("Wrote /data/scratch/nhp58.csv, also at "
-             "/dmac/users/<project>/<user>/scratch/<run id>/nhp58.csv")
+             "/dmac/users/<project>/<user>/scratch/<run id>/nhp58.csv; "
+             f"mapped with [{title}](https://invented.example/x)")
     lines = [json.dumps({"type": "result", "subtype": "success", "is_error": False,
                          "result": reply, "session_id": "sid-1"})]
     events, payloads = _drive(tmp_path, monkeypatch, lines, persist=True)
     scratch, _ = _real_roots(tmp_path)
-    expected = f"Wrote {scratch}/nhp58.csv, also at {scratch}/nhp58.csv"
+    expected = (f"Wrote {scratch}/nhp58.csv, also at {scratch}/nhp58.csv; "
+                f"mapped with [{title}]({url})")
 
     complete = [d for e, d in events if e == "query_complete"]
     assert len(complete) == 1
@@ -248,10 +259,12 @@ def test_the_completed_reply_is_rewritten_without_a_chat_session(tmp_path, monke
 
 
 def test_a_timed_out_turns_partial_reply_is_rewritten(tmp_path, monkeypatch):
+    title, url = _an_ontology()
     lines = [json.dumps({"type": "assistant", "message": {"content": [
-        {"type": "text", "text": "So far I wrote /data/scratch/part.csv"}]}})]
+        {"type": "text", "text": "So far I wrote /data/scratch/part.csv with "
+                                 f"[{title}](https://invented.example/x)"}]}})]
     events, _ = _drive(tmp_path, monkeypatch, lines, idle=True, turn_timeout=0.3)
     scratch, _ = _real_roots(tmp_path)
     [error] = [d for e, d in events if e == "query_error"]
     assert error["reason"] == "exec_timeout"
-    assert error["partial_reply"] == f"So far I wrote {scratch}/part.csv"
+    assert error["partial_reply"] == f"So far I wrote {scratch}/part.csv with [{title}]({url})"

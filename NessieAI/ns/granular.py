@@ -626,6 +626,10 @@ def run_graph_question(
     if parser_plan is None:
         parser_plan, plan_source = op_plan(turn, agent_plan, entity_out,
                                            lambda: parser_agent(session, config, query, entity_out))
+        # The graph agent reads only the plan's resolved block: carry the entity step's house and category types into
+        # it, as the NS clamp does (dtd3 S1). The lab codes are left as they are; this is not the lab-code clamp.
+        from chat_nextseek.agents.entity import carry_code_owned_types
+        parser_plan = carry_code_owned_types(parser_plan, entity_out)
     if uid_checks:
         from chat_nextseek.helpers.uid_check import plan_with_stored_uids
         parser_plan = plan_with_stored_uids(parser_plan, uid_checks)  # R4, as the NS path: filters.uids as stored
