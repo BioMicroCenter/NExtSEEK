@@ -1,4 +1,4 @@
--- 1016 attribute definitions for dmac.sample_attributes_unique.
+-- 1017 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
@@ -10,7 +10,8 @@
 -- So are the three A.ALN coverage attributes for sarek's mosdepth output
 -- (MedianCoverage, Coverage10xPercent, Coverage30xPercent).
 -- So are the six peak-quality attributes for atacseq and chipseq (FRiPPercent and
--- PeakCount on A.CHRM; NSC, RSC, FingerprintJSD and TSSEnrichment on D.SEQ).
+-- PeakCount on A.CHRM; NSC, RSC, FingerprintJSD and TSSEnrichment on D.SEQ), and
+-- A.CHRM's Antibody, the antibody a ChIP library was enriched with.
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -54,6 +55,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('AnnotationGTF','','The GTF annotation file used for feature assignment, e.g. gencode.v43.primary_assembly.basic.'),
  ('AnnotationReference','','The reference genome annotation used for variant effect prediction.'),
  ('AnnotationTool','','The tool used to annotate variants, e.g. SnpEff.'),
+ ('Antibody','','The antibody the reads were enriched with, named by its target as the ChIP samplesheet names it (a histone mark such as H3K27ac, or a factor such as CTCF). Blank for an assay that uses none, such as ATAC-seq.'),
  ('AntiCD107a_Ab_Fluorophore','','Fluorophore conjugated to the anti-CD107a antibody, e.g. PE-Cy5.'),
  ('AntiCD107a_Ab_Vendor','','The vendor the anti cd107a ab was purchased from, e.g. BD Biosciences, BD.'),
  ('AntiCD107a_Name','','Full product name of the anti-CD107a antibody used.'),

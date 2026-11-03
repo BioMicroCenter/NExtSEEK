@@ -168,7 +168,7 @@
     "Tags": "chromatin sequencing analysis, ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ATACseq analysis, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2",
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, Parent",
     "standard_metadata": "Protocol, Type, Repository, RepositoryID, RepositoryLink, DataType, Assembly, Pipeline",
-    "possible_metadata_fields": "DOI, PMID, FRiPPercent, PeakCount",
+    "possible_metadata_fields": "DOI, PMID, FRiPPercent, PeakCount, Name, Antibody, File_SecondaryData, Link_SecondaryData, Notes",
     "parent_sampletypes": "D.SEQ",
     "child_sampletypes": null,
     "associated_assay_parents": "Chromatin Sequencing Analysis",
