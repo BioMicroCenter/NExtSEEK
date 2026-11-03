@@ -83,6 +83,9 @@ _REPORT_ALLOWED_METHODS = _MEMORY_ALLOWED_METHODS | {
     "rsplit", "partition", "rpartition", "splitlines", "removeprefix", "removesuffix", "rindex", "casefold",
     "capitalize", "swapcase", "zfill", "center", "ljust", "rjust", "isalpha", "isalnum", "isnumeric", "isdecimal",
     "isspace", "islower", "isupper", "istitle", "insert", "remove", "sort", "reverse", "copy",
+    # Dev 11-02 (task 2902): an SRA package's coder wrote re.search(...).group(1) and both attempts were refused.
+    # These only read a re.Match and return str, int, tuple or dict; none reaches I/O, an import or a dunder.
+    "group", "groups", "groupdict", "start", "end", "span",
 }
 
 _REPORT_ALLOWED_RUNTIME_HELPERS = {"strip_html"}
