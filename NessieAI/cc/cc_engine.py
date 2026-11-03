@@ -280,9 +280,52 @@ def fix_ontology_links(text: Any, index: list[dict] | None = None) -> Any:
     set to the entry's ``url`` when its text equals an entry ``title`` (case and spacing
     folded) or its href ends with an entry ``file`` name; every other link is untouched.
     """
-    if not isinstance(text, str) or "](" not in text:
+    if not isinstance(text, str):
         return text
     entries = _ontology_index() if index is None else index
+    if "](" in text:
+        text = _repoint_ontology_links(text, entries)
+    return _add_missing_ontology_line(text, entries)
+
+
+def _add_missing_ontology_line(text: str, entries: list[dict]) -> str:
+    """Insert ``Matched against [title](url).`` above a table whose Ontology column names
+    an entry the reply never links. Deterministic; a present link or no known title = no change."""
+    if "|" not in text:
+        return text
+    folded = [(" ".join(str(e.get("title", "")).casefold().split()), e) for e in entries
+              if e.get("url") and e.get("title")]
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        row = lines[i]
+        cells = [c.strip().casefold() for c in row.strip().strip("|").split("|")]
+        col = cells.index("ontology") if row.lstrip().startswith("|") and "ontology" in cells else -1
+        if col < 0:
+            out.append(row)
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines) and lines[j].lstrip().startswith("|"):
+            j += 1
+        named: list[dict] = []
+        for body in lines[i + 2:j]:
+            parts = body.strip().strip("|").split("|")
+            cell = " ".join(parts[col].casefold().split()) if col < len(parts) else ""
+            for title, e in folded:
+                if re.search(r"(?<!\w)" + re.escape(title) + r"(?!\w)", cell) and e not in named:
+                    named.append(e)
+        for e in named:
+            if e["url"] not in text:
+                out += [f"Matched against [{e['title']}]({e['url']}).", ""]
+                text += " " + e["url"]  # idempotent within this pass
+        out.extend(lines[i:j])
+        i = j
+    return "\n".join(out)
+
+
+def _repoint_ontology_links(text: str, entries: list[dict]) -> str:
     by_title = {" ".join(str(e.get("title", "")).casefold().split()): e["url"] for e in entries if e.get("url")}
     by_file = {e["file"]: e["url"] for e in entries if e.get("url") and e.get("file")}
 
