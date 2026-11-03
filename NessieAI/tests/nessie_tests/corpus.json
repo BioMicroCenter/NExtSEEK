@@ -16388,7 +16388,7 @@
           "turns": [
             {
               "label": "setup_search",
-              "query": "Find D.SEQ-261026NA-1, D.SEQ-261026NA-2.",
+              "query": "Find D.SEQ-261028BMC-1, D.SEQ-261028BMC-2.",
               "pass_criteria": [
                 {
                   "field": "neo4j_ok",
@@ -16449,7 +16449,7 @@
           "turns": [
             {
               "label": "setup_search",
-              "query": "Find D.SEQ-261026NA-3, D.SEQ-261026NA-4, D.SEQ-261026NA-5, D.SEQ-261026NA-6.",
+              "query": "Find D.SEQ-261028BMC-7, D.SEQ-261028BMC-8, D.SEQ-261028BMC-9, D.SEQ-261028BMC-10.",
               "pass_criteria": [
                 {
                   "field": "neo4j_ok",
@@ -16510,7 +16510,7 @@
           "turns": [
             {
               "label": "setup_search",
-              "query": "Find D.SEQ-261026NA-13, D.SEQ-261026NA-14.",
+              "query": "Find D.SEQ-261028BMC-15, D.SEQ-261028BMC-16.",
               "pass_criteria": [
                 {
                   "field": "neo4j_ok",
@@ -16571,7 +16571,7 @@
           "turns": [
             {
               "label": "setup_search",
-              "query": "Find D.SEQ-261026NA-7, D.SEQ-261026NA-8, D.SEQ-261026NA-9, D.SEQ-261026NA-10.",
+              "query": "Find D.SEQ-261028BMC-11, D.SEQ-261028BMC-12, D.SEQ-261028BMC-13, D.SEQ-261028BMC-14.",
               "pass_criteria": [
                 {
                   "field": "neo4j_ok",

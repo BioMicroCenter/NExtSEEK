@@ -23,20 +23,25 @@ route is right.
 | `test_run.py` | the free test of the runner and report, with a stubbed router and agent (no model, no stack) |
 | `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `files()` is a sha256 per input and `changed()` names the ones that moved. `test_fingerprint.py` tests it |
 | `record.py` | turns an accepted paid run into `recorded/<id>.json` (`python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]`): refuses a run made under another fingerprint, skips stories the runner failed on, rewrites URLs outside the story as a tape's are, refuses any fixture holding an email or an absolute path |
-| `recorded/` | the committed replay fixtures, one `<story id>.json` per recorded story. It does not exist until the first accepted paid run is recorded |
+| `recorded/` | the committed replay fixtures, one `<story id>.json` per recorded story. Only recorded stories are replayed: `ls recorded/` shows which |
 | `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade, pipeline, selection and launch settings; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
 | `e2e.json` | the ruled story ids that also run through the real chat, one per family: bulk_rna, single_cell, dna_variants, chromatin, methylation, not_yet |
 | `build_e2e.py` | `variants()` and `main()`: turns each `e2e.json` story into a multi-turn `pipeline_launch` variant (id `pipeline_scenarios.<story id>`, tag `pipeline_scenarios`, `requires_env` `NESSIE_PIPELINE_SCENARIOS_E2E`) in `NessieAI/tests/nessie_tests/corpus.json` (`python3 -m NessieAI.tests.pipeline_scenarios.build_e2e`). It rewrites only those variants, in the file's own layout. The build turn asks for the build and says not to submit; the turns stop at the confirm-to-submit question. The build turn asserts only the pipeline built; settings (`launch.must_match`) are checked by the in-process run only, because the chat snapshot carries no launch plan |
 | `test_e2e_in_sync.py` | the free test that the corpus holds exactly the generated variants (never hand-edit them) and that every `e2e.json` story is ruled |
 
-## The starting state
+## What is recorded
 
-The first paid run has not been made, so `recorded/` does not exist and `test_replay.py` skips its
-per-story replay with "no recorded stories yet". That is the expected starting state, not an error: the
-replay machinery is still tested by its synthetic recording of a stubbed run. The skip ends when a paid run
-is accepted and recorded (below). Ruled stories are the ones that run; `stories/*.json` shows each story's
-`ruling`. The rulings were made through a review page and written back with `apply_rulings.py`; the commit
-history records that the current rulings came from an independent reviewer agent, on the owner's instruction.
+Only the stories in `recorded/` are replayed; every other ruled story is checked by a paid run alone.
+`test_replay.py` skips its per-story replay with "no recorded stories yet" when `recorded/` is empty,
+and its synthetic recording of a stubbed run tests the replay machinery either way. A story joins the
+replay when a paid run of it is accepted and recorded (below). Ruled stories are the ones that run;
+`stories/*.json` shows each story's `ruling`. The rulings were made through a review page and written
+back with `apply_rulings.py`; the commit history records that the current rulings came from an independent
+reviewer agent, on the owner's instruction.
+
+`test_cohorts.json` holds the UIDs of the stack the cohorts were uploaded on. A cohort that stack never
+uploaded keeps the UIDs of the stack that last had it, so the runner tries its stories and the agent finds
+no samples: upload it first (`scripts/pipeline_scenarios/make_test_cohorts.py`) and record its UIDs.
 
 ## Running the paid eval
 
