@@ -1,9 +1,9 @@
 {
  "agent_model": "us.anthropic.claude-opus-5-5",
  "decision": {
-  "reasoning": "The user is asking an analytical question about what their sequenced samples show (methylation of promoters). According to the routing rules, questions asking what the user's sequenced samples show\u2014specifically citing examples like 'how methylated are these promoters'\u2014go to nextseek_query. The pipeline agent handles this by offering the nf-core run that produces the requested analytical data.",
+  "reasoning": "The user is asking an analysis question about what their sequenced samples show (specifically, how methylated the promoters are in the samples found in the previous turn). According to the system instructions, questions about the user's own sequencing data, such as methylation status, open chromatin, or variants, are routed to nextseek_query where the pipeline agent can offer the appropriate nf-core pipeline to produce the data.",
   "route": "nextseek_query",
-  "router_cost_usd": 0.024114,
+  "router_cost_usd": 0.023406,
   "router_model": "gemini-3.1-pro-preview",
   "source": "baml"
  },
@@ -107,22 +107,23 @@
   "error": null,
   "launch_params": {
    "aligner": "bismark",
-   "cytosine_report": true,
+   "cytosine_report": false,
    "em_seq": false,
+   "genome": "GRCh38",
    "pbat": false,
    "rrbs": true,
    "save_reference": true
   },
   "pipeline_key": "methylseq",
   "replies": [
-   "I'm using **nf-core/methylseq** for this. Both samples are single-end RRBS bisulfite libraries, and this pipeline gives a methylation level for every CpG it covers in each sample.\n\n**What I built so far**\n- One samplesheet with 2 samples: D.SEQ-261028BMC-15 (NTC-METH-1) and D.SEQ-261028BMC-16 (NTC-METH-2). Both are 75 bp single-end reads on a HiSeq 4000.\n- Settings: Bismark aligner, `rrbs: true` (MspI-digested material, so duplicate removal is skipped) and `cytosine_report: true` (a full per-cytosine report). The pipeline's parameter check passed.\n\n**What this answers, and what it doesn't**\nThe run gives you methylation at each CpG, not promoter values. To get those, you'd average the CpG calls over a promoter set, such as the region around each gene's start (for example \u00b11\u20132 kb). That step happens after the run and isn't part of it.\n\n**Reference genome is still missing**\nNothing in these samples' records says what species they are, so no genome is set yet. Bismark also needs its own bisulfite index of that genome on Luria before the run can start. This is the only thing blocking the run.\n\n**Run time:** there's no estimate for this pipeline yet.\n\n**Which organism are these samples from?** You can name a species (\"human\", \"mouse\") or a specific genome version (e.g. GRCh38, GRCm39). Once I have that I'll set the reference and show you the final config to confirm. When the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review."
+   "I've built a methylseq run for your two samples. Nothing has been submitted yet.\n\n**What the run gives you:** the methylation level at every CpG the reads cover, for each sample. You also get coverage files and a MultiQC quality report.\n\n**What it doesn't do:** it won't give you promoter-level numbers. To get those, you'd average the CpG calls over promoter regions afterwards, for example a window around each gene's start site taken from the GENCODE annotation. That's a separate step this run doesn't include. Also, RRBS only reads CpG-rich regions, so CpG-island promoters will be well covered and CpG-poor promoters will be sparse.\n\n**Samples (one samplesheet, 2 rows):**\n- D.SEQ-261028BMC-15 (NTC-METH-1): HCT116 cells treated with DMSO, single-end 75 bp RRBS\n- D.SEQ-261028BMC-16 (NTC-METH-2): HCT116 cells treated with 1 \u00b5M 5-azacytidine (a drug that removes DNA methylation), single-end 75 bp RRBS\n\nThere's one sample per treatment. You can compare their methylation levels directly, but you can't test whether the differences are statistically real. That needs at least two, ideally three, replicates per group.\n\n**Run settings:**\n- Pipeline: nf-core/methylseq\n- Aligner: Bismark\n- `rrbs: true`, because these are MspI-digested libraries. This setting also skips removing duplicate reads, which is correct for RRBS.\n- Reference: the local Luria copy of the human GRCh38 genome (`GRCh38.primary_assembly.genome.fa.gz` with `gencode.v46.basic.annotation.gtf.gz`). The run first builds a bisulfite-converted genome index and saves it for later runs.\n- Off: the per-strand cytosine report (`cytosine_report`), EM-seq and PBAT settings.\n\n**Run time:** there's no estimate for this pipeline yet. Building the index will add to the first run.\n\nThe run is built and ready. Tell me if you want to change anything, such as switching to the bwameth aligner or turning on the per-strand cytosine report. Once it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review."
   ],
   "route": "nextseek_query",
   "selection": {
    "pipelines": [
     "methylseq"
    ],
-   "reason": "These are single-end RRBS (Bisulfite-Seq, genomic DNA) libraries, and methylseq run with --rrbs gives per-CpG methylation calls that can then be summarised over promoter regions; note that a bisulfite reference index has to be staged on Luria before it can run.",
+   "reason": "These are human HCT116 RRBS libraries (MspI digest, bisulfite conversion, Bisulfite-Seq, single-end), so methylseq run with --rrbs gives per-CpG methylation calls that can be summarised over promoters, though a bisulfite-converted reference index must be staged first.",
    "verdict": "chosen"
   },
   "uids": [
@@ -168,7 +169,7 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_24MhyqVw7LmzgmtuRHkClK",
+        "id": "tooluse_4Jj115bWPwijvUOWQtOleY",
         "input": {
          "kind": "last_search",
          "question": "How methylated are the promoters in these samples?"
@@ -178,10 +179,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2544,
+       "bedrock_latency_ms": 2172,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "bf3b299b-e090-4872-855a-a492deeeaaf0",
+       "request_id": "140d4b95-c927-4c61-ab17-1604bc8c2951",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -201,11 +202,11 @@
      "value": {
       "content": [
        {
-        "text": "Using methylseq: these are single-end RRBS bisulfite libraries, so it gives per-CpG methylation calls you can summarise over promoters.",
+        "text": "Using methylseq: these are human HCT116 RRBS libraries (MspI digest, bisulfite-converted), so it gives a methylation call for each CpG.",
         "type": "text"
        },
        {
-        "id": "tooluse_nW1fmG8GB7I0nQOWJvDRXF",
+        "id": "tooluse_Upaj8f5RLlNn3AXohGVJmq",
         "input": {
          "kind": "last_search",
          "pipeline_key": "methylseq"
@@ -215,10 +216,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 4227,
+       "bedrock_latency_ms": 2328,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "afaad04a-3ef3-4e4a-98fb-4382d7f53e2d",
+       "request_id": "c1033c55-e08d-4785-b859-adf1c26df4f1",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -227,9 +228,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 132,
-       "prompt_tokens": 419,
-       "total_tokens": 11522
+       "completion_tokens": 136,
+       "prompt_tokens": 424,
+       "total_tokens": 11531
       }
      }
     },
@@ -238,19 +239,11 @@
      "value": {
       "content": [
        {
-        "reasoningContent": {
-         "reasoningText": {
-          "signature": "CAQSrAYKEggTEAEYAjgBQgh0aGlua2luZxIMZyEy0U1euV4g5tPvGgw3QKDkhflho8yHv5IiMOKtpxOIyelPfT9ev8vXU1pCEtcBpHpfjWkx2u+f3I3JYFrO80wd87SteDcpvbs9nirHBfsl6MYqSccJctyLNfSioiFVkFFLg319MxkOkEsgO0UZUhS4rIUBDXTC0zSa0g/pyVUZ0gOtQFiB51/jqKyW8B2AgdKQHTgESqEAwBTO+ozk8ESeCHnYPP6mjEN9lDv8QC7gAw5Z/yYsyMQDg9fJIGSB6sySXUQfChQ8kYVty4O6YIekssHP+wSHfOYM+SWN++ol8hXVOeJoF7TWwsJHORUs7D3zyIF+o1+u/HMAzqMmkta4yh7M8UPyURfATZXCWNVRBMvEY56YxgUn+7AoDRL2T2sgCDRIg3PhgUSKtiN/X6swk2beH0bAs0vodZugX5AUxYQeCQLBFFIWqOBEWYBE3TaGqAmhLodWFOqeDHR/qx7vLemD8uWGYutPzbTYDYFVVMSQhpEoGJWMB3CMnJewoC77Xnkenqqj6epmZNvfRB062apqyAHCod/X3I7i5b55RM4Q58nLB4INx8pxYBe1MKXc0Pv4XBqS8PROEfJPNQWKmqfPw8K67uQ6Sx35RBL2jwAzJ9WRkIcLAzV40+HzHeL4TZdIp6SojbK8a8DkmurWS/hTzT2BUKnuWisW1V3UwWnWdZ3shrBktJtoBD4veBubrZVnVvfF4LBFTGjkuIn4+kFxqbSdOq9B+Lpo8PoWXlN1etNRSh9qG5ii9sbCepSSlDFqOjdCuc9gccX8+Ts/aWhe7XXNJjakXDvG+aQB9UZ0VbC+2qqv/nR8dhHssP51zEFv9/hz814Jg2wi5JAY/IANx5cO+Yet5BcTeGY/MvgkT+J8AstCZBhAwN4vTSKsz8GK5OuF5TsqM+4nBXLR9T9PGohN8paoREWzuAQQpmczOeyiKzcg9PRdJZcrMjs9pg4efx/y0HnVJuwAu3vZSZ3xk2tEhqQ+j1yZa3k6GrTW/ldemFTjVLM5D8U479cnfNG/zBHdMgMjFEl5ZrfbBoCa3xgB",
-          "text": ""
-         }
-        }
-       },
-       {
-        "id": "tooluse_ycBhcznhXc0UiNBkFUdJ5s",
+        "id": "tooluse_XDsFgt6JGxky13E79nuKAL",
         "input": {
          "cohorts": [
           {
-           "label": "rrbs",
+           "label": "hct116-rrbs",
            "rows": [
             {
              "sample": "D.SEQ-261028BMC-15"
@@ -265,12 +258,36 @@
         },
         "name": "write_samplesheet",
         "type": "tool_use"
-       },
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 2798,
+       "http_status": 200,
+       "reasoning_blocks": 0,
+       "request_id": "ef84876f-e06a-462d-94cf-c14412773456",
+       "retry_attempts": 0,
+       "stop_reason": "tool_use"
+      },
+      "stop_reason": "tool_use",
+      "usage": {
+       "cache_read_tokens": 10971,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 148,
+       "prompt_tokens": 3901,
+       "total_tokens": 15020
+      }
+     }
+    },
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
        {
-        "id": "tooluse_GcpVy1ydHBaXohB3b81SEl",
+        "id": "tooluse_YZNX5mCc69JmbEEAeOdS1K",
         "input": {
          "params": {
-          "cytosine_report": true,
+          "aligner": "bismark",
           "rrbs": true
          },
          "pipeline_key": "methylseq"
@@ -280,10 +297,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 4548,
+       "bedrock_latency_ms": 2031,
        "http_status": 200,
-       "reasoning_blocks": 1,
-       "request_id": "526e57b9-404b-4ec3-b9ba-f8f2f562e85e",
+       "reasoning_blocks": 0,
+       "request_id": "36e96ebc-989c-4d9c-9817-582746dee2ed",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -292,9 +309,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 362,
-       "prompt_tokens": 3065,
-       "total_tokens": 14398
+       "completion_tokens": 96,
+       "prompt_tokens": 4205,
+       "total_tokens": 15272
       }
      }
     },
@@ -305,21 +322,21 @@
        {
         "reasoningContent": {
          "reasoningText": {
-          "signature": "CAQS1QQKEggTEAEYAjgBQgh0aGlua2luZxIM0CenBbcTRuBRBRxnGgxXJT5PtIZjwnspeCMiML0iV7p3JEeir84KBHn6MuSxCE6BhhhVuvNC6DtI6rJ5qDhAReW0Fef9/gLqef/+SyrwA7aoy+EF6ZnqKuVz1Ht70lX1cjEwqN9aD0XcvFz83xqNHyiOwUMKw+qN1uT/kAxUTcUuLbAyl3FetUi959toejt9YLpP095O7sFcPb0suIFl2RYnEUYYq+HodmJixXBTvRTq0nkYRqh0CJ6vX8QFBpa+O0QW4OD5tUcFWlhoY3a1y/gthgQcbPP4BKQC6d7IpZ574pQuNzCDGR14X+Rls46O2oLX5Oz5E1cBlUeL5aXbSlp1dJKxCQrDRDDfTQHHM4utjAIeUrm4Q0x7jn+GzQrWalRZ6e1r5pRbkdFzK4KXKAf7dkSklS8QNbGfdpGDGKAJGH7iIVZruMUs1gTWqsPA0Uj7rDKL9/gDOiOtwZ3WhkNPDTrYSHVFX5hz8qYzcW4bC4BYZxy4L5/ymigLT3kcS8Goo0u6IaZInTfta0Br8FOf01X0xCsk4Qv0Tye2ixTxxOayzh7Al3JmZdCMK6TO7NTJTt3pQnxg77yHXGd8bsRdOMFD2NviZWRarETzdoz/iLbij3yEYmUso9qNfHDJyHLX/8Uhw5XfNmJzgVxTz9kOWId8B0MSNqasv95HfdMfyZIic3VooKIT/hYH+ExykY12svLh1dfqbbkr3xI7WpmCaUAoc8WuaBzEOwXKnl++UzryFVPCzuny2DKKiukYAQ==",
+          "signature": "CAQSpAYKEggTEAEYAjgBQgh0aGlua2luZxIMvr6jO8eT8NgpeLzAGgwYxoXScgFbr3UaHfEiMN+LzZCW07/AQJeckZStoPF2RTCItb1Vj3l0wgnpjzqVvj7TbEGk6+ZWKFZdZgvFxyq/BfSGJqbEKycR2WyJoQjiwufStE06OQAIDeaCswxt/CwLbuYmeKrBv9nBk6VDRoxigB5sn7xM3lT6m1m22elFCkJMy/6gMyhSBubQS+50NF0qhrosM2EqwOc2fqceN6UUadiX6tRzPVD6UyVwxMDfcvIOCohZw4LuIwknyIiGMIc6GV6qMpK9Ytk/vMRnBCUy4e+uHNON/GeH8h4TIXhxnM020SRuLIFhWh1xYG3LowsAtsAv3p1fjHGbaNIOUhiZg99Jgzfj4pTzsU9nJNj5o+KkAPhszWZS5yDWuFF3BOPewK22iE0gMWo5BIX980TFV1tZGqkty6UXwNY7ZFN+snJCB9Dtc6/ccDGIOIlyr0p27gpRprfwnuskgTMg2Z+yfivRbtMEoct2SODdWGXoZaIp0HiHSutSI7oMkNhDfHkA3QBU43W9oPhQFHVzndyM/ccwDTaUfwrZIk7z4GBNvM/uRIABvEUO9yz1F+pr6+uat+U9KyVkhRSnBcpFXORKRaaVZQeVnShJEtKeFnA97WSi1i4WYNq/LWiWRv4FG03GeDLsjfSJfixuCsSPxANZMM/BJxYhpN3OnprqO4OeGMYSvVRoADbG4qHnCPUL9ieFid8YUJ1s56AiyaQ9JmmnzD5IokDpz8qYXMVWPc0KfHKvtXLgomGM/S698PlJT0c8xB8T7aEywj0S6NfQY7Ni1iJre+bXO1W1uNJdc/OyEmjhmw5XR7jBJBHzzNToEy3a0iXWRylZkrGi6fPc0BBERiAd1Rb96H4q0rTo6Dq9V0f2zdgS7ehsOf8rkuV9n1l2VHvgfBgbNIyBgFp2lWEmCRIviiJv5+k9Hu57HmSsNq3SMIoTjBsLOZYsik9rEAMVopedExF3x5WuL50S52MDK965OdxYQ1W/ZaoDhEAxaAcAOnK5CW5h+EyOofzem50YAQ==",
           "text": ""
          }
         }
        },
        {
-        "text": "I'm using **nf-core/methylseq** for this. Both samples are single-end RRBS bisulfite libraries, and this pipeline gives a methylation level for every CpG it covers in each sample.\n\n**What I built so far**\n- One samplesheet with 2 samples: D.SEQ-261028BMC-15 (NTC-METH-1) and D.SEQ-261028BMC-16 (NTC-METH-2). Both are 75 bp single-end reads on a HiSeq 4000.\n- Settings: Bismark aligner, `rrbs: true` (MspI-digested material, so duplicate removal is skipped) and `cytosine_report: true` (a full per-cytosine report). The pipeline's parameter check passed.\n\n**What this answers, and what it doesn't**\nThe run gives you methylation at each CpG, not promoter values. To get those, you'd average the CpG calls over a promoter set, such as the region around each gene's start (for example \u00b11\u20132 kb). That step happens after the run and isn't part of it.\n\n**Reference genome is still missing**\nNothing in these samples' records says what species they are, so no genome is set yet. Bismark also needs its own bisulfite index of that genome on Luria before the run can start. This is the only thing blocking the run.\n\n**Run time:** there's no estimate for this pipeline yet.\n\n**Which organism are these samples from?** You can name a species (\"human\", \"mouse\") or a specific genome version (e.g. GRCh38, GRCm39). Once I have that I'll set the reference and show you the final config to confirm. When the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.",
+        "text": "I've built a methylseq run for your two samples. Nothing has been submitted yet.\n\n**What the run gives you:** the methylation level at every CpG the reads cover, for each sample. You also get coverage files and a MultiQC quality report.\n\n**What it doesn't do:** it won't give you promoter-level numbers. To get those, you'd average the CpG calls over promoter regions afterwards, for example a window around each gene's start site taken from the GENCODE annotation. That's a separate step this run doesn't include. Also, RRBS only reads CpG-rich regions, so CpG-island promoters will be well covered and CpG-poor promoters will be sparse.\n\n**Samples (one samplesheet, 2 rows):**\n- D.SEQ-261028BMC-15 (NTC-METH-1): HCT116 cells treated with DMSO, single-end 75 bp RRBS\n- D.SEQ-261028BMC-16 (NTC-METH-2): HCT116 cells treated with 1 \u00b5M 5-azacytidine (a drug that removes DNA methylation), single-end 75 bp RRBS\n\nThere's one sample per treatment. You can compare their methylation levels directly, but you can't test whether the differences are statistically real. That needs at least two, ideally three, replicates per group.\n\n**Run settings:**\n- Pipeline: nf-core/methylseq\n- Aligner: Bismark\n- `rrbs: true`, because these are MspI-digested libraries. This setting also skips removing duplicate reads, which is correct for RRBS.\n- Reference: the local Luria copy of the human GRCh38 genome (`GRCh38.primary_assembly.genome.fa.gz` with `gencode.v46.basic.annotation.gtf.gz`). The run first builds a bisulfite-converted genome index and saves it for later runs.\n- Off: the per-strand cytosine report (`cytosine_report`), EM-seq and PBAT settings.\n\n**Run time:** there's no estimate for this pipeline yet. Building the index will add to the first run.\n\nThe run is built and ready. Tell me if you want to change anything, such as switching to the bwameth aligner or turning on the per-strand cytosine report. Once it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.",
         "type": "text"
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 6636,
+       "bedrock_latency_ms": 9851,
        "http_status": 200,
        "reasoning_blocks": 1,
-       "request_id": "9d6ee355-327b-4c5e-b73f-a6935e78cb2e",
+       "request_id": "a864ba62-5171-4426-9cc5-cd6c501a4d34",
        "retry_attempts": 0,
        "stop_reason": "end_turn"
       },
@@ -328,9 +345,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 578,
-       "prompt_tokens": 3883,
-       "total_tokens": 15432
+       "completion_tokens": 885,
+       "prompt_tokens": 4637,
+       "total_tokens": 16493
       }
      }
     }
@@ -347,6 +364,48 @@
       },
       "data": {
        "data": [
+        {
+         "n_samples": 2,
+         "sample_type": "CEL",
+         "sample_type_description": "A cell sample represents a defined population of living or preserved cells collected or cultured for experimental study. These samples form the foundation for exploring biological mechanisms, testing treatments, or generating derived materials. Each reflects a specific origin or condition, such as tissue type, species, or growth environment.",
+         "sample_type_name": "Cell",
+         "samples": [
+          {
+           "id": "1309005",
+           "metadata": {
+            "CellLine": "HCT116",
+            "Name": "NTC-METH-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Colon",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Colon carcinoma cell line",
+            "UID": "CEL-261028BMC-13"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-13"
+          },
+          {
+           "id": "1309006",
+           "metadata": {
+            "CellLine": "HCT116",
+            "Name": "NTC-METH-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "colon",
+            "Treatment1": "5-azacytidine",
+            "Treatment1Dose": 1,
+            "Treatment1DoseUnits": "uM",
+            "TreatmentType": "Chemical",
+            "Type": "colon carcinoma cell line",
+            "UID": "CEL-261028BMC-14"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-14"
+          }
+         ]
+        },
         {
          "n_samples": 2,
          "sample_type": "D.SEQ",
@@ -552,13 +611,51 @@
            "uuid": "D.SEQ-261028BMC-16"
           }
          ]
+        },
+        {
+         "n_samples": 2,
+         "sample_type": "DNA",
+         "sample_type_description": "A DNA sample contains extracted genetic material isolated from a biological source. It serves as input for sequencing, amplification, or other genomic analyses.",
+         "sample_type_name": "DNA Sample",
+         "samples": [
+          {
+           "id": "1309007",
+           "metadata": {
+            "Barcode": "ATCACG",
+            "Lab": "REDACTED",
+            "Name": "NTC-METH-lib1",
+            "Parent": "CEL-261028BMC-13",
+            "Protocol": "MspI digest, size selection, bisulfite conversion (EZ DNA Methylation-Gold), Ovation RRBS Methyl-Seq System",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-15"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-15"
+          },
+          {
+           "id": "1309008",
+           "metadata": {
+            "Barcode": "CGATGT",
+            "Lab": "REDACTED",
+            "Name": "NTC-METH-lib2",
+            "Parent": "CEL-261028BMC-14",
+            "Protocol": "MspI digest, size selection, bisulfite conversion (EZ DNA Methylation-Gold), Ovation RRBS Methyl-Seq System",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-16"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-16"
+          }
+         ]
         }
        ],
        "failed_uids": 0,
-       "lineage_complete": false,
-       "total_children": 0,
-       "total_sample_types": 1,
-       "total_samples": 2
+       "lineage_complete": true,
+       "total_children": 4,
+       "total_sample_types": 3,
+       "total_samples": 6
       },
       "method": "POST",
       "ok": true,
@@ -590,6 +687,46 @@
       },
       "data": {
        "data": [
+        {
+         "n_samples": 2,
+         "sample_type": "CEL",
+         "samples": [
+          {
+           "id": "1309005",
+           "metadata": {
+            "CellLine": "HCT116",
+            "Name": "NTC-METH-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Colon",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Colon carcinoma cell line",
+            "UID": "CEL-261028BMC-13"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-13"
+          },
+          {
+           "id": "1309006",
+           "metadata": {
+            "CellLine": "HCT116",
+            "Name": "NTC-METH-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "colon",
+            "Treatment1": "5-azacytidine",
+            "Treatment1Dose": 1,
+            "Treatment1DoseUnits": "uM",
+            "TreatmentType": "Chemical",
+            "Type": "colon carcinoma cell line",
+            "UID": "CEL-261028BMC-14"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-14"
+          }
+         ]
+        },
         {
          "n_samples": 2,
          "sample_type": "D.SEQ",
@@ -793,13 +930,49 @@
            "uuid": "D.SEQ-261028BMC-16"
           }
          ]
+        },
+        {
+         "n_samples": 2,
+         "sample_type": "DNA",
+         "samples": [
+          {
+           "id": "1309007",
+           "metadata": {
+            "Barcode": "ATCACG",
+            "Lab": "REDACTED",
+            "Name": "NTC-METH-lib1",
+            "Parent": "CEL-261028BMC-13",
+            "Protocol": "MspI digest, size selection, bisulfite conversion (EZ DNA Methylation-Gold), Ovation RRBS Methyl-Seq System",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-15"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-15"
+          },
+          {
+           "id": "1309008",
+           "metadata": {
+            "Barcode": "CGATGT",
+            "Lab": "REDACTED",
+            "Name": "NTC-METH-lib2",
+            "Parent": "CEL-261028BMC-14",
+            "Protocol": "MspI digest, size selection, bisulfite conversion (EZ DNA Methylation-Gold), Ovation RRBS Methyl-Seq System",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-16"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-16"
+          }
+         ]
         }
        ],
        "failed_uids": 0,
-       "lineage_complete": false,
-       "total_children": 0,
-       "total_sample_types": 1,
-       "total_samples": 2
+       "lineage_complete": true,
+       "total_children": 4,
+       "total_sample_types": 3,
+       "total_samples": 6
       },
       "method": "POST",
       "ok": true,
@@ -814,7 +987,7 @@
    "payload": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "6dfff6fdb7a620a4abf43febfacbb1994575e66989ef62392b1cf82995e44dea"
+     "value": "bd18584ee9e9fa6ad1211073e90015067d91f3acd1e2deba3b9021a6982ca9f0"
     }
    ],
    "schemas": {
@@ -902,7 +1075,7 @@
    "selection": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "{\"pipelines\": [\"methylseq\"], \"reason\": \"These are single-end RRBS (Bisulfite-Seq, genomic DNA) libraries, and methylseq run with --rrbs gives per-CpG methylation calls that can then be summarised over promoter regions; note that a bisulfite reference index has to be staged on Luria before it can run.\", \"basis\": \"data\"}"
+     "value": "{\"pipelines\": [\"methylseq\"], \"reason\": \"These are human HCT116 RRBS libraries (MspI digest, bisulfite conversion, Bisulfite-Seq, single-end), so methylseq run with --rrbs gives per-CpG methylation calls that can be summarised over promoters, though a bisulfite-converted reference index must be staged first.\", \"basis\": \"data\"}"
     }
    ]
   }
