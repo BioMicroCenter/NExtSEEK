@@ -84,7 +84,7 @@ _REPORT_ALLOWED_METHODS = _MEMORY_ALLOWED_METHODS | {
     "capitalize", "swapcase", "zfill", "center", "ljust", "rjust", "isalpha", "isalnum", "isnumeric", "isdecimal",
     "isspace", "islower", "isupper", "istitle", "insert", "remove", "sort", "reverse", "copy",
     # Dev 11-02 (task 2902): an SRA package's coder wrote re.search(...).group(1) and both attempts were refused.
-    # These only read a re.Match and return str, int, tuple or dict; none reaches I/O, an import or a dunder.
+    # These only read a re.Match and return str, bytes, None, int, tuple or dict (groups/groupdict return the caller's default); none reaches I/O, an import or a dunder.
     "group", "groups", "groupdict", "start", "end", "span",
 }
 

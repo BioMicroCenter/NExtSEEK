@@ -60,6 +60,9 @@ class ReportCodePathError(RuntimeError):
         self.reply = reply
         self.errors = errors or [detail]  # every attempt's error, first to last; ``detail`` is the last
 
+    def reporter_result(self) -> dict:
+        return {"ok": False, "error": str(self), "code_errors": list(self.errors)}
+
 # The per-sample row list key in each report body (one entry per target-type sample).
 # Used for the row-parity guard so the code path works for SRA/PRIDE, not just GEO.
 _ROW_KEY_FOR_REPORT = {"GEO": "samples", "SRA": "libraries", "PRIDE": "sample_metadata"}
