@@ -102,7 +102,12 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
 
     working = str(luria_env["working_path"]).rstrip("/")
     parent = launch_path.parent
-    key_path = prepare_key(luria_env["key"])
+    try:
+        key_path = prepare_key(luria_env["key"])
+    except OSError as exc:  # repr hides the file name; the reason names no path, because it reaches the model
+        print(f"[LURIA][SUBMIT] cannot read the Luria key: {exc!r}")
+        reasons.append("the Luria key file can't be read on this server")
+        return []
     runs: list[dict] = []
     try:
         for idx, entry in enumerate(entries):
@@ -266,7 +271,13 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         if needs_fetch:
             helper = str(Path(__file__).parent / "fetchngs_helpers.py")
             scp_file(luria_env, helper, f"{remote_run_dir}/fetchngs_helpers.py", key_path=key_path)
-        out = ssh_run(luria_env, f"cd {remote_run_dir} && sbatch run.sh", key_path=key_path)
+        try:
+            out = ssh_run(luria_env, f"cd {remote_run_dir} && sbatch run.sh", key_path=key_path)
+        except RuntimeError as exc:
+            # ssh's own exit 255 is the connection, so Luria may have queued the job; any other exit is sbatch refusing.
+            if "ssh failed (255)" in str(exc):
+                raise RuntimeError(f"sbatch outcome unknown: {exc}") from exc
+            raise
     finally:
         for _tmp in tmp_files:
             try:

@@ -96,7 +96,7 @@ from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
-from .schemas.entity import EntityItem
+from .agents.entity import carry_code_owned_types
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -476,6 +476,7 @@ def run_pipeline_launch(
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
     deadline_epoch: float | None = None,
+    relay_turn: str | None = None,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -487,6 +488,7 @@ def run_pipeline_launch(
     credentials — see _identity_gate. An incomplete per-request identity refuses
     the turn rather than launching a pipeline as the service account.
     deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
+    relay_turn -- the Container-CC turn relaying this message; see pipeline_agent.handle_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
@@ -499,8 +501,18 @@ def run_pipeline_launch(
     if send_event:
         send_event("agent_started", {"agent": "pipeline_agent", "mode": "pipeline"})
 
-    pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir,
-                                    send_event=send_event)
+    # A build already open is continued, never restarted: start() replaces the state, so CC relaying a user's
+    # "submit" used to wipe the run it was for (prod chat e80cee5a). A handoff means the message asks for something
+    # else, a new run on other samples, and that is what start() is for.
+    pa_start = None
+    continued = pipeline_agent.is_active(session)
+    if continued:
+        pa_start = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir, send_event=send_event,
+                                              relay_turn=relay_turn)
+    if pa_start is None or pa_start.get("action") == "passthrough":
+        continued = False
+        pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir,
+                                        send_event=send_event, relay_turn=relay_turn)
     reply = pa_start.get("reply") or ""
     snapshot = pipeline_agent.snapshot_for_chat_log(session)
     debug_payload = {"pipeline_agent": snapshot}
@@ -509,7 +521,7 @@ def run_pipeline_launch(
         session,
         user_query=user_text,
         mode="pipeline_agent",
-        intent_summary="pipeline_agent launched (cc bridge)",
+        intent_summary=f"pipeline_agent {'continued' if continued else 'launched'} (cc bridge)",
         tool_summary={"pipeline_key": snapshot.get("pipeline_key"),
                       "cohorts": snapshot.get("cohort_count")},
         assistant_reply=reply,
@@ -1096,8 +1108,10 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     not parse, could come back as a guessed code. Everything downstream (the API and graph
     agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
     clamp runs once, straight after the parser. Nothing but the codes changes, apart from the scientists and
-    category types the parser's echo has no slot for, which are restored from the entity result.
+    category types the parser's echo has no slot for, which are restored from the entity result, and the house types,
+    which always come from the entity result (``carry_code_owned_types``).
     """
+    plan = carry_code_owned_types(plan, entity_result)
     if isinstance(entity_result, dict):
         matched = entity_result.get("lab_codes")
     else:
@@ -1121,22 +1135,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     entity_scientists = _entity("scientists")
     if entity_scientists and not plan.resolved.scientists:
         resolved_update["scientists"] = list(entity_scientists)
-    # R2: nor a `category_types` slot, so the graph agent (which reads the parser plan) never saw the category's
-    # types. Restore the map and add any of its codes the echo left out of `sampletypes`.
-    categories = _entity("category_types") or {}
-    if categories:
-        resolved_update["category_types"] = {w: list(codes) for w, codes in categories.items()}
-        names = {}
-        for item in _entity("sampletypes") or []:
-            item = item if isinstance(item, dict) else item.model_dump()
-            names[item.get("code")] = item.get("name")
-        types = list(plan.resolved.sampletypes)
-        have = {t.code for t in types}
-        for code in (c for codes in categories.values() for c in codes):
-            if code not in have:
-                types.append(EntityItem(code=code, name=names.get(code)))
-                have.add(code)
-        resolved_update["sampletypes"] = types
+    # R2 (`category_types`) and dtd3 (`house_types`) were restored above by carry_code_owned_types, which the graph op
+    # (NessieAI/ns/granular.py) calls too: the graph agent reads only the parser plan.
     updates: dict[str, Any] = {
         "resolved": plan.resolved.model_copy(update=resolved_update),
     }
@@ -2129,8 +2129,7 @@ def _handle_pipeline_agent_turn(
     result = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir,
                                         send_event=send_event)
     action = result.get("action")
-    if action == "passthrough":
-        pipeline_agent.clear(session)
+    if action == "passthrough":  # the agent cleared the build, or kept a built run for after the side question
         return None
     if action == "cancel":
         reply = result.get("reply") or ""
@@ -2259,6 +2258,7 @@ def run_query(
     graph_scope: Any = _UNSET,
     vocabulary: Any = None,
     deadline_epoch: float | None = None,
+    stop_on_handoff: bool = False,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -2315,12 +2315,17 @@ def run_query(
     try:
         # An in-progress samplesheet build always advances through the
         # pipeline_agent before the normal parser path.
+        build_was_open = pipeline_agent.is_active(session)
         pipeline_payload = _handle_pipeline_agent_turn(
             session, config, user_text, log_dir, send_event, artifact_store,
         )
         if pipeline_payload is not None:
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
             return pipeline_payload
+        # The router sent this turn to Container-CC and only an open build brought it here (router/policy.py): the
+        # build let it go, so nothing is emitted and the caller runs it on Container-CC.
+        if stop_on_handoff and build_was_open:
+            return {"handed_off": True, **turn_spend.cost_fields()}
 
         # A click on a chip that carries a rerun skips the entity agent and the parser (operator ruling 2026-09-25):
         # the chip's statement, or the graph agent with the one change, then the reviewer and the chatter.
@@ -2619,7 +2624,7 @@ def run_query(
                     # The code path failed twice on a set too large for the report writer: a plain reply, not
                     # the writer's input overflow (prod 10-14, task 39a967f9).
                     print(f"[DEBUG][REPORT_CODER] Code path failed twice: {code_path_failed}")
-                    reporter_result = {"ok": False, "error": str(code_path_failed)}
+                    reporter_result = code_path_failed.reporter_result()
                     report_writer_output, saved_files, reply = {}, {}, code_path_failed.reply
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
             else:

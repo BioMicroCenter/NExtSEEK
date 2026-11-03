@@ -212,6 +212,20 @@ class PlanTests(SimpleTestCase):
         self.assertEqual(len(fakes.parser_calls), 1)
         self.assertEqual(out["plan_source"], "parser")
 
+    def test_every_graph_part_plan_carries_the_entity_steps_house_types(self):
+        """dtd3: the graph agent reads only the plan's resolved block, and the parser's echo lacks the code-written
+        house_types; the op copies it from the entity result into the plan its parts share, as the graph op does."""
+        from chat_nextseek.schemas import EntityAgentOutput
+        from chat_nextseek.schemas.entity import EntityItem
+        parts = ["a part", {"question": "b part", "filters": {"sampletype_code": "TIS"}}]
+        fakes = Fakes({p: [COUNT] for p in ("a part", "b part")}, {"T_TIS": [_ok([{"n": 1}])]})
+        fakes.entity = lambda config, query: EntityAgentOutput(sampletypes=[EntityItem(code="TIS")],
+                                                               house_types={"WORD_X": "TIS"})
+        fakes.run("WORD_X samples", parts)
+        self.assertEqual(len(fakes.graph_calls), 2)
+        for call in fakes.graph_calls:
+            self.assertEqual(call["parser_plan"].resolved.house_types, {"WORD_X": "TIS"}, call["query"])
+
     def test_bad_part_filters_and_bad_plans_are_validation_errors_with_no_model_call(self):
         fakes = Fakes({}, {})
         cases = [(["x"], "not json", "plan"),

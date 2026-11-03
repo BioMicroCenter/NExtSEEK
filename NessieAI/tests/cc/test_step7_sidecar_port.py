@@ -35,8 +35,11 @@ harness runs with ``--network none``.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -91,7 +94,7 @@ PINNED_SOURCE_SHA256 = {
     "app/contract.py": "0e1813d5d5d0c7e5bb74d7a23b83d764f1455f9733db8cff3fa52c8b4e091dd0",
     "app/exceptions.py": "ecd217b0a353c1ce400b8bfcad5c76c28485e354f14b05012ec991c6e21c6068",
     "app/granular_models.py": "ca8ea3088d607c06b4176609f193da9e3691385f470a2baa1ac3ad804bac55ef",
-    "app/healthcheck.py": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3",
+    "app/healthcheck.py": "8d601b675fb0159893d7624f10ba1ffe92f0d8cf0b5b8cac2401c0ab6f066a70",
     "app/ns_client.py": "649c36f54f47918fbdd11eb887d9d9919f013d74cb99d4fd7e394ca8a94f3803",
     "app/ops.py": "a8a6efda01f1e28f457adcb0b350d4a2c601a5d80c78334f665906ed68d498d2",
     "app/server.py": "f778f274a64e90fef1b7f094515dacccf0ea6be925791562967c8f1d8eda3474",
@@ -203,17 +206,35 @@ def test_config_py_required_env_is_exactly_the_t16_pair():
 
 
 def test_healthcheck_py_probes_exactly_the_documented_endpoint():
-    """Verify the brief's healthcheck claim against the ported source: a
-    single HTTP GET to {NEXTSEEK_BASE_URL}/nextseek_api/assistant/me/,
-    treating 200 or 401 as healthy, with no WS probe and no direct DB/Neo4j
-    access."""
+    """A single HTTP GET to {NEXTSEEK_BASE_URL}/docs/, a public page, with no WS probe and no direct DB/Neo4j
+    access. It holds no credentials, so an endpoint behind a login answers 401 on every probe (about 7,900 a day
+    on prod)."""
     text = _read(SIDECAR_DIR / "app" / "healthcheck.py")
-    assert '/nextseek_api/assistant/me/' in text
+    assert '/docs/' in text
+    assert '/nextseek_api/assistant/me/' not in text
     assert "httpx.get(url, timeout=5.0)" in text
-    assert "resp.status_code in (200, 401)" in text
     # Read-only by construction: exactly one httpx call site (a GET), no POST.
     assert text.count("httpx.get(") == 1
     assert "httpx.post(" not in text
+
+
+@pytest.mark.parametrize("answer, healthy", [(200, True), (401, False), (404, False), (500, False), (502, False)])
+def test_healthcheck_is_healthy_only_on_a_200(monkeypatch, answer, healthy):
+    """A public page answers 200 when the stack is up, so a 401 now means something is wrong."""
+    import httpx
+
+    config = types.ModuleType("sidecar.app.config")
+    config.SidecarConfig = types.SimpleNamespace(
+        from_env=lambda: types.SimpleNamespace(nextseek_base_url="http://nextseek_nginx"))
+    monkeypatch.setitem(sys.modules, "sidecar.app.config", config)
+    asked = []
+    monkeypatch.setattr(httpx, "get", lambda url, timeout: asked.append(url) or types.SimpleNamespace(status_code=answer))
+    spec = importlib.util.spec_from_file_location("sidecar_healthcheck", SIDECAR_DIR / "app" / "healthcheck.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert (module.main() == 0) is healthy
+    assert asked == ["http://nextseek_nginx/docs/"]
 
 
 def test_write_gate_py_enforces_strict_confirmed_write_only():

@@ -1137,6 +1137,113 @@
         "date": "2026-10-26",
         "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "smrnaseq",
+        "scrnaseq",
+        "riboseq",
+        "hlatyping"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-03",
+        "note": "Proposed during the 2026-11-03 merge of dev into feat/nfcore-dna-integration: dev added this case to NessieAI/chat_nextseek/evals/rna_selection_cases.json, which this branch replaced with the story list. Cohort 240709KAM (a human tumour line) is a proposal; it awaits the owner's ruling."
+      },
+      "id": "variants-cells-express",
+      "question": "Which genetic variants do these tumour cells express?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dev's RNA selection case (fix(atlas) 71bbfe53): a variant question that says \"express\" is still rnavar, not rnaseq."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "smrnaseq",
+        "scrnaseq",
+        "riboseq",
+        "hlatyping",
+        "rnafusion"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-03",
+        "note": "Proposed during the 2026-11-03 merge of dev into feat/nfcore-dna-integration: dev added this case to NessieAI/chat_nextseek/evals/rna_selection_cases.json, which this branch replaced with the story list. Cohort 240709KAM (a human tumour line) is a proposal; it awaits the owner's ruling."
+      },
+      "id": "mutations-tumour-carry",
+      "question": "Which mutations do these tumour samples carry?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dev's RNA selection case (fix(atlas) 4965404c): a which-mutations question on tumour RNA-seq picks rnavar."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar",
+        "smrnaseq",
+        "scrnaseq",
+        "hlatyping",
+        "rnafusion"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-03",
+        "note": "Proposed during the 2026-11-03 merge of dev into feat/nfcore-dna-integration: dev added this case to NessieAI/chat_nextseek/evals/rna_selection_cases.json, which this branch replaced with the story list. Cohort 240709KAM (a human tumour line) is a proposal; it awaits the owner's ruling."
+      },
+      "id": "expression-tumour-vs-normal",
+      "question": "Which genes are expressed differently in these tumour cells than in the normal cells?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "differentialabundance"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dev's RNA selection case (fix(atlas) 4965404c): a tumour-vs-normal expression question picks rnaseq and never rnavar, now that rnavar's prep-kit hints name only library preps."
+      }
     }
   ]
 }

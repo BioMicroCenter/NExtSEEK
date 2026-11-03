@@ -143,3 +143,29 @@ def test_check_all_pass_required():
     ]
     ok, _ = check_pass({"x": "y", "z": "no"}, pcs)
     assert not ok
+
+
+# ── graph_cypher sees the bound parameters (r5 F1, dev 11-02) ────────────
+
+def test_graph_cypher_renders_bound_parameters_inline():
+    """A value the graph agent binds ($inv = 'TCGA') is what the query filters on, so a
+    criterion on graph_cypher must see it. Stored dev 11-02 shape (task 05c4bf59)."""
+    debug = {"graph_plan": {
+        "cypher": "MATCH (s)-[:IN_INVESTIGATION]->(inv) WHERE inv.title = $inv "
+                  "AND toLower(v.search_text) CONTAINS $drug AND s.n IN $names AND s.k = $investigation",
+        "parameters": {"inv": "TCGA", "drug": "erlotinib", "names": ["a", "b"], "investigation": 3},
+    }}
+    got = resolve_field(debug, "graph_cypher")
+    assert "inv.title = 'TCGA'" in got
+    assert "CONTAINS 'erlotinib'" in got
+    assert "IN ['a', 'b']" in got
+    assert "s.k = 3" in got  # $investigation is its own key, not $inv + "estigation"
+    ok, _ = check_pass(debug, [PassCriterion(field="graph_cypher", op="matches_re", value="(?i)TCGA")])
+    assert ok
+
+
+def test_graph_cypher_unbound_name_and_no_parameters_unchanged():
+    plain = "MATCH (s:T_PAT) WHERE s.x = $missing RETURN s"
+    assert resolve_field({"graph_plan": {"cypher": plain}}, "graph_cypher") == plain
+    assert resolve_field({"graph_plan": {"cypher": plain, "parameters": {}}}, "graph_cypher") == plain
+    assert resolve_field({}, "graph_cypher") == ""

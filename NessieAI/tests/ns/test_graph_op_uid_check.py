@@ -99,6 +99,30 @@ def test_the_parser_plan_carries_the_stored_spelling():
     assert plan.filters.uids == ["TIS-220101ABC-7"], "the parser's own plan (a turn's cached one) is not changed"
 
 
+def test_the_graph_ops_parser_plan_carries_the_entity_steps_house_and_category_types():
+    """dtd3 S1: the graph agent reads the parser plan's resolved block, whose echo of the entity result lacks the
+    code-written house_types and category_types; the op copies both from the entity result, as the NS clamp does."""
+    from chat_nextseek.schemas import EntityAgentOutput
+    from chat_nextseek.schemas.entity import EntityItem
+    ent = EntityAgentOutput(sampletypes=[EntityItem(code=c) for c in ("TIS", "W.A", "W.B")],
+                            house_types={"WORD_X": "TIS"}, category_types={"widgetomic": ["W.A", "W.B"]})
+    plan = ParserPlan(mode="graph_query", resolved=EntityAgentOutput(
+        sampletypes=[EntityItem(code="TIS"), EntityItem(code="W.A")], house_types={"STALE": "CEL"}))
+    seen = {}
+
+    def graph_agent(config, query, entity_out, parser_plan, **kw):
+        seen["resolved"] = parser_plan.resolved
+        return GraphAgentPlan(cypher="MATCH (s:Sample) RETURN count(s) AS n", parameters={})
+
+    with patch("chat_nextseek.portable.parser_agent", return_value=plan), \
+         patch("chat_nextseek.portable.graph_agent", side_effect=graph_agent):
+        granular.run_graph_question("how many WORD_X samples", config=None, session=None, write_gate=lambda *a: None,
+                                    neo4j_exec=lambda *a: {"ok": True, "data": [{"n": 1}]}, entity_out=ent)
+    assert seen["resolved"].house_types == {"WORD_X": "TIS"}
+    assert seen["resolved"].category_types == {"widgetomic": ["W.A", "W.B"]}
+    assert [t.code for t in seen["resolved"].sampletypes] == ["TIS", "W.A", "W.B"]
+
+
 def test_a_uid_only_in_the_agents_plan_is_checked_and_written_as_stored():
     """Round 7 (T1): the agent may name the UID in its plan's filters.uids and not in the question."""
     seen = {}

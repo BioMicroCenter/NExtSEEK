@@ -21,7 +21,7 @@ INPUTS YOU RECEIVE
 
 EXECUTION ENVIRONMENT — these names are PRE-BOUND. Use them directly; never import.
 - `data` — the full metadata object (same shape as the profile, with ALL samples).
-- `re` — regex module (only .search/.match/.fullmatch/.findall/.sub).
+- `re` — regex module (only .search/.match/.fullmatch/.findall/.sub); read a match they return with .group/.groups/.groupdict/.start/.end/.span.
 - `json` — json module (only .loads/.dumps).
 - `strip_html(s)` — removes HTML tags from a string.
 - `result` — assign the final report body dict (matching the template) to this.
