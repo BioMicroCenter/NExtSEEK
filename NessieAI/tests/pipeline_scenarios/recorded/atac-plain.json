@@ -1,9 +1,9 @@
 {
  "agent_model": "us.anthropic.claude-opus-5-5",
  "decision": {
-  "reasoning": "The user is asking an analysis question about their sequenced samples, specifically asking where chromatin is open. According to the routing instructions, analyses of the user's own sequencing data (such as finding open chromatin, mutations, or peaks) are routed to nextseek_query. The pipeline agent will handle this by offering the appropriate nf-core run to produce the requested data.",
+  "reasoning": "The user is asking an analysis question about their sequenced samples (specifically, where chromatin is open in treated versus untreated cells). According to the routing instructions, questions about what the user's sequenced samples show, such as open chromatin, variant calling, or methylation, are routed to nextseek_query where the pipeline agent will offer the appropriate nf-core pipeline run to produce the requested data.",
   "route": "nextseek_query",
-  "router_cost_usd": 0.024938,
+  "router_cost_usd": 0.021458,
   "router_model": "gemini-3.1-pro-preview",
   "source": "baml"
  },
@@ -107,6 +107,7 @@
   "error": null,
   "launch_params": {
    "aligner": "bwa",
+   "genome": "GRCh38",
    "narrow_peak": false,
    "read_length": 50,
    "save_reference": true,
@@ -114,14 +115,14 @@
   },
   "pipeline_key": "atacseq",
   "replies": [
-   "I've built an nf-core/atacseq run for these four paired-end ATAC-seq libraries. It isn't ready to launch yet because I need to know the species to set the reference genome.\n\n**What the run gives you:** open-chromatin peaks for each sample and a combined set of peaks across all four, with read counts per peak for each sample. The pipeline also runs a basic DESeq2 comparison on those counts. That gives a first look at which regions open up with JQ1 treatment compared with the controls. With only two replicates per group, treat it as preliminary.\n\n**Samplesheet** (one sheet, 4 samples):\n| Sample | Name | Condition | Replicate |\n|---|---|---|---|\n| D.SEQ-261028BMC-7 | NTC-ATAC-ctrl-1 | CTRL | 1 |\n| D.SEQ-261028BMC-8 | NTC-ATAC-ctrl-2 | CTRL | 2 |\n| D.SEQ-261028BMC-9 | NTC-ATAC-jq1-1 | JQ1 | 1 |\n| D.SEQ-261028BMC-10 | NTC-ATAC-jq1-2 | JQ1 | 2 |\n\n**Settings:**\n- **Aligner:** BWA\n- **Peak calling:** MACS2 in broad mode, the default\n- **Input controls:** none\n- **Read length:** set to 50, the closest option the pipeline accepts for these 38 bp reads. It's only used to estimate genome size for peak calling.\n- **Pipeline check:** the settings pass the pipeline's own validation.\n\n**Reference genome: not set.** None of the sample records say which organism these cells come from, so I can't pick a genome. Which species are they? Human (GRCh38), mouse (GRCm39 or mm10), or something else? Also, references for ATAC-seq still need to be set up on Luria before this can launch.\n\n**Run time:** there's no estimate for this pipeline yet.\n\nWhen it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nTell me the species, or anything else you'd like changed, such as narrow peaks or the bowtie2 aligner."
+   "I've built an nf-core/atacseq run for your four samples. Nothing has been submitted yet. They're paired-end Omni-ATAC libraries from K562 cells, two treated with JQ1 and two with DMSO, which is the kind of data this pipeline is for.\n\n**What the run gives you:** the open-chromatin regions (peaks) in each sample and in each group, plus a read-count table for every peak across all four samples. The pipeline also runs its own comparison of the two groups. That's a first look at which regions open or close with JQ1, not a full analysis of the differences.\n\n**Samplesheet:** one samplesheet, 4 samples.\n| Sample | Condition | Replicate |\n|---|---|---|\n| D.SEQ-261028BMC-7 | DMSO | 1 |\n| D.SEQ-261028BMC-8 | DMSO | 2 |\n| D.SEQ-261028BMC-9 | JQ1 (500 nM) | 1 |\n| D.SEQ-261028BMC-10 | JQ1 (500 nM) | 2 |\n\n**Run settings:**\n- **Reference:** the local Luria reference for human GRCh38 (GRCh38.primary_assembly.genome.fa.gz, gencode.v46.basic.annotation.gtf.gz).\n- **Aligner:** bwa.\n- **Peaks:** broad peaks, which is the default. I can switch to narrow peaks if you'd like.\n- **No input controls.**\n- **Read length set to 50.** The reads are actually 38 bp, but the pipeline only accepts 50, 75, 100, 150 or 200, so I used the closest one. This setting only affects the genome-size estimate used when calling peaks.\n- **Parameter check passed.**\n\n**Run time:** there's no estimate for this pipeline yet.\n\nWith two replicates per group, the test can run, but it has limited power to pick up smaller changes.\n\nOnce it finishes, just tell me \"my run is done\" and I'll turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is built and ready. Tell me if you want to change anything, such as narrow peaks or a different aligner."
   ],
   "route": "nextseek_query",
   "selection": {
    "pipelines": [
     "atacseq"
    ],
-   "reason": "These are paired-end ATAC-seq genomic DNA libraries, with names that split into treated (jq1) and control (ctrl) replicates, so atacseq can call open-chromatin peaks and compare accessibility between the two conditions; ATAC references still need staging on Luria before the run can launch.",
+   "reason": "These are paired-end Omni-ATAC (Tn5 tagmentation) genomic libraries from human K562 cells treated with JQ1 or DMSO, two replicates each, so atacseq can call open-chromatin peaks and compare accessibility between treated and control (ATAC references still need staging on Luria before it can run).",
    "verdict": "chosen"
   },
   "uids": [
@@ -168,7 +169,7 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_DQBe0YjbDVJo5uQC1iL4UK",
+        "id": "tooluse_2GtlMMcDYBdQB4eVUjcvFz",
         "input": {
          "kind": "last_search",
          "question": "Where is the chromatin open in the treated cells compared with the untreated ones?"
@@ -178,10 +179,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2030,
+       "bedrock_latency_ms": 1998,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "4224cbaa-3e49-4dcd-bcc8-cf5872e8891b",
+       "request_id": "80b61303-ed7b-4275-9528-3ff616c28e31",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -201,11 +202,11 @@
      "value": {
       "content": [
        {
-        "text": "Using nf-core/atacseq: these are paired-end ATAC-seq libraries split into JQ1-treated and control replicates.",
+        "text": "Using nf-core/atacseq: these are paired-end Omni-ATAC libraries from K562 cells (JQ1 vs DMSO, two replicates each).",
         "type": "text"
        },
        {
-        "id": "tooluse_PWjgRW6ZKEOmac9QVm4Y2i",
+        "id": "tooluse_AbPQtmQXFRwSYeSe9k4vHN",
         "input": {
          "kind": "last_search",
          "pipeline_key": "atacseq"
@@ -215,10 +216,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 3434,
+       "bedrock_latency_ms": 2399,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "5122b5d3-bd53-4967-8405-87a161799336",
+       "request_id": "842cff6e-0a30-490c-8e61-c19b36c6ed21",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -227,9 +228,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 126,
-       "prompt_tokens": 464,
-       "total_tokens": 11561
+       "completion_tokens": 137,
+       "prompt_tokens": 473,
+       "total_tokens": 11581
       }
      }
     },
@@ -238,27 +239,19 @@
      "value": {
       "content": [
        {
-        "reasoningContent": {
-         "reasoningText": {
-          "signature": "CAQS7wcKEggTEAEYAjgBQgh0aGlua2luZxIM1HGiBRB20m/ZuPUWGgzv7rgfr9VTQhWKVGciMOL8OIv7jALIgV2wo5DWBC7cL2O/WhAthKLARRrOpGrsko3ntqO+LB8BlPUJTtjltyqKBwGknImpVspJB42vIr7LsfwlsLESoKYTijuVjYdXD4QdE6m0blcB+NZHFj7fiogMf1rRCc2jbS3+sYEaz5nnz8yeHXNGv/YNkMmSuwsB70Mo7ucJzWgm3vTDdlzwA4sIJZTntHWcq3DKH6IoGjpFTPnRTj2GDP5m1v1HgtMH+MEi1Mr/mMh7ik6y8sC0dNJG+eyQErF+PQiYLKzCc/h95LGca8fFPnlan+xdt/PAje9SF0Puwh81JxS5WAQqlvyH2zbvNfjdqUDfSMcVWA6lczq43H7WxcRc4peQzfLvRShW74yf1uCpzNMO6qgb18EhwjBw+TI7Cd3p42ckveEiUfR8M3ueQD7UL58+LieUV5hp+Xwh2W5DSnNGACmgjAXOmOppQFMpZJeFgH/EeqTQxv1vmEi/CKvkslTYL+uiOPaavosuYgSV7FY/5kcI1P4Ba50DjXVRpRAkDX/uLHyfgvt5H7INNEOy7cLyYc/MxDFlFEmqrE+aQ/HiJABQb6hhCL1/zU2xKwOSconMpllq3Du7RzkOXBnnZQxcVzVMSQf5O8pRXmuH0CYgIW1cAYvU01BcdjjoNogM5uZN8Rs5+hDTOtZuO3bJHgXFpLoNts1bjvfWL/iXloxWb9e3k7U8WHHMSbQKxtvfKLcsGA5Ui+1gCWIbcQeEOEb58lbMAev87pTcY9hinXoAMiihLqvwd8svAXTS/Y21l93wJRRUU8SRLMIZJKQWHq88EsW3TPj8DLUsFkpRR1MwSw8HT723Ta24jaRhS8RuADnOczWIcnCZ6LhVHFl3CYmj/7d3xr7oOSZH7AcjFbSugLf2RRuU2JMCHtTzrP2zGaglUuJokHZq7CVm3lRYFwi7XQpYy57lcLq46lQFBXPToJDUXGA0HwGFAF5/PGaLNN/fEkkZDXUm+ZqolMqL6p9BdIH/PRfcm9kljScC67krWjyFIkLTlDOII8JXwQAFbSrKs5H7mOHx7xFVU9IhLGHPsANMn8zFe33DZh5gUe9Ss8hmW5FoFaZsIZ7Cw9I8nRyD4HVIhP0fZIMulSY21Qvc+gwfSjQrQ0ZHs9PPZkfUL4Y/K9wwk4LNeLR/Ugymhte70r2lcsikH9LHRvNAEK7Kk+x5KBwCoqTlZN94INE0xtF2Ifq6Lm9d4A09lQD4rZzFVRpe+sgKTdrq281zOR8lolzt5/xGuMBGMSFTdZozlBgB",
-          "text": ""
-         }
-        }
-       },
-       {
-        "id": "tooluse_2sft6udpmXZvUvbdzyHHes",
+        "id": "tooluse_sbvNyH4EGDIZg8Hq0NySfS",
         "input": {
          "cohorts": [
           {
-           "label": "jq1-vs-ctrl",
+           "label": "jq1-vs-dmso",
            "rows": [
             {
-             "condition": "CTRL",
+             "condition": "DMSO",
              "replicate": 1,
              "sample": "D.SEQ-261028BMC-7"
             },
             {
-             "condition": "CTRL",
+             "condition": "DMSO",
              "replicate": 2,
              "sample": "D.SEQ-261028BMC-8"
             },
@@ -282,10 +275,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 9202,
+       "bedrock_latency_ms": 2962,
        "http_status": 200,
-       "reasoning_blocks": 1,
-       "request_id": "bd062bfd-91bf-42c1-86e4-c40112b7d766",
+       "reasoning_blocks": 0,
+       "request_id": "d85a5437-26ef-42f4-af74-f18236511190",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -294,9 +287,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 454,
-       "prompt_tokens": 4071,
-       "total_tokens": 15496
+       "completion_tokens": 258,
+       "prompt_tokens": 5322,
+       "total_tokens": 16551
       }
      }
     },
@@ -305,15 +298,7 @@
      "value": {
       "content": [
        {
-        "reasoningContent": {
-         "reasoningText": {
-          "signature": "CAQSzAYKEggTEAEYAjgBQgh0aGlua2luZxIMmiz6zQaGgVq/qZr9GgzMzhqqbZjZfIG0kNMiMOgsiq4X+Pfpmrr3EcBMGArZE5GJq4EP5PglhnEAyBUor6OsmoXi0VWnqje8dnle1SrnBWsheNs11ST9fSl87OV7aJS2oWgtiYAI0ul7onVsBjv79KvAt01UmYYkSamXqKZXi0LYRbMLF1hrHQ5NNWn4RLuQBTWNX9u0SQc9W6CjUsTiVohStcSN2gpJYxA4cA4IIrnvtffgCSoJ9jfxegOo89VENYhjeA6f58agdzN2CFDPfD5qbEJqZxy8GBjyMvkjoVbazHFb2IipX7u6Kra7cG/AXOrF0hwgAcVJ7m3/gkI3TDpj5AvQi8ALOAKRl45ImiXWswPeHhdRwFYl7ftJ+8OBSYl4eX+nui3h75x2c9I/nalFt9YtxBMGYGYfXjobeySB98aonSlaORxMOpVOv3xjTsHXkH4Kp8/6x0+hWWXyzPXt28wfiVSILNtg0Wfs+RdXlh8ZwLi/wHv58A8tXI1qOtfM7HxMuBn+kgohXmzQo121SIPHGhOgKWIdftI82MVWyJGefYggTjSvJYuFeK0hI9jp3zAFcPml0wh2WAf4SAUWbPJEiBd6qKgmN48jjl4yeXxePQWZY3iuRiYx8Q1KQFImMInpPnwKevtCLBlWX/lWiJdr9Vq8PmonWUj0bf4W0mz8VyBjV26S+OT9Kzd5y7Lt3/ZyKQbIxxBtbrplVMdTUaNZLUAgqgBjc1CWhnybKqjwrkTyMPVngNd89it1ivEYKVq2uuf3pWiP6kmD72jXkdL5UbSWSetPBKdkU9W8IQm5Dg7nQv4KjETULkvDfZsMR90hDh27NVpGCKhOMxCeTIpnB0p25cvOLvDmyK6q/t7MW2CSqlbeY6D0XzLlwwVw6xHo7yQm5zFm+7oONMNEzh6inVzL9zCvRX3UZrZxOxW1xkBxxHEdMzIn4R2MJ+bXfqmMOHUK+agV+UZmCD9nGKnZxPuc7JuGxGXcEFponj5FH7BKqZTOPE9AVgxKwRy9uHIOJlpOtpi6y8EeaQYi7TB/bD9bu3PrhKTVDnpL7fshsCoJP2Y3UOukK40vcOglE2oKGAE=",
-          "text": ""
-         }
-        }
-       },
-       {
-        "id": "tooluse_91XaPU26wRX4ML00GHccgN",
+        "id": "tooluse_LD4vGJha9tEkFzHFYjuAVz",
         "input": {
          "params": {
           "read_length": 50
@@ -325,10 +310,10 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 3567,
+       "bedrock_latency_ms": 2058,
        "http_status": 200,
-       "reasoning_blocks": 1,
-       "request_id": "6d8b845c-adcb-4f36-9614-000d85b45d87",
+       "reasoning_blocks": 0,
+       "request_id": "61517df3-e3e1-4e85-bb90-1b6bc62e1d34",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
@@ -337,9 +322,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 192,
-       "prompt_tokens": 4704,
-       "total_tokens": 15867
+       "completion_tokens": 85,
+       "prompt_tokens": 5749,
+       "total_tokens": 16805
       }
      }
     },
@@ -350,21 +335,21 @@
        {
         "reasoningContent": {
          "reasoningText": {
-          "signature": "CAQS2wQKEggTEAEYAjgBQgh0aGlua2luZxIMSYl8jQrwqUKVZmJmGgyfDrCAwQAA3KERsR8iMEZrA8ngXRSnuBIT4HFzeEPigIwIBhV0pnnSFbgbJIk/zkZpy7XRhGHjP04AaqADESr2Aw03cKeUFnCbm7Q4YEaVZY00a5+E8EERZb+QrwAMRYTo2tjTB2Fe9qQ1My/Aj7zPXCTUjFiMFmRWKacJZnTp1Lh+eIz7RazdbHbPkF5DFpEUOjHVOQVRaw7DJ0nBgLzkJshc6OLj8p8M8H481dC2gLpJLSVXyj7U4qaukhT5xroCUT7xeq+Ahn4GhbuPuq+lyvdzq9GtYMHFWpPOybOeAq+jSqSxkU+6ZYpfV7IPTPR+x1CjCbKQb6TdW9nFSLwyB03lPWwIlhsT8lHmDtlzVABnh3RIiNZq+a9oMqoI5J/xAo+hxnPcZslWckEtxydSM54FZrMRSHHgq4e5tscwIkl6wnyD08ekP+Y46S5IViwycHsT5T6ukMxBUbPBPgFDHyOxboh0O+0pWWtb05uD9LCtCXxvRM5WdwH+spBj3DiwGQSVqQCiVL3sJevYDd5uFN2NJ+vpUdRHPbs/X9y3k/S4us6zIwi2IpWSg/sv3oqlYRSRThbceXZGHvfva+Gfwle3JmpIjvHKCjf+wtqpQhsUlwu417UEmQM2U/n0dUPVME29KLqzWwgrcwew4R6FJpGANAhVgeRJM3iMUDEHmnPLpbp2X/NkFQNO9JisQwcFFFsP+uUPc7uFpJmDY5FEPNuitLxUaas452vCimzYIg3gnM4NCg0YAQ==",
+          "signature": "CAQSugQKEggTEAEYAjgBQgh0aGlua2luZxIMMRZBiKx97pDSfrwqGgyfp+9R7K4iEuNOuZ4iMBSaX27utPGmFTsUf7O7WoEkyp7rcEwsRHWZzsN2DfDvZmTgAnFJtaHKQUdIuAsgCSrVA3GpIsDO1ZQr898batoENaFJjngu2eoz3PDfy6WmrxyfG0V4CtdDhBR+PWR0W4msXCL5vi6zozoqhsMwZuAnduPti9XW0CaN1MXdxfVKBOeD+e9eMlRntlif3+mhblJmKKQGJDH2F4vel1toylCxrzS2srKcKjH/ErtF6mTh/tXxTprDfuaPtX7NzRwpFyO73dtor+pkLFuEvnz6RBM7hBE0b/ipAZqUzSCv3vsIKFqSV9W4LnrfgdZtk5g8tuFgef4qy4KhpT3vuTDaMp/eIx7OdikjM/vU4uP2UO7Q0bFlBh3pIAzJ66kKBaeDHJawjbSabixKpwIAIrIt1IzQhxgBS8YRWiarLmHL/X9TkTWe+BTVCP2iFfqkvDZg7M/lCJLiGnoOAwbGCE3LVUcNE1SIPp1ofP/6FLJJG+4qLndZb/iFwrEVkED/CGtFRTedemkvLDNllta0820X4xT150nC0htxBI9TZ2LqPcrJUivTHuYv5jTGMpDEFOYn07PkDTC+BOp6q9U0zCS946GnFQRdsY1o38FcYXT4RadDyeUKPFnDaouE5cTwoV+jCQ5n68DxbEU71uq6h+mccxgavtavthy7OXg7JloQqyEd897Dnn0h4EsYAQ==",
           "text": ""
          }
         }
        },
        {
-        "text": "I've built an nf-core/atacseq run for these four paired-end ATAC-seq libraries. It isn't ready to launch yet because I need to know the species to set the reference genome.\n\n**What the run gives you:** open-chromatin peaks for each sample and a combined set of peaks across all four, with read counts per peak for each sample. The pipeline also runs a basic DESeq2 comparison on those counts. That gives a first look at which regions open up with JQ1 treatment compared with the controls. With only two replicates per group, treat it as preliminary.\n\n**Samplesheet** (one sheet, 4 samples):\n| Sample | Name | Condition | Replicate |\n|---|---|---|---|\n| D.SEQ-261028BMC-7 | NTC-ATAC-ctrl-1 | CTRL | 1 |\n| D.SEQ-261028BMC-8 | NTC-ATAC-ctrl-2 | CTRL | 2 |\n| D.SEQ-261028BMC-9 | NTC-ATAC-jq1-1 | JQ1 | 1 |\n| D.SEQ-261028BMC-10 | NTC-ATAC-jq1-2 | JQ1 | 2 |\n\n**Settings:**\n- **Aligner:** BWA\n- **Peak calling:** MACS2 in broad mode, the default\n- **Input controls:** none\n- **Read length:** set to 50, the closest option the pipeline accepts for these 38 bp reads. It's only used to estimate genome size for peak calling.\n- **Pipeline check:** the settings pass the pipeline's own validation.\n\n**Reference genome: not set.** None of the sample records say which organism these cells come from, so I can't pick a genome. Which species are they? Human (GRCh38), mouse (GRCm39 or mm10), or something else? Also, references for ATAC-seq still need to be set up on Luria before this can launch.\n\n**Run time:** there's no estimate for this pipeline yet.\n\nWhen it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nTell me the species, or anything else you'd like changed, such as narrow peaks or the bowtie2 aligner.",
+        "text": "I've built an nf-core/atacseq run for your four samples. Nothing has been submitted yet. They're paired-end Omni-ATAC libraries from K562 cells, two treated with JQ1 and two with DMSO, which is the kind of data this pipeline is for.\n\n**What the run gives you:** the open-chromatin regions (peaks) in each sample and in each group, plus a read-count table for every peak across all four samples. The pipeline also runs its own comparison of the two groups. That's a first look at which regions open or close with JQ1, not a full analysis of the differences.\n\n**Samplesheet:** one samplesheet, 4 samples.\n| Sample | Condition | Replicate |\n|---|---|---|\n| D.SEQ-261028BMC-7 | DMSO | 1 |\n| D.SEQ-261028BMC-8 | DMSO | 2 |\n| D.SEQ-261028BMC-9 | JQ1 (500 nM) | 1 |\n| D.SEQ-261028BMC-10 | JQ1 (500 nM) | 2 |\n\n**Run settings:**\n- **Reference:** the local Luria reference for human GRCh38 (GRCh38.primary_assembly.genome.fa.gz, gencode.v46.basic.annotation.gtf.gz).\n- **Aligner:** bwa.\n- **Peaks:** broad peaks, which is the default. I can switch to narrow peaks if you'd like.\n- **No input controls.**\n- **Read length set to 50.** The reads are actually 38 bp, but the pipeline only accepts 50, 75, 100, 150 or 200, so I used the closest one. This setting only affects the genome-size estimate used when calling peaks.\n- **Parameter check passed.**\n\n**Run time:** there's no estimate for this pipeline yet.\n\nWith two replicates per group, the test can run, but it has limited power to pick up smaller changes.\n\nOnce it finishes, just tell me \"my run is done\" and I'll turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is built and ready. Tell me if you want to change anything, such as narrow peaks or a different aligner.",
         "type": "text"
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 9555,
+       "bedrock_latency_ms": 7767,
        "http_status": 200,
        "reasoning_blocks": 1,
-       "request_id": "2b6dc410-f32a-4a71-9579-857168e94902",
+       "request_id": "391cea12-d4bf-4504-b264-67961835879b",
        "retry_attempts": 0,
        "stop_reason": "end_turn"
       },
@@ -373,9 +358,9 @@
        "cache_read_tokens": 10971,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 762,
-       "prompt_tokens": 5157,
-       "total_tokens": 16890
+       "completion_tokens": 749,
+       "prompt_tokens": 6164,
+       "total_tokens": 17884
       }
      }
     }
@@ -394,6 +379,82 @@
       },
       "data": {
        "data": [
+        {
+         "n_samples": 4,
+         "sample_type": "CEL",
+         "sample_type_description": "A cell sample represents a defined population of living or preserved cells collected or cultured for experimental study. These samples form the foundation for exploring biological mechanisms, testing treatments, or generating derived materials. Each reflects a specific origin or condition, such as tissue type, species, or growth environment.",
+         "sample_type_name": "Cell",
+         "samples": [
+          {
+           "id": "1308983",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-10"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-10"
+          },
+          {
+           "id": "1308984",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-7"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-7"
+          },
+          {
+           "id": "1308985",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-8"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-8"
+          },
+          {
+           "id": "1308986",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-9"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-9"
+          }
+         ]
+        },
         {
          "n_samples": 4,
          "sample_type": "D.SEQ",
@@ -797,13 +858,81 @@
            "uuid": "D.SEQ-261028BMC-9"
           }
          ]
+        },
+        {
+         "n_samples": 4,
+         "sample_type": "DNA",
+         "sample_type_description": "A DNA sample contains extracted genetic material isolated from a biological source. It serves as input for sequencing, amplification, or other genomic analyses.",
+         "sample_type_name": "DNA Sample",
+         "samples": [
+          {
+           "id": "1308987",
+           "metadata": {
+            "Barcode": "ACTGCATA",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib2",
+            "Parent": "CEL-261028BMC-10",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-10"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-10"
+          },
+          {
+           "id": "1308988",
+           "metadata": {
+            "Barcode": "CTCTCTAT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib1",
+            "Parent": "CEL-261028BMC-7",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-7"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-7"
+          },
+          {
+           "id": "1308989",
+           "metadata": {
+            "Barcode": "TATCCTCT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib2",
+            "Parent": "CEL-261028BMC-8",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-8"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-8"
+          },
+          {
+           "id": "1308990",
+           "metadata": {
+            "Barcode": "GTAAGGAG",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib1",
+            "Parent": "CEL-261028BMC-9",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-9"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-9"
+          }
+         ]
         }
        ],
        "failed_uids": 0,
-       "lineage_complete": false,
-       "total_children": 0,
-       "total_sample_types": 1,
-       "total_samples": 4
+       "lineage_complete": true,
+       "total_children": 8,
+       "total_sample_types": 3,
+       "total_samples": 12
       },
       "method": "POST",
       "ok": true,
@@ -837,6 +966,80 @@
       },
       "data": {
        "data": [
+        {
+         "n_samples": 4,
+         "sample_type": "CEL",
+         "samples": [
+          {
+           "id": "1308983",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-10"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-10"
+          },
+          {
+           "id": "1308984",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-7"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-7"
+          },
+          {
+           "id": "1308985",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-8"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-8"
+          },
+          {
+           "id": "1308986",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-9"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-9"
+          }
+         ]
+        },
         {
          "n_samples": 4,
          "sample_type": "D.SEQ",
@@ -1238,13 +1441,79 @@
            "uuid": "D.SEQ-261028BMC-9"
           }
          ]
+        },
+        {
+         "n_samples": 4,
+         "sample_type": "DNA",
+         "samples": [
+          {
+           "id": "1308987",
+           "metadata": {
+            "Barcode": "ACTGCATA",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib2",
+            "Parent": "CEL-261028BMC-10",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-10"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-10"
+          },
+          {
+           "id": "1308988",
+           "metadata": {
+            "Barcode": "CTCTCTAT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib1",
+            "Parent": "CEL-261028BMC-7",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-7"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-7"
+          },
+          {
+           "id": "1308989",
+           "metadata": {
+            "Barcode": "TATCCTCT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib2",
+            "Parent": "CEL-261028BMC-8",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-8"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-8"
+          },
+          {
+           "id": "1308990",
+           "metadata": {
+            "Barcode": "GTAAGGAG",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib1",
+            "Parent": "CEL-261028BMC-9",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-9"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-9"
+          }
+         ]
         }
        ],
        "failed_uids": 0,
-       "lineage_complete": false,
-       "total_children": 0,
-       "total_sample_types": 1,
-       "total_samples": 4
+       "lineage_complete": true,
+       "total_children": 8,
+       "total_sample_types": 3,
+       "total_samples": 12
       },
       "method": "POST",
       "ok": true,
@@ -1259,7 +1528,7 @@
    "payload": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "d7d46ed22e7f6a705c7b3cf96749210bed8bab438e7726f2be97b3a6f421252c"
+     "value": "adcc71b37a9df33ea2fb465a9d812818cc1d1ee1a52c602387fef4ff28c647c5"
     }
    ],
    "schemas": {
@@ -1347,7 +1616,7 @@
    "selection": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "{\"pipelines\": [\"atacseq\"], \"reason\": \"These are paired-end ATAC-seq genomic DNA libraries, with names that split into treated (jq1) and control (ctrl) replicates, so atacseq can call open-chromatin peaks and compare accessibility between the two conditions; ATAC references still need staging on Luria before the run can launch.\", \"basis\": \"data\"}"
+     "value": "{\"pipelines\": [\"atacseq\"], \"reason\": \"These are paired-end Omni-ATAC (Tn5 tagmentation) genomic libraries from human K562 cells treated with JQ1 or DMSO, two replicates each, so atacseq can call open-chromatin peaks and compare accessibility between treated and control (ATAC references still need staging on Luria before it can run).\", \"basis\": \"data\"}"
     }
    ]
   }
