@@ -96,3 +96,24 @@ def test_link_line_not_added_when_link_present_or_no_column_or_unknown_title():
 def test_link_line_is_idempotent():
     once = cc_engine.fix_ontology_links(_STORED, INDEX + [_GENO])
     assert cc_engine.fix_ontology_links(once, INDEX + [_GENO]) == once
+
+
+def _same(text):
+    assert cc_engine.fix_ontology_links(text, INDEX + [_GENO]) == text
+
+
+def test_no_line_for_a_table_listing_ontologies():
+    _same("| Ontology | Terms |\n|---|---|\n| Mouse genotypes | 40 |\n| Thing One | 3 |\n")
+
+
+def test_no_line_inside_a_code_fence():
+    _same("```\n" + _STORED + "```\n")
+
+
+def test_no_line_for_a_cell_that_only_contains_the_title():
+    _same(_STORED.replace("Mouse genotypes (house list)", "MONDO Mouse genotypes ontology"))
+    _same(_STORED.replace("Mouse genotypes (house list)", "no Mouse genotypes term fits"))
+
+
+def test_no_second_sentence_when_matched_against_is_present():
+    _same("Matched against the house list.\n\n" + _STORED)
