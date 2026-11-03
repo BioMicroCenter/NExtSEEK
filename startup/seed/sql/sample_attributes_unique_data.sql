@@ -1,4 +1,4 @@
--- 1017 attribute definitions for dmac.sample_attributes_unique.
+-- 1020 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
@@ -12,6 +12,8 @@
 -- So are the six peak-quality attributes for atacseq and chipseq (FRiPPercent and
 -- PeakCount on A.CHRM; NSC, RSC, FingerprintJSD and TSSEnrichment on D.SEQ), and
 -- A.CHRM's Antibody, the antibody a ChIP library was enriched with.
+-- So are the three A.MSEQ fields for methylseq's methylation calls
+-- (ConversionMethod, MethylationProtocol, MeanCpGMethylationPercent).
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -225,6 +227,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Contact','','Email address of the person to contact about this record.'),
  ('Contamination','','How the data were screened for contamination, and against what reference.'),
  ('ContinuousPhase','','The continuous phase of the emulsion, e.g. 1X PBS.'),
+ ('ConversionMethod','','How unmethylated cytosines were made readable before sequencing: Bisulfite, EM-seq (enzymatic) or TAPS.'),
  ('Core','','Identifier of the tissue core this sample came from, e.g. C4.'),
  ('Cough','','Whether the patient reported a cough.'),
  ('CoughSputum','','Whether the patient reported coughing up sputum.'),
@@ -542,6 +545,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Matrix','','The expression matrix file or the quantification unit it holds, e.g. FPKM.'),
  ('MatrixDataType','','Format of the matrix file, e.g. TSV.'),
  ('MaxPassage','','The highest passage number the cells were used at.'),
+ ('MeanCpGMethylationPercent','','Percentage of cytosines in CpG context called methylated across the sample, as Bismark''s methylation extractor reports it.'),
  ('MeanReadsPerCell','','Sequenced reads divided by the number of called cells (Cell Ranger).'),
  ('MeasurementDuration','','How long the measurement ran for.'),
  ('MeasurementInterval','','The interval between successive measurements.'),
@@ -563,6 +567,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Methamphetamine_Use','','Whether the patient reports methamphetamine use.'),
  ('Methaqualone_Use','','Whether the patient reports methaqualone use.'),
  ('Method','','The analytical method used, e.g. LC-MS/MS.'),
+ ('MethylationProtocol','','The methylation library protocol: WGBS, RRBS, PBAT, scBS-seq or NOMe-seq.'),
  ('MinSeedingDensity','','The minimum cell density the culture was seeded at.'),
  ('MiniKnowVersion','','The version of MinKNOW used to run the sequencer.'),
  ('MismatchPercent','','Mismatched bases (NM tag) as a percentage of aligned bases (samtools stats error rate).'),
