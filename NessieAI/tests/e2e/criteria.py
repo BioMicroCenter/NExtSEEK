@@ -23,6 +23,22 @@ def _codes(items: list[dict], key: str = "code") -> list:
     return [item.get(key) for item in items if item.get(key)]
 
 
+def _bound_cypher(plan: dict) -> str:
+    """The graph plan's Cypher with each bound ``$name`` written in as a literal.
+
+    The graph agent binds values (``inv.title = $inv``, ``$inv = 'TCGA'``), and the
+    bound value is what the query filters on, so a criterion on ``graph_cypher`` must
+    see it. A name with no parameter is left as written.
+    """
+    cypher = plan.get("cypher") or ""
+    params = plan.get("parameters") or {}
+    if not params:
+        return cypher
+    return re.sub(r"\$(\w+)\b",
+                  lambda m: repr(params[m.group(1)]) if m.group(1) in params else m.group(0),
+                  cypher)
+
+
 def _api_artifact_resolve(field: str, run_root: Path | None) -> Any:
     """Handle api_artifact.<filename>[.rows_gte] resolution."""
     if run_root is None:
@@ -185,7 +201,7 @@ def resolve_field(
         "shortlist_sampletype_codes": lambda d: d.get("shortlist_sampletype_codes") or [],
         "shortlist_assay_codes":      lambda d: d.get("shortlist_assay_codes") or [],
         "entity_projects":         lambda d: (d.get("entity_result") or {}).get("projects", []),
-        "graph_cypher":            lambda d: (d.get("graph_plan") or {}).get("cypher") or "",
+        "graph_cypher":            lambda d: _bound_cypher(d.get("graph_plan") or {}),
         "neo4j_ok":                lambda d: (d.get("graph_result") or {}).get("ok", False),
         "api_ok":                  lambda d: (d.get("api_result_meta") or {}).get("ok", False),
     }

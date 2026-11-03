@@ -2547,7 +2547,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -2587,7 +2589,7 @@
               ]
             }
           ],
-          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code.",
+          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 444 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -5956,11 +5958,6 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?is)^(?!.*(D\\.SEQ|T_D_SEQ))"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
                   "value": "(?i)TCGA"
                 },
                 {
@@ -5971,7 +5968,7 @@
               ]
             }
           ],
-          "_why": "The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN, never D.SEQ. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6014,17 +6011,12 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?is)^(?!.*(D\\.SEQ|T_D_SEQ))"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
                   "value": "(?i)TCGA"
                 }
               ]
             }
           ],
-          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN, never D.SEQ. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6067,17 +6059,12 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?is)^(?!.*(D\\.SEQ|T_D_SEQ))"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
                   "value": "(?i)TCGA"
                 }
               ]
             }
           ],
-          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN, never D.SEQ. route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6427,7 +6414,7 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "matches_re",
-                  "value": "^(ask_about_last_results|refine_last_search)$"
+                  "value": "^(ask_about_last_results|refine_last_search|graph_query)$"
                 }
               ]
             }
@@ -6442,7 +6429,7 @@
           "retirement": null,
           "_deselected_2026_08_06_qset": "third variant on NHP-220630FLY-5-PUB. Its follow-up (38 sequencing samples) is already covered by the type breakdown recorded on retrieve.single_nhp.",
           "_edited_2026_08_11_issue35": "CRITERIA ONLY -- both question texts unchanged. This variant is issue #35's own named example of a criterion that pins one of several VALID endpoints: the seed asserted `api_plan.endpoint contains sample-tree`, but min_api_endpoints_enriched.json offers two defensible answers to 'show me everything derived from X' and says so in its own llm_hint -- /nextseek_api/sample-tree/{uid}/tree/ for the lineage, /nextseek_api/admin/samples/retrieve/ for the associated-sample export. Relaxed to `matches_re (sample-tree|samples/retrieve)` so the case scores the ANSWER, not the route the planner happened to pick. || The follow_up turn asserted only parser_plan.mode plus chat_log.length, and `chat_log.` is in evaluate._UNOBSERVABLE_FIELD_PREFIXES, so it scored on plan shape alone and could not detect a wrong answer -- it was one of the per-turn vacuous turns named in test_overlay_content. Added `last_reply matches_re \\b38\\b`. || VERIFIED: Neo4j cypher-shell, read-only, 2026-08-11: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5-PUB'}) = 221 distinct descendants, of which D.SEQ = 38. Type breakdown TIS 72, DNA 38, D.SEQ 38, BAC 33, PAV 15, D.FLOW 13, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1 -- matches the breakdown recorded on retrieve.single_nhp exactly.",
-          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged. Its route_policy override (NS or CC) is deleted: the seed asserts nextseek_query inline and the follow-up container_cc, per the 2026-09-23 routing rulings. || 2026-09-24: follow-up split (routing review 5): a filter over the earlier result, which NExtSEEK answers by re-running the lineage search, so the follow-up asserts nextseek_query (was container_cc). The floor's outcome_observed, skipped on a container_cc turn, is scored again; the NExtSEEK follow-up path reports api_result_meta.source_mode, which satisfies it."
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged. Its route_policy override (NS or CC) is deleted: the seed asserts nextseek_query inline and the follow-up container_cc, per the 2026-09-23 routing rulings. || 2026-09-24: follow-up split (routing review 5): a filter over the earlier result, which NExtSEEK answers by re-running the lineage search, so the follow-up asserts nextseek_query (was container_cc). The floor's outcome_observed, skipped on a container_cc turn, is scored again; the NExtSEEK follow-up path reports api_result_meta.source_mode, which satisfies it. || 2026-11-03 (r5, F6): the follow-up's parser mode also accepts graph_query: on dev 11-02 the parser re-ran the lineage search anchored on the seed's UID and answered right (38 of 221); the reply criterion (38) is what scores the answer."
         },
         {
           "id": "tree.what_is_the_parent_chain_for_n",
@@ -14170,7 +14157,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -14215,7 +14204,7 @@
               ]
             }
           ],
-          "_why": "MDL-250912LAU-2 (a TransCompR model) carries File_PrimaryData and Link_PrimaryData and no Repository. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (m:Sample {uuid:'MDL-250912LAU-2'}) RETURN m.File_PrimaryData IS NOT NULL, m.Link_PrimaryData IS NOT NULL. Its primary file is an .rds file whose Link_PrimaryData is a /net/ storage path, so a reply that looked the record up names one or the other; the file is not in NExtSEEK, its location is. || WAS: the parser returned unsupported, 'No available REST endpoint supports downloading raw file artifacts' (C1). || TESTS: the P6 fix (File_/Link_PrimaryData), which production answered for a project on 2026-09-23 (retest Q7).",
+          "_why": "MDL-250912LAU-2 (a TransCompR model) carries File_PrimaryData and Link_PrimaryData and no Repository. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (m:Sample {uuid:'MDL-250912LAU-2'}) RETURN m.File_PrimaryData IS NOT NULL, m.Link_PrimaryData IS NOT NULL. Its primary file is an .rds file whose Link_PrimaryData is a /net/ storage path, so a reply that looked the record up names one or the other; the file is not in NExtSEEK, its location is. || WAS: the parser returned unsupported, 'No available REST endpoint supports downloading raw file artifacts' (C1). || TESTS: the P6 fix (File_/Link_PrimaryData), which production answered for a project on 2026-09-23 (retest Q7). || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 433 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -14224,7 +14213,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -14274,7 +14265,7 @@
               ]
             }
           ],
-          "_why": "Same record as file.download_a_model_file. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply said the chat cannot transfer files and pointed to a repository link and the web UI (C1). An answer that only explains the field names in general, without looking the record up (the old reply told the user to find 'Link_PrimaryData' and download from the NExtSEEK web platform, which does not host the file), fails the record-specific criterion. || TESTS: the instructions name where this file lives, and never claim an attachment.",
+          "_why": "Same record as file.download_a_model_file. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply said the chat cannot transfer files and pointed to a repository link and the web UI (C1). An answer that only explains the field names in general, without looking the record up (the old reply told the user to find 'Link_PrimaryData' and download from the NExtSEEK web platform, which does not host the file), fails the record-specific criterion. || TESTS: the instructions name where this file lives, and never claim an attachment. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 434 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -15689,19 +15680,9 @@
               "query": "Which mutations do TCGA-LUAD patients carry?",
               "pass_criteria": [
                 {
-                  "field": "entity_sampletype_codes",
-                  "op": "contains",
-                  "value": "A.VCF"
-                },
-                {
-                  "field": "neo4j_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
-                  "field": "graph_cypher",
+                  "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?i)A\\.VCF|T_A_VCF"
+                  "value": "(?is)(variant[- ]call|\\bVCF\\b)"
                 },
                 {
                   "field": "last_reply",
@@ -15724,7 +15705,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no D.SEQ and names its A.VCF (#143); rnavar takes only D.SEQ, so an offer could never start. || TESTS: the entity agent emits A.VCF for a variant question scoped to an investigation that holds variant calls and no reads, and the parser keeps it on graph_query. parser_plan.mode is dropped by route_policy, so 'stays graph_query' is asserted as a graph read of A.VCF.",
+          "_why": "Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no D.SEQ and names its A.VCF (#143); rnavar takes only D.SEQ, so an offer could never start. || TESTS: the entity agent emits A.VCF for a variant question scoped to an investigation that holds variant calls and no reads, and the parser keeps it on graph_query. parser_plan.mode is dropped by route_policy, so 'stays graph_query' is asserted as a graph read of A.VCF. || 2026-11-03 (r5, F7): on the operator's ruling of 11-02 ('I think this is fine') Container-CC answering from the registered variant-call files is accepted; the NS-only entity, neo4j_ok and Cypher criteria gave way to a reply criterion naming the variant-call files, and the two no-run-offered criteria stay.",
           "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
         },
         {
@@ -16287,7 +16268,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -16316,7 +16299,7 @@
               ]
             }
           ],
-          "_why": "4 samples: D.SEQ-240910LAU-135-PUB, -136-PUB, -137-PUB and -94-PUB. star_salmon holds exactly 4 markdup.sorted.bam files; the run log ends 'Succeeded: 135, Cached: 36'. || VERIFIED: ssh luria, ls of the run directory and of star_salmon/, and head of samplesheet.csv \u2014 verified 2026-08-06, the directory still exists. || TESTS: \u26a0 CC-ONLY BY CONSTRUCTION: `nextseek-run-ls` SSHes the cluster and the NExtSEEK engine has no equivalent, so the NS arm is expected to fail. That asymmetry IS the routing signal \u2014 reingest was 13 of the 101 real ad-hoc questions and has never been measured.",
+          "_why": "4 samples: D.SEQ-240910LAU-135-PUB, -136-PUB, -137-PUB and -94-PUB. star_salmon holds exactly 4 markdup.sorted.bam files; the run log ends 'Succeeded: 135, Cached: 36'. || VERIFIED: ssh luria, ls of the run directory and of star_salmon/, and head of samplesheet.csv \u2014 verified 2026-08-06, the directory still exists. || TESTS: \u26a0 CC-ONLY BY CONSTRUCTION: `nextseek-run-ls` SSHes the cluster and the NExtSEEK engine has no equivalent, so the NS arm is expected to fail. That asymmetry IS the routing signal \u2014 reingest was 13 of the 101 real ad-hoc questions and has never been measured. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -16325,7 +16308,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -16354,7 +16339,7 @@
               ]
             }
           ],
-          "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat.",
+          "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
