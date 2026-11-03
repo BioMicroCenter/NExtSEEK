@@ -46,6 +46,17 @@ def test_refusals_in_sees_an_absolute_path_after_a_newline_or_tab():
     assert scrub.refusals_in({"a": ["fine", 3, None, {"b": "REDACTED"}]}) == []
 
 
+def test_a_thinking_signature_is_opaque_but_only_when_it_is_base64():
+    # A model's reasoning signature is standard base64, so a random stretch of it can read as /a/b.
+    signature = "CAQS2gQK+/OMx/EHERgHQoiQs5JYgKWrMx0U0HWl/hQjqcnNVP0bSm00+aA2AcRN8DX2K=="
+    assert scrub.refusals(signature)
+    reply = {"content": [{"reasoningContent": {"reasoningText": {"text": "fine", "signature": signature}}}]}
+    assert scrub.refusals_in(reply) == []
+    # Anything else under that key is still read, and so is the same text under any other key.
+    assert scrub.refusals_in({"signature": "see /home/x/y"})
+    assert scrub.refusals_in({"text": signature})
+
+
 def test_refusals_judge_each_url_piece():
     ok = "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/x"
     assert scrub.refusals(f"{ok},https://private.example/y")

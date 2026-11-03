@@ -188,13 +188,24 @@ def refusals(text: str) -> list[str]:
     return out
 
 
+#: A model's reasoning signature (Bedrock's reasoningContent.reasoningText.signature): an opaque token in
+#: standard base64, whose "/" can read as an absolute path. Base64 can hold no email, URL or person.
+_OPAQUE_KEYS = frozenset({"signature"})
+_BASE64 = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+
+
+def _opaque(key, value) -> bool:
+    return key in _OPAQUE_KEYS and isinstance(value, str) and bool(_BASE64.fullmatch(value))
+
+
 def refusals_in(value) -> list[str]:
     """`refusals` over every string leaf (and key) of a value, so an escaped newline in JSON text
-    can never hide an absolute path from the path pattern."""
+    can never hide an absolute path from the path pattern. A base64 reasoning signature is not read."""
     if isinstance(value, str):
         return refusals(value)
     if isinstance(value, dict):
-        return [r for k, v in value.items() for r in refusals_in(str(k)) + refusals_in(v)]
+        return [r for k, v in value.items()
+                for r in refusals_in(str(k)) + ([] if _opaque(k, v) else refusals_in(v))]
     if isinstance(value, (list, tuple, set)):
         return [r for v in value for r in refusals_in(v)]
     return []
