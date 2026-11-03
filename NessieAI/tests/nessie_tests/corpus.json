@@ -2547,7 +2547,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -2587,7 +2589,7 @@
               ]
             }
           ],
-          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code.",
+          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 444 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -14155,7 +14157,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -14200,7 +14204,7 @@
               ]
             }
           ],
-          "_why": "MDL-250912LAU-2 (a TransCompR model) carries File_PrimaryData and Link_PrimaryData and no Repository. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (m:Sample {uuid:'MDL-250912LAU-2'}) RETURN m.File_PrimaryData IS NOT NULL, m.Link_PrimaryData IS NOT NULL. Its primary file is an .rds file whose Link_PrimaryData is a /net/ storage path, so a reply that looked the record up names one or the other; the file is not in NExtSEEK, its location is. || WAS: the parser returned unsupported, 'No available REST endpoint supports downloading raw file artifacts' (C1). || TESTS: the P6 fix (File_/Link_PrimaryData), which production answered for a project on 2026-09-23 (retest Q7).",
+          "_why": "MDL-250912LAU-2 (a TransCompR model) carries File_PrimaryData and Link_PrimaryData and no Repository. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (m:Sample {uuid:'MDL-250912LAU-2'}) RETURN m.File_PrimaryData IS NOT NULL, m.Link_PrimaryData IS NOT NULL. Its primary file is an .rds file whose Link_PrimaryData is a /net/ storage path, so a reply that looked the record up names one or the other; the file is not in NExtSEEK, its location is. || WAS: the parser returned unsupported, 'No available REST endpoint supports downloading raw file artifacts' (C1). || TESTS: the P6 fix (File_/Link_PrimaryData), which production answered for a project on 2026-09-23 (retest Q7). || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 433 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -14209,7 +14213,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -14259,7 +14265,7 @@
               ]
             }
           ],
-          "_why": "Same record as file.download_a_model_file. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply said the chat cannot transfer files and pointed to a repository link and the web UI (C1). An answer that only explains the field names in general, without looking the record up (the old reply told the user to find 'Link_PrimaryData' and download from the NExtSEEK web platform, which does not host the file), fails the record-specific criterion. || TESTS: the instructions name where this file lives, and never claim an attachment.",
+          "_why": "Same record as file.download_a_model_file. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply said the chat cannot transfer files and pointed to a repository link and the web UI (C1). An answer that only explains the field names in general, without looking the record up (the old reply told the user to find 'Link_PrimaryData' and download from the NExtSEEK web platform, which does not host the file), fails the record-specific criterion. || TESTS: the instructions name where this file lives, and never claim an attachment. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 434 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -16262,7 +16268,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -16291,7 +16299,7 @@
               ]
             }
           ],
-          "_why": "4 samples: D.SEQ-240910LAU-135-PUB, -136-PUB, -137-PUB and -94-PUB. star_salmon holds exactly 4 markdup.sorted.bam files; the run log ends 'Succeeded: 135, Cached: 36'. || VERIFIED: ssh luria, ls of the run directory and of star_salmon/, and head of samplesheet.csv \u2014 verified 2026-08-06, the directory still exists. || TESTS: \u26a0 CC-ONLY BY CONSTRUCTION: `nextseek-run-ls` SSHes the cluster and the NExtSEEK engine has no equivalent, so the NS arm is expected to fail. That asymmetry IS the routing signal \u2014 reingest was 13 of the 101 real ad-hoc questions and has never been measured.",
+          "_why": "4 samples: D.SEQ-240910LAU-135-PUB, -136-PUB, -137-PUB and -94-PUB. star_salmon holds exactly 4 markdup.sorted.bam files; the run log ends 'Succeeded: 135, Cached: 36'. || VERIFIED: ssh luria, ls of the run directory and of star_salmon/, and head of samplesheet.csv \u2014 verified 2026-08-06, the directory still exists. || TESTS: \u26a0 CC-ONLY BY CONSTRUCTION: `nextseek-run-ls` SSHes the cluster and the NExtSEEK engine has no equivalent, so the NS arm is expected to fail. That asymmetry IS the routing signal \u2014 reingest was 13 of the 101 real ad-hoc questions and has never been measured. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -16300,7 +16308,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -16329,7 +16339,7 @@
               ]
             }
           ],
-          "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat.",
+          "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {

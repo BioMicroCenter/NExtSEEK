@@ -2191,3 +2191,18 @@ def test_the_loader_recipe_archives_every_nessie_package_the_loader_imports():
         return any(a == path or a == f"{path}.py" or path.startswith(f"{a}/") for a in archived)
     missing = sorted(m for m in wanted if not _covered(m))
     assert not missing, f"the recipe's archive lacks {missing}"
+
+
+def test_the_runner_names_its_instance_to_the_harness_for_requires_env(tmp_path, capsys):
+    """r5 F8 (2026-11-03): a case that needs production records carries
+    requires_env ["NESSIE_ON_PROD"], so the runner exports NESSIE_ON_<INSTANCE>=1 into
+    the harness's exec; on dev such a case is recorded skipped, not red."""
+    import subprocess
+    d, text = rendered_runner(tmp_path, capsys, images=["app"])
+    i_start, i_exec = text.index("NESSIE_START"), text.index("manage.py nessie --tier full")
+    assert '-e "$NESSIE_ON=1"' in text[i_start:i_exec + 40]
+    lines = [ln for ln in text.splitlines() if ln.startswith(("INSTANCE=", "NESSIE_ON="))]
+    assert len(lines) == 2
+    for inst, want in (("dev", "NESSIE_ON_DEV"), ("prod", "NESSIE_ON_PROD")):
+        script = f"INSTANCE={inst}\n{lines[1]}\nprintf %s \"$NESSIE_ON\""
+        assert subprocess.run(["bash", "-c", script], capture_output=True, text=True).stdout == want
