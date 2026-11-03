@@ -15682,7 +15682,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(variant[- ]call|\\bVCF\\b)"
+                  "value": "(?is)(variant[- ]call files?|\\bA\\.VCF\\b)"
                 },
                 {
                   "field": "last_reply",
@@ -15705,7 +15705,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no D.SEQ and names its A.VCF (#143); rnavar takes only D.SEQ, so an offer could never start. || TESTS: the entity agent emits A.VCF for a variant question scoped to an investigation that holds variant calls and no reads, and the parser keeps it on graph_query. parser_plan.mode is dropped by route_policy, so 'stays graph_query' is asserted as a graph read of A.VCF. || 2026-11-03 (r5, F7): on the operator's ruling of 11-02 ('I think this is fine') Container-CC answering from the registered variant-call files is accepted; the NS-only entity, neo4j_ok and Cypher criteria gave way to a reply criterion naming the variant-call files, and the two no-run-offered criteria stay.",
+          "_why": "Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no D.SEQ and names its A.VCF (#143); rnavar takes only D.SEQ, so an offer could never start. || TESTS: the entity agent emits A.VCF for a variant question scoped to an investigation that holds variant calls and no reads, and the parser keeps it on graph_query. parser_plan.mode is dropped by route_policy, so 'stays graph_query' is asserted as a graph read of A.VCF. || 2026-11-03 (r5, F7): on the operator's ruling of 11-02 ('I think this is fine') Container-CC answering from the registered variant-call files is accepted; the NS-only entity, neo4j_ok and Cypher criteria gave way to a reply criterion naming the registered variant-call files (not 'variant calling', which an rnavar offer would say), and the two no-run-offered criteria stay; the TESTS line above describes the NS path this case asserted before.",
           "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
         },
         {
@@ -16268,9 +16268,7 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [
-            "NESSIE_ON_PROD"
-          ],
+          "requires_env": [],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -16299,7 +16297,7 @@
               ]
             }
           ],
-          "_why": "4 samples: D.SEQ-240910LAU-135-PUB, -136-PUB, -137-PUB and -94-PUB. star_salmon holds exactly 4 markdup.sorted.bam files; the run log ends 'Succeeded: 135, Cached: 36'. || VERIFIED: ssh luria, ls of the run directory and of star_salmon/, and head of samplesheet.csv \u2014 verified 2026-08-06, the directory still exists. || TESTS: \u26a0 CC-ONLY BY CONSTRUCTION: `nextseek-run-ls` SSHes the cluster and the NExtSEEK engine has no equivalent, so the NS arm is expected to fail. That asymmetry IS the routing signal \u2014 reingest was 13 of the 101 real ad-hoc questions and has never been measured. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
+          "_why": "4 samples: D.SEQ-240910LAU-135-PUB, -136-PUB, -137-PUB and -94-PUB. star_salmon holds exactly 4 markdup.sorted.bam files; the run log ends 'Succeeded: 135, Cached: 36'. || VERIFIED: ssh luria, ls of the run directory and of star_salmon/, and head of samplesheet.csv \u2014 verified 2026-08-06, the directory still exists. || TESTS: \u26a0 CC-ONLY BY CONSTRUCTION: `nextseek-run-ls` SSHes the cluster and the NExtSEEK engine has no equivalent, so the NS arm is expected to fail. That asymmetry IS the routing signal \u2014 reingest was 13 of the 101 real ad-hoc questions and has never been measured. || 2026-11-03 (r5): on dev the run folders belong to another account, so the op answers not_your_run; the operator ruled this an 'expected failure' (11-02). Not skipped on dev: this family never runs on prod (PROD_FORBIDDEN_FAMILIES), so a prod-only skip would run it nowhere, and the corpus allows no known_fail tag. Retiring it, or a fixture run folder owned by the CI login, is the operator's call.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -16308,9 +16306,7 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [
-            "NESSIE_ON_PROD"
-          ],
+          "requires_env": [],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -16339,7 +16335,7 @@
               ]
             }
           ],
-          "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
+          "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat. || 2026-11-03 (r5): on dev the run folders belong to another account, so the op answers not_your_run; the operator ruled this an 'expected failure' (11-02). Not skipped on dev: this family never runs on prod (PROD_FORBIDDEN_FAMILIES), so a prod-only skip would run it nowhere, and the corpus allows no known_fail tag. Retiring it, or a fixture run folder owned by the CI login, is the operator's call.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
