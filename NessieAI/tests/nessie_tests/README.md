@@ -253,11 +253,12 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 ## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active`: **142 today** (153 before the
-2026-10-07 test-set review retired 11 selected duplicates),
+`--bayesian` drives every variant flagged `is_bayesian` + `active`: **144 today** (`len(corpus.bayesian_ids())`;
+153 before the 2026-10-07 test-set review retired 11 selected duplicates),
 the 149 of the 2026-08-06 question set, less the retired ones, plus one case from each of the four families added
 2026-09-23 (`pub.pmid_bare`, `person.lau_lab_samples`, `file.flow_file_for_a_patient`,
-`export.session_to_the_developers`), which that document does not list. 25 of the 26 task families, one distinct question per
+`export.session_to_the_developers`), which that document does not list. 28 of the 30 task families (`engine_routing` and the now gate-only
+`pipeline_output_reingest` have no selected case, by design), one distinct question per
 variant, and every one asserting a verified value on `last_reply` (the only field
 that survives forcing on a `container_cc` arm).
 
