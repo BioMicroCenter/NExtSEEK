@@ -400,3 +400,34 @@ def test_code_path_lead_reads_a_uid_the_way_the_report_metadata_does():
     lead = outmod._code_path_lead("SRA", md, "D.SEQ", {})
     assert "3 samples" in lead and all(u in lead for u in ("D.SEQ-U", "D.SEQ-V", "D.SEQ-W"))
     assert "not-this-one" not in lead
+
+
+def test_two_failed_attempts_keep_both_errors():
+    md = _metadata_with_n_dseq(25)
+    first = ReportCoderOutput(extraction_code="import os\nresult = {}")
+    second = ReportCoderOutput(extraction_code="result = {'samples': []}")
+    coder = MagicMock(side_effect=[first, second])
+    with pytest.raises(outmod.ReportCodePathError) as err:
+        outmod._produce_report_output(
+            config=MagicMock(), user_query="GEO report", report_type_value="GEO",
+            reporter_context={}, template_for_llm={"samples": [{}]}, metadata=md,
+            report_writer_fn=MagicMock(), report_coder_fn=coder, log_dir="/tmp",
+        )
+    assert len(err.value.errors) == 2
+    assert "import" in err.value.errors[0].lower() and "parity" in err.value.errors[1]
+    assert str(err.value) == err.value.errors[-1]
+
+
+def test_reporter_result_carries_code_errors_when_the_code_path_fails_twice():
+    md = _metadata_with_n_dseq(25)
+    coder = MagicMock(side_effect=[ReportCoderOutput(extraction_code="import os\nresult = {}"),
+                                   ReportCoderOutput(extraction_code="result = {'samples': []}")])
+    with pytest.raises(outmod.ReportCodePathError) as err:
+        outmod._produce_report_output(
+            config=MagicMock(), user_query="GEO report", report_type_value="GEO",
+            reporter_context={}, template_for_llm={"samples": [{}]}, metadata=md,
+            report_writer_fn=MagicMock(), report_coder_fn=coder, log_dir="/tmp",
+        )
+    result = err.value.reporter_result()  # what the orchestrator stores as reporter_result
+    assert result["ok"] is False and result["error"] == str(err.value)
+    assert len(result["code_errors"]) == 2 and "Import" in result["code_errors"][0]

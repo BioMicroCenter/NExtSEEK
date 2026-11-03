@@ -2624,7 +2624,7 @@ def run_query(
                     # The code path failed twice on a set too large for the report writer: a plain reply, not
                     # the writer's input overflow (prod 10-14, task 39a967f9).
                     print(f"[DEBUG][REPORT_CODER] Code path failed twice: {code_path_failed}")
-                    reporter_result = {"ok": False, "error": str(code_path_failed)}
+                    reporter_result = code_path_failed.reporter_result()
                     report_writer_output, saved_files, reply = {}, {}, code_path_failed.reply
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
             else:
