@@ -448,6 +448,22 @@
     "Child_SampleTypes": null
   },
   {
+    "ID": 161,
+    "SampleType": "A.MSEQ",
+    "Name": "Methylation Calls",
+    "Description": "A methylation calls file records the cytosine methylation called from the bisulfite, enzymatic (EM-seq) or TAPS sequencing reads of one sample: for each covered CpG, the share of reads showing it methylated and the read counts behind that share. It represents per-sample methylation levels against a reference genome, for differential methylation and region analysis. Each file typically corresponds to a single sequencing sample.\nTypical file types: .cov.gz (Bismark coverage), .bedGraph, .bedGraph.gz",
+    "Tags": "DNA methylation, methylation calls, CpG methylation, bisulfite sequencing, WGBS, RRBS, PBAT, EM-seq, TAPS, Bismark, MethylDackel, bedGraph, coverage file, methylome, A.MSEQ, nf-core/methylseq",
+    "Required Metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "Standard Metadata": "Name, SampleCreationDate, Software, DataType, ConversionMethod, MethylationProtocol, Genome, MeanCpGMethylationPercent",
+    "Possible Metadata Fields": "File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData",
+    "Clade": "Analyzed",
+    "SampleType File Link": null,
+    "Associated Assay Parents": "Methylation Calling",
+    "Associated Assay Children": null,
+    "Parent_SampleTypes": "D.SEQ, A.ALN",
+    "Child_SampleTypes": null
+  },
+  {
     "ID": 18,
     "SampleType": "A.MSP",
     "Name": "Mass Spectrometry Analysis",
