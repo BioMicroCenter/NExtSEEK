@@ -110,7 +110,7 @@
     "Tags": "sequence alignment analysis, genome alignment, read mapping, BAM file analysis, SAM analysis, aligned reads, reference mapping, short read alignment, bowtie, BWA, STAR alignment, A.ALN, BAM, CRAM, HISAT2",
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, Parent, Checksum_PrimaryData",
     "standard_metadata": "Protocol, DataType, Type, Aligner, Genome",
-    "possible_metadata_fields": "Name, SampleCreationDate, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Publish_uri, Checksum_PrimaryType, Checksum_SecondaryType, DOI, PMID",
+    "possible_metadata_fields": "Name, SampleCreationDate, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Publish_uri, Checksum_PrimaryType, Checksum_SecondaryType, DOI, PMID, Software",
     "parent_sampletypes": "D.SEQ",
     "child_sampletypes": "A.SCXP, A.VCF",
     "associated_assay_parents": "Genome Alignment",
@@ -404,6 +404,23 @@
         "file checksum": "A.GEX::Checksum_PrimaryData"
       }
     },
+    "sampletype_file_link": null
+  },
+  {
+    "sample_type": "A.HLA",
+    "sampletype_id": 152,
+    "name": "HLA Typing Analysis",
+    "clade": "Analyzed",
+    "description": "An HLA typing analysis file contains the HLA class I alleles (HLA-A, HLA-B and HLA-C) called for one individual from sequencing reads, and the class II alleles (HLA-DRB1, -DQA1, -DQB1, -DPA1 and -DPB1) when the typing tool calls them. It represents one typing tool's genotype for one sample, with the tool's read support and fit score, used for immunogenetics and neoantigen work. Each file typically corresponds to a single sequencing sample.\nTypical file types: .tsv, .pdf",
+    "Tags": "HLA typing analysis, HLA typing, HLA genotyping, HLA alleles, HLA class I, MHC class I, HLA class II, MHC class II, HLA-A, HLA-B, HLA-C, HLA-DRB1, HLA-DQA1, HLA-DQB1, HLA-DPA1, HLA-DPB1, immunogenetics, OptiType, nf-core/hlatyping, A.HLA",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, HLA_A1, HLA_A2, HLA_B1, HLA_B2, HLA_C1, HLA_C2, HLADatabaseVersion",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, HLAReads, HLATypingObjective, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Publish_uri, DataType, HLA_DRB1_1, HLA_DRB1_2, HLA_DQA1_1, HLA_DQA1_2, HLA_DQB1_1, HLA_DQB1_2, HLA_DPA1_1, HLA_DPA1_2, HLA_DPB1_1, HLA_DPB1_2",
+    "parent_sampletypes": "D.SEQ, A.ALN",
+    "child_sampletypes": null,
+    "associated_assay_parents": "HLA Typing",
+    "associated_assay_children": null,
+    "repository_attributes": null,
     "sampletype_file_link": null
   },
   {
@@ -727,7 +744,7 @@
     "Tags": "VCF analysis, variant call format, variant calling analysis, SNP analysis, SNV analysis, indel analysis, genomic variant annotation, GATK output, mutation calling, variant filtering, A.VCF, VCF file, Mutect2, DeepVariant, bcftools",
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
     "standard_metadata": "Protocol, Software, Type, ReferenceGenome, Pipeline, PipelineVersion, FilterMethod, FilterSet, Repository",
-    "possible_metadata_fields": "Link_ReferenceGenome, Accession, RepositoryLink, Publish_uri, Notes, VariantCaller, VariantCallerVersion, AnnotationTool, AnnotationToolVersion, AnnotationReference, Link_AnnotationReference, Link_Pipeline, DOI, PMID",
+    "possible_metadata_fields": "Link_ReferenceGenome, Accession, RepositoryLink, Publish_uri, Notes, VariantCaller, VariantCallerVersion, AnnotationTool, AnnotationToolVersion, AnnotationReference, Link_AnnotationReference, Link_Pipeline, DOI, PMID, TsTvRatio",
     "parent_sampletypes": "A.ALN",
     "child_sampletypes": null,
     "associated_assay_parents": "Variant Call Filtering",
@@ -1513,7 +1530,7 @@
     "Tags": "sequencing data, FASTQ, raw reads, NGS data, next-generation sequencing, short-read sequencing, Illumina data, RNA-seq raw, WGS, whole genome sequencing, WES, whole exome sequencing, long-read sequencing, Oxford Nanopore, D.SEQ",
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
     "standard_metadata": "Sequencer, SequencingType, F_bp, R_bp, LibraryStrategy, LibrarySource, LibrarySelection, ExtractedMolecule, LibraryDesign",
-    "possible_metadata_fields": "Name, SampleCreationDate, Protocol, DataType, QCPlatform, QCAssay, ClusterDate, AnalyzedDate, CompleteDate, IndexInlineStartNT, IndexInlineLength, NumReads, NumReadsUnits, MaxReads, TotalReads, NumAligned, 20mers, Primer, FlowLane, PrepUser, Contamination, Notes, ReagentManufacturer, ReagentCatalogNum, Publish_uri, ExpressionKit, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Genome, ReadLanePct, UnalignedReads, ContamPercent, MappedPercent, CDSPercent, UTRPercent, IntronPercent, IntergenicPercent, ExonIntronRatio, 5_3UTR, ExonIntergenicRatio, SenseAntisenseRatio, rRNAPercent, Top30CountPercent, GenesDetected, GenesDetectedPercent, Accession, Repository, Link_Reviewer, File_TertiaryData, Link_TertiaryData, Checksum_TertiaryData, Checksum_PrimaryType, RepositoryLink, Checksum_SecondaryType, RepositoryID, N50, N50Units, Yield, YieldUnits, ModCall, MiniKnowVersion, Mode, FlowCellType, Link_QC, Link_Contamination, Link_SRA, Checksum_TertiaryType, SequencingFacility, SequencingFacilityLocation, SequencingFacilityLink, DOI, PMID",
+    "possible_metadata_fields": "Name, SampleCreationDate, Protocol, DataType, QCPlatform, QCAssay, ClusterDate, AnalyzedDate, CompleteDate, IndexInlineStartNT, IndexInlineLength, NumReads, NumReadsUnits, MaxReads, TotalReads, NumAligned, 20mers, Primer, FlowLane, PrepUser, Contamination, Notes, ReagentManufacturer, ReagentCatalogNum, Publish_uri, ExpressionKit, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Genome, ReadLanePct, UnalignedReads, ContamPercent, MappedPercent, CDSPercent, UTRPercent, IntronPercent, IntergenicPercent, ExonIntronRatio, 5_3UTR, ExonIntergenicRatio, SenseAntisenseRatio, rRNAPercent, Top30CountPercent, GenesDetected, GenesDetectedPercent, Accession, Repository, Link_Reviewer, File_TertiaryData, Link_TertiaryData, Checksum_TertiaryData, Checksum_PrimaryType, RepositoryLink, Checksum_SecondaryType, RepositoryID, N50, N50Units, Yield, YieldUnits, ModCall, MiniKnowVersion, Mode, FlowCellType, Link_QC, Link_Contamination, Link_SRA, Checksum_TertiaryType, SequencingFacility, SequencingFacilityLocation, SequencingFacilityLink, DOI, PMID, DuplicationPercent, Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent, GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent, ValidBarcodesPercent",
     "parent_sampletypes": "DNA",
     "child_sampletypes": "A.GEX, A.SCXP, A.CNV, A.ALN, A.CHRM, A.SPTX, A.DBMM, A.MUSP",
     "associated_assay_parents": "Short Read Sequencing, Bulk DNA Sequencing, Long-Read Sequencing, Single Cell Sequencing",

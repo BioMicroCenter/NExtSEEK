@@ -20,7 +20,7 @@ import scripts.context_gen as cg
 
 def test_load_source_reads_every_curated_row():
     rows = cg.load_source(Path("context/sample_types.json"))
-    assert len(rows) == 109
+    assert len(rows) == 110
     assert all("sample_type" in r for r in rows)
 
 
@@ -252,7 +252,7 @@ def _rows_for(table: str) -> list[dict]:
 
 
 def test_update_writes_one_update_and_one_guarded_insert_per_row():
-    for table, expected in (("sample_types", 109), ("assays", 144), ("projects", 21)):
+    for table, expected in (("sample_types", 110), ("assays", 144), ("projects", 21)):
         spec = cg.TABLES[table]
         sql = cg.render_update(table, _rows_for(table))
         assert len(INSERT_RE.findall(sql)) == expected, table
@@ -927,7 +927,7 @@ def test_seed_ddl_declares_the_unique_key_the_upsert_needs():
 
 
 def test_seed_writes_the_ddl_then_one_insert_per_line():
-    for table, expected in (("sample_types", 109), ("assays", 144), ("projects", 21)):
+    for table, expected in (("sample_types", 110), ("assays", 144), ("projects", 21)):
         sql = cg.render_seed(table, _rows_for(table))
         assert sql.startswith("-- ")                      # the header comment
         assert cg.DDL[table] in sql
