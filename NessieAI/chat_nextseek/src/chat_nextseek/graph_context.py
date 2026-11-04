@@ -792,7 +792,8 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
     ``rows`` are the projects catalog rows (project and investigation); ``titles_by_level`` maps ``study``,
     ``investigation`` and ``project`` to the titles the caller can see. A name a PROJECT row holds is a project
     (an investigation row with a ``parent_project`` is an investigation, any other row a project): it maps to a
-    Project title only, through the project rows' names, as before any other level was read. An investigation row
+    Project title through the project rows' names, as before any other level was read; on a box with no such
+    Project, to an Investigation titled with the name itself, then with any of those rows' names. An investigation row
     lists its owner's names among its alternative names too, so those never make a project name an investigation.
     A name only investigation rows hold maps to an Investigation title: the name itself or the row's own name
     first (``own`` True), then a Project title that is the name itself (``own`` True, as before any other level was
@@ -830,9 +831,12 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
         projects = [row for row in matched if not is_investigation(row)]
         if projects:
             # An investigation titled with the name itself is the fallback when this box has no such project.
+            names_held = set().union(*(row_names(r) for r in projects))
             attempts = [("project", {key}, True),
-                        ("project", set().union(*(row_names(r) for r in projects)), True),
-                        ("investigation", {key}, True)]
+                        ("project", names_held, True),
+                        ("investigation", {key}, True),
+                        # r5b: the user said another of the project's names and the box has no such project.
+                        ("investigation", names_held, True)]
         elif matched:
             own_names = {key} | folded(r.get("name") for r in matched)
             aliases = set().union(*(row_names(r) for r in matched))

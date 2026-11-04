@@ -149,7 +149,7 @@ object. `NessieAI/tests/e2e/criteria.py` resolves them:
 |---|---|
 | `api_ok` | `api_result_meta.ok` (default `False` when absent) |
 | `neo4j_ok` | `graph_result.ok` |
-| `graph_cypher` | `graph_plan.cypher` (**not** `graph_result.cypher`) |
+| `graph_cypher` | `graph_plan.cypher` (**not** `graph_result.cypher`), with each bound `$name` from `graph_plan.parameters` written in as a literal |
 | `entity_sampletype_codes` | codes from `entity_result.sampletypes[]` |
 | `entity_assay_codes` | codes from `entity_result.assays[]` |
 | `last_reply` | the reply text, HTML stripped |

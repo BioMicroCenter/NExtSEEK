@@ -291,7 +291,7 @@ def test_views_that_never_read_the_pass_see_an_anonymous_caller(method, path, bo
 
 
 def test_unauthenticated_calls_are_still_401():
-    """The sidecar healthcheck reads a 401 from assistant/me as healthy."""
+    """No credentials and no pass is a 401, never a redirect or a page."""
     resp = APIClient().get(f"{A}/me/")
     assert resp.status_code == 401
     assert resp["WWW-Authenticate"] == "NextseekTurn"

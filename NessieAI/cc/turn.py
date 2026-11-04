@@ -21,6 +21,7 @@ here imports ``nextseek_api.services``; the one host edge is
 from __future__ import annotations
 
 import copy
+import dataclasses
 import logging
 import os
 import threading
@@ -491,7 +492,8 @@ def _costed_terminal(send_event, state: dict):
         if event in ("query_complete", "query_error") and state.get("turn") is not None and isinstance(data, dict):
             try:
                 data = turn_memory.terminal_cost(state["turn"], data, router_fields=state.get("router") or {},
-                                                 prerun_settled=state.get("prerun_settled"))
+                                                 prerun_settled=state.get("prerun_settled"),
+                                                 wizard_fields=state.get("wizard"))
             except Exception:  # noqa: BLE001 - the event goes out as it was
                 logger.warning("cc: could not add the turn's cost to its %s", event, exc_info=True)
         return send_event(event, data)
@@ -598,21 +600,24 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             if prerun.done():
                 prerun.result(0)  # "Vocabulary ready", from this thread (announce)
 
-            send_event("route_decided", {
-                "route": decision.route, "model_class": decision.model_class,
-                "source": decision.source, "reasoning": decision.reasoning,
-                # Which router model answered, and whether it fell back (fix 5): None
-                # when the keyword rules decided or the turn was forced.
-                "router_model": getattr(decision, "router_model", None),
-                "router_fallback": getattr(decision, "router_fallback", None),
-                # What the router's model calls cost (fix 6a): router_cost_usd,
-                # router_cost_partial and router_usage. Absent on a forced turn, which made
-                # no router call; present on every routed one, unrelated included.
-                **cc_router.router_cost_fields(decision),
-                # Piece 3: how long the router took, and the vocabulary pre-run when it was already in.
-                "router_elapsed_s": router_elapsed_s,
-                "vocabulary_elapsed_s": prerun.elapsed_s if prerun.done() else None,
-            })
+            def _announce_route():
+                send_event("route_decided", {
+                    "route": decision.route, "model_class": decision.model_class,
+                    "source": decision.source, "reasoning": decision.reasoning,
+                    # Which router model answered, and whether it fell back (fix 5): None
+                    # when the keyword rules decided or the turn was forced.
+                    "router_model": getattr(decision, "router_model", None),
+                    "router_fallback": getattr(decision, "router_fallback", None),
+                    # What the router's model calls cost (fix 6a): router_cost_usd,
+                    # router_cost_partial and router_usage. Absent on a forced turn, which made
+                    # no router call; present on every routed one, unrelated included.
+                    **cc_router.router_cost_fields(decision),
+                    # Piece 3: how long the router took, and the vocabulary pre-run when it was already in.
+                    "router_elapsed_s": router_elapsed_s,
+                    "vocabulary_elapsed_s": prerun.elapsed_s if prerun.done() else None,
+                })
+
+            _announce_route()
             _record_ledger_row(chat_session, decision, query_task=query_task)
 
             if decision.route == cc_router.ROUTE_UNRELATED:
@@ -635,6 +640,10 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 creds = {"api_user": api_user, "api_pass": api_pass}
                 ns_send = _save_before_complete(send_event, adapter)
                 vocab_kw = {"vocabulary": prerun} if prerun.started else {}
+                # An open build took a turn the router sent to CC: if the build lets it go, it runs on CC after all.
+                handoff_kw = ({"stop_on_handoff": True}
+                              if getattr(decision, "attempted_route", None) == cc_router.ROUTE_CC else {})
+                ns_outcome = None
                 try:
                     if mode == "plan":
                         run_query_plan(adapter, _with_prompt_variant(chat_config, request.user, req),
@@ -642,8 +651,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     else:
                         # The evaluation switches: a per-request copy, made after the
                         # PROD identity check above has compared the singleton.
-                        run_query(adapter, _eval_config(chat_config, request.user, req),
-                                  req.query, ns_send, credentials=creds, **vocab_kw, **scope_kw)
+                        ns_outcome = run_query(adapter, _eval_config(chat_config, request.user, req),
+                                               req.query, ns_send, credentials=creds, **vocab_kw, **scope_kw,
+                                               **handoff_kw)
                 finally:
                     # In a `finally` deliberately. run_query resolves
                     # run_root_dir three statements in (orchestrator.py:620),
@@ -659,7 +669,17 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     # turn of a multi-turn chat session (see the helper's
                     # docstring), so consumers must de-duplicate on run_root.
                     _emit_ns_run_root(send_event, adapter)
-            else:
+                if isinstance(ns_outcome, dict) and ns_outcome.get("handed_off"):
+                    adapter.save()  # the build's new state, or the next turn reads the old one
+                    ran_ns = False
+                    cost_state["wizard"] = ns_outcome
+                    decision = dataclasses.replace(
+                        decision, route=cc_router.ROUTE_CC, model_class="opus",
+                        model_id=cc_router._resolve_cc_model_id(), source="pipeline_handoff",
+                        reasoning=f"the open build handed off; {decision.reasoning}")
+                    _announce_route()
+                    _record_ledger_row(chat_session, decision, query_task=query_task)
+            if decision.route != cc_router.ROUTE_NS:
                 # Spec piece 1: the container gets a one-turn pass, never the user's password. Issued before any
                 # early return below, so the finally revokes it on every way out. The row holds the caller's OWN
                 # login (user_api_*), never the prod-config swap above.

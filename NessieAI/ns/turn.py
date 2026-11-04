@@ -316,7 +316,8 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
             case "plan":
                 run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case "pipeline":
-                run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
+                relay_kw = {"relay_turn": str(parent_cc_turn.pk)} if parent_cc_turn is not None else {}
+                run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw, **relay_kw)
             case _:
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except LLMFatalError as fatal:
