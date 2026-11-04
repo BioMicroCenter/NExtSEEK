@@ -222,14 +222,15 @@ def nested_turn_costs(turn) -> tuple[float, list[str]]:
     return round(total, 6), missing
 
 
-def terminal_cost(turn, data: dict, *, router_fields: dict, prerun_settled: Any) -> dict:
+def terminal_cost(turn, data: dict, *, router_fields: dict, prerun_settled: Any, wizard_fields: dict | None = None) -> dict:
     """``data`` for a Container-CC turn's ``query_complete`` or ``query_error`` with the whole turn's cost.
 
     ``ops_cost_usd``: the ops' and the pre-run's spend plus the nested NS turns'. ``turn_cost_usd``: Claude Code's
     own cost on the repo's price table (``cost_by_price_table_usd``, else ``total_cost_usd``; both kept unchanged in
     ``data``) plus that plus the router's (``router_fields``, empty on a
     forced turn). ``cost_partial`` is false only when every part was counted; ``cost_partial_reason`` says what was
-    not. ``prerun_settled`` is the pre-run hand-off's event, or None when there was no pre-run."""
+    not. ``prerun_settled`` is the pre-run hand-off's event, or None when there was no pre-run. ``wizard_fields``: what
+    an open pipeline build spent before it handed this turn back (cc/turn.py), counted with the ops."""
     row = _rows(turn).values("ops_cost_usd", "ops_cost_partial", "ops_cost_estimated",
                                  "ops_in_flight").first() or {}
     nested, reasons = nested_turn_costs(turn)
@@ -261,7 +262,12 @@ def terminal_cost(turn, data: dict, *, router_fields: dict, prerun_settled: Any)
             router = router_usd
         if router_fields.get("router_cost_partial"):
             reasons.append("the router's cost was partial")
-    ops = round((_usd(row.get("ops_cost_usd")) or 0.0) + nested, 6)
+    wizard = 0.0
+    if wizard_fields:
+        wizard = _usd(wizard_fields.get("total_cost_usd")) or 0.0
+        if wizard_fields.get("cost_partial") or _usd(wizard_fields.get("total_cost_usd")) is None:
+            reasons.append("the open build's model call before its handoff was not all priced or seen")
+    ops = round((_usd(row.get("ops_cost_usd")) or 0.0) + nested + wizard, 6)
     out = dict(data)
     out["ops_cost_usd"] = ops
     out["turn_cost_usd"] = round((cc or 0.0) + ops + router, 6)

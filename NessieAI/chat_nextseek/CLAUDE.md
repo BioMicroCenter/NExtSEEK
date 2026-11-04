@@ -59,7 +59,8 @@ without an error at the point of the change.
 - **`handoff` is exposed unconditionally**, appended after every gated tool at
   `NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:223-224`. Gate it and
   an open pipeline build traps the conversation, because it is the only way out
-  that discards build state.
+  that lets a turn leave the build. It discards a build with nothing built; a built run
+  stays open for the next "submit" until it is submitted or cancelled.
 - **The Luria submit tool is offered only when all three env vars are set.**
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py:58-60` requires user, key and
   working path together, and `NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:220-221`

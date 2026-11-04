@@ -129,7 +129,12 @@ Emit D.* alongside any assays you also identify — both can coexist in the outp
 Downstream agents decide which to use.
 One exception: when the question is scoped to an investigation whose PROJECTS CATALOG
 description says it holds no D.* record of that kind, emit the type the description names
-instead (TCGA: "sequencing data" → A.ALN, not D.SEQ).
+instead.
+A question asking which variants or mutations samples carry or express follows the same
+rule: when it is scoped to an investigation whose description says it holds no raw
+sequencing data (D.SEQ) and names variant calls among what it does hold, emit the
+variant-call type (A.VCF), not D.SEQ. Its registered calls answer the question; there are
+no reads to call from.
 
 If the user qualified the data as ANALYZED / ANALYSIS / PROCESSED ("analyzed sequencing
 data", "processed imaging results"), emit the A.* analysis types for that modality

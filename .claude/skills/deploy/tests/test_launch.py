@@ -2168,3 +2168,41 @@ def test_judge_ranks_a_switchover_by_the_order_the_runner_ran(tmp_path):
 def test_judge_order_is_unchanged_without_a_switchover_line():
     comps = ["bedrock-proxy", "app", "cc-agent"]
     assert L.judge_order(comps, L.parse_status("START tag=x instance=dev components=app\n")) == comps
+
+
+def _recipe_archive_paths():
+    text = (SKILL / "references" / "nessie-questions.md").read_text()
+    m = re.search(r"git -C <workstation_repo> archive origin/dev \\\n\s*(.+?) \| tar", text)
+    assert m, "the loader recipe's git archive line moved"
+    return m.group(1).split()
+
+
+def test_the_loader_recipe_archives_every_nessie_package_the_loader_imports():
+    # The offline check dies on ModuleNotFoundError when the archive lacks a package the loader's modules import.
+    repo = SKILL.parents[2]
+    archived = _recipe_archive_paths()
+    nessie = repo / "NessieAI"
+    wanted = set()
+    for name in ("tests/nessie_tests/corpus.py", "tests/nessie_tests/case_file_check.py", "tests/nessie_tests/evaluate.py",
+                 "nessie_harness/corpus.py", "nessie_harness/catalog.py"):
+        wanted |= set(re.findall(r"^\s*(?:from|import) (NessieAI(?:\.\w+)+)", (nessie / name).read_text(), re.M))
+    def _covered(module):
+        path = module.replace(".", "/")
+        return any(a == path or a == f"{path}.py" or path.startswith(f"{a}/") for a in archived)
+    missing = sorted(m for m in wanted if not _covered(m))
+    assert not missing, f"the recipe's archive lacks {missing}"
+
+
+def test_the_runner_names_its_instance_to_the_harness_for_requires_env(tmp_path, capsys):
+    """r5 F8 (2026-11-03): a case that needs production records carries
+    requires_env ["NESSIE_ON_PROD"], so the runner exports NESSIE_ON_<INSTANCE>=1 into
+    the harness's exec; on dev such a case is recorded skipped, not red."""
+    import subprocess
+    d, text = rendered_runner(tmp_path, capsys, images=["app"])
+    i_start, i_exec = text.index("NESSIE_START"), text.index("manage.py nessie --tier full")
+    assert '-e "$NESSIE_ON=1"' in text[i_start:i_exec + 40]
+    lines = [ln for ln in text.splitlines() if ln.startswith(("INSTANCE=", "NESSIE_ON="))]
+    assert len(lines) == 2
+    for inst, want in (("dev", "NESSIE_ON_DEV"), ("prod", "NESSIE_ON_PROD")):
+        script = f"INSTANCE={inst}\n{lines[1]}\nprintf %s \"$NESSIE_ON\""
+        assert subprocess.run(["bash", "-c", script], capture_output=True, text=True).stdout == want
