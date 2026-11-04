@@ -41,6 +41,14 @@ REPORT_FOREIGN_PROJECT = ("This report covers only the projects this account bel
                           "is not one of them, so it did not run.")
 
 
+# The SOPs of an investigation's studies, through sops_studies or its assays' assay_assets (alias ``st`` = study).
+_INVESTIGATION_SOP_JOIN = ("JOIN (SELECT sop_id, study_id FROM seek_production.sops_studies "
+                           "UNION SELECT aa.asset_id, a.study_id FROM seek_production.assay_assets aa "
+                           "JOIN seek_production.assays a ON a.id = aa.assay_id WHERE aa.asset_type = 'Sop') ss "
+                           "ON ss.sop_id = sop.id "
+                           "JOIN seek_production.studies st ON st.id = ss.study_id")
+
+
 def _report_projects(config, project_id) -> "tuple[tuple[int, ...] | None, str | None]":
     """The project ids a relational report may read for ``config``'s caller, or why it must not run.
 
@@ -598,11 +606,7 @@ def run_project_protocols_report(
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     # An investigation joins through its studies; DISTINCT keeps a SOP in two of its studies or projects to one row.
     select = "SELECT DISTINCT ps.sop_id, sop.title" if investigation_scope else "SELECT ps.project_id, ps.sop_id, sop.title"
-    study_join = ("JOIN (SELECT sop_id, study_id FROM seek_production.sops_studies "
-                  "UNION SELECT aa.asset_id, a.study_id FROM seek_production.assay_assets aa "
-                  "JOIN seek_production.assays a ON a.id = aa.assay_id WHERE aa.asset_type = 'Sop') ss "
-                  "ON ss.sop_id = sop.id "
-                  "JOIN seek_production.studies st ON st.id = ss.study_id") if investigation_scope else ""
+    study_join = _INVESTIGATION_SOP_JOIN if investigation_scope else ""
     query = f"""
     {select}
     FROM
@@ -882,6 +886,10 @@ def run_project_published_report(  # noqa: C901
                 prod_conditions.append("ps.project_id = %s")
                 prod_params.append(project_id)
 
+            if investigation_scope is not None:
+                prod_conditions.append("st.investigation_id = %s")
+                prod_params.append(investigation_scope[0])
+
             if years:
                 yy_list = _normalize_years(years)
                 placeholders = ", ".join(["%s"] * len(yy_list))
@@ -903,6 +911,7 @@ def run_project_published_report(  # noqa: C901
 SELECT sop.title
 FROM seek_production.projects_sops ps
 JOIN seek_production.sops sop ON ps.sop_id = sop.id
+{_INVESTIGATION_SOP_JOIN if investigation_scope is not None else ""}
 WHERE {prod_where};
 """.strip()
 

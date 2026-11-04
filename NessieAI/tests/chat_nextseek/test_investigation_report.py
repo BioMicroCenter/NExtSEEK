@@ -295,3 +295,67 @@ def test_the_investigation_sample_report_matches_by_id_when_it_has_one(monkeypat
     assert "inv.id = $inv_id" in seen[0][0] and seen[0][1]["inv_id"] == 106
     assert "toLower(trim(inv.title)) = toLower(trim($inv_title))" in seen[1][0]
     assert seen[1][1]["inv_title"] == "Cedar Investigation"
+
+
+# ---------------------------------------------------------------------------
+# The published report's protocol half is scoped to the investigation (dev 11-02: 167 unscoped protocols)
+# ---------------------------------------------------------------------------
+
+class _RecCursor(_FakeCursor):
+    def __init__(self, log):
+        super().__init__([])
+        self._log = log
+
+    def execute(self, query, params=None):
+        self._log.append((" ".join(query.split()), list(params or [])))
+
+
+class _RecConn:
+    def __init__(self, log):
+        self._log = log
+
+    def cursor(self, **k):
+        return _RecCursor(self._log)
+
+
+class _RecCfg(_ScopeCfg):
+    def __init__(self):
+        self.log = []
+        self._db_conn = _RecConn(self.log)
+
+
+def _prod_protocol_sql(monkeypatch, tmp_path, project, scope=None, **kw):
+    monkeypatch.setattr(runners, "tool_neo4j_query", lambda *a, **k: {"ok": True, "data": []})
+    cfg = _RecCfg()
+    if scope is not None:
+        cfg.GRAPH_SCOPE = scope
+    runners.run_project_published_report(cfg, project, outputs_root=tmp_path, **kw)
+    return next((q, p) for q, p in cfg.log if "projects_sops" in q)
+
+
+def test_published_protocols_are_scoped_to_the_investigation(monkeypatch, tmp_path):
+    query, params = _prod_protocol_sql(monkeypatch, tmp_path, "SRP")
+    assert "st.investigation_id = %s" in query
+    assert "JOIN seek_production.studies st ON st.id = ss.study_id" in query
+    assert params == [6]
+
+
+def test_published_protocols_project_and_unscoped_sql_are_unchanged(monkeypatch, tmp_path):
+    q, p = _prod_protocol_sql(monkeypatch, tmp_path, "PUB")
+    assert q == ("SELECT sop.title FROM seek_production.projects_sops ps "
+                 "JOIN seek_production.sops sop ON ps.sop_id = sop.id WHERE ps.project_id = %s;")
+    assert p == [1]
+    q, p = _prod_protocol_sql(monkeypatch, tmp_path, None)
+    assert q == ("SELECT sop.title FROM seek_production.projects_sops ps "
+                 "JOIN seek_production.sops sop ON ps.sop_id = sop.id WHERE 1=1;")
+    assert p == []
+
+
+def test_published_investigation_scope_keeps_a_non_admins_project_filter(monkeypatch, tmp_path):
+    scope = GraphScope.for_projects([2, 5])
+    q, p = _prod_protocol_sql(monkeypatch, tmp_path, "SRP", scope)
+    assert "ps.project_id IN (%s, %s) AND st.investigation_id = %s" in q
+    assert p == [2, 5, 6]
+    q, p = _prod_protocol_sql(monkeypatch, tmp_path, "SRP", scope, years=[2024])
+    assert "ps.project_id IN (%s, %s) AND st.investigation_id = %s AND LEFT(" in q
+    assert p == [2, 5, 6, "24"]

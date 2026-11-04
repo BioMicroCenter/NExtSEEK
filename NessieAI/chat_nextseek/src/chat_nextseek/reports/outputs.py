@@ -55,9 +55,13 @@ _REPORT_CODE_PATH_THRESHOLD = 10
 class ReportCodePathError(RuntimeError):
     """The code path failed twice on a set too large for the report writer. ``reply`` is the plain text for the user."""
 
-    def __init__(self, detail: str, reply: str):
+    def __init__(self, detail: str, reply: str, errors: list[str] | None = None):
         super().__init__(detail)
         self.reply = reply
+        self.errors = errors or [detail]  # every attempt's error, first to last; ``detail`` is the last
+
+    def reporter_result(self) -> dict:
+        return {"ok": False, "error": str(self), "code_errors": list(self.errors)}
 
 # The per-sample row list key in each report body (one entry per target-type sample).
 # Used for the row-parity guard so the code path works for SRA/PRIDE, not just GEO.
@@ -192,6 +196,7 @@ def _produce_report_output(
 
         row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
         previous_error = None
+        attempt_errors: list[str] = []
         coder_output = None
         busy = False
         # One retry. Never the all-metadata report_writer above the threshold: its input overflows on a large set
@@ -219,6 +224,7 @@ def _produce_report_output(
                 previous_error = f"{type(e).__name__}: {e}"
             except Exception as e:
                 previous_error = f"{type(e).__name__}: {e}"
+            attempt_errors.append(previous_error)
             print(f"[DEBUG][REPORT_CODER] Code path attempt failed: {previous_error}")
         if busy:
             reply = (f"Another report is being built right now, so I couldn't start the {canonical} package. "
@@ -226,7 +232,7 @@ def _produce_report_output(
         else:
             reply = (f"I couldn't build the {canonical} package for this set: the step that writes it from the "
                      "samples' metadata failed twice. Try a smaller set (one study or project), or ask me again.")
-        raise ReportCodePathError(previous_error or "code path failed", reply)
+        raise ReportCodePathError(previous_error or "code path failed", reply, attempt_errors or None)
 
     report_writer_plan = ReportWriterPlan(
         report_type=report_type_value,

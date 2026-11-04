@@ -123,7 +123,7 @@ def _no_samples_reply(target: dict, offered: dict | None) -> str:
 
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
           reporter_plan: Any = None, log_dir: str | None = None,
-          send_event=None) -> dict[str, Any]:
+          send_event=None, relay_turn: str | None = None) -> dict[str, Any]:
     """Launch a fresh pipeline conversation.
 
     The build is on one results bundle, ``source_bundle_id``, which the tools read too: the one the parser
@@ -183,20 +183,28 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
         # finished run can be found again for this user. A plain dict session has none.
         "launched_by_user_id": getattr(session, "owner_user_id", None),
         "source_bundle_id": source_id,
+        "relay_turn": relay_turn,
     }
     _save(session, state)
     return _run_loop(session, config, log_dir=log_dir, send_event=send_event)
 
 
 def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str | None = None,
-                send_event=None) -> dict[str, Any]:
+                send_event=None, relay_turn: str | None = None) -> dict[str, Any]:
+    """Advance the open build with one message. ``relay_turn`` names the Container-CC turn relaying it: a second relay
+    from the same CC turn cannot be the user's reply, so it goes in as list content, which ``_user_msg_count`` does not
+    count and the confirmation gate does not take as a reply."""
     state = _state(session)
     if not state.get("active"):
         return {"action": "passthrough", "reply": "", "params": None}
     if _wants_cancel(user_text):
         clear(session)
         return {"action": "cancel", "reply": "Cancelled. Ask me a fresh question whenever you're ready.", "params": None}
-    state.setdefault("messages", []).append({"role": "user", "content": user_text})
+    same_cc_turn = relay_turn is not None and state.get("relay_turn") == relay_turn
+    state.setdefault("messages", []).append(
+        {"role": "user", "content": [{"type": "text", "text": user_text}] if same_cc_turn else user_text})
+    if relay_turn is not None:
+        state["relay_turn"] = relay_turn
     _save(session, state)
     return _run_loop(session, config, log_dir=log_dir, send_event=send_event)
 
@@ -247,10 +255,22 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=
             if name == "conclude":
                 return _conclude(session, state, tool_input)
             if name == "handoff":
-                # The user moved on. Drop the build and let the orchestrator run
-                # its normal parser for this turn (it clears us on passthrough).
+                # The turn is not about the build, so the orchestrator runs it elsewhere. A built run outlives the side
+                # question (operator 2026-10-30), so "submit" still works after it; a build with nothing built is dropped.
                 print(f"[DEBUG][PIPELINE] handoff: {tool_input.get('reason')!r}")
-                clear(session)
+                artifacts = state.get("artifacts") or {}
+                if artifacts.get("luria_runs"):
+                    # Submitted, and conclude was never reached (a failed model call): nothing is left to keep open.
+                    # As after conclude, the chat keeps its record of the run.
+                    state["active"] = False
+                    _save(session, state)
+                elif artifacts.get("launch"):
+                    _close_tool_call(state, "That went to the main assistant. The run is still built.")
+                    # The pin was for the search the build started from. "These" now means the newest one.
+                    state.pop("source_bundle_id", None)
+                    _save(session, state)
+                else:
+                    clear(session)
                 return {"action": "passthrough", "reply": "", "params": None}
             try:
                 result = dispatch_pipeline_tool_call(config=config, session=session, state=state,
@@ -268,10 +288,31 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=
             "reply": "I couldn't finish within my step budget. Tell me how to proceed, or say 'cancel'."}
 
 
+def _close_tool_call(state: dict, text: str) -> None:
+    """Replace the assistant message holding the unanswered ``conclude`` or ``handoff`` with plain text, for a build that
+    stays open: Bedrock refuses a history with a tool_use and no tool_result, and every later turn would fail."""
+    state["messages"][-1] = {"role": "assistant", "content": [{"type": "text", "text": text}]}
+
+
 def _conclude(session, state: dict, tool_input: dict) -> dict[str, Any]:
     outcome = tool_input.get("outcome") or "answered"
     message = tool_input.get("message") or ""
     artifacts = state.get("artifacts") or {}
+    # A failed submit leaves the run built, so "submit" has to be able to try again, whatever the model concluded
+    # (prod chat 2c55241a: "rejected", with a reply that said to say submit).
+    if state.get("submit_failed") and outcome != "cancelled":
+        # "submitted" here was written before the model saw the failure (both tools in one response). A blank message
+        # says nothing, and Converse would refuse the stored block on every later turn.
+        reply = state["submit_failed"] if outcome == "submitted" or not message.strip() else message
+        _close_tool_call(state, reply)
+        _save(session, state)
+        return {"action": "ask", "reply": reply, "params": None}
+    # A rejection answers the question it was asked about; the built run is still there for "submit".
+    if outcome == "rejected" and artifacts.get("launch") and not artifacts.get("luria_runs"):
+        reply = message if message.strip() else "The run is still built."
+        _close_tool_call(state, reply)
+        _save(session, state)
+        return {"action": "ask", "reply": reply, "params": None}
     state["active"] = False
     _save(session, state)
     if outcome == "submitted":

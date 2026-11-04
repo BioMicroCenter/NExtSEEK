@@ -136,6 +136,21 @@ def test_a_run_done_turn_the_router_sent_to_cc_is_left_alone(monkeypatch):
     assert d is sent
 
 
+def test_an_open_wizard_does_not_capture_a_run_done_turn_the_router_sent_to_cc(monkeypatch):
+    """A second build open in the chat must not take the line the first run's submit reply told the user to say."""
+    sent = _router_says(monkeypatch, cc_router.ROUTE_CC)
+    d = policy._decide_route(_User(), _Req("my run is done"), force_cc=False,
+                             session={"pipeline_agent": {"active": True}})
+    assert d is sent
+
+
+def test_an_open_wizard_still_takes_other_turns_the_router_sent_to_cc(monkeypatch):
+    _router_says(monkeypatch, cc_router.ROUTE_CC)
+    d = policy._decide_route(_User(), _Req("is my run done?"), force_cc=False,
+                             session={"pipeline_agent": {"active": True}})
+    assert d.route == cc_router.ROUTE_NS and d.source == "pipeline"
+
+
 def test_an_admin_force_to_ns_still_wins(monkeypatch):
     monkeypatch.setattr(cc_router, "decide", lambda q, history=None: pytest.fail("router called"))
     d = policy._decide_route(_Admin(), _Req("my run is done", force_route="ns"),

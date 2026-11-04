@@ -253,11 +253,12 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 ## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active`: **142 today** (153 before the
-2026-10-07 test-set review retired 11 selected duplicates),
+`--bayesian` drives every variant flagged `is_bayesian` + `active`: **144 today** (`len(corpus.bayesian_ids())`;
+153 before the 2026-10-07 test-set review retired 11 selected duplicates),
 the 149 of the 2026-08-06 question set, less the retired ones, plus one case from each of the four families added
 2026-09-23 (`pub.pmid_bare`, `person.lau_lab_samples`, `file.flow_file_for_a_patient`,
-`export.session_to_the_developers`), which that document does not list. 25 of the 26 task families, one distinct question per
+`export.session_to_the_developers`), which that document does not list. 28 of the 30 task families (`engine_routing` and the now gate-only
+`pipeline_output_reingest` have no selected case, by design), one distinct question per
 variant, and every one asserting a verified value on `last_reply` (the only field
 that survives forcing on a `container_cc` arm).
 
@@ -542,9 +543,9 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **372 of 385 are still red**, with all seven floored families at 100%. Four
+and **379 of 392 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **271** variants, `parser_plan.mode` on **241** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
+fails on **275** variants, `parser_plan.mode` on **245** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
 and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on
 2026-09-23, when the graph-answerable families stopped requiring the REST path, and again on 2026-10-03 when the
 REST sample-search seed turns and the SOP case moved to the graph). Those cases stay red until the corpus
@@ -571,8 +572,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (385 total /
-13 green / 372 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (392 total /
+13 green / 379 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real
