@@ -1263,6 +1263,14 @@ _ONLY_DROPPED_NEXT_STEP = (
     "the selection tool to the user.")
 
 
+# Added to the message when any of the cohort's protocols could not be read: the verdict
+# then rests on the metadata alone, and the user must hear that before they confirm a run.
+_PROTOCOL_UNREAD_NEXT_STEP = (
+    " Also: {n_failed} of these samples' {n_protocols} protocols could not be read, so this "
+    "rests on the sample metadata alone. Tell the user so in one line, and that the choice "
+    "may change once the protocol can be read.")
+
+
 def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input: dict,
                          *, send_event=None) -> str:
     """Choose a pipeline from the cohort's evidence and the scientist's question.
@@ -1284,7 +1292,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
             except Exception as exc:  # noqa: BLE001 - progress events are advisory, never fatal
                 print(f"[DEBUG][PIPELINE_AGENT] send_event({name!r}) failed: {exc!r}")
 
-    def _verdict_json(verdict, n_uids: int, atlas: dict | None = None) -> str:
+    def _verdict_json(verdict, n_uids: int, atlas: dict | None = None,
+                      protocol_status: dict | None = None) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
                               "reason": verdict.reason}
         message = _SELECTION_NEXT_STEP[verdict.kind]
@@ -1307,6 +1316,11 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
                 message += _DROPPED_NEXT_STEP.format(names=names)
             else:
                 message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        if protocol_status and protocol_status.get("n_failed"):
+            unread = {"n_failed": protocol_status["n_failed"],
+                      "n_protocols": protocol_status.get("n_protocols", protocol_status["n_failed"])}
+            result["protocol_text_unavailable"] = unread
+            message += _PROTOCOL_UNREAD_NEXT_STEP.format(**unread)
         result["message"] = message
         _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
         return json.dumps(result)
@@ -1451,7 +1465,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
         return _verdict_json(selection.out_of_scope(
             f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
-    return _verdict_json(verdict, len(uids), atlas)
+    return _verdict_json(verdict, len(uids), atlas,
+                         digest.get("protocol_text_status") if isinstance(digest, dict) else None)
 
 
 def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict,
