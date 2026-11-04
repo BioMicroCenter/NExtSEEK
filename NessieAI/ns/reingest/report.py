@@ -159,11 +159,15 @@ def _path_changed_line(sample_type: str, uids: list[str]) -> str:
     shown = ", ".join(uids[:_LISTED_PRESENT])
     if len(uids) > _LISTED_PRESENT:
         shown += f", and {len(uids) - _LISTED_PRESENT} more"
+    # Left out, not built: the upload skips a new row whose data file name is already
+    # a sample's, so a new sample beside the old one would never be made (PR 135 F2).
+    one = len(uids) == 1
     return (f"{sample_type} — the file at the path of {shown} has changed since "
-            f"{'it was' if len(uids) == 1 else 'they were'} uploaded (a new checksum), so "
-            "these rows are built as new samples beside "
-            f"{'it' if len(uids) == 1 else 'them'}; decide whether the old "
-            f"{'one is' if len(uids) == 1 else 'ones are'} still wanted")
+            f"{'it was' if one else 'they were'} uploaded (a new checksum), so "
+            f"{'its row was' if one else 'their rows were'} left out of the workbook: "
+            "an upload keeps one sample per data file, and NExtSEEK still holds the old "
+            f"checksum on {'it' if one else 'them'}. Check which file is right before "
+            f"using {'it' if one else 'them'}")
 
 
 def _compact_item(index, code, attribute, where):
@@ -234,9 +238,10 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     are those samples, ``total`` the rows the run mapped for the type.
 
     ``path_changed`` -- ``{sample_type: [UID, ...]}``, samples whose data file
-    sits at the path of a row being built but whose checksum differs: the run
-    was redone in the same folder, so the rows are built as new samples and the
-    reader decides whether the old ones are replaced.
+    sits at the path of a row the run mapped but whose checksum differs: the run
+    was redone in the same folder. Those rows are left out, as the upload would
+    skip them by file name, and the reader is told the old samples keep the old
+    checksum.
 
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
@@ -250,7 +255,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     already_present = already_present or {}
     if blocked:
         lines.append(f"Reingest blocked — run {run_name}")
-    elif not reports and already_present:
+    elif not reports and (already_present or path_changed):
         lines.append(f"Nothing new to upload — run {run_name}")
     else:
         lines.append(f"Reingest ready — run {run_name}")

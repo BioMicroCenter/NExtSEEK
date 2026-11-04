@@ -406,6 +406,38 @@ def notes_for_uids(uids: list[str]) -> dict[str, str]:
     return out
 
 
+def uids_updated_after_strict(uids: list[str], since: str) -> list[str]:
+    """The UIDs among ``uids`` whose sample SEEK changed after ``since`` (an ISO 8601 time,
+    a build record's ``built_at``), sorted.
+
+    upload-reingest asks this before an update workbook replaces those samples' Notes,
+    which were composed from the Notes read at build time: a sample edited since would
+    lose the edit. Strict, like ``attribute_values_for_uids_strict``: an unreadable
+    ``since`` or a failed fetch RAISES ``RuntimeError``, since "could not check" must
+    never read as "nothing changed".
+    """
+    import datetime
+
+    clean = sorted({str(u).strip() for u in uids if str(u or "").strip()})
+    try:
+        when = datetime.datetime.fromisoformat(str(since or ""))
+    except ValueError as exc:
+        raise RuntimeError(f"not a build time: {since!r}") from exc
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=datetime.timezone.utc)
+    if not clean:
+        return []
+    try:
+        from seek.models import Samples
+
+        found = list(Samples.objects.filter(uuid__in=clean, updated_at__gt=when)
+                     .values_list("uuid", flat=True))
+    except Exception as exc:
+        raise RuntimeError(
+            f"samples unreachable checking edits on {len(clean)} UID(s): {exc}") from exc
+    return sorted(str(uid) for uid in found if uid)
+
+
 def attribute_values_for_uids_strict(uids: list[str], attribute: str) -> dict[str, object]:
     """Current non-empty ``attribute`` value per UID, from ``json_metadata``.
 

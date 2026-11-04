@@ -256,3 +256,154 @@ def test_a_job_that_started_but_did_not_succeed_leaves_the_run_waiting(monkeypat
              neo4j_exec=None, outputs_dir=None)
     run.refresh_from_db()
     assert run.status == "submitted"
+
+
+_DONE = {"state": "SUCCESS", "totals": {"processed": 1, "uids_generated": 1}, "errors": []}
+
+
+def _late_upload(monkeypatch, tmp_path, user, run):
+    """A build of ``run`` whose upload answered while its job still ran (PR 135 F1): claimed, and
+    remembering the job. Returns the build id, plus the list each saved.txt write is appended to."""
+    from NessieAI.ns.reingest import build_records
+
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
+    path = tmp_path / "reingest_A_ALN.xlsx"
+    path.write_bytes(b"workbook")
+    record = build_records.write(
+        path=str(path), artifact_key="reingest_A_ALN", sample_type="A.ALN", mode="new",
+        manifest_id="m1", disposition="CLEAN", open_warnings=[], row_count=1, project_id=1,
+        project_note="", answers_digest="d", user_id=user.pk, test_only=False)
+    assert build_records.claim(record["build_id"], user.pk)
+    build_records.mark_waiting(record["build_id"], user.pk, job_id="j1", manifest_id="m1",
+                               uploaded_build_id=record["build_id"])
+    monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
+                        lambda mid: SimpleNamespace(launch_record_id=run.pk, run_dir=run.run_dir))
+    saved = []
+    # Both the label helper and the SSH write it starts are caught: any Luria write lands here.
+    monkeypatch.setattr(g, "_write_saved_label", lambda config, manifest: saved.append(manifest.run_dir))
+    monkeypatch.setattr(g, "_write_saved_label_now", lambda *a: saved.append(a))
+    return record["build_id"], saved
+
+
+def _harvest_with(session, monkeypatch):
+    staged = []
+
+    def _fake_stage(_luria_env, run_dir, *_a, **_k):
+        staged.append(run_dir)
+        raise RuntimeError("staged")
+
+    monkeypatch.setattr(g, "_stage_run_dir", _fake_stage)
+    fd, key_copy = tempfile.mkstemp(prefix="luria_key_")
+    os.close(fd)
+    monkeypatch.setattr("chat_nextseek.luria.ssh.prepare_key", lambda key: key_copy)
+    try:
+        g.run_op("run-harvest", {}, config=_Cfg(), session=session,
+                 write_gate=None, neo4j_exec=None, outputs_dir=None)
+    except RuntimeError as exc:
+        assert str(exc) == "staged"
+    return staged
+
+
+@pytest.mark.parametrize("state, said", [
+    (_DONE, "its upload has finished"),
+    ({"state": "PROGRESS"}, "its upload is still being confirmed"),
+    (None, "its upload is still being confirmed"),  # no job lookup on the session
+])
+def test_run_harvest_writes_nothing_for_a_late_upload_and_does_not_offer_its_run(
+        monkeypatch, tmp_path, state, said):
+    """run-harvest is read-only (gate_class read; CONTRACT.md). A run whose upload job outlived its call
+    is not offered again, and the refusal says why, but run-harvest settles nothing: no build stamp or
+    release, no PipelineRun status, no saved.txt on Luria. The next upload-reingest settles it."""
+    from NessieAI.ns.reingest import build_records
+
+    me = _user("me")
+    run = _run("mine", me)
+    build_id, saved = _late_upload(monkeypatch, tmp_path, me, run)
+    before = build_records.load(build_id, me.pk)
+    session = SimpleNamespace(user=me) if state is None else SimpleNamespace(
+        user=me, job_state=lambda job_id: state)
+    with pytest.raises(g.OpValidationError) as err:
+        _harvest_with(session, monkeypatch)
+    assert "no run you launched is waiting" in str(err.value)
+    assert said in str(err.value) and "mine" in str(err.value)
+    run.refresh_from_db()
+    assert run.status == "submitted"
+    assert saved == []
+    assert build_records.load(build_id, me.pk) == before
+    assert not build_records.claim(build_id, me.pk)  # still claimed by the late job
+
+
+def test_a_late_upload_holds_only_its_own_run(monkeypatch, tmp_path):
+    me = _user("me")
+    held = _run("uploaded", me)
+    _run("other", me)
+    _late_upload(monkeypatch, tmp_path, me, held)
+    staged = _harvest_with(SimpleNamespace(user=me, job_state=lambda job_id: {"state": "PROGRESS"}),
+                           monkeypatch)
+    assert staged == [f"{ROOT}/other"]
+
+
+def test_a_late_upload_that_failed_offers_its_run_again_without_releasing_it(monkeypatch, tmp_path):
+    from NessieAI.ns.reingest import build_records
+
+    me = _user("me")
+    run = _run("mine", me)
+    build_id, saved = _late_upload(monkeypatch, tmp_path, me, run)
+    staged = _harvest_with(SimpleNamespace(
+        user=me, job_state=lambda job_id: {"state": "FAILURE", "error": "lost"}), monkeypatch)
+    assert staged == [run.run_dir]
+    assert build_records.load(build_id, me.pk).get("waiting_job")  # the upload path gives it back
+    assert saved == []
+
+
+def test_the_next_upload_settles_a_late_upload(monkeypatch, tmp_path):
+    """PR 135 F1, on the upload path: the late job is done by the next upload-reingest, which stamps the
+    build uploaded, marks the run reingested and writes saved.txt; run-harvest then has nothing waiting."""
+    from NessieAI.ns.reingest import build_records, upload
+
+    me = _user("me")
+    run = _run("mine", me)
+    build_id, saved = _late_upload(monkeypatch, tmp_path, me, run)
+    monkeypatch.setattr(upload, "run", lambda **_k: {"jobs": [], "reply": "ok"})
+    session = SimpleNamespace(user=me, job_state=lambda job_id: _DONE)
+    g.run_op("upload-reingest", {"build_ids": "b1", "confirmed_write": True},
+             config=_Cfg(), session=session, write_gate=lambda *a: None,
+             neo4j_exec=None, outputs_dir=None)
+    run.refresh_from_db()
+    assert run.status == launch_record.STATUS_REINGESTED
+    assert saved == [run.run_dir]
+    record = build_records.load(build_id, me.pk)
+    assert record.get("uploaded_at") and not record.get("waiting_job")
+    with pytest.raises(g.OpValidationError) as err:
+        _harvest_with(session, monkeypatch)
+    assert "pass --run-dir" in str(err.value)
+
+
+def test_an_unconfirmed_upload_settles_nothing(monkeypatch, tmp_path):
+    """The settle runs after upload-reingest's write gate: a refused call leaves the late job waiting."""
+    from NessieAI.ns.reingest import build_records
+
+    me = _user("me")
+    run = _run("mine", me)
+    build_id, saved = _late_upload(monkeypatch, tmp_path, me, run)
+
+    def refuse(*_a):
+        raise RuntimeError("write blocked")
+
+    with pytest.raises(RuntimeError, match="write blocked"):
+        g.run_op("upload-reingest", {"build_ids": "b1"}, config=_Cfg(),
+                 session=SimpleNamespace(user=me, job_state=lambda job_id: _DONE),
+                 write_gate=refuse, neo4j_exec=None, outputs_dir=None)
+    run.refresh_from_db()
+    assert run.status == "submitted" and saved == []
+    assert build_records.load(build_id, me.pk).get("waiting_job")
+
+
+def test_the_run_harvest_session_carries_the_hosts_job_lookup():
+    from nextseek_api.batch_upload import views as batch_views
+    from nextseek_api.services.assistant import AssistantViewSet
+
+    request = SimpleNamespace(user=SimpleNamespace(pk=7))
+    session = AssistantViewSet()._granular_op_session(request, None, "run-harvest")
+    assert session.user is request.user
+    assert session.job_state is batch_views.job_outcome

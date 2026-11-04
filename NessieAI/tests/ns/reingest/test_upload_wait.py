@@ -307,3 +307,46 @@ def test_an_overlapping_call_cannot_start_a_second_job(env):
                      turn_delivered=lambda t: True)
     assert "already started" in second["refused"]
     assert [j["job_id"] for j in out["jobs"]] == ["job-first"]
+
+
+# --- a job that outlived the wait (PR 135 F1) -----------------------------------------
+
+def test_a_job_that_outlived_the_wait_is_settled_once_it_is_done(env, monkeypatch):
+    """The call answered while the job still ran; the build keeps its claim and remembers
+    the job, so a later reingest op can see it finish and settle it as the wait would have."""
+    monkeypatch.setenv("NEXTSEEK_UPLOAD_WAIT_S", "1")
+    builds = [_build(env, "reingest_A_ALN", "new", "A.ALN")]
+    out = _upload(env, lambda job_id: {"state": "PROGRESS"}, builds)
+    assert out["jobs"][0]["outcome"]["status"] == "running"
+
+    assert upload.settle_waiting(7, lambda job_id: {"state": "PROGRESS"}) == []
+    done = upload.settle_waiting(7, lambda job_id: _done(created=2))
+    assert [(d["manifest_id"], d["job_id"]) for d in done] == [("abc", "job-0")]
+    assert upload.job_is_done(done[0]["outcome"])
+    # Settled once: the build is uploaded, and nothing is left waiting.
+    assert upload.settle_waiting(7, lambda job_id: _done(created=2)) == []
+    assert build_records.load(builds[0]["build_id"], 7).get("uploaded_at")
+    with pytest.raises(upload.UploadRefused):
+        _upload(env, lambda job_id: _done(created=2), builds)
+
+
+def test_a_late_job_that_failed_frees_its_build(env, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_UPLOAD_WAIT_S", "1")
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    _upload(env, lambda job_id: {"state": "PROGRESS"}, builds)
+    assert upload.settle_waiting(7, lambda job_id: {"state": "FAILURE", "error": "lost"}) == []
+    assert upload.settle_waiting(7, lambda job_id: _done(created=2)) == []
+    out = _upload(env, lambda job_id: _done(created=2), builds)
+    assert out["jobs"][0]["outcome"]["status"] == "succeeded"
+
+
+def test_a_lookup_that_raises_leaves_the_job_waiting(env, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_UPLOAD_WAIT_S", "1")
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    _upload(env, lambda job_id: {"state": "PROGRESS"}, builds)
+
+    def down(job_id):
+        raise RuntimeError("broker down")
+
+    assert upload.settle_waiting(7, down) == []
+    assert len(upload.settle_waiting(7, lambda job_id: _done(created=2))) == 1
