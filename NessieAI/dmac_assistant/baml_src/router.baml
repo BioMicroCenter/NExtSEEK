@@ -126,6 +126,18 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     message that refers back to a `container_cc` answer follows the
     follow-up rule below.
 
+    A message whose intent is to hand off a finished run is `container_cc`:
+    the user says an nf-core run, pipeline or job they launched is done, and
+    asks for nothing else, or asks for its outputs to be registered or loaded
+    ("my run is done", "the nf-core run you launched for me has finished, can
+    you register its outputs?"). Container-CC finds the user's launched run and
+    registers its outputs; no folder needs to be named. A finished run named
+    only as context for another request is routed by that request: "the
+    sequencing run is complete; how many D.SEQ samples are in project 12?" is
+    a NExtSEEK search, and "the PCR run is done, which protocol did we use?"
+    asks about a protocol. Asking whether a run has finished, or asking to
+    launch a new one, is not a hand-off either.
+
     How-to questions about the site go to `nextseek_query`. "How do I upload
     samples", "how can I check my workbook before uploading it", "where do I
     download my results as a spreadsheet" and "how do I call the API" ask how
