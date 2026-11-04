@@ -73,7 +73,7 @@ in that chat (use a `seed` turn, then `main`, for a follow-up).
 
 ```bash
 rm -rf $S/nt && mkdir -p $S/nt && git -C <workstation_repo> archive origin/dev \
-  NessieAI/__init__.py NessieAI/paths.py NessieAI/tests | tar -x -C $S/nt
+  NessieAI/__init__.py NessieAI/paths.py NessieAI/nessie_harness NessieAI/tests | tar -x -C $S/nt
 (cd $S/nt && uv run --no-project --with pydantic --with requests --with beautifulsoup4 --with orjson python -c "
 from NessieAI.tests.nessie_tests.corpus import load_case_file
 inc, v = load_case_file('$S/launch-$TAG-cases-1.json')
@@ -150,10 +150,14 @@ the box's own `~/.config/nextseek/ci.env`:
 - every other cases file runs as the admin login, `CI_WRITE_USER` with `CI_WRITE_PASS`.
 
 ```bash
-docker compose exec -T -e "$PW" nextseek uv run manage.py nessie --tier full \
+docker compose exec -T -e "$PW" -e "$NESSIE_ON=1" nextseek uv run manage.py nessie --tier full \
   --cases /app/runs/<file> --user "$U" --password-env "$PW" \
   --out /app/runs/<run> </dev/null > <log> 2>&1
 ```
+
+`NESSIE_ON` is `NESSIE_ON_<INSTANCE>` (`NESSIE_ON_DEV`, `NESSIE_ON_PROD`). A case that needs records only
+production holds names `NESSIE_ON_PROD` in its `requires_env`, so the harness records it skipped on any
+other box instead of red.
 
 `NESSIE_START` in the status file ends `login=member` or `login=admin`, and `facts.json` carries it
 per run. The preflight stops (row `member_login`) when the brief has a `-member.json` file and the

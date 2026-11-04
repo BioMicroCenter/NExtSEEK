@@ -108,6 +108,30 @@ def test_the_same_fallback_for_another_name():
     assert hits == {"Zeta": ("investigation", "Zeta", True)}
 
 
+# r5b (2026-11-03): the user said the project by another of its names ("IMPAcTb"), the box has no Project of any
+# of its names, and the investigation is titled with the row's own name ("Impact"). With no block the graph agent
+# bound the user's spelling and answered zero (4 of 5 dev runs).
+def test_another_name_of_the_project_also_scopes_to_the_investigation():
+    hits = gctx.container_titles_for(["IMPAcTb"], [PROJ_ROW], _levels(inv=("Impact",), proj=("Published Data",)))
+    assert hits == {"IMPAcTb": ("investigation", "Impact", True)}
+
+
+def test_the_same_for_another_projects_alternative_name():
+    row = {"name": "Zeta", "alternative_names": ["Zeta Lab"], "entity_type": "project"}
+    hits = gctx.container_titles_for(["Zeta Lab"], [row], _levels(inv=("Zeta",)))
+    assert hits == {"Zeta Lab": ("investigation", "Zeta", True)}
+
+
+def test_the_project_still_wins_over_the_investigation_for_another_name():
+    hits = gctx.container_titles_for(["IMPAcTb"], [PROJ_ROW], _levels(inv=("Impact",), proj=("IMPAcTb",)))
+    assert hits == {"IMPAcTb": ("project", "IMPAcTb", True)}
+
+
+def test_two_investigations_through_the_rows_names_stay_unscoped():
+    row = {"name": "Zeta", "alternative_names": ["Zeta Lab", "ZL"], "entity_type": "project"}
+    assert gctx.container_titles_for(["ZL"], [row], _levels(inv=("Zeta", "Zeta Lab"))) == {}
+
+
 def test_the_project_still_wins_when_it_exists():
     hits = gctx.container_titles_for(["Impact"], [PROJ_ROW], _levels(inv=("Impact",), proj=("IMPAcTb",)))
     assert hits == {"Impact": ("project", "IMPAcTb", True)}

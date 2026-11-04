@@ -274,15 +274,67 @@ def _ontology_index() -> list[dict]:
 
 
 def fix_ontology_links(text: Any, index: list[dict] | None = None) -> Any:
-    """Point a house-ontology link in a reply at that entry's real ``url``.
+    """Two fixes on a Container-CC reply.
 
-    The agent sometimes prints an invented host or path for the link. A markdown link is
-    set to the entry's ``url`` when its text equals an entry ``title`` (case and spacing
-    folded) or its href ends with an entry ``file`` name; every other link is untouched.
+    1. Point a house-ontology link at that entry's real ``url``. A markdown link is set to
+       it when its text equals an entry ``title`` (case and spacing folded) or its href ends
+       with an entry ``file`` name; every other link is untouched.
+    2. Write the link line a harmonization table skipped: see ``_add_missing_ontology_line``.
     """
-    if not isinstance(text, str) or "](" not in text:
+    if not isinstance(text, str):
         return text
     entries = _ontology_index() if index is None else index
+    if "](" in text:
+        text = _repoint_ontology_links(text, entries)
+    return _add_missing_ontology_line(text, entries)
+
+
+def _add_missing_ontology_line(text: str, entries: list[dict]) -> str:
+    """Insert ``Matched against [title](url).`` above a harmonization table (header has
+    Before, After and Ontology) whose Ontology cells name an entry the reply never links.
+
+    A cell counts only when, minus a trailing parenthetical, it equals an entry title
+    ("Mouse genotypes (house list)"). Fenced code is skipped, and nothing is added when the
+    reply already has a line starting "Matched against".
+    """
+    if "|" not in text or re.search(r"(?im)^\s*matched against", text):
+        return text
+    by_title = {" ".join(str(e.get("title", "")).casefold().split()): e
+                for e in entries if e.get("url") and e.get("title")}
+    lines = text.split("\n")
+    out: list[str] = []
+    fenced = False
+    i = 0
+    while i < len(lines):
+        row = lines[i]
+        if row.lstrip().startswith("```"):
+            fenced = not fenced
+        cells = [c.strip().casefold() for c in row.strip().strip("|").split("|")]
+        if fenced or not row.lstrip().startswith("|") or not {"before", "after", "ontology"} <= set(cells):
+            out.append(row)
+            i += 1
+            continue
+        col = cells.index("ontology")
+        j = i + 1
+        while j < len(lines) and lines[j].lstrip().startswith("|"):
+            j += 1
+        named: list[dict] = []
+        for body in lines[i + 2:j]:
+            parts = body.strip().strip("|").split("|")
+            cell = re.sub(r"\s*\([^)]*\)\s*$", "", parts[col]) if col < len(parts) else ""
+            e = by_title.get(" ".join(cell.casefold().split()))
+            if e and e not in named:
+                named.append(e)
+        for e in named:
+            if e["url"] not in text:
+                out += [f"Matched against [{e['title']}]({e['url']}).", ""]
+                text += " " + e["url"]  # idempotent within this pass
+        out.extend(lines[i:j])
+        i = j
+    return "\n".join(out)
+
+
+def _repoint_ontology_links(text: str, entries: list[dict]) -> str:
     by_title = {" ".join(str(e.get("title", "")).casefold().split()): e["url"] for e in entries if e.get("url")}
     by_file = {e["file"]: e["url"] for e in entries if e.get("url") and e.get("file")}
 

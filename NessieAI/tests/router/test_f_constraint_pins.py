@@ -99,9 +99,14 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0032_chat_search_entry.py",
         # Pin updated for SEC-H19: 0033 is data only (clears is_staff on non-superusers); no router table.
         "nextseek_api/migrations/0033_clear_staff_non_superusers.py",
+        # Pin updated for #154: 0034 is database only (the chat question and title columns of
+        # assistant_query_task and assistant_chat_session become utf8mb4 through _chat_text_utf8mb4.py,
+        # its heal helper); no model state, no router table.
+        "nextseek_api/migrations/0034_chat_text_utf8mb4.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_cc_turn_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
+        "nextseek_api/migrations/_chat_text_utf8mb4.py",
         "nextseek_api/migrations/_turn_ledger_heal.py",
     ]
