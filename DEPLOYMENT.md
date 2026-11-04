@@ -1341,7 +1341,8 @@ before the worker) turns every job left STARTED/PROGRESS into FAILURE ("interrup
 sheet; rows already saved are skipped"). Rows with no UID, no Name and no File_PrimaryData cannot be recognized, so a
 re-upload of a half-done sheet inserts them again (true of any re-upload). `BATCH_UPLOAD_STATE_DIR` moves the directory.
 A daily beat task (`batch_upload.purge_durable_state`) removes results and consumed broker messages older than the job TTL
-(`BATCH_UPLOAD_JOB_TTL_HOURS`) and saved sheets older than it that no queued job names; the entrypoint logs a warning if
+(`BATCH_UPLOAD_JOB_TTL_HOURS`) and saved sheets older than it that no queued job names (upload-reingest's staged workbook copies
+among them, and the ones it used to leave in `MEDIA_ROOT/uploads/`); the entrypoint logs a warning if
 `BATCH_UPLOAD_STATE_DIR` is not under `/var/celery`.
 
 ---
