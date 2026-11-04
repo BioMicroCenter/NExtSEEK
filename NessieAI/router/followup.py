@@ -174,17 +174,28 @@ _CC_SHAPE = re.compile(
 )
 
 
+# An expression comparison over earlier samples is the pipeline agent's offer (the expression paragraph of router.baml),
+# so it does not make a follow-up a CC-shaped "comparison" or "analysis". Anything else the message asks for (a plot, a
+# file) still does. Prod chat e80cee5a: the router said NExtSEEK and "comparing" alone moved the build to CC.
+_EXPRESSION_ASK = re.compile(
+    r"(?:\b(?:set\s*up|run|do|perform|start)\s+(?:an?\s+|the\s+)?(?:analysis\s+|comparison\s+)?)?"
+    r"\b(?:compar\w*|analy[sz]\w*)\s+(?:(?:the|of|in|for|between)\s+){0,3}?(?:gene\s+)?expression\b",
+    re.IGNORECASE,
+)
+
+
 def followup_shape(query: str | None) -> str | None:
     """Which engine a follow-up needs: ``"cc"``, ``"ns"``, or None when ``query`` is not a follow-up.
 
     ``"cc"`` when the message names a file or download, a chart, code, or a comparison, summary or
-    analysis, or points at an artifact ("that chart", "the file"); every other follow-up is ``"ns"``.
+    analysis (other than an expression comparison, ``_EXPRESSION_ASK``), or points at an artifact
+    ("that chart", "the file"); every other follow-up is ``"ns"``.
     """
     cue = followup_cue(query)
     if cue is None:
         return None
     text = " ".join(str(query or "").split())
-    if cue == "that-artifact" or _CC_SHAPE.search(text):
+    if cue == "that-artifact" or _CC_SHAPE.search(_EXPRESSION_ASK.sub(" ", text)):
         return "cc"
     return "ns"
 

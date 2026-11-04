@@ -1,0 +1,389 @@
+{
+  "_name": "probe-2026-10-30-tcga-lineage - TCGA erlotinib and the mapping link",
+  "_why": "On 10-26 and 10-28 the unforced erlotinib question returned 0 (tasks 2586, 2829: T_D_SEQ required; TCGA holds sequencing as A.ALN; #143). Eight turns, one fresh chat each, plus the two consistency turns --tier full adds, PAID: needs the operator's go. Dev only.",
+  "_instance_warning": "Dev only: TCGA is on dev, not on production. The number 54 was measured on dev on 10-28; the runner re-pins every count on the box with pin_probe_truths.py.",
+  "_measure": {
+    "paper.tcga_erlotinib_1": {
+      "locals": [
+        54
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation {title:'TCGA'}) WHERE EXISTS { MATCH (v:T_PAV)-[:DERIVED_FROM*1..12]->(p) WHERE toLower(v.search_text) CONTAINS 'erlotinib' } AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n"
+      ]
+    },
+    "paper.tcga_erlotinib_2": {
+      "locals": [
+        54
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation {title:'TCGA'}) WHERE EXISTS { MATCH (v:T_PAV)-[:DERIVED_FROM*1..12]->(p) WHERE toLower(v.search_text) CONTAINS 'erlotinib' } AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n"
+      ]
+    },
+    "paper.tcga_erlotinib_3": {
+      "locals": [
+        54
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation {title:'TCGA'}) WHERE EXISTS { MATCH (v:T_PAV)-[:DERIVED_FROM*1..12]->(p) WHERE toLower(v.search_text) CONTAINS 'erlotinib' } AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n"
+      ]
+    },
+    "paper.tcga_luad_sequencing": {
+      "locals": [
+        99999
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT) WHERE p.Study = 'TCGA-LUAD' AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(p) AS n"
+      ]
+    },
+    "paper.tcga_carboplatin_sequencing": {
+      "locals": [
+        99999
+      ],
+      "cypher": [
+        "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation {title:'TCGA'}) WHERE EXISTS { MATCH (v:T_PAV)-[:DERIVED_FROM*1..12]->(p) WHERE toLower(v.search_text) CONTAINS 'carboplatin' } AND EXISTS { MATCH (:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n"
+      ]
+    }
+  },
+  "families": {
+    "tcga_erlotinib": {
+      "description": "Patients with a drug and sequencing in TCGA.",
+      "variants": [
+        {
+          "family": "tcga_erlotinib",
+          "id": "paper.tcga_erlotinib_1",
+          "name": "TCGA erlotinib with sequencing, variant 1",
+          "_why": "Sequencing in TCGA is A.ALN, not T_D_SEQ, and the erlotinib text sits on the PAV children (#143). The reply must give the measured patient count (_measure).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which TCGA patients received erlotinib and have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])54(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "tcga_erlotinib",
+          "id": "paper.tcga_erlotinib_2",
+          "name": "TCGA erlotinib with sequencing, variant 2",
+          "_why": "Sequencing in TCGA is A.ALN, not T_D_SEQ, and the erlotinib text sits on the PAV children (#143). The reply must give the measured patient count (_measure).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which TCGA patients received erlotinib and have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])54(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "tcga_erlotinib",
+          "id": "paper.tcga_erlotinib_3",
+          "name": "TCGA erlotinib with sequencing, variant 3",
+          "_why": "Sequencing in TCGA is A.ALN, not T_D_SEQ, and the erlotinib text sits on the PAV children (#143). The reply must give the measured patient count (_measure).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which TCGA patients received erlotinib and have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])54(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "tcga_mapping_link": {
+      "description": "A supplied mapping names and links its ontology.",
+      "variants": [
+        {
+          "family": "tcga_mapping_link",
+          "id": "paper.mapping_link_1",
+          "name": "Supplied mapping links its ontology, variant 1",
+          "_why": "From corpus case batch.apply_a_supplied_mapping: the reply names both keys and the long form, says nothing is uploaded, and links the ontology file.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Here is our genotype key: RGA means \"RaDR+/+; GPT+/+; Aag -/-\" and RGATG means \"RaDR+/+; GPT+/+; AagTg -/+\". Build me an update sheet applying that to the mouse samples, but do not upload it.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(?=.*Aag)(?=.*\\bRGA\\b)(?=.*\\bRGATG\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(not upload|(won.?t|will not|not) be uploaded|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "tcga_mapping_link",
+          "id": "paper.mapping_link_2",
+          "name": "Supplied mapping links its ontology, variant 2",
+          "_why": "From corpus case batch.apply_a_supplied_mapping: the reply names both keys and the long form, says nothing is uploaded, and links the ontology file.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Here is our genotype key: RGA means \"RaDR+/+; GPT+/+; Aag -/-\" and RGATG means \"RaDR+/+; GPT+/+; AagTg -/+\". Build me an update sheet applying that to the mouse samples, but do not upload it.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(?=.*Aag)(?=.*\\bRGA\\b)(?=.*\\bRGATG\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(not upload|(won.?t|will not|not) be uploaded|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "tcga_sequencing_siblings": {
+      "description": "Other TCGA sequencing questions take A.ALN; a question outside TCGA stays on D.SEQ.",
+      "variants": [
+        {
+          "family": "tcga_sequencing_siblings",
+          "id": "paper.tcga_luad_sequencing",
+          "name": "TCGA-LUAD patients with sequencing",
+          "_why": "Sibling of the erlotinib case without a drug (#143): sequencing in TCGA is A.ALN, and the reply gives the measured count (_measure). 99999 is unmeasured: the re-pin on dev replaces it, and a run without the re-pin goes red.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many TCGA-LUAD patients have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "contains",
+                  "value": "T_A_ALN"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])99,?999(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "tcga_sequencing_siblings",
+          "id": "paper.tcga_carboplatin_sequencing",
+          "name": "TCGA carboplatin patients with sequencing",
+          "_why": "Sibling of the erlotinib case with another drug (#143): sequencing in TCGA is A.ALN, and the reply gives the measured count (_measure). 99999 is unmeasured: the re-pin on dev replaces it, and a run without the re-pin goes red.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Do TCGA patients treated with carboplatin have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "A.ALN"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "contains",
+                  "value": "T_A_ALN"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])99,?999(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "tcga_sequencing_siblings",
+          "id": "paper.nhp_sequencing_stays_dseq",
+          "name": "NHP sequencing stays on D.SEQ",
+          "_why": "Control for #143: outside TCGA, sequencing data is still D.SEQ.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find NHP sequencing data.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "D.SEQ"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "contains",
+                  "value": "T_D_SEQ"
+                },
+                {
+                  "field": "graph_result.count",
+                  "op": "gte",
+                  "value": 1
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
