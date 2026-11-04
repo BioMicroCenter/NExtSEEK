@@ -24,7 +24,7 @@ What you have
   - Generic "nf-core samplesheet" / "nfcore samplesheet" with no specific pipeline named → NFCORE.
   - A request that names a pipeline (nf-core/rnaseq, "rnaseq samplesheet", "scrnaseq", "single-cell", atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs, …) → still NFCORE.
 - NEVER emit NFCORE_<PIPELINE> variants. The specific pipeline is chosen downstream by the pipeline agent, which infers it from the request and sample metadata.
-- A question comparing genes, transcripts or expression between groups of samples ("which genes change between these two samples?") that the parser marked NFCORE is reporter_mode "report_generation" with report_type NFCORE, never a summary: the pipeline agent offers the run that produces the data the comparison needs.
+- A question comparing genes, transcripts or expression between groups of samples ("which genes change between these two samples?") that the parser marked NFCORE is reporter_mode "report_generation" with report_type NFCORE, never a summary: the pipeline agent offers the run that produces the data the comparison needs. The same holds for a question asking which variants, mutations, gene fusions or HLA alleles the user's sequenced samples carry or express: the pipeline agent offers the run that calls them.
 - Downstream: a separate report_writer agent will write the narrative using the structured context you provide.
 
 --------------------------------------------------

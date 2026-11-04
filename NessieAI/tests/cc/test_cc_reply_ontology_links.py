@@ -60,3 +60,60 @@ def test_an_unreadable_index_leaves_links_and_logs_a_warning(tmp_path, monkeypat
         assert cc_engine.fix_ontology_links("[Thing One](http://a)") == "[Thing One](http://a)"
     [record] = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert str(missing) in record.getMessage()
+
+
+# --- the link line is written when a harmonization table names an ontology but omits the link ---
+# Fixture: dev 11-02 task 323003d3 (batch.apply_a_supplied_mapping); its cells held
+# "Mouse genotypes (house list)": the title plus a suffix, no term id.
+_GENO = {"title": "Mouse genotypes", "file": "ontology_mouse_genotype.json",
+         "url": "https://real.example/ontology_mouse_genotype.json"}
+_STORED = (
+    "I haven't built the update sheet yet. 169 mouse samples match your key.\n\n"
+    "| Before | Samples | After | Ontology |\n|---|---|---|---|\n"
+    "| RGA | 91 | RaDR+/+; GPT+/+; Aag -/- | Mouse genotypes (house list) |\n"
+    "| RGATG | 78 | RaDR+/+; GPT+/+; AagTg -/+ | Mouse genotypes (house list) |\n\n"
+    "- **Left unchanged:** 23 mice.\n"
+)
+LINE = "Matched against [Mouse genotypes](https://real.example/ontology_mouse_genotype.json)."
+
+
+def test_link_line_inserted_above_table_from_stored_reply():
+    out = cc_engine.fix_ontology_links(_STORED, INDEX + [_GENO])
+    assert out.count(LINE) == 1
+    assert out.index(LINE) < out.index("| Before |")
+    assert out.replace(LINE + "\n\n", "") == _STORED  # nothing else changed
+
+
+def test_link_line_not_added_when_link_present_or_no_column_or_unknown_title():
+    idx = INDEX + [_GENO]
+    linked = _STORED.replace("169 mouse", "[Mouse genotypes](https://real.example/ontology_mouse_genotype.json) 169 mouse")
+    assert cc_engine.fix_ontology_links(linked, idx) == linked
+    no_col = _STORED.replace("Ontology", "Source")
+    assert cc_engine.fix_ontology_links(no_col, idx) == no_col
+    assert cc_engine.fix_ontology_links(_STORED, INDEX) == _STORED
+
+
+def test_link_line_is_idempotent():
+    once = cc_engine.fix_ontology_links(_STORED, INDEX + [_GENO])
+    assert cc_engine.fix_ontology_links(once, INDEX + [_GENO]) == once
+
+
+def _same(text):
+    assert cc_engine.fix_ontology_links(text, INDEX + [_GENO]) == text
+
+
+def test_no_line_for_a_table_listing_ontologies():
+    _same("| Ontology | Terms |\n|---|---|\n| Mouse genotypes | 40 |\n| Thing One | 3 |\n")
+
+
+def test_no_line_inside_a_code_fence():
+    _same("```\n" + _STORED + "```\n")
+
+
+def test_no_line_for_a_cell_that_only_contains_the_title():
+    _same(_STORED.replace("Mouse genotypes (house list)", "MONDO Mouse genotypes ontology"))
+    _same(_STORED.replace("Mouse genotypes (house list)", "no Mouse genotypes term fits"))
+
+
+def test_no_second_sentence_when_matched_against_is_present():
+    _same("Matched against the house list.\n\n" + _STORED)

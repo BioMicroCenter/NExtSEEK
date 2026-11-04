@@ -1209,6 +1209,29 @@ def _write_compose_env_files(tmp_root: Path, repo_root: Path = REPO_ROOT) -> Non
         target.parent.mkdir(parents=True, exist_ok=True)
         text = proxy_secret_text if target.name == "proxy-secret.env" else ""
         target.write_text(text, encoding="utf-8")
+    # The project .env that compose interpolates ${VAR:?...} from: the committed .env.example's
+    # placeholders (a fresh checkout's), plus NEXTSEEK_HOST_GID, which install writes and the
+    # example leaves out. Without it `docker compose config` refuses to resolve the file at all.
+    env_example = repo_root / ".env.example"
+    env_text = env_example.read_text(encoding="utf-8") if env_example.is_file() else ""
+    if not re.search(r"^NEXTSEEK_HOST_GID=\S", env_text, re.M):
+        env_text += "\nNEXTSEEK_HOST_GID=1000\n"
+    (tmp_root / ".env").write_text(env_text, encoding="utf-8")
+
+
+def test_compose_env_fixture_sets_every_required_variable(tmp_path):
+    """Every ``${VAR:?...}`` the committed compose file requires gets a value in
+    the fixture's ``.env``; otherwise ``docker compose config`` refuses to
+    interpolate and every real-config test below fails on a fresh checkout."""
+    _write_compose_env_files(tmp_path)
+    text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    required = set(re.findall(r"\$\{([A-Z0-9_]+):\?", text))
+    assert required, "docker-compose.yml requires no variable: the pattern is stale"
+    env = tmp_path / ".env"
+    assert env.is_file(), "the fixture writes no .env"
+    have = {ln.split("=", 1)[0].strip() for ln in env.read_text(encoding="utf-8").splitlines()
+            if "=" in ln and not ln.lstrip().startswith("#") and ln.split("=", 1)[1].strip()}
+    assert required <= have, f"missing from the fixture .env: {sorted(required - have)}"
 
 
 def _real_compose_config(tmp_path: Path, repo_root: Path = REPO_ROOT) -> dict:

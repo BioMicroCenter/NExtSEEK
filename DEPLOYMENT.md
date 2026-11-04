@@ -1086,7 +1086,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `SEMANTIC_MIN_K` | nextseek.env | 10 |  |  | Semantic shortlist: always keep at least this many items. |
 | `SEMANTIC_MAX_K` | nextseek.env | 80 |  |  | Semantic shortlist: never keep more than this many items. |
 | `PIPELINE_LAUNCH_MODE` | nextseek.env |  |  |  | Where nf-core pipelines launch, luria or tower. |
-| `LURIAKEY` | nextseek.env, root.env | /dev/null |  |  | Path of the Luria SSH key file; compose mounts it at the same path. A path, not the key. |
+| `LURIAKEY` | nextseek.env, root.env | /dev/null |  |  | Path of the Luria SSH key file; compose mounts it at the same path. A path, not the key. Compose reads root.env and the app nextseek.env; rebuild and install copy a path named only in nextseek.env to root.env. |
 | `LURIA_USER` | nextseek.env |  |  |  | Luria cluster user. |
 | `LURIA_WORKING_PATH` | nextseek.env |  |  |  | Luria cluster working folder. |
 | `LURIA_CONDA_ENV` | nextseek.env |  |  |  | Conda environment a Luria run script activates. |

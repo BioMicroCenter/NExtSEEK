@@ -575,7 +575,7 @@ doc = "Where nf-core pipelines launch, luria or tower."
 [LURIAKEY]
 files = ["nextseek.env", "root.env"]
 default = "/dev/null"
-doc = "Path of the Luria SSH key file; compose mounts it at the same path. A path, not the key."
+doc = "Path of the Luria SSH key file; compose mounts it at the same path. A path, not the key. Compose reads root.env and the app nextseek.env; rebuild and install copy a path named only in nextseek.env to root.env."
 
 [LURIA_USER]
 files = ["nextseek.env"]

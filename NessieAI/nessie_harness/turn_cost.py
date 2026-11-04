@@ -87,7 +87,9 @@ def read_turn(payload: dict) -> dict:
         end = _last_data(payload, "query_error") or {}
     router_model = rd.get("router_model")
     router_fallback = rd.get("router_fallback")
-    route, source = rd.get("route"), rd.get("source")
+    # Where the turn ran: the last, since a build's handoff sends a second route_decided when the turn moves to CC.
+    last_rd = _last_data(payload, "route_decided") or rd
+    route, source = last_rd.get("route"), last_rd.get("source")
     # Per part, because a deploy where only one side writes its field must not read
     # as "no fallback". A part that did not run needs no report: a forced turn made
     # no router call and an `unrelated` turn ran no engine. A route-tier turn never
