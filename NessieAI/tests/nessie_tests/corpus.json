@@ -6009,7 +6009,7 @@
           ],
           "id": "graph.tcga_erlotinib_with_sequencing",
           "family": "graph_traversal",
-          "name": "TCGA patients given erlotinib with sequencing data read A.ALN, not D.SEQ",
+          "name": "TCGA patients given erlotinib with sequencing data read D.SEQ",
           "turns": [
             {
               "label": "main",
@@ -6018,7 +6018,7 @@
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
-                  "value": "A.ALN"
+                  "value": "D.SEQ"
                 },
                 {
                   "field": "neo4j_ok",
@@ -6028,7 +6028,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
                 },
                 {
                   "field": "graph_cypher",
@@ -6043,7 +6043,7 @@
               ]
             }
           ],
-          "_why": "The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Rewritten 2026-11-09 (operator 11-06: the TCGA schema changed, sequencing files are D.SEQ again and A.ALN no longer holds them): the case now requires D.SEQ and no longer requires A.ALN. Older note follows. || The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6062,7 +6062,7 @@
           ],
           "id": "graph.tcga_lung_patients_with_sequencing",
           "family": "graph_traversal",
-          "name": "Any TCGA lung cancer patients with sequencing data read A.ALN",
+          "name": "Any TCGA lung cancer patients with sequencing data read D.SEQ",
           "turns": [
             {
               "label": "main",
@@ -6071,7 +6071,7 @@
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
-                  "value": "A.ALN"
+                  "value": "D.SEQ"
                 },
                 {
                   "field": "neo4j_ok",
@@ -6081,7 +6081,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
                 },
                 {
                   "field": "graph_cypher",
@@ -6091,7 +6091,7 @@
               ]
             }
           ],
-          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Rewritten 2026-11-09 (operator 11-06: the TCGA schema changed, sequencing files are D.SEQ again and A.ALN no longer holds them): the case now requires D.SEQ and no longer requires A.ALN. Older note follows. || Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6110,7 +6110,7 @@
           ],
           "id": "graph.tcga_count_patients_with_sequencing",
           "family": "graph_traversal",
-          "name": "Count of TCGA patients with sequencing data reads A.ALN",
+          "name": "Count of TCGA patients with sequencing data reads D.SEQ",
           "turns": [
             {
               "label": "main",
@@ -6119,7 +6119,7 @@
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
-                  "value": "A.ALN"
+                  "value": "D.SEQ"
                 },
                 {
                   "field": "neo4j_ok",
@@ -6129,7 +6129,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
                 },
                 {
                   "field": "graph_cypher",
@@ -6139,7 +6139,7 @@
               ]
             }
           ],
-          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Rewritten 2026-11-09 (operator 11-06: the TCGA schema changed, sequencing files are D.SEQ again and A.ALN no longer holds them): the case now requires D.SEQ and no longer requires A.ALN. Older note follows. || Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
