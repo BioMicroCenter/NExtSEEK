@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import json
 import re
-from copy import copy
+from copy import copy, deepcopy
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from openpyxl import load_workbook
+from openpyxl.formatting.formatting import ConditionalFormattingList
+from openpyxl.utils import get_column_letter, range_boundaries
+from openpyxl.worksheet.cell_range import MultiCellRange
 from openpyxl.worksheet.worksheet import Worksheet
 
 from ._text_safe import set_text
@@ -198,6 +201,90 @@ def _select_study_summary(study: Mapping[str, Any] | None) -> str | None:
     )
 
 
+def _box_str(c1: int, r1: int, c2: int, r2: int) -> str:
+    return f"{get_column_letter(c1)}{r1}:{get_column_letter(c2)}{r2}"
+
+
+def _shift_box(box: tuple, inserts: Sequence[int]) -> tuple:
+    """Move a (c1, r1, c2, r2) range as Excel does for each row inserted at ``at`` (in order)."""
+    c1, r1, c2, r2 = box
+    for at in inserts:
+        if r1 >= at:
+            r1 += 1
+        if r2 >= at and r2 < 1048576:  # a range to the sheet's last row stays open-ended
+            r2 += 1
+    return c1, r1, c2, r2
+
+
+def _detach_block_ranges(ws: Worksheet, first: int, last: int):
+    """Take the template's conditional-format and data-validation ranges that lie inside the example library rows
+    [first, last] out of the sheet, because openpyxl leaves ranges where they were when rows are inserted.
+    Returns (kept CF, duplicate rule, help validations): the validations (dropdowns and input-message prompts) that
+    sat on the example rows, each with the columns it covers there, to be re-added over the real block by
+    ``_rebuild_block_ranges``."""
+    inside = lambda b: b[1] >= first and b[3] <= last  # noqa: E731
+    dup_rule, kept = None, []
+    for cf in ws.conditional_formatting:
+        boxes = [range_boundaries(str(r)) for r in str(cf.sqref).split()]
+        keep = [b for b in boxes if not inside(b)]
+        if dup_rule is None and len(keep) < len(boxes):
+            dup_rule = next((r for r in cf.rules if r.type == "duplicateValues"), None)
+        if keep:
+            kept.append((keep, cf.rules))
+    ws.conditional_formatting = ConditionalFormattingList()
+    moved = []  # (validation copy, (first col, last col)) from the widest box the template gave it on library rows
+    for dv in list(ws.data_validations.dataValidation):
+        boxes = [range_boundaries(str(r)) for r in str(dv.sqref).split()]
+        keep = [b for b in boxes if not inside(b)]
+        if len(keep) == len(boxes):
+            continue
+        area = lambda b: (b[2] - b[0] + 1) * (b[3] - b[1] + 1)  # noqa: E731
+        widest = max((b for b in boxes if inside(b)), key=area)
+        moved.append((area(widest), deepcopy(dv), (widest[0], widest[2])))
+        ws.data_validations.dataValidation.remove(dv)
+        if keep:
+            dv.sqref = MultiCellRange(" ".join(_box_str(*b) for b in keep))
+            ws.data_validations.dataValidation.append(dv)
+    # largest first; a validation whose columns are already taken (the template's single-row stub) is dropped
+    taken: set[int] = set()
+    lists = []
+    for _, dv, (c1, c2) in sorted(moved, key=lambda m: -m[0]):
+        cols = set(range(c1, c2 + 1))
+        if cols & taken:
+            continue
+        taken |= cols
+        lists.append((dv, (c1, c2)))
+    return kept, dup_rule, lists
+
+
+def _rebuild_block_ranges(ws, detached, inserts, first, last, dup_boxes):
+    """Shift the ranges that were not on library rows by the rows inserted, then add the template's duplicate-value
+    rule once per box in ``dup_boxes`` (columns (c1, c2) over [first, last]) and every help validation over exactly
+    rows [first, last] of its columns."""
+    kept, dup_rule, lists = detached
+    priority = max([r.priority or 0 for _, rules in kept for r in rules] + [0])
+
+    def own_copy(rule):
+        nonlocal priority
+        priority += 1
+        rule = deepcopy(rule)
+        rule.priority = priority
+        return rule
+
+    for boxes, rules in kept:
+        sq = " ".join(_box_str(*_shift_box(b, inserts)) for b in boxes)
+        for rule in rules:
+            ws.conditional_formatting.add(sq, own_copy(rule))
+    for dv in ws.data_validations.dataValidation:
+        dv.sqref = MultiCellRange(" ".join(_box_str(*_shift_box(range_boundaries(str(r)), inserts)) for r in str(dv.sqref).split()))
+    if dup_rule is not None:
+        for c1, c2 in dup_boxes:
+            ws.conditional_formatting.add(_box_str(c1, first, c2, last), own_copy(dup_rule))
+    for dv, (c1, c2) in lists:
+        dv.sqref = MultiCellRange(_box_str(c1, first, c2, last))
+        ws.data_validations.dataValidation.append(dv)
+
+
 def _select_study_title(study: Mapping[str, Any] | None,
                         samples: "list[Mapping[str, Any]] | None" = None) -> str | None:
     """Best available study title. ``*title`` is MANDATORY in the GEO template.
@@ -260,11 +347,15 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
     sample_rows_available = max(0, 52 - sample_start_row + 1)
 
     extra_sample_rows = max(0, len(samples) - sample_rows_available)
+    # The template's example library rows are sample_start_row..53; its ranges there are rebuilt at the end.
+    detached = _detach_block_ranges(meta_sheet, sample_start_row, 53)
+    inserts: list[int] = []  # every row inserted, in order, so the other ranges can follow
     if extra_sample_rows:
         template_row = 52
         insert_at = template_row + 1
         for offset in range(extra_sample_rows):
             meta_sheet.insert_rows(insert_at + offset)
+            inserts.append(insert_at + offset)
             _copy_row_format(meta_sheet, template_row, insert_at + offset)
 
     def set_sample_field(row_idx: int, header_key: str, value: Any, occurrence: int = 0) -> None:
@@ -335,6 +426,7 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
     for i in range(extra_dp_rows):
         insert_at = base_data_processing_row + data_processing_rows_available + i
         meta_sheet.insert_rows(insert_at)
+        inserts.append(insert_at)
         _copy_row_format(meta_sheet, base_data_processing_row + data_processing_rows_available - 1, insert_at)
 
     first_dp_label = meta_sheet.cell(row=base_data_processing_row, column=1).value or "*data processing step"
@@ -365,6 +457,7 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
         for i in range(len(paired_end_experiments) - 1):
             insert_at = paired_data_start_row + i + 1
             meta_sheet.insert_rows(insert_at)
+            inserts.append(insert_at)
             _copy_row_format(meta_sheet, paired_label_row_template, insert_at)
 
     for idx, entry in enumerate(paired_end_experiments):
@@ -375,6 +468,13 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
         set_text(meta_sheet, row_idx, 2, entry.get("file name 2"))
         set_text(meta_sheet, row_idx, 3, entry.get("file name 3"))
         set_text(meta_sheet, row_idx, 4, entry.get("file name 4"))
+
+    # Duplicate-value rules belong on library names and raw files only; dropdowns reach the last library row.
+    raw_cols = [c for k in ("*raw file", "raw file") for c in header_map.get(_normalize_sheet_label(k), [])]
+    # library name (A), sample title (B: GEO needs unique titles), and the raw-file columns (a file under two libraries)
+    _rebuild_block_ranges(meta_sheet, detached, inserts, sample_start_row,
+                          sample_start_row + max(len(samples), sample_rows_available) - 1,
+                          [(1, 1), (2, 2), (min(raw_cols, default=17), max(raw_cols, default=20))])
 
     # ---- Checksums sheet ----
     checksums_sheet = wb["MD5 Checksums"]

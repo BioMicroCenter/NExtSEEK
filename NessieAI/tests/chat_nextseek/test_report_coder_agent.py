@@ -26,3 +26,12 @@ def test_report_coder_agent_strips_code_fences():
             template={"samples": [{}]}, metadata={"data": {"data": []}},
         )
     assert out.extraction_code == "result = {'samples': []}"
+
+
+def test_coder_prompt_carries_the_two_public_report_rules():
+    from pathlib import Path
+    import chat_nextseek
+    text = (Path(chat_nextseek.__file__).parent / "prompts" / "report_coder_agent.txt").read_text()
+    assert "Label an identifier only by the field it came from" in text
+    assert "The report is public. Do not copy free-text remarks that read as internal notes into any cell." in text
+    assert text.index("The report is public") < text.index("- Assign the final dict to `result`.")

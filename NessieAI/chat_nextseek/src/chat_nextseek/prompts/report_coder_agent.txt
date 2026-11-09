@@ -63,6 +63,10 @@ RULES
 - Study-level prose fields (titles, summaries, protocol descriptions) may be written as
   literal strings you compose from the metadata + report intent.
 - Handle missing/null values defensively; leave a field null rather than fabricating.
+- Label an identifier only by the field it came from: write an accession (run, experiment,
+  project, sample) only from a field that holds one, never from a name or label. Copy a lab's
+  own label as plain text without an accession label in front of it.
+- The report is public. Do not copy free-text remarks that read as internal notes into any cell.
 - Assign the final dict to `result`.
 
 OUTPUT FORMAT — valid JSON only:

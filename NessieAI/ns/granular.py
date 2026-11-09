@@ -797,7 +797,7 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
     try:
         # Above 10 samples report_coder writes the workbook from the metadata map, as on the NS road: the writer
         # alone overflowed its input on a large set (prod 10-14, 1,641 mice).
-        _reporter_result, report_writer_output, saved_files, _reply = generate_report_outputs(
+        reporter_result, report_writer_output, saved_files, _reply = generate_report_outputs(
             config=config,
             user_query=user_query,
             parser_plan={"report_type": report_type},
@@ -821,6 +821,9 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
         flat = report_writer_output["all_samples"]
     result = dict(flat) if isinstance(flat, dict) else {"report_type": report_type, "report": flat}
     result["saved_files"] = saved_files or {}
+    # Warnings (a library the lab marked "do not publish") travel as data: the op drops the reply text.
+    if isinstance(reporter_result, dict) and reporter_result.get("warnings"):
+        result["warnings"] = list(reporter_result["warnings"])
     return result
 
 

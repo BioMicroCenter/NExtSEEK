@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from ..helpers.tools.nextseek_api import tool_nextseek_api_request
+from .public_checks import normalize_dates
 
 
 def annotate_metadata_with_sampletypes(config, metadata: dict) -> dict:
@@ -69,7 +70,8 @@ def fetch_reporter_metadata(config, uids: list[str]) -> dict:
             queryParameters={},
         )
         print("[DEBUG][REPORTER_META] Metadata fetch ok:", result.get("ok"), "status:", result.get("status_code"))
-        return result
+        # Date attributes arrive as "YYYY-MM-DD 00:00:00"; a time that was never recorded must not reach a report.
+        return normalize_dates(result)
     except Exception as e:
         print("[DEBUG][REPORTER_META] Metadata fetch exception:", repr(e))
         return {"ok": False, "error": repr(e)}
