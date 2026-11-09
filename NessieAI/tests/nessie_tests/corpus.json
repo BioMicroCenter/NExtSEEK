@@ -15741,49 +15741,6 @@
           "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
         },
         {
-          "id": "pipeline.variant_question_on_investigation_without_reads",
-          "family": "pipeline_launch",
-          "name": "which mutations do TCGA-LUAD patients carry reads the registered variant calls, not an rnavar offer",
-          "tags": [
-            "nessie",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Which mutations do TCGA-LUAD patients carry?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)(variant[- ]call files?|\\bA\\.VCF\\b)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)^(?!.*reply \\W?submit)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)^(?!.*watching this run)"
-                }
-              ]
-            }
-          ],
-          "status": "active",
-          "origin": "overlay",
-          "is_bayesian": false,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
-          "retirement": null,
-          "_why": "Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no D.SEQ and names its A.VCF (#143); rnavar takes only D.SEQ, so an offer could never start. || TESTS: the entity agent emits A.VCF for a variant question scoped to an investigation that holds variant calls and no reads, and the parser keeps it on graph_query. parser_plan.mode is dropped by route_policy, so 'stays graph_query' is asserted as a graph read of A.VCF. || 2026-11-03 (r5, F7): on the operator's ruling of 11-02 ('I think this is fine') Container-CC answering from the registered variant-call files is accepted; the NS-only entity, neo4j_ok and Cypher criteria gave way to a reply criterion naming the registered variant-call files (not 'variant calling', which an rnavar offer would say), and the two no-run-offered criteria stay; the TESTS line above describes the NS path this case asserted before.",
-          "_added_2026_10_30_variant_offer": "Added 2026-10-30 with the variant offer (#145): a question asking which variants, mutations, fusions or HLA alleles sequenced samples carry reaches the pipeline agent when the samples have reads, and stays graph_query when they already hold registered variant calls or have no reads."
-        },
-        {
           "id": "pipeline.hla_offer_named_sample",
           "family": "pipeline_launch",
           "name": "a named RNA-seq sample and a which-HLA-alleles question get an hlatyping offer, not a launch",
