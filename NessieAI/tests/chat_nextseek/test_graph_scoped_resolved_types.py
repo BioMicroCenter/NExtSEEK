@@ -13,18 +13,9 @@ import chat_nextseek
 
 GRAPH = (Path(chat_nextseek.__file__).resolve().parent / "prompts" / "graph_agent.txt").read_text(encoding="utf-8")
 
-# r5c (2026-11-04): F2 + the r5b clause still moved two answers on dev. The IMPAcTb spelling was fixed by the
-# clause, but "samples from the Impact project that have flow cytometry data, of human origin" returned the D.FLOW
-# records themselves (343) instead of the 257 samples they derive from: the agent "trusted" the resolved type as the
-# thing to return. The operator (11-04): "still enforce the fix bit" and "only keep it on the few points we want it".
-# So the rule now names its one place, the has-this-data condition, and says what it does not change.
-RULE = ("Some projects store their data as different sample types than others. When the question is scoped to a "
-        "project or investigation and asks which records have a kind of data (for example patients with sequencing "
-        "data), and `resolved.sampletypes` holds a type for that data, use that type in the has-this-data condition "
-        "rather than choosing one yourself.")
-LIMITS = ("It changes only that condition: the records you return are still the ones the question asks for, and a "
-          "project or investigation is still matched by the title it is stored under (the PROJECTS NAMED block or "
-          "the vocabulary), never the user's spelling.")
+RULE = ("Some projects store their data as different sample types than others: when the question is scoped to a "
+        "project or investigation and `resolved.sampletypes` holds a type for the data it asks about, trust that "
+        "type rather than choosing one yourself.")
 
 
 def resolved_entities_paragraph(text: str) -> str:
@@ -37,21 +28,23 @@ def test_the_scoped_resolved_type_rule_is_in_the_resolved_entities_paragraph():
     assert para.index("never widen a search to a guessed entity") < para.index(RULE)
 
 
-def test_the_limits_follow_the_rule():
-    assert RULE + " " + LIMITS in resolved_entities_paragraph(GRAPH)
-
-
-def test_the_rule_is_confined_to_the_has_this_data_condition():
-    # the TCGA fix: a resolved type replaces the agent's own choice inside the existence condition
-    assert "use that type in the has-this-data condition" in RULE
-    # the flow regression: the returned records are not replaced by the resolved type
-    assert "the records you return are still the ones the question asks for" in LIMITS
-    # the IMPAcTb regression: a project keeps its stored title
-    assert "never the user's spelling" in LIMITS
-    # the r5 wording that over-applied is gone
-    assert "trust that type rather than choosing one yourself" not in GRAPH
-
-
 def test_the_rule_names_no_project_investigation_or_type():
-    for word in ("TCGA", "A.ALN", "D.SEQ", "D.FLOW", "T_A_ALN", "T_D_SEQ", "LUAD", "Impact", "IMPAcTb"):
-        assert word not in RULE and word not in LIMITS
+    for word in ("TCGA", "A.ALN", "D.SEQ", "T_A_ALN", "T_D_SEQ", "LUAD"):
+        assert word not in RULE
+
+
+# r5b (2026-11-03): with F2's sentence alone the graph agent bound the user's spelling of a project ("IMPAcTb")
+# instead of its stored title ("Impact") in 4 of 5 dev runs, against 0 of 4 before r5. The operator's clause
+# (his yes, 11-03, verbatim) says the rule is about sample types only.
+CLAUSE = ("This is about sample types only: a project or investigation is still matched by the title it is stored "
+          "under (the PROJECTS NAMED block or the vocabulary), never the user's spelling.")
+
+
+def test_the_project_title_clause_follows_the_scoped_type_rule():
+    para = resolved_entities_paragraph(GRAPH)
+    assert RULE + " " + CLAUSE in para
+
+
+def test_the_clause_names_no_project():
+    for word in ("Impact", "IMPAcTb", "TCGA"):
+        assert word not in CLAUSE
