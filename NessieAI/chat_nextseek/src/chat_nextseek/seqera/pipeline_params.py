@@ -288,6 +288,39 @@ def agent_param_names(pipeline_key: str) -> set[str]:
     return set(ctx.get("params") or {}) | set(ctx.get("reference_resources") or []) | {"genome"}
 
 
+# nf-core/rnaseq 3.18.0 main.nf validateInputParameters stops at start for these UMI combinations (lines cited from the
+# 3.18.0 copy). Checked on the merged params, so a curated empty default counts as empty. Bool-typed params may arrive
+# as strings from the agent.
+_UMI_PIPELINES = {"rnaseq"}
+
+
+def _on(v: Any) -> bool:
+    return v if isinstance(v, bool) else str(v or "").strip().lower() in {"true", "1", "yes"}
+
+
+def _cross_param_errors(params: dict[str, Any], pipeline_key: str) -> list[str]:
+    if pipeline_key not in _UMI_PIPELINES or not _on(params.get("with_umi")):
+        return []
+    errors = []
+    # main.nf:215-219
+    if (not _on(params.get("skip_umi_extract"))
+            and not str(params.get("umitools_bc_pattern") or "").strip()
+            and not str(params.get("umitools_bc_pattern2") or "").strip()):
+        hint = " (or skip_umi_extract when the UMI is already in the read names)" \
+            if "skip_umi_extract" in agent_param_names(pipeline_key) else ""
+        errors.append("with_umi is set but umitools_bc_pattern is empty: UMI extraction needs a barcode pattern" + hint + ".")
+    # main.nf:221-223
+    if (params.get("umi_dedup_tool") == "umicollapse"
+            and params.get("umitools_grouping_method") not in ("directional", "adjacency", "cluster")):
+        errors.append(f"umitools_grouping_method {params.get('umitools_grouping_method')!r} is unsupported for "
+                      "umicollapse; use cluster, adjacency or directional.")
+    # main.nf:236-238 (only when alignment runs)
+    if params.get("aligner") == "star_rsem" and not _on(params.get("skip_alignment")):
+        errors.append("with_umi cannot be combined with aligner star_rsem (RSEM does not support UMI deduplication); "
+                      "use star_salmon.")
+    return errors
+
+
 def build_run_params(
     pipeline_key: str,
     agent_params: dict[str, Any] | None,
@@ -336,4 +369,7 @@ def build_run_params(
     merged.update(ref_params)
     # agent overrides win
     merged.update(agent_params)
+    errors = _cross_param_errors(merged, pipeline_key)
+    if errors:
+        return {}, errors, "invalid"
     return merged, [], status
