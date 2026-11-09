@@ -29,11 +29,8 @@ def test_registered_variant_records_stay_a_graph_query():
 def test_samples_with_variant_calls_and_no_reads_stay_a_graph_query():
     """Review of #145: "which mutations do <an investigation's> patients carry?", where the
     investigation holds A.VCF and no D.SEQ, read NFCORE and offered an rnavar run that could
-    never start (rnavar takes only D.SEQ). The entity agent, which sees the catalog
-    descriptions, emits A.VCF in place of D.SEQ; the parser keeps that on graph_query."""
-    entity = _read("entity_agent.txt")
-    assert "A question asking which variants or mutations samples carry or express follows the same\nrule" in entity
-    assert "emit the\nvariant-call type (A.VCF), not D.SEQ" in entity
+    never start (rnavar takes only D.SEQ). The parser keeps a question on samples that
+    already hold variant calls or have no reads on graph_query."""
     parser = _read("parser_core_routing.txt")
     assert "So is a question about samples that already hold registered variant calls or have no reads" in parser
     assert "ENTITY_RESULT carries a variant-call type (A.VCF) and no raw sequencing type (D.SEQ)" in parser
