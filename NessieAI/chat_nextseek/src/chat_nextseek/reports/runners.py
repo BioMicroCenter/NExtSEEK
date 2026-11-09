@@ -729,7 +729,9 @@ def run_project_published_report(  # noqa: C901
     when it carries a non-empty DOI or PMID itself or sits in a Study that does (a paper study not yet moved into
     SEEK). Traversal: (inv:Investigation) <-[:IN_INVESTIGATION]- (study:Study) <-[:IN_STUDY]- (s:Sample), each
     sample once; its studies are those of the named investigation, a holding study ("... Unpublished") left out.
-    A name that resolves to a project matches the investigations IN_PROJECT to it, by the project's id; one that
+    A name that resolves to a project matches the investigations IN_PROJECT to it, by the project's id, and counts
+    only samples that are themselves IN_PROJECT to that project, so the block is a subset of the project's own
+    samples (projects_samples, mirrored by the graph's edges); one that
     resolves to an investigation matches it by its id (else by its exact title, case-insensitive); never a
     substring. Date filtering uses the same YYMMDD substring from the sample UUID.
 
