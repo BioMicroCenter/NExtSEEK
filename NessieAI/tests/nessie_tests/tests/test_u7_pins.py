@@ -76,7 +76,7 @@ def test_refine_recall_is_retired_with_a_reason_and_not_active():
 
 
 def test_prod_read_2026_10_13_pins():
-    assert _passes("cat.people_versus_scientists", "124 people and 216 scientists") is True
+    assert _passes("cat.people_versus_scientists", "124 people and 231 scientists") is True
     assert not _passes("cat.people_versus_scientists", "130 people and 216 scientists")
     assert _passes("harmon.organ_lung_case_split", "23,485 Lung samples: Lung, lung and LUNG")
     assert not _passes("harmon.organ_lung_case_split", "23,218 Lung and lung samples")

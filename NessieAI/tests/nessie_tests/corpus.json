@@ -235,7 +235,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -249,7 +249,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 195 MUS samples have Treatment1='NDMA'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS + JSON $.Treatment1='NDMA' = 195; a whole-blob LIKE '%NDMA%' over MUS also gives 195.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641 = Treatment fields + spelled-out name + mice linked through an NDMA chemical record, as the graded prod r5 row answers. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.cd8_antibodies",
@@ -633,7 +633,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(7,?443|14,?163)\\b"
+                  "value": "\\b(7,?443|14,?171)\\b"
                 }
               ]
             }
@@ -647,7 +647,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 420 with Organ='Liver' exactly; 610 counting 'liver' (189) and ' liver' (1). || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ = 'Liver' 420, 'liver' 189, ' liver' 1; TRIM+LOWER = 610.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ folded to 'liver' (Neo4j cypher-shell, read-only): 'Liver' 7,443, 'LIVER' 4,154, 'liver' 2,566; 7,443 exact or 14,163 case-folded, the same two readings as before; was 420/610. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ folded to 'liver' (Neo4j cypher-shell, read-only): 'Liver' 7,443, 'LIVER' 4,154, 'liver' 2,566; 7,443 exact or 14,163 case-folded, the same two readings as before; was 420/610. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged. Re-pinned 2026-11-09: case-folded 14,171 on prod (graded r5 row, launch 20261104-1929); the exact-case 7,443 reading is unchanged and unverified against the r5 rows."
         },
         {
           "id": "advanced.what_gpt_data_exists_in_the_da",
@@ -1782,7 +1782,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -1799,7 +1799,7 @@
             "capability": "CC ops: nextseek-parse then nextseek-api-read",
             "assertion": "last_reply matches_re \\b195\\b"
           },
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only: T_MUS, any Treatment1..4 CONTAINS 'ndma'); was 195."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641, as advanced.basic_ndma; no prod row of this case yet. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only: T_MUS, any Treatment1..4 CONTAINS 'ndma'); was 195."
         },
         {
           "artifact_expected": null,
@@ -2649,7 +2649,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(\\b304\\b|A\\.GEX|MDL-250912LAU|gene expression|model)"
+                  "value": "\\b304\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.GEX|MDL-250912LAU|gene expression|model)"
                 },
                 {
                   "field": "last_reply",
@@ -2659,7 +2664,7 @@
               ]
             }
           ],
-          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
+          "_why": "Re-keyed 2026-11-09 (operator: 'samples from humans' = Patients plus everything derived from them): the reply must give the 304 patients AND the derived records she is Scientist on; a zero or a patients-only answer fails. Older note follows. || No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 444 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -3915,12 +3920,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(215|216)\\b"
+                  "value": "\\b(231|232)\\b"
                 }
               ]
             }
           ],
-          "_why": "2 registered people (Demo Demo, User User) but 113 distinct non-empty Scientist values across 50,117 samples (114 if the 182 JSON-null rows are counted as a value). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(people)=2; COUNT(DISTINCT $.Scientist) real strings = 113. || TESTS: the platform's user table and its data are two different populations. An engine that answers 'who works here' from `people` is wrong by two orders of magnitude. || Re-keyed 2026-09-23 against production (fairdata): people 123 and users 123 (seek_production MySQL, read-only); the /people/ API the reply read on prod lists 122, so both are accepted. Distinct non-empty Scientist strings 215 (seek_production MySQL, read-only: JSON $.Scientist, also 215 compared as BINARY; Neo4j cypher-shell, read-only: count(DISTINCT s.Scientist) 215), 216 counting the 1,368 JSON-null rows as a value, the same two readings as before; was 2 / 113-114.",
+          "_why": "2 registered people (Demo Demo, User User) but 113 distinct non-empty Scientist values across 50,117 samples (114 if the 182 JSON-null rows are counted as a value). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(people)=2; COUNT(DISTINCT $.Scientist) real strings = 113. || TESTS: the platform's user table and its data are two different populations. An engine that answers 'who works here' from `people` is wrong by two orders of magnitude. || Re-keyed 2026-09-23 against production (fairdata): people 123 and users 123 (seek_production MySQL, read-only); the /people/ API the reply read on prod lists 122, so both are accepted. Distinct non-empty Scientist strings 215 (seek_production MySQL, read-only: JSON $.Scientist, also 215 compared as BINARY; Neo4j cypher-shell, read-only: count(DISTINCT s.Scientist) 215), 216 counting the 1,368 JSON-null rows as a value, the same two readings as before; was 2 / 113-114. Re-pinned 2026-11-09: 231 distinct scientists on prod (graded r5 row, launch 20261104-1929); was 215.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -6004,7 +6009,7 @@
           ],
           "id": "graph.tcga_erlotinib_with_sequencing",
           "family": "graph_traversal",
-          "name": "TCGA patients given erlotinib with sequencing data read A.ALN, not D.SEQ",
+          "name": "TCGA patients given erlotinib with sequencing data read D.SEQ",
           "turns": [
             {
               "label": "main",
@@ -6013,7 +6018,7 @@
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
-                  "value": "A.ALN"
+                  "value": "D.SEQ"
                 },
                 {
                   "field": "neo4j_ok",
@@ -6023,7 +6028,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
                 },
                 {
                   "field": "graph_cypher",
@@ -6038,7 +6043,7 @@
               ]
             }
           ],
-          "_why": "The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Rewritten 2026-11-09 (operator 11-06: the TCGA schema changed, sequencing files are D.SEQ again and A.ALN no longer holds them): the case now requires D.SEQ and no longer requires A.ALN. Older note follows. || The question #143 was written for: the entity agent mapped \"sequencing data\" to D.SEQ, which TCGA does not hold, so the graph read found nobody. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6057,7 +6062,7 @@
           ],
           "id": "graph.tcga_lung_patients_with_sequencing",
           "family": "graph_traversal",
-          "name": "Any TCGA lung cancer patients with sequencing data read A.ALN",
+          "name": "Any TCGA lung cancer patients with sequencing data read D.SEQ",
           "turns": [
             {
               "label": "main",
@@ -6066,7 +6071,7 @@
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
-                  "value": "A.ALN"
+                  "value": "D.SEQ"
                 },
                 {
                   "field": "neo4j_ok",
@@ -6076,7 +6081,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
                 },
                 {
                   "field": "graph_cypher",
@@ -6086,7 +6091,7 @@
               ]
             }
           ],
-          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Rewritten 2026-11-09 (operator 11-06: the TCGA schema changed, sequencing files are D.SEQ again and A.ALN no longer holds them): the case now requires D.SEQ and no longer requires A.ALN. Older note follows. || Sibling of graph.tcga_erlotinib_with_sequencing in other words: a yes/no question with a disease keyword and no drug. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -6105,7 +6110,7 @@
           ],
           "id": "graph.tcga_count_patients_with_sequencing",
           "family": "graph_traversal",
-          "name": "Count of TCGA patients with sequencing data reads A.ALN",
+          "name": "Count of TCGA patients with sequencing data reads D.SEQ",
           "turns": [
             {
               "label": "main",
@@ -6114,7 +6119,7 @@
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
-                  "value": "A.ALN"
+                  "value": "D.SEQ"
                 },
                 {
                   "field": "neo4j_ok",
@@ -6124,7 +6129,7 @@
                 {
                   "field": "graph_cypher",
                   "op": "matches_re",
-                  "value": "(?i)(A\\.ALN|T_A_ALN)"
+                  "value": "(?i)(D\\.SEQ|T_D_SEQ)"
                 },
                 {
                   "field": "graph_cypher",
@@ -6134,7 +6139,7 @@
               ]
             }
           ],
-          "_why": "Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
+          "_why": "Rewritten 2026-11-09 (operator 11-06: the TCGA schema changed, sequencing files are D.SEQ again and A.ALN no longer holds them): the case now requires D.SEQ and no longer requires A.ALN. Older note follows. || Sibling of graph.tcga_erlotinib_with_sequencing in other words: a count, with the investigation named as one. Full tier only, and dev and local only: production holds no TCGA, so this case fails there by design. TCGA's catalog row says it holds no raw sequencing data (D.SEQ) and that its sequencing is held as alignments (A.ALN) (#143). || TESTS: the entity agent reads the scoped investigation's description and emits A.ALN for \"sequencing data\", and the graph reads A.ALN. 2026-11-03 (r5): the criterion that forbade D.SEQ anywhere is gone: a Cypher reading D.SEQ OR A.ALN returns the same patients, since TCGA holds no D.SEQ; the bound $inv value now counts toward graph_cypher (criteria.py). route_policy drops an inline parser_plan.mode and the graph_traversal floor adds parser_plan.mode graph_query back, so the graph read is asserted by the floor and directly on neo4j_ok and graph_cypher. The count is not asserted: it differs by instance.",
           "_added_2026_10_30_tcga_sequencing": "Added 2026-10-30 for #143: a question scoped to an investigation whose catalog description says it holds no D.* record of a kind gets the type the description names in its place. The prompt rule names no investigation; these cases are its proof."
         },
         {
@@ -7960,7 +7965,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b137\\b"
+                  "value": "\\b150\\b"
                 }
               ]
             }
@@ -7974,7 +7979,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 76 internal assay types in `dmac.internal_assays`, all of them used at least once. SEEK's own assay_type_uri is the generic JERM root on all 324 assays and discriminates nothing. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(dmac.internal_assays)=76; assays.assay_type_uri has exactly one distinct value.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76. Re-read on prod 2026-10-13 15:32Z: still 137; the assay list Nessie uses now comes from this table per box (fix 21)."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76. Re-read on prod 2026-10-13 15:32Z: still 137; the assay list Nessie uses now comes from this table per box (fix 21). Re-pinned 2026-11-09: 150 assay definitions on prod (graded r5 row, launch 20261104-1929); was 137."
         },
         {
           "id": "sys.what_attributes_can_i_filter_o",
@@ -9957,7 +9962,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -9974,7 +9979,7 @@
             "capability": "CHAT_HISTORY prompt block for follow-ups and pronouns",
             "assertion": "last_reply matches_re \\b195\\b"
           },
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); the turn has no antecedent of its own, so it inherits the NDMA-mouse reading the old key encoded; was 195."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641, as advanced.basic_ndma; no prod row of this case yet. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); the turn has no antecedent of its own, so it inherits the NDMA-mouse reading the old key encoded; was 195."
         },
         {
           "id": "refrec.how_many_of_the_ndma_ones_were_r",
@@ -10031,7 +10036,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -10048,7 +10053,7 @@
             "capability": "Within-chat cross-engine digest",
             "assertion": "last_reply matches_re \\b195\\b"
           },
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); was 195."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641, as advanced.basic_ndma; no prod row of this case yet. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); was 195."
         },
         {
           "id": "refrec.now_narrow_that_down_to_just_the",
@@ -11831,7 +11836,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 },
                 {
                   "field": "parser_plan.mode",
@@ -11855,7 +11860,7 @@
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED. As generated this was a single turn reading 'Actually, hang on \u2014 find me the mice treated with NDMA first', which has no antecedent to interrupt and so tests nothing; the capability it names is the in-progress pipeline-wizard gate. Given a real first turn that opens a pipeline build, the second turn now tests whether an explicit mid-wizard redirect is honoured.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. D.SEQ-230512FOR-288-PUB exists (SRR24445250). The interrupt must be ANSWERED (195 NDMA mice), not swallowed by the open wizard. || VERIFIED: seek_production MySQL, verified 2026-08-06: UID present; MUS Treatment1='NDMA' = 195.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): turn 2 is 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); D.SEQ-230512FOR-288 exists (without the -PUB suffix, which no prod UID carries); was 195."
+          "_why": "Re-pinned 2026-11-09 (operator): turn 2 is 1,641 NDMA mice, as in advanced.basic_ndma. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): turn 2 is 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); D.SEQ-230512FOR-288 exists (without the -PUB suffix, which no prod UID carries); was 195."
         }
       ]
     },
@@ -13618,7 +13623,7 @@
           "turns": [
             {
               "label": "main",
-              "query": "Build an SRA submission for these 25 samples: D.SEQ-230512FOR-266-PUB, D.SEQ-230512FOR-267-PUB, D.SEQ-230512FOR-268-PUB, \u2026 (25 UIDs pasted)",
+              "query": "Build an SRA submission for these 25 samples: D.SEQ-230512FOR-1, D.SEQ-230512FOR-2, D.SEQ-230512FOR-3, D.SEQ-230512FOR-4, D.SEQ-230512FOR-5, D.SEQ-230512FOR-6, D.SEQ-230512FOR-7, D.SEQ-230512FOR-8, D.SEQ-230512FOR-9, D.SEQ-230512FOR-10, D.SEQ-230512FOR-11, D.SEQ-230512FOR-12, D.SEQ-230512FOR-13, D.SEQ-230512FOR-14, D.SEQ-230512FOR-15, D.SEQ-230512FOR-16, D.SEQ-230512FOR-17, D.SEQ-230512FOR-18, D.SEQ-230512FOR-19, D.SEQ-230512FOR-20, D.SEQ-230512FOR-21, D.SEQ-230512FOR-22, D.SEQ-230512FOR-23, D.SEQ-230512FOR-24, D.SEQ-230512FOR-25",
               "pass_criteria": [
                 {
                   "field": "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx.rows_gte",
@@ -18486,7 +18491,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b890\\b"
+                  "value": "\\b917\\b"
                 },
                 {
                   "field": "parser_plan.mode",
@@ -18502,12 +18507,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b890\\b"
+                  "value": "\\b917\\b"
                 }
               ]
             }
           ],
-          "_why": "118 D.MSP samples \u2014 the entire mass-spec footprint of the deployment. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT by sample type D.MSP = 118. || TESTS: within-chat turn context, the half of the memory system a forced run CAN reach. || Re-keyed 2026-09-23 against production (fairdata): 890 D.MSP (Neo4j cypher-shell, read-only: count(:T_D_MSP)); both turns of the reply seen on prod 2026-09-22 said 890; was 118.",
+          "_why": "118 D.MSP samples \u2014 the entire mass-spec footprint of the deployment. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT by sample type D.MSP = 118. || TESTS: within-chat turn context, the half of the memory system a forced run CAN reach. || Re-keyed 2026-09-23 against production (fairdata): 890 D.MSP (Neo4j cypher-shell, read-only: count(:T_D_MSP)); both turns of the reply seen on prod 2026-09-22 said 890; was 118. Re-pinned 2026-11-09: 917 D.MSP on prod (graded r5 rows, launch 20261104-1929); was 890.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -19217,7 +19222,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b21,?589\\b"
+                  "value": "\\b21,?756\\b"
                 }
               ]
             }
@@ -19231,7 +19236,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The chart itself cannot be rendered in chat, but the underlying table can: D.IMG 13,351, TIS 11,712, PAV 6,027, D.FLOW 5,210, DNA 2,109, D.SEQ 2,057, ... || VERIFIED: seek_production MySQL, verified 2026-08-06: samples grouped by sample type.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): samples by type (Neo4j cypher-shell, read-only): TIS 74,107, D.IMG 21,589, PAV 13,380, D.FLOW 11,303, DNA 7,021, D.SEQ 6,705, ...; the asserted row stays D.IMG; was 13,351."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): samples by type (Neo4j cypher-shell, read-only): TIS 74,107, D.IMG 21,589, PAV 13,380, D.FLOW 11,303, DNA 7,021, D.SEQ 6,705, ...; the asserted row stays D.IMG; was 13,351. Re-pinned 2026-11-09: D.IMG 21,756 on prod (graded r5 row, launch 20261104-1929); was 21,589."
         },
         {
           "id": "unsup.give_me_a_bar_chart_of_all_sam",
