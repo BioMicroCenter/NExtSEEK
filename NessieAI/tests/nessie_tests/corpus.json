@@ -13618,7 +13618,7 @@
           "turns": [
             {
               "label": "main",
-              "query": "Build an SRA submission for these 25 samples: D.SEQ-230512FOR-266-PUB, D.SEQ-230512FOR-267-PUB, D.SEQ-230512FOR-268-PUB, \u2026 (25 UIDs pasted)",
+              "query": "Build an SRA submission for these 25 samples: D.SEQ-230512FOR-1, D.SEQ-230512FOR-2, D.SEQ-230512FOR-3, D.SEQ-230512FOR-4, D.SEQ-230512FOR-5, D.SEQ-230512FOR-6, D.SEQ-230512FOR-7, D.SEQ-230512FOR-8, D.SEQ-230512FOR-9, D.SEQ-230512FOR-10, D.SEQ-230512FOR-11, D.SEQ-230512FOR-12, D.SEQ-230512FOR-13, D.SEQ-230512FOR-14, D.SEQ-230512FOR-15, D.SEQ-230512FOR-16, D.SEQ-230512FOR-17, D.SEQ-230512FOR-18, D.SEQ-230512FOR-19, D.SEQ-230512FOR-20, D.SEQ-230512FOR-21, D.SEQ-230512FOR-22, D.SEQ-230512FOR-23, D.SEQ-230512FOR-24, D.SEQ-230512FOR-25",
               "pass_criteria": [
                 {
                   "field": "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx.rows_gte",
