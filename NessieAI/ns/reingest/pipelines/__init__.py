@@ -18,6 +18,7 @@ PIPELINE_TOKENS: dict[str, tuple[str, ...]] = {
     "differentialabundance": (
         "contrast", "contrast_variable", "contrast_reference", "contrast_target",
         "paramset", "method_settings", "report_link", "model_object", "study_type_note"),
+    "methylseq": ("conversion_method", "methylation_protocol"),
 }
 
 

@@ -1,0 +1,169 @@
+{
+  "name": "atac",
+  "description": "ATAC-seq, two conditions (control and JQ1) with two replicates each (nf-core atacseq test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-ATAC-ctrl-cells1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "K562",
+          "Type": "Chronic myelogenous leukemia cell line",
+          "Tissue": "Bone marrow",
+          "Treatment1": "DMSO",
+          "TreatmentType": "Chemical"
+        },
+        {
+          "Name": "NTC-ATAC-ctrl-cells2",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "K562",
+          "Type": "Chronic myelogenous leukemia cell line",
+          "Tissue": "Bone marrow",
+          "Treatment1": "DMSO",
+          "TreatmentType": "Chemical"
+        },
+        {
+          "Name": "NTC-ATAC-jq1-cells1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "K562",
+          "Type": "Chronic myelogenous leukemia cell line",
+          "Tissue": "Bone marrow",
+          "Treatment1": "JQ1",
+          "TreatmentType": "Chemical",
+          "Treatment1Dose": 500,
+          "Treatment1DoseUnits": "nM"
+        },
+        {
+          "Name": "NTC-ATAC-jq1-cells2",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "K562",
+          "Type": "Chronic myelogenous leukemia cell line",
+          "Tissue": "Bone marrow",
+          "Treatment1": "JQ1",
+          "TreatmentType": "Chemical",
+          "Treatment1Dose": 500,
+          "Treatment1DoseUnits": "nM"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-ATAC-ctrl-lib1",
+          "Parent": "NTC-ATAC-ctrl-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+          "Lab": "Test Lab",
+          "Barcode": "CTCTCTAT"
+        },
+        {
+          "Name": "NTC-ATAC-ctrl-lib2",
+          "Parent": "NTC-ATAC-ctrl-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+          "Lab": "Test Lab",
+          "Barcode": "TATCCTCT"
+        },
+        {
+          "Name": "NTC-ATAC-jq1-lib1",
+          "Parent": "NTC-ATAC-jq1-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+          "Lab": "Test Lab",
+          "Barcode": "GTAAGGAG"
+        },
+        {
+          "Name": "NTC-ATAC-jq1-lib2",
+          "Parent": "NTC-ATAC-jq1-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+          "Lab": "Test Lab",
+          "Barcode": "ACTGCATA"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-ATAC-ctrl-1",
+          "Parent": "NTC-ATAC-ctrl-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR1822137_1.fastq.gz, SRR1822137_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+          "SequencingType": "ATAC-seq",
+          "LibraryStrategy": "ATAC-seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "other",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 38,
+          "R_bp": 38
+        },
+        {
+          "Name": "NTC-ATAC-ctrl-2",
+          "Parent": "NTC-ATAC-ctrl-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR1822138_1.fastq.gz, SRR1822138_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+          "SequencingType": "ATACseq",
+          "LibraryStrategy": "ATAC-seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "other",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 38,
+          "R_bp": 38
+        },
+        {
+          "Name": "NTC-ATAC-jq1-1",
+          "Parent": "NTC-ATAC-jq1-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR1822139_1.fastq.gz, SRR1822139_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+          "SequencingType": "ATAC-seq",
+          "LibraryStrategy": "ATAC-seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "other",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 38,
+          "R_bp": 38
+        },
+        {
+          "Name": "NTC-ATAC-jq1-2",
+          "Parent": "NTC-ATAC-jq1-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR1822140_1.fastq.gz, SRR1822140_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+          "SequencingType": "ATAC",
+          "LibraryStrategy": "ATAC-seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "other",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 38,
+          "R_bp": 38
+        }
+      ]
+    }
+  ]
+}

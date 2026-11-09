@@ -4,6 +4,14 @@ One `<pipeline>.outputs.json` per nf-core pipeline. Committed, code-reviewed,
 read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 `NessieAI/tests/ns/reingest/test_map_contract.py` gates every file in CI.
 
+**Where the maps are checked.** `test_map_contract.py` (the schema and catalog contract), `test_fixture_runs.py`
+(each map against its run fixture), `test_doc_only_maps.py` (maps written from the docs alone), and
+`test_replicate_samples.py` (replicate handling), `test_methylseq_map.py` (methylseq's tiers against its variant
+fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables) and `test_qc_completeness_dna.py`
+(the QC-completeness check for atacseq, chipseq and methylseq against every fixture that holds a run's MultiQC
+data), all under `NessieAI/tests/ns/reingest/`; and the link test
+`NessieAI/tests/chat_nextseek/test_choosable_pipelines_have_maps.py` (a choosable pipeline has a map for its pinned release).
+
 ## What a map may contain
 
 - `harvest_globs` — extra files this pipeline needs, on top of the generic
@@ -35,7 +43,19 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
     per_run-shaped row per matching file, for outputs written once per contrast).
     A `per_file` rule must set `primary_data` and takes exactly one candidate. Its
     rows can read `@file_stem`, the part of the file name the glob's leading `*`
-    matched (the contrast id for `*.deseq2.results.tsv`).
+    matched (the contrast id for `*.deseq2.results.tsv`). A `per_file` row is parented
+    by every sample of the run, unless the rule sets `parents_by_samplesheet`, a
+    samplesheet column whose value is the row's `@file_stem`: then only the samples
+    with that value are its parents (chipseq's `<antibody>.consensus_peaks.bed`, column
+    `antibody`). A file whose value no sample of this run's samplesheet has is not this
+    run's (a folder reused by a launch with another antibody): it gets no row, and the
+    reply lists it under FILES LEFT OUT: NOT FROM THIS RUN (`MapResult.stale_files`). A
+    named sample that resolved to no D.SEQ is left out of `Parent` with a warning; when
+    none resolved, the row ships with no `Parent` and the reply lists it, by the owner's
+    ruling on parentless group rows (`NessieAI/ns/reingest/README.md` "Invariants").
+    Two rows of one sample type whose files share a name (a contrast under two
+    paramsets; one antibody's broad and narrow consensus in a reused folder) keep as
+    many trailing folders in `File_PrimaryData` as tell them apart.
   - `companions` — files derived from the row's primary file (a subset, an index,
     other units, a model object). A companion is never its own row. It goes into
     its `slot` if it names one, the row's type has it and it is empty; else
@@ -44,6 +64,8 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
     type without `Notes` sends the leftovers to the build report instead.
   - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
     nothing is expected, so it is not reported and builds no rows.
+  - `skip_samples_without_file` — optional per_sample rules only: a sample with no file gets no row (logged), e.g. tumours for germline callers. Without it, such a sample gets a fileless row, which blocks the upload.
+  - `alternative_group` — optional primary rules only, per_sample or per_file (not mixed in one group), two or more to a group, one sample type per group; a per_file rule's rows are counted by their `@file_stem` (chipseq's narrow and broad consensus of one antibody): rules naming one group are outputs of which one launch writes at most one per sample (methylseq's three A.MSEQ rules; atacseq's and chipseq's narrow and broad peaks). nf-core never deletes an old output, so a run folder reused by a second launch can hold both; the sample (counted by replicate group where the run has them) then gets a row from each, every row is kept, and the reply's FILES FROM AN EARLIER RUN TO CHECK names the files, plus any other row of the sample whose file won over a later candidate pattern (methylseq's aln rule prefers Bismark's BAM). Leave it unset for outputs that coexist (a bigWig beside its peaks, sarek's variant callers).
   - `assay` — the house assay the rule's rows are filed under, by its `internal_assays` title (a catalog alternative name also resolves). A name, never an id: the ASSAY sheet needs a study-scoped `assays.id`, resolved per run from the parents' study, and the upload creates the study assay when the study has none. Every rule must name one (`test_map_contract.py`).
   - `attributes`, `primary_data`, `include_provenance` — as in the schema.
 
@@ -63,6 +85,26 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   no-op — the contract test fails it deliberately, because that block would
   otherwise be merged into nothing.
 - `qc_attributes` — raw key to a sample attribute on an EXISTING sample type.
+- `module_tables` — MultiQC data files by name (`multiqc_picard_dups.yaml`), each with a
+  `namespace` (and an optional row `suffix`), read like the harvest's own `_MODULE_TABLES`:
+  column `C` of row `<sample>` becomes the metric `<namespace>-C`. For a pipeline whose
+  MultiQC writes no general-stats table (atacseq and chipseq exclude it). MultiQC's
+  `data_format: yaml` writes `.yaml` tables, which are staged only through this map's
+  `harvest_globs`; list the `.txt` name too when the format is unsure. A plot's data file
+  (`picard_deduplication.yaml`) reads the same way, one row per sample. `shape: bargraph`
+  reads MultiQC's custom-content bar graph (atacseq's `multiqc_mlib_frip_score-plot.txt`:
+  each row's one value under a column named after the row or its file) as the single metric
+  `<namespace>-value`; `columns` names the only columns read, so a 35-column flagstat
+  table yields the one a rule wants and nothing for the review queue. A replicate group's
+  own rows (atacseq's merged-replicate `mrep` tables) become `RunManifest.group_metrics`,
+  which the group's merged row reads as its metrics.
+- `sample_files` — per-sample QC files outside MultiQC's tables, by metric namespace, each
+  a `glob` with `<sample>` for the sample's name (staged with `*` in its place) and a
+  `reader`: `value` (a one-value custom-content `*_mqc.tsv`), `table` (a `Sample`-headed
+  table, read from the row named `<sample>` or `<sample>.<suffix>`) or `ataqv` (the JSON's
+  scalar metrics); `columns` as for module tables. chipseq reads its FRiP, peak count and
+  phantompeakqualtools coefficients this way, both maps their plotFingerprint metrics, and
+  atacseq ataqv's TSS enrichment.
 - `inventory_globs` — this map's own inventory patterns (see "Inventory" below).
   Each must start with `**/`; the stager lists the union of these across every map
   and `harvest.CORE_INVENTORY_GLOBS`.
@@ -77,9 +119,25 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   `-g<commit>` suffix dropped (`v4.1.0-gf7bf36d` is 4.1.0).
 - `deliberately_unmapped` — a ruling, with a real reason. Without it the agent
   re-proposes the same key on every run and the review queue fills with noise.
+- `qc_row_suffixes` — MultiQC rows named `<sample><suffix>` (sarek: `.recal`, `.md`) whose columns join that sample's metrics, best first; a column already held is kept. Folded columns no rule or `qc_attributes` entry claims go to the QC review queue unless a `deliberately_unmapped` ruling rules them out.
+  methylseq folds `_1_val_1`: MultiQC 1.32's default name cleaning cuts a Bismark report's name at `_bismark`, so a paired-end sample's Bismark rows are named after Trim Galore's read-1 file, `<sample>_1_val_1` (single-end rows are `<sample>`). With `--skip_trimming` they are named after the input FASTQ instead (for example `<sample>_R1`), which no fixed suffix catches, so those rows are not folded. Unverified until a real run.
+- `replicate_samples` — when true, a samplesheet `replicate` column splits each `sample` into one sample per biological replicate, `<sample>_REP<replicate>`, the id nf-core/atacseq and nf-core/chipseq give each replicate's files, each with its own D.SEQ parent (and its own QC backfill). Rows sharing both `sample` and `replicate` are lanes of one library and stay one multi-run sample. The samplesheet's `sample` becomes the replicate group (`RunManifest.replicate_groups`): a file named after the group (atacseq's merged replicates, `<sample>.mRp.*`) gets one row for the group, parented by every replicate, when its candidate comes no later than any replicate's, and the replicates' files for that rule become its losing candidates. Off by default: a `replicate` column in another pipeline's samplesheet is sample metadata. The launch record is matched per replicate by the samplesheet `sample` and `fastq_1`.
+- `claims_every_file` — when true, the fixture contract test requires every file of a run to be a rule's candidate or companion, or to match `unmapped_files`.
+- `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`. `except_globs` names files the glob also matches that the ruling leaves to the rules (methylseq rules out bwa-meth's unsorted `alignments/<sample>.bam` but not the `<sample>.sorted.bam` its aln rule reads); `maps.UnmappedFiles.rules_out` is the one matcher.
 
 `$`-prefixed values are lookups into a manifest section (`params`, `pipeline`,
-`software_versions`, `outputs`, `metrics`, `derived`). There is no evaluation.
+`software_versions`, `outputs`, `metrics`, `derived`, `samplesheet`). There is no evaluation.
+`params` is the release's `pipeline_info/params*.json`. A release that writes none
+(atacseq 2.1.2) gets the params Nessie launched it with instead: its `params.yml`
+overlaid with the `--name value` flags of `run.sh`'s `nextflow run` line, where
+`--genome` is (`parsers.parse_launch_params`). A run Nessie did not launch has neither,
+so its `$params` refs resolve to nothing.
+`$samplesheet.<column>` is the sample's own samplesheet cell. The harvest keeps only the
+columns the run's map reads (`PipelineMap.samplesheet_columns`: its `$samplesheet` refs
+and `parents_by_samplesheet`), and no path: the manifest is stored and handed to
+Container-CC whole, so sarek's sex or status never reach it. On a row with no sample in
+scope (`per_run`, `per_file`) it is the value every sample of the row's run shares, else
+nothing.
 A map cannot compute; `derived_metrics` in `reingest/derived.py` is the only
 place reingest does arithmetic on a measurement.
 
@@ -115,7 +173,7 @@ a quiet departure.
 - **G-4 Variants.** One row per sample per kind of output; `candidates` are listed most-processed first and the first present wins, the rest become companions.
 - **G-5 No fitting type.** Never stretch a type; the output has no rule until a specific sample type is requested and built.
 - **G-6 Outside the run folder.** The stager reads nothing outside `run_dir`; rows keep the sequencing samples as `Parent`.
-- **G-7 Evidence.** A rule merges when a committed fixture from an nf-core `-profile test` run, launched through Nessie, exercises it; flag-dependent outputs get a variant fixture or are `optional`.
+- **G-7 Evidence.** A rule merges when a committed fixture at the pinned release exercises it. The fixture's source, in order of preference: nf-core's nf-test snapshot at the release tag, nf-core's published AWS results for the release, then a `-profile test` run launched through Nessie. QC attribute keys and units come from a real `multiqc_general_stats.txt` (AWS results or a Nessie run; a snapshot holds no MultiQC values). Flag-dependent outputs get a variant fixture or are `optional`.
 - **G-8 Discovery.** There is no approval queue for outputs and no list of unclaimed files; new outputs are noticed by reading the pipeline source and through the snapshot diff when a release's fixture lands.
 - **G-9 Row defaults.** Name, Scientist, Lab and SampleCreationDate come from the map's `row_defaults`, for every rule whose type has the attribute.
 - **G-10 Optional outputs.** Documented flag-dependent outputs (`--cram`, `--tools salmon`) get rules marked `optional: true`.
@@ -201,6 +259,8 @@ What blocks each row:
 
 | Pipeline | Output | Type | Blocked by |
 |---|---|---|---|
+| atacseq | the per-replicate files of a sample whose replicates were merged: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ALN, A.CHRM | choice: whether to register replicate-level files beside the merged-replicate ones. Today the sample's merged-replicate file wins (G-4) and is registered once for the group, parented by every replicate; the replicates' files are its losing candidates, so they reach its companions or the build report. Rows of their own would need separate rules. A sample with one replicate, or a run with `--skip_merge_replicates`, registers each replicate's own files, parented by its own D.SEQ (`replicate_samples`) |
+| atacseq | `<ALIGNER>/merged_replicate/macs2/<PEAK_TYPE>/consensus/consensus_peaks.mRp.clN.bed` and its `featureCounts.txt` (the consensus over the merged-replicate peaks) | A.CHRM | inventory, choice: a second consensus set beside the merged-library one, which the map registers |
 | denovotranscript | `evigene/okayset/all_assembled.okay.mrna` (the final assembly, FASTA) | none | type, inventory |
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice: whether to register pre-reduction assemblies at all |
@@ -212,6 +272,8 @@ What blocks each row:
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
+| methylseq | Bismark's per-read, per-context calls `<aligner>/methylation_calls/methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz`, the targeted bedGraph `*.bedGraph.targeted.bedGraph` (with `--run_targeted_sequencing`), and `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`). The CpG coverage and bedGraph have rules (A.MSEQ); their MeanCpGMethylationPercent reads the general-stats column `bismark-percent_cpg_meth`, unverified until a real run | A.MSEQ | choice: whether to register the per-read calls (large; summarised by the coverage file) and the genome-wide cytosine report, which would need a slot or Notes on A.MSEQ |
+| methylseq | `methyldackel/*_{CHG,CHH}.bedGraph` (with `--all_contexts`; `*_{CHG,CHH}.methylKit` with `--methyl_kit` as well), `methyldackel/*.targeted.bedGraph`, and Rastair's TAPS calls `rastair/{call,methylkit}/` (bwa-mem, or bwa-meth with `--taps`). MethylDackel's CpG calls have rules (A.MSEQ): `*_CpG.bedGraph`, or `*_CpG.methylKit`, which `--methyl_kit` writes instead of the bedGraph. With `--taps` and a Bismark aligner, Bismark still calls the reads as bisulfite data, so its calls come out inverted while the row's ConversionMethod says TAPS; methylseq only logs a recommendation to use bwa-mem (`workflows/methylseq/main.nf`) | A.MSEQ | inventory; choice: A.MSEQ has one secondary slot and no Notes for the non-CpG files; TAPS calls need their own DataType and Software; whether to refuse a TAPS run aligned with Bismark |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
 | riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
 | riboseq | `quantification/salmon/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
@@ -237,19 +299,96 @@ What blocks each row:
 | rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready: a later candidate, behind the filtered VCF |
 | rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | ready: a companion of the VCF row |
 | rnavar | `seq2hla/<sample>/<sample>-ClassI-class.HLAgenotype4digits`, with the `ClassII` file as its companion (with `--tools seq2hla`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
+| sarek | somatic pair outputs under `variant_calling/<caller>/<tumor>_vs_<normal>/` and `annotation/<tumor>_vs_<normal>/` (Mutect2, Strelka, Manta, TIDDIT, MuSE and the other somatic callers) | A.VCF | choice: a pair-level rule whose row names both samples as parents. Until then the map's `unmapped_files` rules out anything under a `*_vs_*` folder, so no germline rule takes a pair's file as the tumor's own |
+| sarek | `variant_calling/haplotypecaller/joint_variant_calling/joint_germline{,_recalibrated}.vcf.gz` (with `--joint_germline`), and the Sentieon `joint_variant_calling/` twins | A.VCF | ready: a per_run rule |
+| sarek | other germline callers' VCFs, by `--tools`: `variant_calling/bcftools/<sample>/<sample>.bcftools.vcf.gz`, and `sentieon_dnascope/`, `sentieon_haplotyper/`, `parabricks_haplotypecaller/`, `tiddit/` (unconfirmed names) | A.VCF | ready: optional rules like the five germline callers' |
+| sarek | `variant_calling/{filtered,normalized,consensus,concat}/<sample>/` post-calling VCFs (with `--filter_vcfs`, `--normalize_vcfs`, `--snv_consensus_calling`, `--concatenate_vcfs`) | A.VCF | choice: whether one replaces the caller's own VCF as a first candidate |
+| sarek | `preprocessing/recalibrated/<sample>/<sample>.recal.bam` and `preprocessing/markduplicates/<sample>/<sample>.md.bam` (+ `.bai`, with `--save_output_as_bam`) | A.ALN | ready: a second rule with `DataType` BAM |
+| sarek | alignments from the other preprocessing paths: `preprocessing/mapped/` (with `--save_mapped`), `preprocessing/sentieon_dedup/`, `preprocessing/parabricks/` | A.ALN | ready: later candidates of the `aln` rule |
+| sarek | CNV, ploidy and MSI results (ASCAT, CNVKit, Control-FREEC, MSIsensor2, MSIsensorPro) and indexcov's coverage tables | none | type, inventory |
 | smrnaseq | `mirna_quant/mirtop/joined_samples_mirtop.tsv` (isomiR counts) | A.GEX | inventory |
 | smrnaseq | `mirna_quant/edger_qc/{mature,hairpin}_normalized_CPM.txt` | A.GEX | inventory |
 | smrnaseq | `genome_quant/bam/*.bam`, `mirna_quant/bam/{hairpin,mature,seqcluster}/*.bam` (only with `--save_intermediates`; `.csi` index) | A.ALN | choice; the `.csi` is not inventoried |
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Call Filtering" does not exist; it is a pending `create_internal` in `context/assay_mappings.json` | A.VCF | a house assay to create |
 
-Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples).
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek, methylseq) lists its own ruled-out files in `unmapped_files`, each with its reason. atacseq and chipseq list theirs too, without `claims_every_file`: no fixture lists their files.
 
 ## Fixtures
 
 Evidence for a rule (G-7) is a fixture folder under
 `NessieAI/tests/ns/fixtures/reingest_runs/`; how to make one, and how its snapshot is
 regenerated, is in `NessieAI/tests/ns/fixtures/reingest_runs/README.md`.
+
+### Maps written from the docs
+
+The owner may waive G-7's fixture for a release with no nf-test snapshot and no usable
+published results. Its file rules then come from the release's pinned docs/output.md
+(committed as `NessieAI/tests/chat_nextseek/fixtures/nfcore/<pipeline>.output.md`), checked
+against its `conf/modules.config`, and `test_doc_only_maps.py` checks that every folder a
+rule names is one that output.md documents (`DOC_ONLY`). A map file cannot say this itself
+(`PipelineMap` forbids unknown keys), so `DOC_ONLY` and a row here do. Delete both when run
+fixtures cover every rule's folder.
+
+atacseq 2.1.2 and chipseq 2.1.0 began this way and have left it: each release's broad- and
+narrow-peak `-profile test` runs (`<version>-local-test` and `<version>-local-narrow`, made
+with `scripts/reingest/make_fixture.sh --local`) match every pattern of every rule, so
+`DOC_ONLY` is empty and no map is listed here.
+
+### atacseq and chipseq: QC without general stats
+
+Both releases' `assets/multiqc_config.yml` set `exclude_modules: general_stats`, so no
+`multiqc_general_stats.txt` is written, and `data_format: yaml`, which atacseq's MultiQC 1.13
+does not apply to its tables (they are `.txt`) and chipseq's MultiQC 1.23 does: it writes no
+table files at all, only plot data and `multiqc_data.json`, which the harvest does not read.
+Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill; only
+lanes of one replicate, a multi-run sample, get none (`mapper._NO_BACKFILL`), as in every
+pipeline. Where each value comes from (owner's ruling of 2026-10-30 on the peak-quality
+metrics: a peak set's own on its A.CHRM row, a library's on its D.SEQ):
+
+| Attribute | Row | atacseq 2.1.2 | chipseq 2.1.0 |
+|---|---|---|---|
+| `DuplicationPercent` | D.SEQ | `multiqc_picard_dups` (module table; Picard's 0-1 fraction, x100 by `$derived.duplication_pct`) | `picard_deduplication.yaml`, the bar plot's read counts: duplicates over duplicates plus unique, Picard's own rate |
+| `MappedPercent` | D.SEQ | `multiqc_samtools_flagstat.txt`, the first of four flagstat sections (each run's own alignment, rows `<sample>_REP<n>_T<run>`; checked against `multiqc_sources.txt`), column `mapped_passed_pct` only | none: the release publishes flagstat only for the filtered alignment (100% mapped by construction); the per-library one is only in `multiqc_data.json` |
+| `FRiPPercent`, `PeakCount` | A.CHRM peak row | MultiQC's custom-content bar graphs (`shape: bargraph`): `mlib_*` for a replicate's peaks, `mrep_*` for a merged replicate's, through `RunManifest.group_metrics` | the per-sample `<sample>.FRiP_mqc.tsv` and `.peak_count_mqc.tsv` (`sample_files`) |
+| `NSC`, `RSC` | D.SEQ | (no phantompeakqualtools) | `<sample>.spp_nsc_mqc.tsv`, `.spp_rsc_mqc.tsv`; inputs get them too |
+| `FingerprintJSD` | D.SEQ | `<sample>.mLb.clN.plotFingerprint.qcmetrics.txt`, `Synthetic JS Distance` | the same file, the IP's own row; inputs get none |
+| `TSSEnrichment` | D.SEQ | `<sample>.ataqv.json`, `metrics.tss_enrichment`; null, so absent, for single-end libraries | (no ataqv) |
+
+FRiP is reads in peaks over mapped reads, a 0-1 fraction in both releases' scripts, so
+`$derived.frip_pct` multiplies it by 100. Neither release passes plotFingerprint a
+`--JSDsample`, so only the synthetic Jensen-Shannon distance (against uniform coverage) is
+written. An ataqv JSON lists every peak; a large run's files can exceed the harvest caps, and
+those samples then have no TSS enrichment (recorded as truncated). Consensus peak rows carry
+no FRiP or peak count: no table holds one for them. Library complexity (Preseq is a curve;
+Picard's `ESTIMATED_LIBRARY_SIZE` is ruled out) has no attribute.
+
+A.CHRM rows carry a `Name` (`@row_name`) and, for chipseq, the `Antibody` their
+replicate's samplesheet names (`$samplesheet.antibody`; blank for the input controls),
+both as `row_defaults`. chipseq's per-antibody consensus peaks are one `per_file` row
+each (`consensus_narrow` or `consensus_broad`, one `alternative_group`), parented only by
+that antibody's samples (`parents_by_samplesheet`), with its `featureCounts.txt` as
+companion. A companion of an A.CHRM row (atacseq's consensus `featureCounts.txt`) goes to
+`File_SecondaryData`, then `Notes`, or to the build report on an instance whose A.CHRM lacks
+them. A
+merged-replicate group's row names its replicates' own peaks or bigWigs in `Notes` (or the
+build report), never in `File_SecondaryData`: one replicate's output is not the group's
+secondary data (G-4).
+
+### methylseq's variant fixtures
+
+The 4.2.0 map's file rules are checked against seven fixtures, each one nf-test snapshot
+test: `4.2.0` (the default `-profile test`, Bismark), and `4.2.0-<variant>` for bwameth,
+bwameth-rrbs, bwameth-skip_deduplication, bwameth-save_align_intermeds, bismark-rrbs and
+bismark-skip_deduplication, imported with `import_evidence.py --test --variant --param`.
+With `--rrbs` or `--skip_deduplication` deduplication is skipped, so the sorted BAM under
+`alignments/` is the aln row's file. With `--save_align_intermeds`, bwa-meth's unsorted
+`alignments/<sample>.bam` is ruled out, as Bismark's unsorted BAM is, and the sorted BAM
+before deduplication is a losing candidate of the aln rule: A.ALN's one secondary slot holds
+the index and A.ALN has no `Notes`, so it is named in the build report. A snapshot holds no
+MultiQC values, so the map's QC keys are checked against the release's own `-profile test`
+runs by `test_qc_completeness_dna.py`: `4.2.0-local-test` (Bismark) and `4.2.0-local-bwameth`
+(`--aligner bwameth`, whose samtools and Picard keys are the QC rules' alternates).
 
 ## Filling in a stub
 

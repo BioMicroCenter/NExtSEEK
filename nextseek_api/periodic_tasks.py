@@ -69,18 +69,30 @@ def clear_expired_sessions():
     call_command("clearsessions")
 
 
-def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=None, cancel_dir=None) -> dict:
+#: The name upload-reingest's staged workbook copies had while they were written to MEDIA_ROOT/uploads/ (a uuid4 hex
+#: and the workbook's name). Nothing removed them there; the sweep clears the ones left behind, and nothing else.
+_LEGACY_STAGED_COPY = r"^[0-9a-f]{32}_.+\.xlsx$"
+
+
+def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=None, cancel_dir=None,
+                        legacy_copies_dir=None) -> dict:
     """Keep the durable upload-queue files from growing without bound (the beat runs this daily).
 
     Removes results older than the job TTL, consumed broker messages older than it, and saved sheets in uploads/
     older than it that no queued job still names. A sheet is never removed while a job could still use it: a job
     that started is over within the hard time limit, so only sheets older than the longer of the TTL and twice that
-    limit are considered, and a sheet named in a still-queued message is kept.
+    limit are considered, and a sheet named in a still-queued message is kept. Upload-reingest's staged workbook
+    copies are saved sheets too (``stage_workbook_copy``). The copies it used to stage straight in MEDIA_ROOT/uploads/
+    go by the same rules (``legacy_copies``), matched by their name alone, so nothing else there is touched, and the
+    served uploads/production tree, a directory, never is.
     """
     import base64
     import json
     import os
+    import re
     import time
+
+    from django.conf import settings
 
     from sqlalchemy import create_engine, text
 
@@ -89,7 +101,7 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
 
     now = now if now is not None else time.time()
     ttl = _get_ttl_seconds()
-    out = {"results": 0, "messages": 0, "sheets": 0, "markers": 0}
+    out = {"results": 0, "messages": 0, "sheets": 0, "legacy_copies": 0, "markers": 0}
 
     backend = backend if backend is not None else cm.app.backend
     from celery.backends.database.models import Task
@@ -137,6 +149,15 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
                 if os.path.isfile(path) and os.path.getmtime(path) < cutoff_s and name not in live_text:
                     os.remove(path)
                     out["sheets"] += 1
+        legacy = legacy_copies_dir if legacy_copies_dir is not None else os.path.join(
+            getattr(settings, "MEDIA_ROOT", "/tmp"), "uploads")
+        if os.path.isdir(legacy):
+            for name in os.listdir(legacy):
+                path = os.path.join(legacy, name)
+                if (re.match(_LEGACY_STAGED_COPY, name) and os.path.isfile(path) and not os.path.islink(path)
+                        and os.path.getmtime(path) < cutoff_s and name not in live_text):
+                    os.remove(path)
+                    out["legacy_copies"] += 1
     # Cancel markers older than the TTL: their job record is gone too.
     markers = cancel_dir if cancel_dir is not None else os.path.join(state_dir(), "cancel")
     if os.path.isdir(markers):

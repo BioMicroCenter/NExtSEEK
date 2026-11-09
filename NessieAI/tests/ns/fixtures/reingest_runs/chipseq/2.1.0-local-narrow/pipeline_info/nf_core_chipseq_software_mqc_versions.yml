@@ -1,0 +1,81 @@
+ANNOTATE_BOOLEAN_PEAKS:
+  sed: 4.7
+BAMTOOLS_FILTER:
+  samtools: 1.15.1
+  bamtools: 2.5.2
+BAM_REMOVE_ORPHANS:
+  samtools: 1.15.1
+BEDTOOLS_GENOMECOV:
+  bedtools: 2.30.0
+BWA_INDEX:
+  bwa: 0.7.18-r1243-dirty
+BWA_MEM:
+  bwa: 0.7.18-r1243-dirty
+  samtools: 1.2
+CUSTOM_GETCHROMSIZES:
+  getchromsizes: 1.2
+DEEPTOOLS_COMPUTEMATRIX:
+  deeptools: 3.5.5
+DEEPTOOLS_PLOTFINGERPRINT:
+  deeptools: 3.5.5
+DEEPTOOLS_PLOTHEATMAP:
+  deeptools: 3.5.5
+DEEPTOOLS_PLOTPROFILE:
+  deeptools: 3.5.5
+DESEQ2_QC:
+  r-base: 4.0.3
+  bioconductor-deseq2: 1.28.0
+FASTQC:
+  fastqc: 0.12.1
+FRIP_SCORE:
+  bedtools: 2.30.0
+  samtools: 1.15.1
+GENOME_BLACKLIST_REGIONS:
+  bedtools: 2.30.0
+GTF2BED:
+  perl: 5.26.2
+HOMER_ANNOTATEPEAKS:
+  homer: 4.11
+IGV:
+  python: 3.8.3
+MACS3_CALLPEAK:
+  macs3: 3.0.1
+MACS3_CONSENSUS:
+  python: 3.10.0
+  r-base: 4.1.1
+MULTIQC_CUSTOM_PEAKS:
+  sed: 4.7
+PHANTOMPEAKQUALTOOLS:
+  phantompeakqualtools: 1.2.2
+PICARD_COLLECTMULTIPLEMETRICS:
+  picard: 3.2.0-1-g3948afb6b
+PICARD_MARKDUPLICATES:
+  picard: 3.2.0-1-g3948afb6b
+PICARD_MERGESAMFILES:
+  picard: 3.2.0-1-g3948afb6b
+PLOT_HOMER_ANNOTATEPEAKS:
+  r-base: 4.0.3
+PLOT_MACS3_QC:
+  r-base: 4.0.3
+SAMPLESHEET_CHECK:
+  python: 3.8.3
+SAMTOOLS_FLAGSTAT:
+  samtools: 1.2
+SAMTOOLS_IDXSTATS:
+  samtools: 1.2
+SAMTOOLS_INDEX:
+  samtools: 1.2
+SAMTOOLS_SORT:
+  samtools: 1.2
+SAMTOOLS_STATS:
+  samtools: 1.2
+SUBREAD_FEATURECOUNTS:
+  subread: 2.0.1
+TRIMGALORE:
+  trimgalore: 0.6.7
+  cutadapt: 3.4
+UCSC_BEDGRAPHTOBIGWIG:
+  ucsc: 445
+Workflow:
+    nf-core/chipseq: v2.1.0-g76e2382
+    Nextflow: 26.10.4

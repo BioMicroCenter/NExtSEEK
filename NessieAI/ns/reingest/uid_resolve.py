@@ -36,13 +36,14 @@ from typing import Callable
 
 from NessieAI.ns.reingest import manifest
 
-# Every path-bearing INPUT column across the ten committed pipeline maps'
-# pinned samplesheet schemas -- cross-checked two ways: the fixture schemas
+# Every path-bearing INPUT column across the committed pipeline maps' pinned
+# samplesheet schemas -- cross-checked two ways: the fixture schemas
 # NessieAI/tests/chat_nextseek/fixtures/nfcore/*.schema_input.json
 # (hlatyping, rnafusion, rnaseq, rnasplice, scrnaseq, smrnaseq) and, for the
-# four maps with no fixture file (denovotranscript, differentialabundance,
+# maps with no fixture file (denovotranscript, differentialabundance,
 # riboseq, rnavar), their `all_cols` entries in
-# docs/nfcore-schema-census-2026-08-05.json. No pinned schema among the ten
+# docs/nfcore-schema-census-2026-08-05.json. sarek's `spring_1`/`spring_2`
+# (its compressed-FASTQ input) come from its pinned schema. No pinned schema
 # uses any other path-shaped column: rnafusion/rnavar's own "bai"/"crai"/
 # "tbi"/"junctions"/"splice_junctions" columns are companion index or
 # annotation files, never a parent's own primary-data path, so they are
@@ -50,10 +51,40 @@ from NessieAI.ns.reingest import manifest
 #
 # Order matters -- see `_resolve_row_path` for how it is used. "fastq_1"
 # first (the original, most common case); "fastq_2" is NOT tried the same
-# way as the rest (see that function); then "bam", "cram", "vcf" in the
-# order hlatyping (bam), rnafusion/rnavar (bam, cram) and rnavar (vcf) were
-# reviewed.
-_PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "bam", "cram", "vcf")
+# way as the rest (see that function); then "spring_1" and "spring_2" (sarek;
+# `spring_2` is looked up like any other column, only `fastq_2` is gated);
+# then "bam", "cram", "vcf" in the order hlatyping (bam), rnafusion/rnavar
+# (bam, cram) and rnavar (vcf) were reviewed.
+_PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "spring_1", "spring_2", "bam", "cram", "vcf")
+
+#: The samplesheet's own `sample` value, kept on a row `key_by_replicate` renamed.
+#: The launch record's cohort names a row by it (Nessie writes the samplesheet's
+#: `sample`), so a replicate row is matched there by this and its `fastq_1`.
+SAMPLESHEET_SAMPLE = "_samplesheet_sample"
+
+
+def key_by_replicate(rows: list[dict]) -> tuple[list[dict], dict[str, list[str]]]:
+    """Rows renamed to one sample per biological replicate, and the replicate groups.
+
+    nf-core/atacseq and nf-core/chipseq repeat `sample` across replicates and name each
+    replicate's files `<sample>_REP<replicate>` (their bin/check_samplesheet.py: spaces in
+    `sample` become "_", `replicate` must be an integer). Rows sharing both `sample` and
+    `replicate` are lanes of one library and keep one shared name, so `resolve` still
+    treats them as one multi-run sample. Returns ``(rows, {})`` unchanged when any row
+    lacks an integer `replicate`: nothing is renamed on a guess.
+    """
+    if not rows or not all(str(r.get("replicate") or "").strip().isdecimal() for r in rows):
+        return rows, {}
+    keyed: list[dict] = []
+    groups: dict[str, list[str]] = {}
+    for row in rows:
+        group = str(row.get("sample") or "")
+        name = f"{group.replace(' ', '_')}_REP{int(str(row['replicate']).strip())}"
+        keyed.append({**row, "sample": name, SAMPLESHEET_SAMPLE: group})
+        members = groups.setdefault(group.replace(" ", "_"), [])
+        if name not in members:
+            members.append(name)
+    return keyed, groups
 
 
 def resolve(
@@ -122,6 +153,14 @@ def resolve(
             else:
                 out.append((sample, None, manifest.RESOLUTION_UNRESOLVED, ()))
             continue
+        if record is not None and row.get(SAMPLESHEET_SAMPLE) is not None:
+            # A replicate row (key_by_replicate): the cohort names it by the
+            # samplesheet's `sample`, which its other replicates share, so the
+            # entry is told apart by this row's own fastq_1.
+            found = _cohort_entry_uid(row, sample, record)
+            if found is not None:
+                out.append((sample, *found, ()))
+                continue
         uid, resolution = _resolve_row_path(row, lookup_by_fastq)
         out.append((sample, uid, resolution, ()))
     return out
@@ -207,16 +246,37 @@ def _resolve_multirun_row(
     `fastq_1`/`fastq_2` identity only -- it can never confirm or refute a
     `bam`/`cram`/`vcf` row's parent, launched by Nessie or not.
     """
-    fastq = str(row.get("fastq_1") or "")
-    if record is not None and fastq:
-        entries = [entry for entry in (record.cohort or [])
-                   if entry.get("nfcore_sample") == sample
-                   and entry.get("fastq_1") == fastq]
-        if entries:
-            uids = {entry.get("d_seq_uid") for entry in entries if entry.get("d_seq_uid")}
-            return next(iter(uids)) if len(uids) == 1 else None
+    found = _cohort_entry_uid(row, sample, record)
+    if found is not None:
+        return found[0]
     uid, _resolution = _resolve_row_path(row, lookup_by_fastq)
     return uid
+
+
+def _cohort_entry_uid(row: dict, sample: str, record) -> tuple[str | None, str] | None:
+    """The launch record's answer for one row, matched on ``(nfcore_sample, fastq_1)``:
+    ``(uid, resolution)``, or None when no cohort entry names the pair (try the path).
+
+    The name matched is the row's own `sample`, or, on a replicate row
+    (`key_by_replicate`), the samplesheet's `sample` the cohort recorded. An entry
+    with no UID is authoritative: the launch found nothing in NExtSEEK for the row,
+    so it is unresolved, never retried by path. Entries for the pair naming two
+    different UIDs are ambiguous.
+    """
+    fastq = str(row.get("fastq_1") or "")
+    if record is None or not fastq:
+        return None
+    names = {sample, str(row.get(SAMPLESHEET_SAMPLE) or sample)}
+    entries = [entry for entry in (record.cohort or [])
+               if entry.get("nfcore_sample") in names and entry.get("fastq_1") == fastq]
+    if not entries:
+        return None
+    uids = {entry.get("d_seq_uid") for entry in entries if entry.get("d_seq_uid")}
+    if len(uids) == 1:
+        return next(iter(uids)), manifest.RESOLUTION_LAUNCH_RECORD
+    if not uids:
+        return None, manifest.RESOLUTION_UNRESOLVED
+    return None, manifest.RESOLUTION_AMBIGUOUS
 
 
 def _resolve_row_path(
@@ -252,6 +312,8 @@ def _resolve_row_path(
     row's `fastq_2` almost always names the SAME D.SEQ record as its
     `fastq_1`, so trying it in parallel on every ordinary row would double
     this function's lookup cost for no information gain on the common case.
+    `spring_1`/`spring_2` (sarek's compressed-FASTQ input) are tried like any
+    other column, `spring_2` included: only `fastq_2` is gated.
     `bam`/`cram`/`vcf`, by contrast, are mutually exclusive with `fastq_1` in
     every pinned schema that has them (a row is fastq-input or already-
     analysed-input, never both) -- always trying them costs at most one

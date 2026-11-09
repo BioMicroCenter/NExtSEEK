@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import shlex
 
 import yaml
 
@@ -21,6 +22,67 @@ def parse_params(text: str) -> dict:
     """pipeline_info/params*.json -> every resolved param, verbatim."""
     data = json.loads(text)
     return data if isinstance(data, dict) else {}
+
+
+# Nextflow's own single-dash options that take a value, in a `nextflow run` line.
+_NEXTFLOW_VALUE_OPTIONS = {"-profile", "-c", "-config", "-params-file", "-w", "-work-dir",
+                           "-r", "-revision", "-name", "-with-report", "-with-trace",
+                           "-with-timeline", "-with-dag"}
+
+
+def parse_launch_params(params_yml: str | None, run_sh: str | None) -> dict:
+    """The params Nessie launched a run with, for a release that writes no
+    pipeline_info/params*.json (nf-core/atacseq 2.1.2): its `-params-file
+    params.yml`, overlaid with the `--name value` flags of run.sh's `nextflow run`
+    line, which win over the params file as they do in Nextflow. Only the
+    pipeline's own command counts (the one given `-params-file`, not a fetchngs
+    pre-step's). A flag with no value is True; values stay strings."""
+    params: dict = {}
+    if params_yml:
+        try:
+            data = yaml.safe_load(params_yml)
+        except yaml.YAMLError:
+            data = None
+        if isinstance(data, dict):
+            params.update({str(k): v for k, v in data.items()})
+    for tokens in _nextflow_run_commands(run_sh or ""):
+        if "-params-file" not in tokens:
+            continue
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            if token.startswith("--") and len(token) > 2:
+                name, eq, value = token[2:].partition("=")
+                if eq:
+                    params[name] = value
+                elif i + 1 < len(tokens) and not tokens[i + 1].startswith("-"):
+                    params[name] = tokens[i + 1]
+                    i += 1
+                else:
+                    params[name] = True
+            elif token in _NEXTFLOW_VALUE_OPTIONS:
+                i += 1
+            i += 1
+    return params
+
+
+def _nextflow_run_commands(script: str) -> list[list[str]]:
+    """Each `nextflow run ...` command of a shell script, its backslash
+    continuations joined, split into words after `run`."""
+    commands = []
+    lines = iter(script.splitlines())
+    for line in lines:
+        text = line.strip()
+        if not text.startswith("nextflow run "):
+            continue
+        while text.endswith("\\"):
+            text = text[:-1] + " " + next(lines, "").strip()
+        try:
+            words = shlex.split(text, comments=True)
+        except ValueError:
+            continue
+        commands.append(words[2:])
+    return commands
 
 
 def _version_field(value) -> str:
@@ -195,6 +257,101 @@ def parse_general_stats(text: str) -> dict[str, dict[str, float | str]]:
             except ValueError:
                 values[column] = cell
         out[sample] = values
+    return out
+
+
+def bargraph_values(table: dict[str, dict[str, float | str]]) -> dict[str, dict[str, float | str]]:
+    """A MultiQC custom-content bar graph read as a table -> {sample: {"value": v}}.
+
+    MultiQC writes a bar graph's data file as a square table: each row's one value sits
+    under a column named after the row (FRiP) or after the file it counted (peak count),
+    and every other cell is blank, which `parse_general_stats` already omits. A row with
+    no value, or with more than one, is not a bar and is left out."""
+    out: dict[str, dict[str, float | str]] = {}
+    for sample, row in table.items():
+        if len(row) == 1:
+            out[sample] = {"value": next(iter(row.values()))}
+    return out
+
+
+def _number(cell: str) -> float | str:
+    try:
+        return float(cell)
+    except ValueError:
+        return cell
+
+
+def parse_mqc_value(text: str, sample: str) -> dict[str, float | str]:
+    """A one-value MultiQC custom-content file (`#` header lines, then `<name>\t<value>`,
+    as chipseq writes `<sample>.FRiP_mqc.tsv`) -> {"value": v}: the line naming `sample`,
+    else the file's only line; {} when neither exists."""
+    lines = [line.split("\t") for line in text.splitlines()
+             if line.strip() and not line.startswith("#")]
+    lines = [cells for cells in lines if len(cells) >= 2 and cells[1].strip()]
+    named = [cells for cells in lines if cells[0].strip() == sample]
+    picked = named or (lines if len(lines) == 1 else [])
+    return {"value": _number(picked[0][1].strip())} if picked else {}
+
+
+def parse_sample_row(text: str, sample: str) -> dict[str, float | str]:
+    """A tab-separated table with a `Sample` column -> the row named `sample`, or
+    `sample.<anything>` (deepTools labels its rows `<sample>.mLb.clN`); {} when none is.
+    A plotFingerprint qcmetrics file also holds the control's row, which is not `sample`'s."""
+    for row in csv.DictReader(io.StringIO(text), delimiter="\t"):
+        name = (row.get("Sample") or "").strip()
+        if name == sample or name.startswith(sample + "."):
+            return {column: _number(cell.strip()) for column, cell in row.items()
+                    if column and column != "Sample" and cell is not None and cell.strip()}
+    return {}
+
+
+def parse_ataqv_metrics(text: str) -> dict[str, float | str]:
+    """ataqv's JSON (a list of one run, or the run itself) -> its `metrics` scalars:
+    `tss_enrichment` among them. The per-peak and per-fragment-length series are not scalars
+    and are dropped; text that is not ataqv's shape reads as empty."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return {}
+    run = doc[0] if isinstance(doc, list) and doc else doc
+    metrics = run.get("metrics") if isinstance(run, dict) else None
+    if not isinstance(metrics, dict):
+        return {}
+    return {key: value for key, value in metrics.items()
+            if isinstance(value, (int, float, str)) and not isinstance(value, bool)}
+
+
+def parse_multiqc_yaml_table(text: str) -> dict[str, dict[str, float | str]]:
+    """A MultiQC data file written with `data_format: yaml` (nf-core/atacseq and
+    nf-core/chipseq set it) -> {sample: {column: value}}, the shape
+    `parse_general_stats` returns for the same table written as .txt.
+
+    MultiQC writes a table as one mapping per sample. Only scalar cells are kept:
+    a nested value is a plot series, not a column. A blank cell is omitted, as in
+    the .txt reader. Anything that is not a mapping of mappings reads as empty."""
+    doc = yaml.safe_load(text) or {}
+    if not isinstance(doc, dict):
+        return {}
+    out: dict[str, dict[str, float | str]] = {}
+    for sample, row in doc.items():
+        name = str(sample).strip()
+        if not isinstance(row, dict) or not name:
+            continue
+        values: dict[str, float | str] = {}
+        for column, cell in row.items():
+            if cell is None or isinstance(cell, (bool, dict, list)):
+                continue
+            text_cell = str(cell).strip()
+            if not text_cell:
+                continue
+            try:
+                number = float(text_cell)
+            except ValueError:
+                values[str(column)] = text_cell
+                continue
+            if number == number:  # YAML's .nan is no measurement: left out like a blank
+                values[str(column)] = number
+        out[name] = values
     return out
 
 

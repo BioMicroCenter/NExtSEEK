@@ -39,7 +39,10 @@ def test_the_real_rebuild_differs_only_by_the_new_assay(rows, tmp_path, monkeypa
     _fake(monkeypatch, study=25, assay=None)
     monkeypatch.setattr("nextseek_api.services.reingest_lookups.project_ids_for_uids_strict",
                         lambda uids: [14])
-    args = {"manifest_id": manifest_id, "mode": "new"}
+    # The caller is a member of project 14 (an unreadable membership stops the build).
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.caller_project_scope",
+                        lambda user: (14,))
+    args ={"manifest_id": manifest_id, "mode": "new"}
     if answers:
         args["answers"] = json.dumps(answers)
     (tmp_path / "turn1").mkdir()

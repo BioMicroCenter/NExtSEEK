@@ -1,0 +1,9 @@
+Sample	total_passed	total_failed	secondary_passed	secondary_failed	supplementary_passed	supplementary_failed	duplicates_passed	duplicates_failed	mapped_passed	mapped_failed	mapped_passed_pct	mapped_failed_pct	paired in sequencing_passed	paired in sequencing_failed	read1_passed	read1_failed	read2_passed	read2_failed	properly paired_passed	properly paired_failed	properly paired_passed_pct	properly paired_failed_pct	with itself and mate mapped_passed	with itself and mate mapped_failed	singletons_passed	singletons_failed	singletons_passed_pct	singletons_failed_pct	with mate mapped to a different chr_passed	with mate mapped to a different chr_failed	with mate mapped to a different chr (mapQ >= 5)_passed	with mate mapped to a different chr (mapQ >= 5)_failed	flagstat_total
+OSMOTIC_STRESS_T0_PE_REP1_T1	199512	0	0	0	0	0	0	0	190337	0	95.4	nan	199512	0	99756	0	99756	0	189534	0	95.0	nan	189848	0	489	0	0.25	nan	90	0	41	0	199512
+OSMOTIC_STRESS_T0_PE_REP2_T1	199420	0	0	0	0	0	0	0	185423	0	92.98	nan	199420	0	99710	0	99710	0	184620	0	92.58	nan	184902	0	521	0	0.26	nan	196	0	106	0	199420
+OSMOTIC_STRESS_T100_SE_REP1_T1	99977	0	0	0	0	0	0	0	94790	0	94.81	nan	0	0	0	0	0	0	0	0	nan	nan	0	0	0	0	nan	nan	0	0	0	0	99977
+OSMOTIC_STRESS_T100_SE_REP2_T1	99965	0	0	0	0	0	0	0	92166	0	92.2	nan	0	0	0	0	0	0	0	0	nan	nan	0	0	0	0	nan	nan	0	0	0	0	99965
+OSMOTIC_STRESS_T150_SE_REP1_T1	99981	0	0	0	0	0	0	0	94394	0	94.41	nan	0	0	0	0	0	0	0	0	nan	nan	0	0	0	0	nan	nan	0	0	0	0	99981
+OSMOTIC_STRESS_T150_SE_REP1_T2	99986	0	0	0	0	0	0	0	94090	0	94.1	nan	0	0	0	0	0	0	0	0	nan	nan	0	0	0	0	nan	nan	0	0	0	0	99986
+OSMOTIC_STRESS_T15_PE_REP1_T1	199538	0	0	0	0	0	0	0	188716	0	94.58	nan	199538	0	99769	0	99769	0	188144	0	94.29	nan	188292	0	424	0	0.21	nan	50	0	20	0	199538
+OSMOTIC_STRESS_T15_PE_REP1_T2	199474	0	0	0	0	0	0	0	188408	0	94.45	nan	199474	0	99737	0	99737	0	187610	0	94.05	nan	187896	0	512	0	0.26	nan	42	0	17	0	199474

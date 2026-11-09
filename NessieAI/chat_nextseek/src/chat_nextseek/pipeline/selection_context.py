@@ -36,13 +36,15 @@ SECTION_NAMES: tuple[str, ...] = ("atlas", "digest", "docs", "schemas")
 #: entry is a stub — prose only, present so the model has an explicit reason to
 #: rule it out rather than defaulting to whichever entry carries more text.
 RICH_PIPELINES: tuple[str, ...] = (
-    "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice",
+    "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
+    "atacseq", "chipseq", "methylseq",
 )
 
-#: The measured payload baseline (atlas + digest + docs + schemas for all six
-#: RICH_PIPELINES) is ~135k tokens. This ceiling exists so a payload that has
-#: grown too large fires our own PayloadTooLargeError, with a size breakdown,
-#: before the API rejects the request with an opaque error.
+#: The payload (atlas + digest + docs + schemas of every RICH_PIPELINES entry) grows with each
+#: rich pipeline and with the cohort; measure it with size_report() rather than trusting a number
+#: written here. This ceiling exists so a payload that has grown too large fires our own
+#: PayloadTooLargeError, with a size breakdown, before the API rejects the request with an
+#: opaque error.
 #:
 #: It was 180_000, chosen against a stated 200k context window. That premise
 #: was wrong for the model actually in use: the routed pipeline_agent model,
@@ -83,19 +85,28 @@ class SelectionContext:
         if status and status.get("n_failed"):
             # Same rationale as the docs/schema sections' notices: a failure
             # recorded only in the per-attachment "extraction" field, deep in
-            # the JSON body, is invisible in practice — a model reading empty
-            # protocol text without this notice has been observed to infer a
-            # library type from protocol titles/filenames anyway (scrnaseq on
-            # a bulk cohort, cohort 241219BRY). Put the failure up front, in
-            # plain text, and name the fallback evidence explicitly.
+            # the JSON body, is invisible in practice. Put it up front, in plain
+            # text. Titles and filenames are no evidence. Nor is the D.SEQ
+            # metadata, for how the library was built: cohort 241219BRY is pooled
+            # prime-seq (owner ruling 2026-10-27, SOP 65: barcoded at reverse
+            # transcription, 48 samples per pool) and its metadata reads as plain
+            # polyA RNA-Seq, so a metadata-only pick sent it to rnaseq. When the
+            # pick depends on the prep, the honest answer is a fork the user settles.
             reasons = ", ".join(status.get("failure_reasons") or []) or "unknown reason"
             lines = [
                 f"PROTOCOL TEXT UNAVAILABLE for {status['n_failed']} of {status['n_protocols']} "
                 f"protocols ({reasons}).",
                 "Do not infer the library preparation from protocol titles or filenames.",
-                "Judge the library type from the D.SEQ metadata instead — LibraryStrategy, "
-                "LibrarySource, LibrarySelection, SequencingType, and the F_bp/R_bp read "
-                "geometry — and say in your reasoning that the protocol text was unavailable.",
+                "The D.SEQ metadata (LibraryStrategy, LibrarySource, LibrarySelection, "
+                "SequencingType, the F_bp/R_bp read geometry) still shows the molecule, the read "
+                "layout and the species, but it cannot show how the library was built. A plate-based "
+                "3' method that barcodes each sample at reverse transcription and pools them "
+                "(prime-seq, BRB-seq and similar) is recorded exactly like ordinary polyA RNA-Seq, "
+                "yet each FASTQ then holds many samples.",
+                "When the right pipeline depends on how the library was built (for example rnaseq "
+                "for one sample per library, scrnaseq for barcoded pools), return each candidate as "
+                "a fork instead of choosing one, and say in your reasoning that the protocol text "
+                "was unavailable.",
             ]
             notice = "\n".join(lines) + "\n"
         return header + notice + json.dumps(self.digest, indent=1)

@@ -2,7 +2,7 @@
 """The data-fit eval: given real samples, does the model pick the pipeline the
 lab actually ran — or refuse when nothing in the atlas fits?
 
-`run_rna_selection.py` asks twelve invented scenarios ("mice", "tumour",
+The older scenario eval (now the pipeline-scenario stories) asked twelve invented scenarios ("mice", "tumour",
 "beetle"...) against real cohorts whose actual biology frequently contradicts
 the scenario. It measures whether the model can map a *described scenario* to
 a pipeline. It cannot express "no pipeline fits", so a wrong recommendation on

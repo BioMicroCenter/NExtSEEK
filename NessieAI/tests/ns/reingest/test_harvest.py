@@ -1390,6 +1390,24 @@ _OLD_INVENTORY = {
     "**/tables/differential/*/*.dream.results.tsv",
     # hlatyping's A.HLA rule: OptiType's call and its coverage plot
     "**/optitype/*/*_result.tsv", "**/optitype/*/*_coverage_plot.pdf",
+    # sarek's rules: CRAMs under preprocessing/<step>/<sample>/, and the
+    # per-caller VCFs with their tabix indexes under variant_calling/<caller>/<sample>/
+    "**/preprocessing/*/*/*.cram", "**/preprocessing/*/*/*.cram.crai",
+    "**/variant_calling/*/*/*.vcf.gz", "**/variant_calling/*/*/*.vcf.gz.tbi",
+    # atacseq's and chipseq's A.CHRM rules: MACS peaks, bigWig tracks, and
+    # atacseq's merged-library consensus peaks with their read counts
+    "**/*.mRp.clN_peaks.narrowPeak", "**/*.mLb.clN_peaks.narrowPeak",
+    "**/*.mRp.clN_peaks.broadPeak", "**/*.mLb.clN_peaks.broadPeak",
+    "**/*.mRp.clN.bigWig", "**/*.mLb.clN.bigWig",
+    "**/consensus_peaks.mLb.clN.bed", "**/consensus_peaks.mLb.clN.featureCounts.txt",
+    "**/*_peaks.narrowPeak", "**/*_peaks.broadPeak",
+    # chipseq's per-antibody consensus peaks and their read counts
+    "**/*.consensus_peaks.bed", "**/*.consensus_peaks.featureCounts.txt",
+    # methylseq's A.MSEQ rules: Bismark's CpG coverage with its bedGraph, and
+    # MethylDackel's CpG bedGraph, or its methylKit file with --methyl_kit
+    "**/methylation_calls/methylation_coverage/*.bismark.cov.gz",
+    "**/methylation_calls/bedGraph/*.bedGraph.gz", "**/methyldackel/*_CpG.bedGraph",
+    "**/methyldackel/*_CpG.methylKit",
 }
 
 

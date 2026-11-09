@@ -203,6 +203,13 @@
     "Tags": "migration analysis, cell migration analysis, chemotaxis analysis, motility analysis, scratch assay analysis, wound healing assay, transwell migration analysis, cell tracking, A.MIGR, TrackMate, cell velocity, mean squared displacement, cell invasion analysis, particle tracking analysis, directional persistence"
   },
   {
+    "SampleType": "A.MSEQ",
+    "ID": 161,
+    "Name": "Methylation Calls",
+    "Description": "A methylation calls file records the cytosine methylation called from the bisulfite, enzymatic (EM-seq) or TAPS sequencing reads of one sample: for each covered CpG, the share of reads showing it methylated and the read counts behind that share. It represents per-sample methylation levels against a reference genome, for differential methylation and region analysis. Each file typically corresponds to a single sequencing sample.\nTypical file types: .cov.gz (Bismark coverage), .bedGraph, .bedGraph.gz",
+    "Tags": "DNA methylation, methylation calls, CpG methylation, bisulfite sequencing, WGBS, RRBS, PBAT, EM-seq, TAPS, Bismark, MethylDackel, bedGraph, coverage file, methylome, A.MSEQ, nf-core/methylseq"
+  },
+  {
     "SampleType": "A.MSP",
     "ID": 18,
     "Name": "Mass Spectrometry Analysis",
