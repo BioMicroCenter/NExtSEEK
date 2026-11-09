@@ -487,7 +487,43 @@ def test_with_umi_and_pattern_passes():
 
 
 def test_umi_rule_skips_and_other_runs():
-    assert pp._cross_param_errors({"with_umi": True, "skip_umi_extract": True, "umitools_bc_pattern": ""}) == []
-    assert pp._cross_param_errors({"with_umi": True, "umitools_bc_pattern2": "NNNN"}) == []
-    assert pp._cross_param_errors({"with_umi": False, "umitools_bc_pattern": ""}) == []
-    assert pp._cross_param_errors({"aligner": "hisat2"}) == []
+    f = lambda p: pp._cross_param_errors(p, "rnaseq")
+    assert f({"with_umi": True, "skip_umi_extract": True, "umitools_bc_pattern": ""}) == []
+    assert f({"with_umi": True, "umitools_bc_pattern2": "NNNN"}) == []
+    assert f({"with_umi": False, "umitools_bc_pattern": ""}) == []
+    assert f({"aligner": "hisat2"}) == []
+
+
+def test_umi_rule_reads_strings_whitespace_none_and_other_pipelines():
+    f = lambda p, k="rnaseq": pp._cross_param_errors(p, k)
+    assert f({"with_umi": "true", "umitools_bc_pattern": None})            # None pattern is empty
+    assert f({"with_umi": "true", "umitools_bc_pattern": "   "})           # whitespace is empty
+    assert f({"with_umi": True, "skip_umi_extract": "false", "umitools_bc_pattern": ""})
+    assert f({"with_umi": "false", "umitools_bc_pattern": ""}) == []       # "false" is not truthy
+    assert f({"with_umi": True, "skip_umi_extract": "true", "umitools_bc_pattern": ""}) == []
+    assert f({"with_umi": True, "umitools_bc_pattern": ""}, "smrnaseq") == []   # rnaseq only
+
+
+def test_umi_refusal_names_only_params_the_agent_can_send():
+    msg = pp._cross_param_errors({"with_umi": True}, "rnaseq")[0]
+    assert "umitools_bc_pattern" in msg and "skip_umi_extract" in msg
+    assert "umitools_bc_pattern2" not in msg and "umitools_bc_pattern2" not in pp.agent_param_names("rnaseq")
+
+
+def test_umi_with_star_rsem_is_refused():
+    f = lambda p: pp._cross_param_errors({"umitools_bc_pattern": "NNNN", **p}, "rnaseq")
+    errs = f({"with_umi": True, "aligner": "star_rsem"})
+    assert len(errs) == 1 and "star_rsem" in errs[0]
+    assert f({"with_umi": True, "aligner": "star_salmon"}) == []
+    assert f({"with_umi": False, "aligner": "star_rsem"}) == []
+    assert f({"with_umi": True, "aligner": "star_rsem", "skip_alignment": True}) == []
+
+
+def test_umicollapse_with_unsupported_grouping_is_refused():
+    f = lambda p: pp._cross_param_errors({"with_umi": True, "umitools_bc_pattern": "NNNN", **p}, "rnaseq")
+    for g in ("unique", "percentile"):
+        errs = f({"umi_dedup_tool": "umicollapse", "umitools_grouping_method": g})
+        assert len(errs) == 1 and "umicollapse" in errs[0] and g in errs[0]
+    for g in ("directional", "adjacency", "cluster"):
+        assert f({"umi_dedup_tool": "umicollapse", "umitools_grouping_method": g}) == []
+    assert f({"umi_dedup_tool": "umitools", "umitools_grouping_method": "unique"}) == []
