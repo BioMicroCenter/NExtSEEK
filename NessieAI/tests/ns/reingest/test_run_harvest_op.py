@@ -832,6 +832,28 @@ def test_run_harvest_allows_a_failed_run_with_the_override(monkeypatch, tmp_path
     assert result["manifest_id"]
 
 
+def test_the_override_is_recorded_on_the_manifest(monkeypatch, tmp_path):
+    # PR 135 SF-7: the build and the upload confirmation must be able to say the run failed.
+    from NessieAI.ns.reingest.store import load_manifest
+
+    _patch_harvest(monkeypatch, failed=2, tmp_manifest_dir=tmp_path)
+    _launch()
+    result = _dispatch(
+        "run-harvest", {"run_dir": "/net/cluster/runs/a", "allow_failed_run": True},
+        _Cfg(), None, None, None, None)
+    assert result["manifest"]["failed_run_allowed"] is True
+    assert load_manifest(result["manifest_id"]).failed_run_allowed is True
+
+
+def test_a_clean_run_records_no_override_even_when_the_flag_is_sent(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, failed=0, tmp_manifest_dir=tmp_path)
+    _launch()
+    result = _dispatch(
+        "run-harvest", {"run_dir": "/net/cluster/runs/a", "allow_failed_run": True},
+        _Cfg(), None, None, None, None)
+    assert result["manifest"]["failed_run_allowed"] is False
+
+
 def test_run_harvest_succeeds_and_returns_manifest_id(monkeypatch, tmp_path):
     _patch_harvest(monkeypatch, failed=0, tmp_manifest_dir=tmp_path)
     _launch()

@@ -521,7 +521,7 @@ def test_the_rebuild_made_inside_the_call_is_still_uploaded(env, monkeypatch):
 
 # --- The wait fits inside the op's limit, after the creates and rebuilds.
 
-def _slow_upload(env, monkeypatch, *, create_s, limit_s):
+def _slow_upload(env, monkeypatch, *, create_s, limit_s, dispatch=None, started_at=100.0):
     clock = {"now": 100.0}
     monkeypatch.setattr(upload, "_clock", lambda: clock["now"])
     monkeypatch.setattr(upload, "_sleep", lambda s: clock.__setitem__("now", clock["now"] + s))
@@ -537,11 +537,11 @@ def _slow_upload(env, monkeypatch, *, create_s, limit_s):
         polls.append(clock["now"])
         return {"state": "PROGRESS"}
     result = upload.run(build_ids_raw=reviewed["build_id"], user=USER, upload_context=CTX,
-                        dispatch=MagicMock(return_value="job-1"), stage=_copy_stage,
+                        dispatch=dispatch or MagicMock(return_value="job-1"), stage=_copy_stage,
                         chat_turn=lambda: NOW, turn_delivered=lambda task_id: True,
                         job_state=job_state, create_study_assay=slow_create,
                         rebuild=_rebuilt(env, reviewed), register_parents=MagicMock(),
-                        limit_s=limit_s, started_at=100.0)
+                        limit_s=limit_s, started_at=started_at)
     return result, clock["now"], polls
 
 
@@ -556,12 +556,26 @@ def test_a_slow_create_shrinks_the_wait_so_the_call_ends_inside_its_limit(env, m
     assert "still running after the wait" in result["reply"]
 
 
-def test_a_limit_already_spent_polls_once_and_reports_waiting(env, monkeypatch):
-    result, ended, polls = _slow_upload(env, monkeypatch, create_s=70, limit_s=60)
-    assert len(polls) == 1
-    assert ended == 170
-    assert result["jobs"][0]["outcome"]["status"] == "running"
-    assert result["jobs"][0]["parents"]["status"] == "waiting"
+def test_a_limit_spent_by_the_creates_starts_no_job(env, monkeypatch):
+    # PR 135 SF-5: a job started after the op's limit runs on while the agent is told the op
+    # failed. The call refuses instead, names the assay it made, and leaves the build free.
+    dispatch = MagicMock(return_value="job-1")
+    with pytest.raises(upload.UploadRefused) as err:
+        _slow_upload(env, monkeypatch, create_s=70, limit_s=60, dispatch=dispatch)
+    dispatch.assert_not_called()
+    reasons = " ".join(err.value.reasons)
+    assert "ran out of its time" in reasons and "nothing was uploaded" in reasons
+    assert "assay 900" in reasons
+    assert not [p for p in env.iterdir() if p.name.endswith(".staged")]
+
+
+def test_no_time_left_before_the_creates_creates_nothing(env, monkeypatch):
+    dispatch = MagicMock(return_value="job-1")
+    with pytest.raises(upload.UploadRefused) as err:
+        _slow_upload(env, monkeypatch, create_s=0, limit_s=60, dispatch=dispatch, started_at=40.0)
+    dispatch.assert_not_called()
+    assert "ran out of its time" in " ".join(err.value.reasons)
+    assert "assay 900" not in " ".join(err.value.reasons)
 
 
 def test_a_roomy_limit_keeps_the_configured_wait(env, monkeypatch):

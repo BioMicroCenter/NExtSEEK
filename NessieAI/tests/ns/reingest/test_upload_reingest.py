@@ -437,3 +437,77 @@ def test_the_turn_is_checked_after_the_gate(env):
     with pytest.raises(WriteBlockedError):
         _op({"build_ids": "x", "confirmed_write": False}, session=session)
     asked.assert_not_called()
+
+
+# --- Notes edited after the build (PR 135 SF-8) -------------------------------------
+#
+# An update workbook's Notes are composed from the Notes read at build time and replace
+# the whole of each sample's Notes, so an edit made after the build would be lost. The
+# upload asks which of those samples changed after the record's built_at, and refuses.
+
+def _notes_build(env, notes_uids=("D.SEQ-1",)):
+    build = _build(env, "reingest_D_SEQ_update", "update")
+    _edit_record(build["build_id"], notes_uids=list(notes_uids))
+    return build
+
+
+def _run_edited(build, edited_after, dispatch=None):
+    kwargs = {} if edited_after is _UNSET else {"edited_after": edited_after}
+    return upload.run(build_ids_raw=build["build_id"], user=USER, upload_context=CTX,
+                      dispatch=dispatch or MagicMock(return_value="job-1"), stage=_copy_stage,
+                      chat_turn=lambda: NOW, turn_delivered=lambda task_id: True, **kwargs)
+
+
+_UNSET = object()
+
+
+def test_notes_edited_after_the_build_refuse_the_upload(env):
+    build = _notes_build(env)
+    asked, dispatch = [], MagicMock(return_value="job-1")
+
+    def edited_after(uids, since):
+        asked.append((list(uids), since))
+        return ["D.SEQ-1"]
+
+    with pytest.raises(upload.UploadRefused) as err:
+        _run_edited(build, edited_after, dispatch)
+    dispatch.assert_not_called()
+    assert asked == [(["D.SEQ-1"], build["built_at"])]
+    assert "D.SEQ-1" in str(err.value.reasons) and "build it again" in str(err.value.reasons)
+    # Refused before the claim: a fresh build can be uploaded.
+    assert build_records.claim(build["build_id"], 7)
+
+
+def test_notes_untouched_since_the_build_upload(env):
+    build = _notes_build(env)
+    dispatch = MagicMock(return_value="job-1")
+    _run_edited(build, lambda uids, since: [], dispatch)
+    dispatch.assert_called_once()
+
+
+@pytest.mark.parametrize("edited_after", [None, _UNSET, "raises"])
+def test_notes_that_cannot_be_checked_refuse_the_upload(env, edited_after):
+    build = _notes_build(env)
+    if edited_after == "raises":
+        def edited_after(uids, since):
+            raise RuntimeError("samples unreachable")
+    dispatch = MagicMock(return_value="job-1")
+    with pytest.raises(upload.UploadRefused):
+        _run_edited(build, edited_after, dispatch)
+    dispatch.assert_not_called()
+
+
+def test_a_build_that_writes_no_notes_is_not_checked(env):
+    build = _notes_build(env, notes_uids=())
+    dispatch = MagicMock(return_value="job-1")
+    _run_edited(build, _UNSET, dispatch)
+    dispatch.assert_called_once()
+
+
+def test_the_op_hands_the_hosts_edit_lookup_to_the_upload(env, monkeypatch):
+    from nextseek_api.services import reingest_lookups
+
+    captured = {}
+    monkeypatch.setattr(upload, "run", lambda **kw: (captured.update(kw), {"jobs": [], "reply": ""})[1])
+    _op({"build_ids": "a" * 64, "confirmed_write": True})
+    assert captured["edited_after"] is reingest_lookups.uids_updated_after_strict
