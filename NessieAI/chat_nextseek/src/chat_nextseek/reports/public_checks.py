@@ -12,25 +12,31 @@ import re
 from typing import Any
 
 # The catalog does not mark attributes as internal, so the set lives here, in one place.
-INTERNAL_FREE_TEXT_ATTRS = ("Notes",)
+# ExtractionIntervalNotes is not in it: it feeds the public study timeline.
+INTERNAL_FREE_TEXT_ATTRS = ("Notes", "QC_notes", "ShipNotes", "ReceiptNotes")
+_INTERNAL = {a.lower() for a in INTERNAL_FREE_TEXT_ATTRS}
 
-_DO_NOT_PUBLISH_RE = re.compile(r"do\s*not\s*publish|don'?t\s*publish|not\s+for\s+publication", re.I)
+_DO_NOT_PUBLISH_RE = re.compile(
+    r"\b(?:do\W*not|don\W?t|never|should\s+not\s+be|not\s+(?:to\s+be|for))\W*publish", re.I)
 
 # label regex -> accession pattern a value under that label must match
 _ACCESSION_LABELS = [
-    (r"SRA\s+run|run\s+accession|SRA\s+accession", r"[SED]RR\d+"),
+    (r"SRA\s+run(?:\s+accession)?|run\s+accession", r"[SED]RR\d+"),
+    (r"SRA\s+accession", r"[SED]R[APRSXZ]\d+"),
     (r"SRA\s+experiment|experiment\s+accession", r"[SED]RX\d+"),
     (r"BioProject", r"PRJ[EDN][A-Z]\d+"),
     (r"BioSample", r"SAM[NED][A-Z]?\d+"),
 ]
+# [separator] label [:=] value. The value runs to the next ; | , ( ) newline or sentence end.
 _CLAIMS = [
-    (re.compile(rf"(?:;\s*)?\b(?:{label})\s*[:=]\s*([^;\n]*)", re.I), re.compile(rf"(?:{pat})", re.I))
+    (re.compile(rf"(?:\s*[;|,]\s*)?\b(?:{label})\s*[:=]\s*(?P<val>(?:[^;|,()\n.]|\.(?!\s|$))*(?<=[^\s:=]))", re.I),
+     re.compile(rf"(?:{pat})(?:\s*(?:,|and)\s*(?:{pat}))*(?![\w-])", re.I))
     for label, pat in _ACCESSION_LABELS
 ]
-_MIDNIGHT_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[ T]00:00:00(?:\.0+)?(?!\d)")
-_EDGE_RE = re.compile(r"^[;,\s]+|[;,\s]+$")
+# Only an exact midnight is a missing time: nothing after it (a Z, an offset or a fraction means a real value).
+_MIDNIGHT_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[ T]00:00:00(?![\d+\-Zz]|\.\d)")
+_EDGE_RE = re.compile(r"^[;|,\s]+|[;|,\s]+$")
 _SHORT_NOTE = 8  # a note shorter than this is removed only when a whole cell equals it
-# ponytail: substring match for notes; a note that is a common phrase under 8 chars is only matched whole-cell.
 
 
 def normalize_dates(obj: Any) -> Any:
@@ -46,31 +52,35 @@ def normalize_dates(obj: Any) -> Any:
 
 def strip_internal_attributes(metadata: Any, *, drop_do_not_publish: bool = False):
     """Return ``(clean_metadata, withheld, notes)``: a copy without the internal free-text attributes, the records whose
-    note says not to publish (``{"uid", "name", "note"}``), and every stored note text.
-    ``drop_do_not_publish=True`` also removes those records from the copy (the operator's open ruling)."""
-    withheld: list[dict] = []
+    note says not to publish (``{"uid", "name", "note"}``, once per uid), and the note texts worth scrubbing from cells.
+    A note that equals, or sits inside, a value of a public attribute anywhere in the bundle is not listed: it is
+    also public data there, and cutting it from cells would damage names and descriptions.
+    ``drop_do_not_publish=True`` also removes those records from the copy."""
+    withheld: dict[Any, dict] = {}
     notes: list[str] = []
+    public_values: set[str] = set()
 
     def is_record(x):
         return isinstance(x, dict) and isinstance(x.get("metadata"), dict)
 
     def note_of(rec) -> str:
         m = rec["metadata"]
-        return next((str(m[k]).strip() for k in m if k.lower() in {a.lower() for a in INTERNAL_FREE_TEXT_ATTRS}
-                     and m[k] not in (None, "")), "")
+        return "\n".join(str(m[k]).strip() for k in m if k.lower() in _INTERNAL and m[k] not in (None, "")).strip()
 
     def walk(x):
         if isinstance(x, list):
             out = []
             for item in x:
                 if is_record(item):
+                    m = item["metadata"]
+                    public_values.update(str(v).casefold() for k, v in m.items()
+                                         if k.lower() not in _INTERNAL and isinstance(v, (str, int, float)))
                     note = note_of(item)
                     if note:
                         notes.append(note)
                         if _DO_NOT_PUBLISH_RE.search(note):
-                            m = item["metadata"]
-                            withheld.append({"uid": m.get("UID") or item.get("uuid") or item.get("uid"),
-                                             "name": m.get("Name"), "note": note})
+                            uid = m.get("UID") or item.get("uuid") or item.get("uid")
+                            withheld.setdefault(uid or m.get("Name"), {"uid": uid, "name": m.get("Name"), "note": note})
                             if drop_do_not_publish:
                                 continue
                 out.append(walk(item))
@@ -79,17 +89,20 @@ def strip_internal_attributes(metadata: Any, *, drop_do_not_publish: bool = Fals
             res = {}
             for k, v in x.items():
                 if k == "metadata" and isinstance(v, dict):
-                    res[k] = {a: b for a, b in v.items() if a.lower() not in {i.lower() for i in INTERNAL_FREE_TEXT_ATTRS}}
+                    res[k] = {a: b for a, b in v.items() if a.lower() not in _INTERNAL}
                 else:
                     res[k] = walk(v)
             return res
         return copy.deepcopy(x)
 
-    return walk(metadata), withheld, list(dict.fromkeys(notes))
+    clean = walk(metadata)
+    haystack = "\n".join(public_values)
+    keep = [n for n in dict.fromkeys(notes) if n.casefold() not in haystack]
+    return clean, list(withheld.values()), keep
 
 
-# PLACEHOLDER user-facing wording, pending the operator's yes (see proposals/b3-geo.md).
-DNP_WARNING = "{n} libraries are marked do not publish in their lab notes: {names}."
+DNP_WARNING = ('{n} libraries are marked "do not publish" in their lab notes: {names}. '
+               "They are still in the package; remove those rows before you submit.")
 
 
 def do_not_publish_warning(withheld: list[dict]) -> str:
@@ -108,14 +121,14 @@ def scrub_public_report(report: Any, notes: list[str]):
 
     def cell(s: str) -> str:
         orig = s
-        for claim, accession in _CLAIMS:
+        for claim, accessions in _CLAIMS:
             def repl(m):
-                toks = [t for t in re.split(r"[,\s]+", m.group(1).strip()) if t]
-                if toks and all(accession.fullmatch(t) for t in toks):
+                if accessions.match(m.string, m.start("val")):
                     return m.group(0)
                 stats["claims_dropped"] += 1
                 return ""
             s = claim.sub(repl, s)
+        s = re.sub(r"\s*\(\s*\)", "", s)
         for n in notes:
             if s.strip() == n:
                 s = ""
