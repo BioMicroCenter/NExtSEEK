@@ -243,3 +243,9 @@ def test_keys_of_the_real_rna_and_dna_atlases_are_never_a_miss(key):
     verdict = decide(client=client, model="m", budget=None, payload="P", question="Q",
                      atlas_keys=keys)
     assert verdict.kind == "chosen" and verdict.atlas_miss is False
+
+
+@pytest.mark.parametrize("name", ["nf-core/rnaseq", " RNAseq ", "NF-CORE/RnaSeq"])
+def test_a_prefixed_or_cased_atlas_name_is_chosen_not_a_miss(name):
+    verdict, _ = _decide('{"pipelines": ["%s"], "reason": "fits"}' % name)
+    assert verdict.kind == "chosen" and verdict.pipelines == ["rnaseq"] and verdict.atlas_miss is False

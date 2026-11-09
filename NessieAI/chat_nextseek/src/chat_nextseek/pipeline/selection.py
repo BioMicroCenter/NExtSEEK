@@ -179,6 +179,8 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
             f"the selection model declined without saying whether the data or the atlas "
             f"was the reason ({basis!r}): {reason}", raw)
 
+    # "nf-core/rnaseq", "RNAseq " and "rnaseq" name the same pipeline; only a different pipeline is a miss.
+    chosen = [k.strip().lower().removeprefix("nf-core/") for k in chosen]
     invented = [k for k in chosen if k not in atlas_keys]
     if invented:
         return out_of_scope(

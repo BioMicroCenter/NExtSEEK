@@ -954,3 +954,41 @@ def test_a_refused_sample_change_after_a_good_setup_leaves_no_launch(monkeypatch
 
     assert out["ok"] is False and submitted == [], out
     assert "launch_plan" not in state
+
+
+# --- atlas miss judged on the pipeline actually built ---
+
+def _dispatch_configure(monkeypatch, key, state=None):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.tool_configure_run",
+                        lambda config, state, tool_input, log_dir: _json.dumps({"ok": True, "pipeline_key": key}))
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.load_atlas",
+                        lambda: {"pipelines": {"chipseq": {}, "rnaseq": {}}})
+    state = {} if state is None else state
+    out = dispatch_pipeline_tool_call(config=_Cfg(), session={}, state=state, name="configure_run",
+                                      tool_input={"pipeline_key": key}, log_dir="/tmp")
+    return _json.loads(out)
+
+
+def test_configuring_an_atlas_pipeline_after_a_decline_carries_no_miss(monkeypatch):
+    state = {"selection": {"verdict": "out_of_scope", "atlas_miss": {"pipelines": []}}}
+    out = _dispatch_configure(monkeypatch, "chipseq", state)
+    assert "atlas_miss" not in out and "message" not in out
+
+
+def test_configuring_a_non_atlas_pipeline_flags_it_with_the_real_key(monkeypatch):
+    from chat_nextseek.pipeline.agent_tools import _ATLAS_MISS_NEXT_STEP
+    out = _dispatch_configure(monkeypatch, "mag")
+    assert out["atlas_miss"] == {"pipelines": ["mag"]}
+    assert out["message"] == _ATLAS_MISS_NEXT_STEP
+    assert "curated pipeline atlas" in out["message"] and "selection tool" in out["message"]
+
+
+def test_accessions_path_with_a_non_atlas_key_is_flagged_once(monkeypatch):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.load_atlas", lambda: {"pipelines": {"rnaseq": {}}})
+    state = {"pipeline_key": "fetchngs"}
+    out = _json.loads(dispatch_pipeline_tool_call(
+        config=_Cfg(), session={}, state=state, name="resolve_samples",
+        tool_input={"kind": "accessions", "accessions": ["SRR222"]}, log_dir="/tmp"))
+    assert out["atlas_miss"] == {"pipelines": ["fetchngs"]}
+    out2 = _dispatch_configure(monkeypatch, "fetchngs", state)       # same key: not told twice
+    assert "atlas_miss" not in out2
