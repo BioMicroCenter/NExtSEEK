@@ -40,7 +40,36 @@ DERIVED_METRICS: tuple[str, ...] = (
     "strandedness",
     # samtools' error rate as a percentage, from MultiQC <= 1.22's fraction.
     "mismatch_pct",
+    # Picard MarkDuplicates' PERCENT_DUPLICATION as a percentage, from the 0-1
+    # fraction MultiQC's picard module table keeps (a map's `module_tables`
+    # namespace `picard_dups`; general stats show it x100 instead), else from
+    # the read counts of MultiQC's Picard deduplication bar plot (namespace
+    # `picard_dedup_plot`), for a MultiQC that writes no table files.
+    "duplication_pct",
+    # The fraction of reads in peaks as a percentage, and the number of peaks, from the
+    # pipeline's MultiQC custom-content bar graphs (FRIP_NAMESPACES, PEAK_COUNT_NAMESPACES).
+    # On a peak row they describe that row's own peak set.
+    "frip_pct",
+    "peak_count",
 )
+
+#: The module-table key duplication_pct reads (maps.ModuleTable namespace + column).
+PICARD_DUPLICATION_FRACTION = "picard_dups-PERCENT_DUPLICATION"
+#: The namespace of MultiQC's Picard deduplication bar-plot data
+#: (picard_deduplication.yaml), whose columns are read counts per category.
+PICARD_DEDUP_PLOT = "picard_dedup_plot"
+
+#: Derived metrics computed from module tables, by those tables' namespaces in the
+#: order they are tried, so a value's provenance names the table it came from
+#: (RunManifest.sources["metrics_<namespace>"]).
+#: The bar-graph namespaces (maps.ModuleTable shape "bargraph") of the FRiP score and the
+#: peak count, in the order tried: chipseq's own, then atacseq's per-replicate (mlib) and
+#: merged-replicate (mrep) twins. A sample row holds at most one of atacseq's two, since
+#: mrep rows are named after replicate groups (RunManifest.group_metrics).
+FRIP_NAMESPACES = ("frip", "mlib_frip", "mrep_frip")
+PEAK_COUNT_NAMESPACES = ("peak_count", "mlib_peak_count", "mrep_peak_count")
+MODULE_TABLE_INPUTS = {"duplication_pct": (PICARD_DUPLICATION_FRACTION.split("-", 1)[0], PICARD_DEDUP_PLOT),
+                       "frip_pct": FRIP_NAMESPACES, "peak_count": PEAK_COUNT_NAMESPACES}
 
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
 # applied the way its calculateStrandedness does: to the forward and reverse
@@ -313,6 +342,42 @@ def _salmon_strandedness(value) -> str | None:
     return f"{verdict} ({code})"
 
 
+def _plot_duplication_pct(metrics: dict) -> float | None:
+    """PERCENT_DUPLICATION x100 from the Picard deduplication bar plot's categories
+    (`Duplicate Pairs Optical`, `Duplicate Pairs Nonoptical`, `Duplicate Unpaired`,
+    `Unique Pairs`, `Unique Unpaired`), or None without a usable count."""
+    duplicate = unique = 0.0
+    seen = False
+    for key, value in metrics.items():
+        if not key.startswith(f"{PICARD_DEDUP_PLOT}-"):
+            continue
+        category = key[len(PICARD_DEDUP_PLOT) + 1:]
+        try:
+            count = float(value)
+        except (TypeError, ValueError):
+            continue
+        if category.startswith("Duplicate "):
+            duplicate += count
+        elif category.startswith("Unique "):
+            unique += count
+        else:
+            continue
+        seen = True
+    if not seen or duplicate + unique <= 0:
+        return None
+    return round(duplicate / (duplicate + unique) * 100, 4)
+
+
+def _first_value(metrics: dict, namespaces: tuple[str, ...]) -> float | None:
+    """The first bar-graph value (`<namespace>-value`) present among `namespaces`."""
+    for namespace in namespaces:
+        try:
+            return float(metrics[f"{namespace}-value"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
 def from_metrics(metrics: dict) -> dict[str, float | str]:
     """Derived values computed from a sample's MultiQC general-stats columns,
     for pipelines that leave no per-sample tool file to read instead.
@@ -324,11 +389,33 @@ def from_metrics(metrics: dict) -> dict[str, float | str]:
     writes the value before its x100 display step. Only those versions spell
     the column `<Namespace>_mqc-generalstats-...`, so the spelling tells the
     0-1 fraction apart from the percentage later versions write.
+
+    `duplication_pct` is Picard's PERCENT_DUPLICATION from MultiQC's picard
+    module table (`multiqc_picard_dups`), which keeps Picard's own 0-1 fraction.
+    Without that table it is computed from the Picard deduplication bar plot's
+    read counts, the way Picard computes it: duplicate reads over duplicate plus
+    unique reads (paired reads counted one by one; unmapped reads left out).
+
+    `frip_pct` and `peak_count` come from MultiQC's FRiP-score and peak-count bar graphs
+    (FRIP_NAMESPACES, PEAK_COUNT_NAMESPACES): FRiP as a percentage of the 0-1 fraction the
+    pipelines' scripts write, the peak count as a whole number.
     """
     out: dict[str, float | str] = {}
     strandedness = _salmon_strandedness(metrics.get("salmon-library_types"))
     if strandedness:
         out["strandedness"] = strandedness
+    try:
+        out["duplication_pct"] = round(float(metrics[PICARD_DUPLICATION_FRACTION]) * 100, 4)
+    except (KeyError, TypeError, ValueError):
+        from_plot = _plot_duplication_pct(metrics)
+        if from_plot is not None:
+            out["duplication_pct"] = from_plot
+    frip = _first_value(metrics, FRIP_NAMESPACES)
+    if frip is not None:
+        out["frip_pct"] = round(frip * 100, 4)  # the tools write a 0-1 fraction
+    peaks = _first_value(metrics, PEAK_COUNT_NAMESPACES)
+    if peaks is not None:
+        out["peak_count"] = int(peaks)
     for key, value in metrics.items():
         if "_mqc-generalstats-" in key and key.endswith("-error_rate"):
             try:

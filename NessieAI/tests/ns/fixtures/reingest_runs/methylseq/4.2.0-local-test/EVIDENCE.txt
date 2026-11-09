@@ -1,0 +1,2 @@
+nf-core/methylseq 4.2.0, -profile test,docker, run on a workstation (make_fixture.sh --local), read 2026-10-29.
+The test profile's own samplesheet and data; launch_record.json is a stub with an empty cohort.

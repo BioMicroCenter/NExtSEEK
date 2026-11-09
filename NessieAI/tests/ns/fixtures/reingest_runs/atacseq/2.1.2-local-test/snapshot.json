@@ -1,0 +1,62 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.ALN"
+  },
+  "bigwig": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline"
+   ],
+   "rows": 4,
+   "sample_type": "A.CHRM"
+  },
+  "consensus": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Pipeline"
+   ],
+   "rows": 1,
+   "sample_type": "A.CHRM"
+  },
+  "peaks_broad": {
+   "attributes": [
+    "DataType",
+    "FRiPPercent",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "Notes",
+    "PeakCount",
+    "Pipeline"
+   ],
+   "rows": 4,
+   "sample_type": "A.CHRM"
+  }
+ },
+ "warnings": [
+  "OSMOTIC_STRESS_T0_PE: no Notes on A.ALN; also in run: bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP1.mLb.clN.sorted.bam, bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP1.mLb.clN.sorted.bam.bai, bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP2.mLb.clN.sorted.bam, bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP2.mLb.clN.sorted.bam.bai",
+  "OSMOTIC_STRESS_T0_PE: no replicate (OSMOTIC_STRESS_T0_PE_REP1, OSMOTIC_STRESS_T0_PE_REP2) resolved to a D.SEQ; the group's aln row has no Parent",
+  "OSMOTIC_STRESS_T0_PE: no replicate (OSMOTIC_STRESS_T0_PE_REP1, OSMOTIC_STRESS_T0_PE_REP2) resolved to a D.SEQ; the group's bigwig row has no Parent",
+  "OSMOTIC_STRESS_T0_PE: no replicate (OSMOTIC_STRESS_T0_PE_REP1, OSMOTIC_STRESS_T0_PE_REP2) resolved to a D.SEQ; the group's peaks_broad row has no Parent",
+  "OSMOTIC_STRESS_T100_SE: no Notes on A.ALN; also in run: bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP1.mLb.clN.sorted.bam, bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP1.mLb.clN.sorted.bam.bai, bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP2.mLb.clN.sorted.bam, bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP2.mLb.clN.sorted.bam.bai",
+  "OSMOTIC_STRESS_T100_SE: no replicate (OSMOTIC_STRESS_T100_SE_REP1, OSMOTIC_STRESS_T100_SE_REP2) resolved to a D.SEQ; the group's aln row has no Parent",
+  "OSMOTIC_STRESS_T100_SE: no replicate (OSMOTIC_STRESS_T100_SE_REP1, OSMOTIC_STRESS_T100_SE_REP2) resolved to a D.SEQ; the group's bigwig row has no Parent",
+  "OSMOTIC_STRESS_T100_SE: no replicate (OSMOTIC_STRESS_T100_SE_REP1, OSMOTIC_STRESS_T100_SE_REP2) resolved to a D.SEQ; the group's peaks_broad row has no Parent"
+ ]
+}

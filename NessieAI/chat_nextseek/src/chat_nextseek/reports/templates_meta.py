@@ -55,6 +55,7 @@ def normalize_report_type(report_type: str | None) -> str | None:
         "NFCORE_CHIPSEQ": "NFCORE_CHIPSEQ",
         "NF_CORE_CHIPSEQ": "NFCORE_CHIPSEQ",
         "NFCORE_SAREK": "NFCORE_SAREK",
+        "NFCORE_SAREK_SAMPLESHEET": "NFCORE_SAREK",
         "NF_CORE_SAREK": "NFCORE_SAREK",
         "NFCORE_METHYLSEQ": "NFCORE_METHYLSEQ",
         "NF_CORE_METHYLSEQ": "NFCORE_METHYLSEQ",

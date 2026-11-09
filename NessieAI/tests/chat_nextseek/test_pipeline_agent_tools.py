@@ -1,3 +1,4 @@
+import pytest
 from chat_nextseek.pipeline.agent_tools import PIPELINE_TOOL_SCHEMAS
 
 
@@ -475,6 +476,22 @@ def test_configure_run_local_luria_without_tower(tmp_path):
     assert state["artifacts"]["launch"] and state["artifacts"]["params"]
 
 
+def test_configure_run_names_the_files_sarek_is_actually_run_on(tmp_path):
+    # sarek runs GRCh38 on the GATK bundle (luria_run_genome), so the confirmation must name
+    # that fasta and no gtf, not the GENCODE pair the species-resolved key would give.
+    class Cfg:
+        LOG_DIR = str(tmp_path)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sample,lane,fastq_1\nP1,S1,L1,/net/bmc/1.fastq.gz\n")
+    state = {"artifacts": {"samplesheet": str(sheet), "base_dir": str(tmp_path)},
+             "bundle_key": "GRCh38", "pipeline_key": "sarek"}
+    out = json.loads(at.tool_configure_run(
+        Cfg(), state, {"pipeline_key": "sarek", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["reference_status"] == "local_luria"
+    assert out["reference_files"] == {"fasta": "GATK.GRCh38/Homo_sapiens_assembly38.fasta"}
+
+
 # --- a run named by its UID prefix (R3 A3) ---------------------------------------------------------------------
 
 def _prefix_graph(monkeypatch, matches):
@@ -601,3 +618,339 @@ def test_an_http_failure_from_the_metadata_fetch_reports_status_and_detail(monke
     assert out["ok"] is False
     assert "404" in out["error"] and "No samples found" in out["error"]
     assert "unknown error" not in out["error"]
+
+
+def test_configure_run_asks_for_the_pairing_before_tumour_tools(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+             "data_driven_evidence": {"T1": {"status": {"verdict": "corroborated", "value": "1"}},
+                                      "N1": {"status": {"verdict": "defaulted", "value": "0"}}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": "mutect2"}}, str(tmp_path)))
+    assert out["ok"] is False and out["needs_user_input"] == ["status"]
+    assert "N1" in out["ask_the_user"]
+
+
+def test_configure_run_schema_offers_pairing_confirmed():
+    from chat_nextseek.pipeline.agent_tools import _SCHEMA_BY_NAME
+    props = _SCHEMA_BY_NAME["configure_run"]["input_schema"]["properties"]
+    assert props["pairing_confirmed"]["type"] == "boolean"
+
+
+# --- the pairing confirmation is enforced mechanically, not trusted from the model ---------
+
+def _pairing_state(tmp_path, n_user_msgs=1):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    return {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+            "messages": [{"role": "user", "content": f"m{i}"} for i in range(n_user_msgs)],
+            "data_driven_evidence": {"T1": {"status": {"verdict": "corroborated", "value": "1"}},
+                                     "N1": {"status": {"verdict": "defaulted", "value": "0"}}}}
+
+
+def _configure(state, tmp_path, **kw):
+    tool_input = {"pipeline_key": "sarek", "params": {"tools": "mutect2"}, **kw}
+    return _json.loads(tool_configure_run(_Cfg(), state, tool_input, str(tmp_path)))
+
+
+def _is_pairing_refusal(out):
+    return out.get("ok") is False and out.get("needs_user_input") == ["status"]
+
+
+def test_a_confirmation_with_no_prior_ask_still_asks(tmp_path):
+    state = _pairing_state(tmp_path)
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert _is_pairing_refusal(out) and "N1" in out["ask_the_user"]
+    assert state["pairing_asked_at_user_msgs"] == 1
+
+
+def test_a_confirmation_after_the_user_replied_goes_ahead(tmp_path):
+    state = _pairing_state(tmp_path)
+    assert _is_pairing_refusal(_configure(state, tmp_path))
+    state["messages"].append({"role": "user", "content": "yes, N1 is the normal"})
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert not _is_pairing_refusal(out)
+    assert out["ok"] is True, out
+    assert state["pairing_confirmed_for"] == state["artifacts"]["samplesheet"]
+
+
+def test_a_confirmation_in_the_same_turn_as_the_ask_still_asks(tmp_path):
+    state = _pairing_state(tmp_path)
+    assert _is_pairing_refusal(_configure(state, tmp_path))
+    out = _configure(state, tmp_path, pairing_confirmed=True)   # no new user message
+    assert _is_pairing_refusal(out)
+    assert "pairing_confirmed_for" not in state
+
+
+def test_a_later_configure_on_the_same_sheet_is_not_asked_again(tmp_path):
+    state = _pairing_state(tmp_path)
+    _configure(state, tmp_path)
+    state["messages"].append({"role": "user", "content": "yes"})
+    assert not _is_pairing_refusal(_configure(state, tmp_path, pairing_confirmed=True))
+    assert not _is_pairing_refusal(_configure(state, tmp_path))   # e.g. an aligner tweak
+
+
+def test_rebuilding_the_samplesheet_forgets_the_confirmation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    def fake_emit(out_dir, **kw):
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/samplesheet.csv"},
+                               samplesheet_row_count=len(kw["samplesheet_rows"]),
+                               launch_entry=None, fetchngs_launch_entry=None)
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": ["SRR111"]}, "log_dir": str(tmp_path),
+             "pairing_asked_at_user_msgs": 1, "pairing_confirmed_for": "/x/samplesheet.csv"}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [
+            {"label": "rnaseq-all", "rows": [{"sample": "D.SEQ-1-PUB", "accession": "SRR111",
+                                              "strandedness": "auto"}]}]},
+        str(tmp_path)))
+    assert out["ok"] is True
+    assert "pairing_asked_at_user_msgs" not in state and "pairing_confirmed_for" not in state
+
+
+def test_configure_run_refuses_tumour_tools_for_an_unpaired_patient(tmp_path):
+    state = _pairing_state(tmp_path)
+    (tmp_path / "samplesheet.csv").write_text(
+        "patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+        "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n")
+    state["messages"].append({"role": "user", "content": "yes"})
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert _is_pairing_refusal(out) and "P1" in out["ask_the_user"]
+
+
+def test_a_refusal_does_not_arm_the_confirmation_for_a_later_table(tmp_path):
+    # The unpaired-patient refusal is not a table the user can answer "yes" to: a "yes" after
+    # it must not count as the confirmation of the table that comes once the sheet is fixed.
+    state = _pairing_state(tmp_path)
+    good = (tmp_path / "samplesheet.csv").read_text()
+    (tmp_path / "samplesheet.csv").write_text(
+        "patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+        "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n")
+    refusal = _configure(state, tmp_path)
+    assert _is_pairing_refusal(refusal) and "P1" in refusal["ask_the_user"]
+    assert "pairing_asked_at_user_msgs" not in state
+    # The user answers, the sheet is fixed, and the model passes pairing_confirmed=True while
+    # an undecided sample (N1, defaulted) is still there: it must still be asked.
+    state["messages"].append({"role": "user", "content": "I added the normal"})
+    (tmp_path / "samplesheet.csv").write_text(good)
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert _is_pairing_refusal(out) and "| N1 |" in out["ask_the_user"]
+    assert "pairing_confirmed_for" not in state
+    assert state["pairing_asked_at_user_msgs"] == 2
+
+
+# --- a status the metadata reads both ways is confirmed in the pairing table, not asked forever ---------
+
+_PAIR_ROWS = [
+    {"patient": "P1", "sex": "NA", "status": "1", "sample": "T1", "lane": "L1",
+     "fastq_1": "/net/bmc-pub10/x/T1_1.fq.gz", "fastq_2": ""},
+    {"patient": "P1", "sex": "NA", "status": "0", "sample": "N1", "lane": "L1",
+     "fastq_1": "/net/bmc-pub10/x/N1_1.fq.gz", "fastq_2": ""},
+]
+
+
+def _conflict_state(rows):
+    evidence = {r["sample"]: {"status": {"verdict": "corroborated", "value": r["status"],
+                                         "evidence": "Type=x; Name=x"}} for r in rows}
+    evidence["N1"] = {"status": {"verdict": "conflict", "value": None, "evidence": "ambiguous in Type"}}
+    return {"resolved": {"uids": [r["sample"] for r in rows], "accessions": []},
+            "bundle_key": "GRCh38", "messages": [{"role": "user", "content": "run sarek on these"}],
+            "data_driven_evidence": evidence}
+
+
+def _write_sheet(state, rows, tmp_path):
+    return _json.loads(tool_write_samplesheet(
+        _Cfg(), state, {"pipeline_key": "sarek", "cohorts": [{"label": "sarek-all", "rows": rows}]},
+        str(tmp_path)))
+
+
+def test_a_status_conflict_is_resolved_through_the_pairing_table(tmp_path):
+    state = _conflict_state(_PAIR_ROWS)
+    wrote = _write_sheet(state, _PAIR_ROWS, tmp_path)
+    assert wrote["ok"] is True, wrote
+    asked = _configure(state, tmp_path)
+    assert _is_pairing_refusal(asked), asked
+    assert "| P1 | N1 | normal (metadata unclear: ambiguous in Type) |" in asked["ask_the_user"]
+    state["messages"].append({"role": "user", "content": "yes, N1 is the blood normal"})
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert out["ok"] is True, out
+
+
+def test_a_germline_run_with_a_status_conflict_asks_for_the_table(tmp_path):
+    rows = [dict(_PAIR_ROWS[1]), dict(_PAIR_ROWS[1], patient="P2", sample="N2",
+                                      fastq_1="/net/bmc-pub10/x/N2_1.fq.gz")]
+    state = _conflict_state(rows)
+    assert _write_sheet(state, rows, tmp_path)["ok"] is True
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": "haplotypecaller"}}, str(tmp_path)))
+    assert _is_pairing_refusal(out), out
+    assert "| P1 | N1 | normal (metadata unclear: ambiguous in Type) |" in out["ask_the_user"]
+
+
+def test_the_pairing_check_reads_the_tools_the_run_will_use(monkeypatch, tmp_path):
+    # A tumour tool that arrives through the curated defaults, not from the model, is still checked.
+    real = at.build_run_params
+
+    def with_default_mutect2(pipeline_key, agent_params, bundle_key):
+        merged, errors, status = real(pipeline_key, agent_params, bundle_key)
+        if "tools" not in (agent_params or {}):
+            merged["tools"] = "mutect2"
+        return merged, errors, status
+
+    monkeypatch.setattr(at, "build_run_params", with_default_mutect2)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+             "data_driven_evidence": {"N1": {"status": {"verdict": "defaulted", "value": "0"}}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek", "params": {}}, str(tmp_path)))
+    assert _is_pairing_refusal(out), out
+    assert "mutect2" in out["ask_the_user"] and "P1" in out["ask_the_user"]
+
+
+def test_configure_run_refuses_sarek_on_a_genome_with_no_staged_dna_resources(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCm39",
+             "data_driven_evidence": {"N1": {"status": {"verdict": "corroborated", "value": "0"}}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek", "params": {}}, str(tmp_path)))
+    assert out["ok"] is False
+    assert "GATK GRCh38 bundle" in out["error"] and "GRCm39" in out["error"]
+    assert "params" not in state["artifacts"]
+
+
+# --- sarek tools and outputs Luria cannot serve are refused, whatever the menu says ---------
+
+def _germline_state(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    return {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+            "data_driven_evidence": {"N1": {"status": {"verdict": "corroborated", "value": "0"}}}}
+
+
+@pytest.mark.parametrize("tools", ["haplotypecaller,ascat", "ControlFREEC", "manta, ASCAT "])
+def test_configure_run_refuses_sarek_tools_whose_files_are_not_staged(tmp_path, tools):
+    state = _germline_state(tmp_path)
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": tools}}, str(tmp_path)))
+    assert out["ok"] is False and "not staged on Luria" in out["error"]
+    assert "params" not in state["artifacts"]
+
+
+@pytest.mark.parametrize("value", [True, "true"])
+def test_configure_run_refuses_sarek_bam_output(tmp_path, value):
+    state = _germline_state(tmp_path)
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"save_output_as_bam": value}}, str(tmp_path)))
+    assert out["ok"] is False and "CRAM" in out["error"]
+    assert "params" not in state["artifacts"]
+
+
+def test_a_normal_sarek_germline_run_is_not_refused(tmp_path):
+    state = _germline_state(tmp_path)
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": "haplotypecaller,manta",
+                                                                    "save_output_as_bam": False}}, str(tmp_path)))
+    assert out["ok"] is True, out
+
+
+# --- a refused configure_run leaves nothing to submit ---------
+
+class _CfgLuria(_Cfg):
+    LURIA_ENV_COMPLETE = True
+    LURIA_ENV = {}
+
+
+def _sarek(state, tmp_path, tools):
+    return _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                          "params": {"tools": tools}}, str(tmp_path)))
+
+
+def test_a_refused_configure_run_leaves_no_launch_to_submit(monkeypatch, tmp_path):
+    # The first setup is good; the user then asks for a tool Luria cannot run, the change is
+    # refused, and their next "yes" must not submit the first setup.
+    submitted = []
+    monkeypatch.setattr(at, "submit_luria", lambda *a, **kw: submitted.append(a) or [])
+    state = _germline_state(tmp_path)
+    state["messages"] = [{"role": "user", "content": "call germline variants"}]
+    assert _sarek(state, tmp_path, "haplotypecaller")["ok"] is True
+    state["messages"].append({"role": "user", "content": "add ascat"})
+    refused = _sarek(state, tmp_path, "haplotypecaller,ascat")
+    assert refused["ok"] is False and "not staged on Luria" in refused["error"]
+    state["messages"].append({"role": "user", "content": "yes"})
+
+    out = _json.loads(at.tool_submit_to_luria(_CfgLuria(), state))
+
+    assert out["ok"] is False and "configure_run" in out["message"], out
+    assert submitted == []
+    assert "launch" not in state["artifacts"] and "params" not in state["artifacts"]
+    assert "launch_plan" not in state and "launch_built_at_user_msgs" not in state
+
+
+def test_a_pairing_refusal_after_a_good_setup_clears_it_too(tmp_path):
+    state = _germline_state(tmp_path)
+    assert _sarek(state, tmp_path, "haplotypecaller")["ok"] is True
+    out = _sarek(state, tmp_path, "mutect2")   # N1's patient has no tumour
+    assert _is_pairing_refusal(out) and "P1" in out["ask_the_user"]
+    assert "launch" not in state["artifacts"] and "launch_plan" not in state
+
+
+# --- a run param the user set is not overruled by a default ---------
+
+def test_configure_run_keeps_a_users_adapter_when_the_metadata_has_none(monkeypatch, tmp_path):
+    # smrnaseq's adapter defaults to Illumina's when no sample names one; a user who names
+    # theirs is not told it "should be" the default.
+    seen = {}
+    real = at.build_run_params
+
+    def spy(pipeline_key, agent_params, bundle_key):
+        seen.update(agent_params)
+        return real(pipeline_key, agent_params, bundle_key)
+
+    monkeypatch.setattr(at, "build_run_params", spy)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,fastq_1\nS1,/net/bmc-pub10/x/S1.fq.gz\n")
+    default = {"value": "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "verdict": "defaulted", "evidence": "e"}
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+             "data_driven_evidence": {"S1": {"three_prime_adapter": default}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "smrnaseq",
+                                                         "params": {"three_prime_adapter": "TGGAATTCTCGGGTGCCAAGG",
+                                                                    "mirtrace_species": "hsa"}},
+                                         str(tmp_path)))
+    assert "should be" not in json.dumps(out.get("errors") or []), out
+    assert seen.get("three_prime_adapter") == "TGGAATTCTCGGGTGCCAAGG", out
+
+
+@pytest.mark.parametrize("step", ["write_samplesheet", "resolve_samples"])
+def test_a_refused_sample_change_after_a_good_setup_leaves_no_launch(monkeypatch, tmp_path, step):
+    # Changing the samples makes the last launch stale even when the change itself is refused.
+    submitted = []
+    monkeypatch.setattr(at, "submit_luria", lambda *a, **kw: submitted.append(a) or [])
+    state = _germline_state(tmp_path)
+    state["messages"] = [{"role": "user", "content": "call germline variants"}]
+    assert _sarek(state, tmp_path, "haplotypecaller")["ok"] is True
+    state["messages"].append({"role": "user", "content": "use other samples"})
+    if step == "write_samplesheet":
+        refused = _json.loads(tool_write_samplesheet(_Cfg(), state, {"pipeline_key": "sarek", "cohorts": []},
+                                                     str(tmp_path)))
+    else:
+        refused = _json.loads(tool_resolve_samples(_Cfg(), {}, state, {"kind": "explicit_uids", "uids": []},
+                                                   "sarek"))
+    assert refused["ok"] is False
+    state["messages"].append({"role": "user", "content": "yes"})
+
+    out = _json.loads(at.tool_submit_to_luria(_CfgLuria(), state))
+
+    assert out["ok"] is False and submitted == [], out
+    assert "launch_plan" not in state

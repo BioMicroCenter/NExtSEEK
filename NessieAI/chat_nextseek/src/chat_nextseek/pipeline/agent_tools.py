@@ -11,6 +11,7 @@ Anthropic-style tools driven by BedrockClient.chat_with_tools (submit tools expo
 """
 from __future__ import annotations
 
+import csv
 import json
 import re
 from collections import Counter
@@ -34,6 +35,7 @@ from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_launch_artifacts, emit_luria_launch_artifacts, emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, lookup_run_sizes, resolve_accessions
 from ..seqera.pipeline_params import (
+    agent_param_names,
     build_run_params,
     gencode_for_genome_key,
     load_pipeline_context,
@@ -42,7 +44,8 @@ from ..seqera.pipeline_params import (
     resolve_bundle_for_species,
     runtime_estimate,
 )
-from ..seqera.schema_check import check_params, check_reference_flags
+from ..seqera.schema_check import (check_params, check_reference_flags, genome_fills,
+                                    missing_required, required_message)
 from ..seqera.submitter import submit_launch
 from ..seqera.user_params import (
     missing_user_params,
@@ -50,6 +53,7 @@ from ..seqera.user_params import (
     required_user_params,
     validate_user_params,
 )
+from ..seqera.pairing import TABLE, pairing_question, tool_names
 from ..seqera.contrasts import (
     CONTRASTS_FILENAME,
     CONTRASTS_PARAM,
@@ -60,6 +64,7 @@ from ..seqera.contrasts import (
     write_contrasts_csv,
 )
 from ..seqera.param_atlas import (
+    FILL_VERDICTS,
     check_row_column_params,
     check_run_params,
     confirm_user_answer,
@@ -69,7 +74,7 @@ from ..seqera.param_atlas import (
     required_signals,
 )
 from ..luria.submitter import submit_luria
-from ..luria.run_script import local_luria_ref_files
+from ..luria.run_script import LURIA_GENOME_RESOURCES, local_luria_ref_files, luria_run_genome
 from ..reports.protocols import gather_protocol_text
 from ..helpers.tools.neo4j import tool_neo4j_query
 from ..helpers.uid_check import expand_uid_prefixes, is_uid_prefix
@@ -92,8 +97,9 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "— go straight to resolve_samples. Returns a verdict: 'chosen' (use it), "
             "'fork' (ask the user which), 'refused' (these samples cannot answer that — "
             "conclude(rejected)), or 'out_of_scope' (decide for yourself from the catalog, "
-            "exactly as you would if this tool did not exist). Only RNA pipelines are "
-            "covered; everything else comes back out_of_scope, which is normal."
+            "exactly as you would if this tool did not exist). It covers the pipelines in its "
+            "atlas (RNA, DNA variants, HLA, chromatin and methylation); out_of_scope means the "
+            "atlas cannot judge this request, which is normal."
         ),
         "input_schema": {
             "type": "object",
@@ -189,6 +195,12 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                                           "or explicit reference paths to steer references."},
                 "revision": {"type": "string", "description": "pipeline revision override (-> launch.yml)."},
                 "profile": {"type": "string", "description": "docker|singularity|conda (-> launch.yml)."},
+                "pairing_confirmed": {"type": "boolean",
+                                      "description": "sarek only: true after the user confirmed the "
+                                                     "tumour/normal table configure_run showed them; "
+                                                     "only after the user replied to the pairing "
+                                                     "table (a confirmation sent in the same turn "
+                                                     "as the question is ignored)."},
             },
             "required": ["pipeline_key"],
         },
@@ -343,6 +355,8 @@ def _flatten_lineage(uid: str, uid_index: dict) -> dict:
 
 def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input: dict, pipeline_key: str) -> str:
     """Resolve a sample ref into a compact leaf table; cache ground-truth refs in state['resolved']."""
+    # New samples make the last launch stale, even when this call is refused.
+    _clear_launch(state)
     kind = tool_input.get("kind")
 
     if kind == "accessions":
@@ -571,6 +585,9 @@ def _validate_rows_against_resolved(cohorts: list, resolved: dict) -> list[str]:
 
 def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
     """Validate agent-built cohorts against resolved refs, then emit samplesheet(s) + launch.yml."""
+    # A (re)built samplesheet invalidates any prior configure_run output, refused or not, so the
+    # agent must call configure_run again before submit — never submit a stale params/launch.
+    _clear_launch(state)
     pipeline_key = tool_input.get("pipeline_key") or ""
     cohorts = tool_input.get("cohorts") or []
     if pipeline_key not in NFCORE_PIPELINE_CATALOG:
@@ -673,6 +690,9 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"].pop("launch", None)
     state["artifacts"].pop("contrasts", None)
     state.pop("launch_plan", None)
+    # A rebuilt sheet is asked about afresh: the old pairing confirmation was for the old rows.
+    state.pop("pairing_asked_at_user_msgs", None)
+    state.pop("pairing_confirmed_for", None)
 
     return json.dumps({
         "ok": True,
@@ -687,8 +707,16 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     })
 
 
+#: sarek tools whose reference files (ascat's allele/loci/GC files, controlfreec's mappability
+#: files) are not staged on Luria.
+_SAREK_UNSTAGED_TOOLS = frozenset({"ascat", "controlfreec"})
+
+
 def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
     """Assemble params.yml + launch.yml from curated params + species references + user steering."""
+    # Forget the last launch first: every refusal below returns before a new one is written, and
+    # a stale launch would otherwise stay submittable on the user's next reply.
+    _clear_launch(state)
     pipeline_key = tool_input.get("pipeline_key") or state.get("pipeline_key") or ""
     if pipeline_key not in NFCORE_PIPELINE_CATALOG:
         return json.dumps({"ok": False, "error": f"Unknown pipeline {pipeline_key!r}."})
@@ -751,19 +779,19 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         state["artifacts"].pop("launch", None)
 
     # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
-    # decisive value the agent didn't set, so the inferred value (e.g. scrnaseq protocol,
-    # smrnaseq three_prime_adapter) is actually written to params.yml rather than lost to
-    # the curated menu default. conflict/absent are NOT decisive and are left to
+    # value (FILL_VERDICTS: decisive, or the spec's safe default) the agent didn't set, so the
+    # inferred value (e.g. scrnaseq protocol, smrnaseq three_prime_adapter) is actually written
+    # to params.yml rather than lost to the curated menu default. conflict/absent are left to
     # check_run_params to ask about; an agent-supplied value that disagrees is left for
-    # check_run_params to correct (setdefault does not overwrite it).
+    # check_run_params to correct (setdefault does not overwrite it), which it does only when
+    # some leaf's metadata decided the value, never for a default alone.
     _evidence = state.get("data_driven_evidence") or {}
     for _name, _spec in data_driven_params(pipeline_key).items():
         if _spec.get("target") != "run_param":
             continue
         _vals = {(pv.get(_name) or {}).get("value")
                  for pv in _evidence.values()
-                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated",
-                                                             "defaulted", "user_confirmed")}
+                 if (pv.get(_name) or {}).get("verdict") in FILL_VERDICTS}
         _vals.discard(None)
         if len(_vals) == 1:
             agent_params.setdefault(_name, next(iter(_vals)))
@@ -805,12 +833,67 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     if errors:
         return json.dumps({"ok": False, "errors": errors})
 
+    # sarek runs only on a genome whose GATK resources (dbSNP, known indels, gnomAD, PoN,
+    # calling regions) are staged on Luria: LURIA_GENOME_RESOURCES holds the GRCh38 bundle only.
+    if pipeline_key == "sarek":
+        sarek_genome = luria_run_genome(pipeline_key, merged["genome"]) if merged.get("genome") else None
+        if sarek_genome not in LURIA_GENOME_RESOURCES:
+            return json.dumps({"ok": False, "error": (
+                "sarek on Luria needs the GATK GRCh38 bundle; this cohort's genome "
+                f"{sarek_genome or '(none resolved)'} has no staged DNA resources — "
+                "human samples only for now.")})
+        # The menu marks these unavailable, but a model can still send them: refuse here.
+        unstaged = sorted(tool_names(merged.get("tools")) & _SAREK_UNSTAGED_TOOLS)
+        if unstaged:
+            return json.dumps({"ok": False, "error": (
+                f"sarek's {', '.join(unstaged)} cannot run here: the allele, loci, GC and "
+                "mappability files they need are not staged on Luria. Remove them from tools.")})
+        if merged.get("save_output_as_bam") is True or \
+                str(merged.get("save_output_as_bam")).strip().lower() == "true":
+            return json.dumps({"ok": False, "error": (
+                "sarek's save_output_as_bam stays off: reingest registers sarek's alignments as "
+                "CRAMs only, until the reingest map has a BAM rule. Leave it unset.")})
+
+    if pipeline_key == "atacseq":
+        control_errors = _atacseq_control_errors(merged.get("with_control"), _samplesheet_rows(state))
+        if control_errors:
+            return json.dumps({"ok": False, "errors": control_errors})
+
+    # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
+    # status the metadata did not decide is confirmed by the user first (seqera.pairing).
+    # The tools are the run's own (curated defaults included), not only what the model sent.
+    # The confirmation is enforced here, not trusted from the model: it counts only when
+    # the user has sent a message since the question was asked, and then holds for this
+    # samplesheet (so changing e.g. the aligner does not ask again).
+    if pipeline_key == "sarek":
+        asked_at = state.get("pairing_asked_at_user_msgs")
+        replied = (tool_input.get("pairing_confirmed") is True and asked_at is not None
+                   and _user_msg_count(state) > asked_at)
+        confirmed = replied or state.get("pairing_confirmed_for") == samplesheet
+        kind, question = pairing_question(
+            merged.get("tools"), _samplesheet_rows(state),
+            state.get("data_driven_evidence") or {}, confirmed=confirmed)
+        if not question and replied:
+            state["pairing_confirmed_for"] = samplesheet
+        if question:
+            # Only the confirmation table is answered with "yes"; a refusal (unpaired patient,
+            # no samples) asks the user to change the run, so it must not start the clock on
+            # a confirmation the user has not been shown a table for.
+            if kind == TABLE:
+                state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
+            return json.dumps({
+                "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
+                "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "
+                            "configure_run again with pairing_confirmed=true only after they "
+                            "confirm the table, or rebuild the samplesheet with their corrections."),
+            })
+
     # Cross-check the assembled params against the pipeline's OWN pinned schema.
     # The curated menu above is hand-maintained; four of the six defects found on
-    # 2026-08-05 were curation errors at this step, and nf-schema aborts the run
-    # on any parameter it does not recognise — so drift surfaces on the cluster
-    # rather than here unless we look. Same revision the emitter will use
-    # (emitter.py:669/741), or the check would validate a version nobody runs.
+    # 2026-08-05 were curation errors at this step, and nf-schema rejects or warns on
+    # an unrecognised param, depending on the pipeline's validation settings — so drift
+    # surfaces on the cluster rather than here unless we look. Same revision the emitter
+    # will use (emitter.py:669/741), or the check would validate a version nobody runs.
     #
     # Split by WHO supplied the param, because only one of the two is fixable by
     # the agent. A param it can correct and re-send is a hard error. Everything
@@ -839,7 +922,27 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     supplied = {k: v for k, v in merged.items() if k in agent_params and k in sent_by_model}
     curated = {k: v for k, v in merged.items() if k not in supplied}
 
-    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied, source="supplied")
+    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied, source="supplied",
+                                              required=False)
+    # A schema-required param is checked on the whole run, after the bundle's genome and the
+    # agent's params are merged (the launcher's input/outdir and a genome's reference files
+    # count as set). One the agent can send is a hard error, so it sends the genome chipseq's
+    # fasta needs rather than leaving the Luria submitter to default it to GRCh38 unseen; one
+    # it cannot (rnafusion's genomes_base) warns, for the same MAX_ITER reason as a drifted
+    # curated default.
+    # A param only a genome fills is asked of the user: no genome resolved for this cohort, and
+    # telling the agent to send one loops when the cohort's bundle has none (a PDX cohort's
+    # hg38_mm39 reselects itself).
+    required_warnings: list[str] = []
+    if not schema_errors and not schema_skip:
+        unset, _ = missing_required(pipeline_key, revision, merged)
+        by_genome = [n for n in unset if n in genome_fills(pipeline_key, revision)]
+        if by_genome:
+            return _ask_for_genome(pipeline_key, by_genome, reference_status, bundle_key)
+        sendable = agent_param_names(pipeline_key)
+        schema_errors = [required_message(pipeline_key, revision, n) for n in unset if n in sendable]
+        required_warnings = [required_message(pipeline_key, revision, n) for n in unset
+                             if n not in sendable]
     if schema_errors:
         return json.dumps({"ok": False, "errors": schema_errors})
     if schema_skip:
@@ -848,9 +951,11 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         schema_check = {"status": "ok"}
         # The schema is cached by (pipeline, revision) after the call above, so
         # this second call costs a dict lookup, not a fetch.
-        curated_warnings, _ = check_params(pipeline_key, revision, curated)
+        curated_warnings, _ = check_params(pipeline_key, revision, curated, required=False)
         if curated_warnings:
             schema_check["curated_warnings"] = curated_warnings
+        if required_warnings:
+            schema_check["required_warnings"] = required_warnings
         reference_warnings = check_reference_flags(pipeline_key, revision)
         if reference_warnings:
             schema_check["reference_warnings"] = reference_warnings
@@ -877,7 +982,12 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state.pop("submit_failed", None)
     _note_user_confirmed(state, base)
 
-    ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
+    # The files the run is given: a pipeline may run on its own key for the species-resolved
+    # genome (sarek: GRCh38 -> GATK.GRCh38), and the confirmation quotes these.
+    run_genome = merged.get("genome")
+    if run_genome:
+        run_genome = luria_run_genome(pipeline_key, run_genome)
+    ref_files = (local_luria_ref_files(run_genome, pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
     n_samples, fetch_accessions = _samplesheet_counts(samplesheet)
     # ENA's FASTQ sizes for the runs the fetchngs pre-stage will download: the estimate names
@@ -901,6 +1011,71 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
                                              fetch_sizes=fetch_sizes),
     })
+
+
+def _atacseq_control_errors(with_control: Any, rows: list[dict]) -> list[str]:
+    """Why an atacseq sheet and its with_control disagree ([] when they agree).
+
+    nf-core/atacseq 2.1.2 reads control/control_replicate only with --with_control, yet
+    without it a control value is still carried into meta.control, which its replicate merging
+    reads (workflows/atacseq.nf), so the two must agree both ways. With it, its samplesheet
+    check exits on a control that is not a sample and replicate of the same sheet.
+    """
+    on = with_control is True or str(with_control).strip().lower() == "true"
+    named = [r for r in rows if str(r.get("control") or "").strip()]
+    if named and not on:
+        return ["rows name an input control, so set with_control=true; or rebuild the "
+                "samplesheet without control and control_replicate if the controls should not be used."]
+    if on and not named:
+        return ["with_control=true but no row names a control: fill control and control_replicate "
+                "on each ATAC row whose input control is in the cohort, or leave with_control unset."]
+    present = {(str(r.get("sample") or "").strip(), str(r.get("replicate") or "").strip()) for r in rows}
+    errors = []
+    for row in named:
+        control = str(row["control"]).strip()
+        replicate = str(row.get("control_replicate") or "").strip()
+        if (control, replicate) not in present:
+            errors.append(
+                f"row {row.get('sample')!r}: control {control!r} replicate {replicate or '(empty)'} "
+                "is not a sample and replicate of this samplesheet; name the control's own sample "
+                "and replicate values, and include the control as a row.")
+    return errors
+
+
+def _ask_for_genome(pipeline_key: str, names: list[str], reference_status: str,
+                    bundle_key: str | None) -> str:
+    """Stop and ask the user which genome to run, offering the bundles that name one."""
+    choices = [k for k, b in (load_reference_bundles().get("bundles") or {}).items()
+               if b.get("igenomes_key")]
+    if reference_status == "unconfigured_no_fallback" and bundle_key:
+        why = f"this cohort's reference {bundle_key} has no single genome to run against"
+    else:
+        why = "no reference genome was resolved from the samples' species"
+    return json.dumps({
+        "ok": False, "needs_user_input": ["genome"],
+        "ask_the_user": (f"nf-core/{pipeline_key} needs a reference genome for its "
+                         f"{' and '.join(names)}, and {why}. Which genome should it use: "
+                         f"{', '.join(choices)}?"),
+        "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call configure_run "
+                    "again with params.genome set to the genome they choose."),
+    })
+
+
+def _clear_launch(state: dict) -> None:
+    """Drop configure_run's output, so submit finds no launch until configure_run succeeds again."""
+    (state.get("artifacts") or {}).pop("params", None)
+    (state.get("artifacts") or {}).pop("launch", None)
+    state.pop("launch_plan", None)
+    state.pop("launch_built_at_user_msgs", None)
+
+
+def _samplesheet_rows(state: dict) -> list[dict]:
+    """The rows of the samplesheet write_samplesheet last wrote ([] when there is none)."""
+    path = (state.get("artifacts") or {}).get("samplesheet")
+    if not path or not Path(path).is_file():
+        return []
+    with open(path, newline="") as fh:
+        return list(csv.DictReader(fh))
 
 
 def _samplesheet_counts(samplesheet: str | None) -> tuple[int, list[str]]:
@@ -1018,7 +1193,7 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
     if not launch:
-        return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+        return json.dumps({"ok": False, "message": "No launch artifact to submit — build the samplesheet, then call configure_run until it succeeds."})
     if (refusal := _launch_unconfirmed(state)):
         return refusal
     tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
@@ -1153,7 +1328,7 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
     if not launch:
-        return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+        return json.dumps({"ok": False, "message": "No launch artifact to submit — build the samplesheet, then call configure_run until it succeeds."})
     # One build, one job. An instruction to the model does not stop a user's "submit": only configure_run opens this again.
     if artifacts.get("luria_runs"):
         return json.dumps({"ok": False, "message": _LURIA_ALREADY_SENT})
@@ -1271,6 +1446,14 @@ _ONLY_DROPPED_NEXT_STEP = (
     "the selection tool to the user.")
 
 
+# Added to the message when any of the cohort's protocols could not be read: the verdict
+# then rests on the metadata alone, and the user must hear that before they confirm a run.
+_PROTOCOL_UNREAD_NEXT_STEP = (
+    " Also: {n_failed} of these samples' {n_protocols} protocols could not be read, so this "
+    "rests on the sample metadata alone. Tell the user so in one line, and that the choice "
+    "may change once the protocol can be read.")
+
+
 def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input: dict,
                          *, send_event=None) -> str:
     """Choose a pipeline from the cohort's evidence and the scientist's question.
@@ -1292,7 +1475,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
             except Exception as exc:  # noqa: BLE001 - progress events are advisory, never fatal
                 print(f"[DEBUG][PIPELINE_AGENT] send_event({name!r}) failed: {exc!r}")
 
-    def _verdict_json(verdict, n_uids: int, atlas: dict | None = None) -> str:
+    def _verdict_json(verdict, n_uids: int, atlas: dict | None = None,
+                      protocol_status: dict | None = None) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
                               "reason": verdict.reason}
         message = _SELECTION_NEXT_STEP[verdict.kind]
@@ -1315,6 +1499,11 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
                 message += _DROPPED_NEXT_STEP.format(names=names)
             else:
                 message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        if protocol_status and protocol_status.get("n_failed"):
+            unread = {"n_failed": protocol_status["n_failed"],
+                      "n_protocols": protocol_status.get("n_protocols", protocol_status["n_failed"])}
+            result["protocol_text_unavailable"] = unread
+            message += _PROTOCOL_UNREAD_NEXT_STEP.format(**unread)
         result["message"] = message
         _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
         return json.dumps(result)
@@ -1459,7 +1648,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
         return _verdict_json(selection.out_of_scope(
             f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
-    return _verdict_json(verdict, len(uids), atlas)
+    return _verdict_json(verdict, len(uids), atlas,
+                         digest.get("protocol_text_status") if isinstance(digest, dict) else None)
 
 
 def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict,

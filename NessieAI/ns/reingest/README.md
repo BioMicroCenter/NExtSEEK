@@ -13,12 +13,12 @@ not values, so no measured number round-trips through a model.
 
 | Module | What it does |
 |---|---|
-| `manifest.py` | `RunManifest`, the single structured artifact a harvest produces, plus `SampleRecord`, `PipelineInfo`, `OutputRecord` and the `RESOLUTION_*` constants. `outputs` is the file inventory; `named_outputs` is the dict a map's `$outputs.<key>` resolves against |
-| `parsers.py` | format-level parsers for `pipeline_info/` and MultiQC: params, software versions (flat and per process, with conflict detection), samplesheet, execution trace, general stats |
+| `manifest.py` | `RunManifest`, the single structured artifact a harvest produces, plus `SampleRecord`, `PipelineInfo`, `OutputRecord` and the `RESOLUTION_*` constants. `outputs` is the file inventory; `named_outputs` is the dict a map's `$outputs.<key>` resolves against; `SampleRecord.samplesheet` is the sample's own cells of the samplesheet columns its map reads (no paths), which `$samplesheet.<column>` reads |
+| `parsers.py` | format-level parsers for `pipeline_info/` and MultiQC: params, software versions (flat and per process, with conflict detection), samplesheet, execution trace, general stats, and a MultiQC data table written as YAML |
 | `derived.py` | `DERIVED_METRICS`, `compute` (from per-sample tool files) and `from_metrics` (from general-stats columns: Salmon's library type, MultiQC <= 1.22's samtools error-rate fraction): the only place reingest does arithmetic on a measurement. RSeQC's `TSS_up_*`/`TES_down_*` windows are nested, so the read-distribution percentages sum the six non-nested groups |
-| `harvest.py` | `harvest_local` walks an allowlisted file set into a `RunManifest`. `GENERIC_GLOBS` is staged for content, and `_MODULE_TABLES` names the per-module MultiQC tables read beside general stats (OptiType's alleles); `CORE_INVENTORY_GLOBS` plus `inventory_globs()`, the union with every map's own `inventory_globs`, is a listing only. `_NAMED_OUTPUT_MATCHERS` defines every key `$outputs.*` may name |
+| `harvest.py` | `harvest_local` walks an allowlisted file set into a `RunManifest`. `GENERIC_GLOBS` is staged for content, and `_MODULE_TABLES` names the per-module MultiQC tables read beside general stats (OptiType's alleles), to which a map adds its own `module_tables` (`.txt` or `.yaml`); `CORE_INVENTORY_GLOBS` plus `inventory_globs()`, the union with every map's own `inventory_globs`, is a listing only. `_NAMED_OUTPUT_MATCHERS` defines every key `$outputs.*` may name |
 | `launch_record.py` | `record_launch` and `read_cohort_sidecar`: persist what a launch consumed, so reingest never has to guess it back |
-| `uid_resolve.py` | each nf-core sample back to its `D.SEQ`: launch record first, then fastq exact, then basename. Multi-run is rejected on purpose, and ambiguity is never guessed through |
+| `uid_resolve.py` | each nf-core sample back to its `D.SEQ`: launch record first, then fastq exact, then basename. Multi-run is rejected on purpose, and ambiguity is never guessed through. `key_by_replicate` splits a replicate-keyed map's samples (`replicate_samples`) into `<sample>_REP<replicate>` |
 | `maps.py` | the map schema (v2; v1 `glob` and `secondary_data_glob` still load) and loader: `effective()` resolves a run's release to its rules and warnings, `all_inventory_globs()` collects every map's inventory patterns. `$`-refs are lookups into one named manifest section and nothing else — no evaluation, no attribute traversal, no reachable Python object. That is what makes a map reviewable in a diff rather than a security surface |
 | `pipelines/` | the `@` tokens a map may use: `common.py` for every pipeline, one module per pipeline that needs its own (`differentialabundance.py`). See [its README](pipelines/README.md) |
 | `mapper.py` | `apply` joins a map to a manifest: `MapResult(rows, unmapped, warnings, missed_rules)`. Committed map rules beat approved database rules; `per_sample` output rules fan out one row per sample; `unmapped` is explicit, never silent. A data file's cell holds its bare name, and its link cell (`Link_PrimaryData`, `Link_SecondaryData`) its path in the cluster run folder, an interim location until the data has a permanent home |
@@ -35,7 +35,7 @@ Map files live beside this package in [`../reingest_maps/`](../reingest_maps/REA
 
 ## The fix loop and the upload
 
-`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) are map maintenance, not something the user can act on: they go to `logs/django.log` as `reingest map note:` lines with the pipeline, release, run and manifest (the `NessieAI.ns.reingest.map_notes` logger, routed in `dmac/settings.py`), never into the reply. When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
+`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) are map maintenance, not something the user can act on: they go to `logs/django.log` as `reingest map note:` lines with the pipeline, release, run and manifest (the `NessieAI.ns.reingest.map_notes` logger, routed in `dmac/settings.py`), never into the reply. One kind is also the user's: when a sample, or a replicate group, has rows from two outputs one launch writes only one of (`alternative_group` in `NessieAI/ns/reingest_maps/README.md`), the run folder holds an earlier launch's files too, and the reply lists those files, and any other row whose file was picked over another, under FILES FROM AN EARLIER RUN TO CHECK (`MapResult.alternative_rows`), since the curator would otherwise upload every row. A `per_file` file whose `parents_by_samplesheet` value no sample of the run's samplesheet has (a consensus for an antibody only an earlier launch ran) gets no row, and the reply lists it under FILES LEFT OUT: NOT FROM THIS RUN (`MapResult.stale_files`). When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
 and the op is called again with `answers`, validated against the first pass's findings. Three
 kinds, each licensed only by what that run flagged:
 
@@ -77,13 +77,26 @@ per-job path cannot be listed until the allowlist supports patterns.
   type. `NessieAI/tests/ns/reingest/test_map_contract.py` gates the committed maps in CI;
   the superuser approve endpoint gates database rules, because the CI test cannot see them.
   A proposed attribute that does not exist is a schema request for the Attribute API, not a
-  mapping problem.
+  mapping problem. What a box must hold before the committed maps can run (house assays, sample
+  types, attributes, catalog rows) and how to seed it: `docs/reingest-seeding-rollout.md`.
 - **A map is data, not code.** See `maps.resolve_ref`.
 - **A human's ruling is never overwritten by a later automated sighting.** Repetition is
   evidence, not a veto: a repeat bumps `times_proposed` and never reopens a terminal row.
 - **An unresolved sample's child ships with no `Parent` key at all** — never an empty string.
   The QA gate distinguishes absent (soft, ships) from blank (hard reject) and can only do so
   because this package never emits the latter.
+- **An ambiguous sample gets no child row, but a merged replicate group with an ambiguous
+  replicate still gets its row** (the owner's ruling). Guessing between candidate parents would
+  write a wrong lineage, so a standalone ambiguous sample ships nothing (`mapper._NO_CHILD_ROW`).
+  A group's merged file is the group's own output and its other replicates' parents are
+  certain, so the row ships, `Parent` names only the replicates that resolved, and a map note
+  names the one left out. See `test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row`
+  in `NessieAI/tests/ns/reingest/test_replicate_samples.py`. When no replicate resolved, the row
+  still ships, with no `Parent`, as an unresolved sample's child does (the owner's ruling,
+  2026-10-28), and the reply lists it under MERGED ROWS WITH NO PARENT
+  (`MapResult.parentless_rows`) so the curator can attach the parents later; chipseq's
+  per-antibody consensus rows follow the same rule
+  (`test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent`).
 
 ## Running and testing
 

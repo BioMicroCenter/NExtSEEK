@@ -1,0 +1,814 @@
+[
+ {
+  "path": "bismark/alignments/Ecoli_10K_methylated.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/Ecoli_10K_methylated.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub1.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub1.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub1_trimmed_bismark_bt2.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub2.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub2.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub2_trimmed_bismark_bt2.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub3.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub3.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/SRR389222_sub3_trimmed_bismark_bt2.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/logs/Ecoli_10K_methylated_1_val_1_bismark_bt2_PE_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/logs/SRR389222_sub1_trimmed_bismark_bt2_SE_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/logs/SRR389222_sub2_trimmed_bismark_bt2_SE_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/alignments/logs/SRR389222_sub3_trimmed_bismark_bt2_SE_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/SRR389222_sub1_trimmed_bismark_bt2.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/SRR389222_sub2_trimmed_bismark_bt2.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/SRR389222_sub3_trimmed_bismark_bt2.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/mbias/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.M-bias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/mbias/SRR389222_sub1_trimmed_bismark_bt2.M-bias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/mbias/SRR389222_sub2_trimmed_bismark_bt2.M-bias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/mbias/SRR389222_sub3_trimmed_bismark_bt2.M-bias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OB_Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OB_SRR389222_sub1_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OB_SRR389222_sub2_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OB_SRR389222_sub3_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OT_Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OT_SRR389222_sub1_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OT_SRR389222_sub2_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHG_OT_SRR389222_sub3_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OB_Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OB_SRR389222_sub1_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OB_SRR389222_sub2_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OB_SRR389222_sub3_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OT_Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OT_SRR389222_sub1_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OT_SRR389222_sub2_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CHH_OT_SRR389222_sub3_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OB_Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OB_SRR389222_sub1_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OB_SRR389222_sub2_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OB_SRR389222_sub3_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OT_Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OT_SRR389222_sub1_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OT_SRR389222_sub2_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_calls/CpG_OT_SRR389222_sub3_trimmed_bismark_bt2.txt.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/SRR389222_sub1_trimmed_bismark_bt2.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/SRR389222_sub2_trimmed_bismark_bt2.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/SRR389222_sub3_trimmed_bismark_bt2.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/splitting_report/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe_splitting_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/splitting_report/SRR389222_sub1_trimmed_bismark_bt2_splitting_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/splitting_report/SRR389222_sub2_trimmed_bismark_bt2_splitting_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/splitting_report/SRR389222_sub3_trimmed_bismark_bt2_splitting_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/reports/Ecoli_10K_methylated_1_val_1_bismark_bt2_PE_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/reports/SRR389222_sub1_trimmed_bismark_bt2_SE_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/reports/SRR389222_sub2_trimmed_bismark_bt2_SE_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/reports/SRR389222_sub3_trimmed_bismark_bt2_SE_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/summary/bismark_summary_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/summary/bismark_summary_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/Ecoli_10K_methylated_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/Ecoli_10K_methylated_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/SRR389222_sub1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/SRR389222_sub2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/SRR389222_sub3_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/Ecoli_10K_methylated_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/Ecoli_10K_methylated_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/SRR389222_sub1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/SRR389222_sub2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/SRR389222_sub3_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark-methylation-dp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_alignment.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_mbias_CHG_R1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_mbias_CHG_R2.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_mbias_CHH_R1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_mbias_CHH_R2.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_mbias_CpG_R1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_mbias_CpG_R2.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/bismark_strand_alignment.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/cutadapt_filtered_reads_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/cutadapt_trimmed_sequences_plot_3_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/cutadapt_trimmed_sequences_plot_3_Obs_Exp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc-status-check-heatmap.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_adapter_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_overrepresented_sequences_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_per_base_n_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_per_base_sequence_quality_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_per_sequence_gc_content_plot_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_per_sequence_gc_content_plot_Percentages.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_per_sequence_quality_scores_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_sequence_counts_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_sequence_duplication_levels_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/fastqc_top_overrepresented_sequences_table.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_bismark_alignment.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_bismark_methextract.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_cutadapt.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_fastqc.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_general_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark-methylation-dp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_alignment-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_alignment-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_mbias_CHG_R1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_mbias_CHG_R2.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_mbias_CHH_R1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_mbias_CHH_R2.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_mbias_CpG_R1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_mbias_CpG_R2.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_strand_alignment-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/bismark_strand_alignment-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/cutadapt_filtered_reads_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/cutadapt_filtered_reads_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/cutadapt_trimmed_sequences_plot_3_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/cutadapt_trimmed_sequences_plot_3_Obs_Exp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_adapter_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_overrepresented_sequences_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_per_base_n_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_per_base_sequence_quality_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Percentages.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_per_sequence_quality_scores_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_sequence_counts_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_sequence_counts_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_sequence_duplication_levels_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/pdf/fastqc_top_overrepresented_sequences_table.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark-methylation-dp.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_alignment-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_alignment-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_mbias_CHG_R1.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_mbias_CHG_R2.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_mbias_CHH_R1.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_mbias_CHH_R2.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_mbias_CpG_R1.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_mbias_CpG_R2.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_strand_alignment-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/bismark_strand_alignment-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/cutadapt_filtered_reads_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/cutadapt_filtered_reads_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/cutadapt_trimmed_sequences_plot_3_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/cutadapt_trimmed_sequences_plot_3_Obs_Exp.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_adapter_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_overrepresented_sequences_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_per_base_n_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_per_base_sequence_quality_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Percentages.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_per_sequence_quality_scores_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_sequence_counts_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_sequence_counts_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_sequence_duplication_levels_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/png/fastqc_top_overrepresented_sequences_table.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark-methylation-dp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_alignment-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_alignment-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_mbias_CHG_R1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_mbias_CHG_R2.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_mbias_CHH_R1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_mbias_CHH_R2.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_mbias_CpG_R1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_mbias_CpG_R2.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_strand_alignment-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/bismark_strand_alignment-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/cutadapt_filtered_reads_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/cutadapt_filtered_reads_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/cutadapt_trimmed_sequences_plot_3_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/cutadapt_trimmed_sequences_plot_3_Obs_Exp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_adapter_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_overrepresented_sequences_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_per_base_n_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_per_base_sequence_quality_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Percentages.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_per_sequence_quality_scores_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_sequence_counts_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_sequence_counts_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_sequence_duplication_levels_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_plots/svg/fastqc_top_overrepresented_sequences_table.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_methylseq_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_methylseq_topic_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/Ecoli_10K_methylated_1_val_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/Ecoli_10K_methylated_2_val_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/SRR389222_sub1_trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/SRR389222_sub2_trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/SRR389222_sub3_trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/Ecoli_10K_methylated_1_val_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/Ecoli_10K_methylated_2_val_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/SRR389222_sub1_trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/SRR389222_sub2_trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/SRR389222_sub3_trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/Ecoli_10K_methylated_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/Ecoli_10K_methylated_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/SRR389222_sub1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/SRR389222_sub2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/SRR389222_sub3.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ }
+]

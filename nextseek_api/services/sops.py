@@ -108,17 +108,19 @@ def _duplicate_title(client, request, title: str, kind: str = "SOP") -> Optional
     return _json(body, 409)
 
 
-def _unconfirmed(title: str, exc: Exception, timeout_s, *, created=(), not_sent=(), kind="SOP", path="sops") -> HttpResponse:
+def _unconfirmed(title: str, exc: Exception, timeout_s, *, created=(), not_sent=(), kind="SOP", path="sops",
+                 find: Optional[str] = None) -> HttpResponse:
     """The create got no answer from SEEK, so the record may exist. A read timeout is 202 (the proxy cannot say it
     failed, and a client that retries would duplicate); a lost connection is 502. Both carry the title so a client
-    can look the record up before it sends anything again."""
+    can look the record up before it sends anything again. ``find``, when given, is the sentence that says how."""
     extra: Dict[str, Any] = {"title": title}
     if created:
         extra["created"] = list(created)
     if not_sent:
         extra["not_sent"] = list(not_sent)
     sent_note = " The file was not sent." if not_sent else ""
-    find = (f" GET /nextseek_api/{path}/<title>/ finds it while no other {kind} has that title; a {kind} found that way "
+    find = (f" {find}" if find else
+            f" GET /nextseek_api/{path}/<title>/ finds it while no other {kind} has that title; a {kind} found that way "
             f"is finished by sending the file with PATCH /nextseek_api/{path}/<id>/." if kind == "SOP" else
             f" GET /nextseek_api/{path}/<title>/ finds it while no other {kind} has that title.")
     if isinstance(exc, requests.ReadTimeout):
@@ -131,9 +133,11 @@ def _unconfirmed(title: str, exc: Exception, timeout_s, *, created=(), not_sent=
     return _json({"errors": [{"title": "Upstream connection error", "detail": detail}], **extra}, 502)
 
 
-def _seek_refused(body, code: int, headers, title: str, *, created=(), not_sent=(), kind="SOP", path="sops") -> HttpResponse:
-    """SEEK answered the create with an error. A 5xx becomes JSON that says the record may exist; a 4xx is SEEK
-    refusing, forwarded with SEEK's status (as JSON when SEEK's own body is not, such as a Rails error page)."""
+def _seek_refused(body, code: int, headers, title: str, *, created=(), not_sent=(), kind="SOP", path="sops",
+                  find: Optional[str] = None) -> HttpResponse:
+    """SEEK answered the create with an error. A 5xx becomes JSON that says the record may exist (``find``, when
+    given, says how to look it up); a 4xx is SEEK refusing, forwarded with SEEK's status (as JSON when SEEK's own
+    body is not, such as a Rails error page)."""
     ct = (headers.get('Content-Type') or 'application/json')
     extra: Dict[str, Any] = {}
     if created:
@@ -141,7 +145,9 @@ def _seek_refused(body, code: int, headers, title: str, *, created=(), not_sent=
     if not_sent:
         extra["not_sent"] = list(not_sent)
     if code >= 500:
-        detail = (f"SEEK answered {code}. The {kind} may still have been created: GET /nextseek_api/{path}/<title>/ "
+        detail = (f"SEEK answered {code}. The {kind} may still have been created. {find} Check before you send it "
+                  "again." if find else
+                  f"SEEK answered {code}. The {kind} may still have been created: GET /nextseek_api/{path}/<title>/ "
                   "finds it while no other record has that title. Check before you send it again.")
         return _json({"errors": [{"title": f"SEEK could not create the {kind}", "detail": detail}],
                       "seek_status": code, "title": title, **extra}, 502)
@@ -231,38 +237,45 @@ def _in_use_body(seek_id: str, title: str) -> dict:
             "id": seek_id, "title": title}
 
 
-# NExtSEEK's own SOP deletes go one at a time per title key, so two deletes of the two SOPs that share a cited
-# title cannot each see the other still holding it. Whole seconds: MySQL's GET_LOCK wait.
+# NExtSEEK's own writes go one at a time per title key: two SOP deletes of the two SOPs that share a cited title cannot
+# each see the other still holding it, and two sample type creates of one title cannot each see it free. Whole
+# seconds: MySQL's GET_LOCK wait.
 _TITLE_LOCK_WAIT_S = 10
-# ponytail: where the seek database is not MySQL (the SQLite test lane) one process lock stands in for every title.
-_TITLE_LOCK_LOCAL = threading.Lock()
+# The MySQL lock name of each kind of title, under MySQL's 64-character limit with the 40-character digest.
+_TITLE_LOCK_PREFIX = {"sop": "nextseek_sop_title_", "sample_type": "nextseek_st_title_"}
+# ponytail: where the seek database is not MySQL (the SQLite test lane) one process lock per kind stands in for every
+# title.
+_TITLE_LOCK_LOCAL = {kind: threading.Lock() for kind in _TITLE_LOCK_PREFIX}
 
 
 @contextmanager
-def _title_lock(title: str):
-    """Hold the delete lock of ``title``'s key (stripped and case-blind, as the graph's) for the ``with`` block. Yields
-    False when another delete held it past the wait or it could not be asked for: the block must then delete nothing.
-    MySQL: GET_LOCK on the seek connection, so every worker process shares it."""
+def _title_lock(title: str, kind: str = "sop"):
+    """Hold the lock of ``title``'s key (stripped and case-blind, as the graph's) for the ``with`` block. Yields True
+    when held, False when another holder kept it past the wait, and None when it could not be asked for: on anything
+    but True the block must write nothing. MySQL: GET_LOCK on the seek connection, so every worker process shares it."""
     conn = connections["seek"]
     if conn.vendor != "mysql":
-        got = _TITLE_LOCK_LOCAL.acquire(timeout=_TITLE_LOCK_WAIT_S)
-        release = _TITLE_LOCK_LOCAL.release
+        local = _TITLE_LOCK_LOCAL[kind]
+        got = local.acquire(timeout=_TITLE_LOCK_WAIT_S)
+        release = local.release
     else:
-        name = "nextseek_sop_title_" + hashlib.sha256(title.strip().casefold().encode()).hexdigest()[:40]
+        name = _TITLE_LOCK_PREFIX[kind] + hashlib.sha256(title.strip().casefold().encode()).hexdigest()[:40]
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT GET_LOCK(%s, %s)", [name, _TITLE_LOCK_WAIT_S])
-                got = (cur.fetchone() or [None])[0] == 1
+                answer = (cur.fetchone() or [None])[0]
+            # 1 held, 0 the wait ran out, NULL an error inside MySQL.
+            got = True if answer == 1 else (False if answer == 0 else None)
         except DatabaseError:
-            log.warning("sops_proxy.destroy: could not ask for the delete lock %s", name, exc_info=True)
-            got = False
+            log.warning("%s title lock: could not ask for %s", kind, name, exc_info=True)
+            got = None
 
         def release():
             try:
                 with conn.cursor() as cur:
                     cur.execute("SELECT RELEASE_LOCK(%s)", [name])
             except DatabaseError:
-                log.warning("sops_proxy.destroy: could not release %s (MySQL does when the session ends)", name)
+                log.warning("%s title lock: could not release %s (MySQL does when the session ends)", kind, name)
     try:
         yield got
     finally:

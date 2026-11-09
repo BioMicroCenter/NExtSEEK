@@ -66,6 +66,12 @@
         },
         "hlatyping": {
           "differs_by": "hlatyping answers a genotyping question \u2014 which HLA alleles the donor carries \u2014 and ignores expression entirely. It accepts RNA reads, so an RNA cohort alone does not rule it in or out; the question does."
+        },
+        "atacseq": {
+          "differs_by": "atacseq measures accessible DNA, rnaseq measures transcripts; ATAC libraries are genomic."
+        },
+        "methylseq": {
+          "differs_by": "methylseq measures cytosine methylation from bisulfite or enzymatically converted genomic DNA (LibraryStrategy Bisulfite-Seq), not expression; rnaseq on such reads, or methylseq on RNA reads, answers nothing."
         }
       }
     },
@@ -168,6 +174,9 @@
         "rnavar": {
           "differs_by": "rnavar calls variants genome-wide across transcripts. hlatyping resolves HLA alleles specifically, against a specialist reference, and reports allele calls rather than a VCF of general variants.",
           "ask_user": "Do you want HLA allele calls specifically, or variants across all transcripts?"
+        },
+        "sarek": {
+          "differs_by": "hlatyping resolves HLA alleles. sarek reports variants genome-wide and does not type HLA."
         }
       },
       "species_constraint": "HUMAN ONLY. HLA is the human MHC; OptiType maps reads against a reference of known human MHC class I alleles. Macaque (Mamu), mouse (H-2) and other species have no HLA to type. Class I only by default -- class II needs HLA-HD, which requires a separate local install."
@@ -271,6 +280,10 @@
         },
         "hlatyping": {
           "differs_by": "hlatyping resolves HLA alleles against a specialist reference. rnavar reports general variants and is not reliable for HLA calling."
+        },
+        "sarek": {
+          "differs_by": "rnavar calls variants from RNA-seq reads and sees only expressed transcripts. sarek calls them from DNA libraries, genome-wide.",
+          "ask_user": "Are these RNA-seq libraries or DNA libraries (genome, exome, panel)?"
         }
       }
     },
@@ -300,6 +313,7 @@
     },
     "differentialabundance": {
       "revision": "2.0.0",
+      "launchable": false,
       "answers": "Which features differ significantly between two groups, starting from a count matrix that already exists?",
       "assumes_prep": "No sequencing prep. The input is a matrix produced by an earlier run.",
       "versus": {

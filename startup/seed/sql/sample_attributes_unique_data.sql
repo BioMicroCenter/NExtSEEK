@@ -1,4 +1,4 @@
--- 1007 attribute definitions for dmac.sample_attributes_unique.
+-- 1020 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
@@ -7,6 +7,13 @@
 -- So are the 14 QC attributes from the 2026-10-15 review of the other nf-core
 -- pipelines (GCPercent, Q30Percent, ..., TsTvRatio), and the nine HLA fields of
 -- the A.HLA sample type proposed the same day (HLA_A1 ... HLADatabaseVersion).
+-- So are the three A.ALN coverage attributes for sarek's mosdepth output
+-- (MedianCoverage, Coverage10xPercent, Coverage30xPercent).
+-- So are the six peak-quality attributes for atacseq and chipseq (FRiPPercent and
+-- PeakCount on A.CHRM; NSC, RSC, FingerprintJSD and TSSEnrichment on D.SEQ), and
+-- A.CHRM's Antibody, the antibody a ChIP library was enriched with.
+-- So are the three A.MSEQ fields for methylseq's methylation calls
+-- (ConversionMethod, MethylationProtocol, MeanCpGMethylationPercent).
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -50,6 +57,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('AnnotationGTF','','The GTF annotation file used for feature assignment, e.g. gencode.v43.primary_assembly.basic.'),
  ('AnnotationReference','','The reference genome annotation used for variant effect prediction.'),
  ('AnnotationTool','','The tool used to annotate variants, e.g. SnpEff.'),
+ ('Antibody','','The antibody the reads were enriched with, named by its target as the ChIP samplesheet names it (a histone mark such as H3K27ac, or a factor such as CTCF). Blank for an assay that uses none, such as ATAC-seq.'),
  ('AntiCD107a_Ab_Fluorophore','','Fluorophore conjugated to the anti-CD107a antibody, e.g. PE-Cy5.'),
  ('AntiCD107a_Ab_Vendor','','The vendor the anti cd107a ab was purchased from, e.g. BD Biosciences, BD.'),
  ('AntiCD107a_Name','','Full product name of the anti-CD107a antibody used.'),
@@ -219,10 +227,13 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Contact','','Email address of the person to contact about this record.'),
  ('Contamination','','How the data were screened for contamination, and against what reference.'),
  ('ContinuousPhase','','The continuous phase of the emulsion, e.g. 1X PBS.'),
+ ('ConversionMethod','','How unmethylated cytosines were made readable before sequencing: Bisulfite, EM-seq (enzymatic) or TAPS.'),
  ('Core','','Identifier of the tissue core this sample came from, e.g. C4.'),
  ('Cough','','Whether the patient reported a cough.'),
  ('CoughSputum','','Whether the patient reported coughing up sputum.'),
  ('CountryOfOrigin','','The country the animal was sourced from.'),
+ ('Coverage10xPercent','','Percentage of the bases mosdepth scored (the whole genome, or the capture targets for exome and panel runs) covered at least 10-fold.'),
+ ('Coverage30xPercent','','Percentage of the bases mosdepth scored (the whole genome, or the capture targets for exome and panel runs) covered at least 30-fold.'),
  ('Crystal','','The crystal material used in the spectrometer, e.g. Diamond.'),
  ('Culture','','The culture medium and conditions used to grow this organism.'),
  ('CultureFormat','','The physical format the cells were cultured in, e.g. 2D monolayer in flasks, 3D Matrigel domes.'),
@@ -300,6 +311,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('ExtractionMethod','','The method used to extract nucleic acid, e.g. TRIzol + Direct-zol.'),
  ('ExtractionWindowDaysMax','','The maximum number of days allowed between collection and extraction.'),
  ('FMO','','The fluorescence-minus-one control used for this marker.'),
+ ('FRiPPercent','','Percentage of the alignment''s mapped reads that fall inside this peak set''s peaks (fraction of reads in peaks, FRiP), as the nf-core pipeline computes it with bedtools; higher means stronger enrichment.'),
  ('F_bp','','Read length in base pairs of the forward mate.'),
  ('Facility','','The facility or lab where this work was carried out.'),
  ('Fc_gamma_Receptor','','The Fc gamma receptor this assay was run against, e.g. FcyR2A.'),
@@ -319,6 +331,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('FilterMethod','','The method used to filter variants, e.g. bcftools isec.'),
  ('FilterSet','','The filter set or benchmark applied, e.g. GIAB HG001 GRCh38 v4.2.1.'),
  ('Filter_Vendor','','The vendor the filter was purchased from, e.g. Fisher; Amicon.'),
+ ('FingerprintJSD','','Synthetic Jensen-Shannon distance from deepTools plotFingerprint: how far the library''s cumulative coverage over genome bins is from uniform coverage, 0 to 1; higher means more enriched.'),
  ('Fixation','','Whether the sample was fixed before analysis.'),
  ('Fixative','','The fixative used, e.g. 4% Paraformaldehyde.'),
  ('Fixed','','Whether the sample was fixed before analysis.'),
@@ -532,6 +545,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Matrix','','The expression matrix file or the quantification unit it holds, e.g. FPKM.'),
  ('MatrixDataType','','Format of the matrix file, e.g. TSV.'),
  ('MaxPassage','','The highest passage number the cells were used at.'),
+ ('MeanCpGMethylationPercent','','Percentage of cytosines in CpG context called methylated across the sample, as Bismark''s methylation extractor reports it.'),
  ('MeanReadsPerCell','','Sequenced reads divided by the number of called cells (Cell Ranger).'),
  ('MeasurementDuration','','How long the measurement ran for.'),
  ('MeasurementInterval','','The interval between successive measurements.'),
@@ -543,6 +557,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('MediaBase','','The base medium used, before supplements are added.'),
  ('MediaSource','','The vendor and catalogue number the medium was purchased from.'),
  ('MediaSupplements','','The supplements added to the base medium, with concentrations.'),
+ ('MedianCoverage','','Median read depth, in fold coverage (X), of the bases mosdepth scored (the whole genome, or the capture targets for exome and panel runs).'),
  ('Medications','','Whether the patient was on medication at this visit.'),
  ('MedicineHistory','','Whether the patient has a relevant medication history.'),
  ('MenstrualStage','','The phase of the menstrual cycle at sampling, e.g. secretory, proliferative.'),
@@ -552,6 +567,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Methamphetamine_Use','','Whether the patient reports methamphetamine use.'),
  ('Methaqualone_Use','','Whether the patient reports methaqualone use.'),
  ('Method','','The analytical method used, e.g. LC-MS/MS.'),
+ ('MethylationProtocol','','The methylation library protocol: WGBS, RRBS, PBAT, scBS-seq or NOMe-seq.'),
  ('MinSeedingDensity','','The minimum cell density the culture was seeded at.'),
  ('MiniKnowVersion','','The version of MinKNOW used to run the sequencer.'),
  ('MismatchPercent','','Mismatched bases (NM tag) as a percentage of aligned bases (samtools stats error rate).'),
@@ -575,6 +591,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('N50','','The N50 read or contig length for this run.'),
  ('N50Units','','Unit for the N50 value, e.g. kb.'),
  ('NKC_Name','','The natural killer cell source used in this assay.'),
+ ('NSC','','Normalized strand cross-correlation coefficient from phantompeakqualtools (SPP): the cross-correlation at the fragment length over its background minimum. A ratio; ENCODE reads above 1.05 as enrichment.'),
  ('Name','','The identifier the submitting lab uses for this sample.'),
  ('NecropsyDate','','The date the animal was necropsied.'),
  ('Needle','','The needle used to form the droplet, with gauge and material.'),
@@ -627,6 +644,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Path_PrimaryData','','Filesystem path to the primary data file on the storage server.'),
  ('PathologyReport','','Whether a pathology report exists for this patient.'),
  ('PeakConcUnits','','Unit for the Peak Conc value, e.g. pg/uL, ng/uL.'),
+ ('PeakCount','','Number of peaks in this peak set, as the peak caller (MACS) wrote them.'),
  ('PerfusingDate','','The date perfusion of the device began.'),
  ('PerinatalHealth','','Whether there were perinatal health complications.'),
  ('Phage','','The phage strain used, e.g. lambda EG10.'),
@@ -689,6 +707,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('RADR_Count','','Count of RaDR foci measured in this image.'),
  ('RIN','','The RNA Integrity Number for this sample, from 1 to 10.'),
  ('RRID','','The Research Resource Identifier for this antibody, e.g. AB_394293.'),
+ ('RSC','','Relative strand cross-correlation coefficient from phantompeakqualtools (SPP): the fragment-length cross-correlation over the read-length (phantom) peak, both above background. A ratio; ENCODE reads above 0.8 as enrichment.'),
  ('R_bp','','Read length in base pairs of the reverse mate. Leave blank for single-end runs.'),
  ('Race','','The patient''s self-reported race.'),
  ('RadiationSource','','The X-ray source used, e.g. Al K-alpha.'),
@@ -839,6 +858,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('TOCStart','','Total organic carbon measured at the start of the deployment.'),
  ('TOCStartTime','','Clock time at which the start-of-deployment TOC reading was taken.'),
  ('TOCUnits','','Unit for the TOC value, e.g. ppm, parts per million.'),
+ ('TSSEnrichment','','TSS enrichment score from ataqv: read coverage at transcription start sites over flanking background; higher means better signal to noise in an ATAC-seq library.'),
  ('TST_Result','','The patient''s tuberculin skin test result.'),
  ('TTDCulture','','The time-to-detection result from culture.'),
  ('Targets','','The molecular targets imaged or assayed, comma-separated.'),

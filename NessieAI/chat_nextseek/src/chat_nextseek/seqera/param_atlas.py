@@ -18,6 +18,29 @@ from chat_nextseek.seqera.pipeline_params import _load_pipeline_doc, load_pipeli
 ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_param_atlas.json"
 
 _VALID_TARGETS = {"row_column", "run_param"}
+#: Where a row_column spec's unclear verdicts (conflict, absent) are confirmed instead of being
+#: asked at write_samplesheet: "pairing_table" is sarek's tumour/normal table in configure_run.
+_VALID_CONFIRM_IN = {"pairing_table"}
+
+
+def _check_detect_only(where: str, spec: dict) -> None:
+    """A detect_only spec never derives a value: detecting its signal means "ask the user"
+    (the 2026-08-27 ruling for file-path params such as a capture kit's BED)."""
+    if spec.get("target") != "run_param":
+        raise ParamAtlasError(f"Param spec {where} is detect_only, so its target must be run_param")
+    det = spec.get("detect")
+    if not (isinstance(det, dict) and det.get("signal")
+            and isinstance(det.get("markers"), list) and det["markers"]):
+        raise ParamAtlasError(
+            f"Param spec {where} is detect_only and needs detect.signal and non-empty detect.markers")
+    if not str((spec.get("ask") or {}).get("on_detect") or "").strip():
+        raise ParamAtlasError(f"Param spec {where} is detect_only and needs ask.on_detect")
+    for corr in spec.get("corroborate_with") or []:
+        if not (isinstance(corr, dict) and corr.get("signal")
+                and isinstance(corr.get("markers"), list) and corr["markers"]):
+            raise ParamAtlasError(
+                f"Param spec {where} is detect_only; each corroborate_with entry needs "
+                "a signal and non-empty markers")
 
 
 class ParamAtlasError(Exception):
@@ -56,11 +79,26 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
                 raise ParamAtlasError(
                     f"Param spec {where} has target {spec.get('target')!r}; "
                     f"must be one of {sorted(_VALID_TARGETS)}")
+            if "confirm_in" in spec:
+                if spec["confirm_in"] not in _VALID_CONFIRM_IN:
+                    raise ParamAtlasError(
+                        f"Param spec {where} has confirm_in {spec['confirm_in']!r}; "
+                        f"must be one of {sorted(_VALID_CONFIRM_IN)}")
+                if spec.get("target") != "row_column":
+                    raise ParamAtlasError(f"Param spec {where} sets confirm_in, so its target must be row_column")
+            if spec.get("detect_only"):
+                _check_detect_only(where, spec)
+                continue
             if not (isinstance(spec.get("allowed"), list) and spec["allowed"]):
                 raise ParamAtlasError(f"Param spec {where} has no non-empty 'allowed' list")
             df = spec.get("derive_from")
             if not (isinstance(df, dict) and df.get("signal") and isinstance(df.get("map"), dict)):
                 raise ParamAtlasError(f"Param spec {where} needs derive_from.signal and derive_from.map")
+            if "ambiguous_markers" in spec:
+                am = spec["ambiguous_markers"]
+                if not (isinstance(am, list) and am and all(isinstance(m, str) and m for m in am)):
+                    raise ParamAtlasError(
+                        f"Param spec {where} ambiguous_markers must be a non-empty list of non-empty strings")
             if spec.get("on_absent") == "use_default" and spec.get("default") is None:
                 raise ParamAtlasError(f"Param spec {where} sets on_absent=use_default but has no 'default'")
 
@@ -161,7 +199,8 @@ def required_signals(pipeline_key: str, atlas: dict | None = None) -> set[str]:
     """Every metadata field the pipeline's specs reference (derive + corroborators)."""
     out: set[str] = set()
     for spec in _params(pipeline_key, atlas).values():
-        out.add(spec["derive_from"]["signal"])
+        primary = spec["detect"] if spec.get("detect_only") else spec["derive_from"]
+        out.add(primary["signal"])
         for corr in spec.get("corroborate_with") or []:
             if corr.get("signal"):
                 out.add(corr["signal"])
@@ -174,12 +213,34 @@ def _hits(text: Any, markers: list[str] | None) -> bool:
     return any(str(m).lower() in t for m in (markers or []))
 
 
-def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]]) -> str | list:
-    """One signal's vote: an allowed value, "" for silent, or a list for ambiguous (>1)."""
+def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]],
+                 ambiguous_markers: list[str] | None = None) -> str | list:
+    """One signal's vote: an allowed value, "" for silent, or a list for ambiguous (>1).
+
+    A value containing an ambiguous marker votes ambiguous whatever else it hits."""
+    if _hits(value, ambiguous_markers):
+        return list(allowed)
     voted = [a for a in allowed if _hits(value, marker_map.get(a))]
     if not voted:
         return ""
     return voted[0] if len(voted) == 1 else voted
+
+
+def _evaluate_detection(spec: dict, signals: dict) -> dict[str, Any]:
+    checks = [(spec["detect"]["signal"], spec["detect"]["markers"])]
+    checks += [(c["signal"], c.get("markers")) for c in spec.get("corroborate_with") or []]
+    hits = [signal for signal, markers in checks if _hits(signals.get(signal), markers)]
+    if hits:
+        return {"value": None, "verdict": "needs_value",
+                "evidence": f"detected in {', '.join(hits)}"}
+    return {"value": None, "verdict": "not_detected",
+            "evidence": f"nothing in {', '.join(s for s, _ in checks)}"}
+
+
+#: Verdicts backed by the metadata: only these may overrule a value the user gave.
+DECISIVE_VERDICTS = frozenset({"corroborated", "derived_uncorroborated"})
+#: Verdicts that may fill a param nobody set; ``defaulted`` is the spec's safe default.
+FILL_VERDICTS = DECISIVE_VERDICTS | {"defaulted", "user_confirmed"}
 
 
 def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
@@ -191,16 +252,26 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
       conflict                two signals vote different values, or one signal is internally ambiguous
       absent                  no signal resolves any value
       defaulted               verdict would be absent, but the spec declares a safe default
+      needs_value             detect_only: a signal detected the case; the user must supply the value
+      not_detected            detect_only: no signal detected it; the param is not needed
+
+    Optional spec field ``ambiguous_markers``: a signal (primary or corroborator) whose value
+    contains one of these case-insensitive substrings votes ambiguous, as if it hit more than one
+    allowed value, so the verdict is ``conflict`` and the user is asked. Use it for phrases that
+    contain a marker but flip its meaning ("non-tumor", "abnormal").
     """
+    if spec.get("detect_only"):
+        return _evaluate_detection(spec, signals)
     allowed = spec["allowed"]
     df = spec["derive_from"]
     primary_sig = df["signal"]
-    primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"])
+    amb = spec.get("ambiguous_markers")
+    primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"], amb)
 
     votes: list[tuple[str, Any]] = [(primary_sig, primary_vote)]
     for corr in spec.get("corroborate_with") or []:
         marker_map = {a: corr.get(f"{a}_markers") for a in allowed}
-        votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map)))
+        votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map, amb)))
 
     ambiguous = [s for s, v in votes if isinstance(v, list)]
     decided = {v for _, v in votes if isinstance(v, str) and v}
@@ -235,8 +306,8 @@ _ROW_UID_KEYS = ("sample", "Sample")
 
 
 # user_confirmed: the user answered an ask for this param (written by confirm_user_answer).
+# It is never corrected: a value that disagrees with it is asked again.
 _ASK_VERDICTS = ("conflict", "absent")
-_DECISIVE_VERDICTS = ("corroborated", "derived_uncorroborated", "defaulted", "user_confirmed")
 
 
 def _leaf_verdict(evidence: dict, uid: str, param: str) -> dict | None:
@@ -252,6 +323,10 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
     derived_value) where a decisive verdict disagrees with what the row carries.
     A row that disagrees with a user_confirmed verdict is asked, not corrected:
     only the user can change what the user confirmed.
+
+    A spec with ``confirm_in`` is not asked here: its conflict/absent rows are confirmed
+    later, where it names (``pairing_table``: sarek's tumour/normal table, built by
+    ``seqera.pairing`` in configure_run). Its corrections stand.
     """
     ask_by_param: dict[str, list[str]] = {}
     ask_specs: dict[str, dict] = {}
@@ -268,10 +343,16 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
                 continue
             v = verdict.get("verdict")
             disagrees = str(row.get(name)) != str(verdict.get("value"))
-            if v in _ASK_VERDICTS or (v == "user_confirmed" and disagrees):
+            if v in _ASK_VERDICTS:
+                if spec.get("confirm_in"):
+                    continue
                 ask_by_param.setdefault(name, []).append(uid)
                 ask_specs[name] = spec
-            elif v in _DECISIVE_VERDICTS and disagrees:
+            elif v == "user_confirmed" and disagrees:
+                ask_by_param.setdefault(name, []).append(uid)
+                ask_specs[name] = spec
+            # A defaulted verdict is a fallback, not evidence: a value the user gave stands.
+            elif v in DECISIVE_VERDICTS and disagrees:
                 corrections.append((uid, name, verdict.get("value")))
     return _asks(ask_by_param, ask_specs, corrections)
 
@@ -279,8 +360,9 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
 def check_run_params(pipeline_key: str, params: dict, evidence: dict,
                      atlas: dict | None = None) -> dict[str, Any]:
     """Run-scope analog: a run_param whose leaves conflict/absent must be asked;
-    if the supplied value disagrees with a unanimous decisive verdict, correct it,
-    unless the user confirmed that verdict, in which case ask again."""
+    if the supplied value disagrees with a unanimous verdict that some leaf's metadata
+    decided, correct it, unless the user confirmed that verdict, in which case ask
+    again. A value only the default backs never overrules the user's."""
     ask_by_param: dict[str, list[str]] = {}
     ask_specs: dict[str, dict] = {}
     corrections: list[tuple[str, str, str]] = []
@@ -290,6 +372,12 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
         per_leaf = {uid: (pv.get(name) or {}) for uid, pv in (evidence or {}).items()
                     if (pv or {}).get(name)}
         if not per_leaf:
+            continue
+        if spec.get("detect_only"):
+            needs = [u for u, v in per_leaf.items() if v.get("verdict") == "needs_value"]
+            if needs and (params or {}).get(name) in (None, ""):
+                ask_by_param[name] = needs
+                ask_specs[name] = spec
             continue
         if any(v.get("verdict") in _ASK_VERDICTS for v in per_leaf.values()):
             ask_by_param[name] = [u for u, v in per_leaf.items() if v.get("verdict") in _ASK_VERDICTS]
@@ -303,7 +391,9 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
             ask_by_param[name] = list(per_leaf)
             ask_specs[name] = spec
             continue
-        if len(values) == 1 and (params or {}).get(name) is not None:
+        decided = any(v.get("verdict") in DECISIVE_VERDICTS | {"user_confirmed"}
+                      for v in per_leaf.values())
+        if len(values) == 1 and decided and (params or {}).get(name) is not None:
             derived = next(iter(values))
             if str(params.get(name)) != str(derived):
                 if any(v.get("verdict") == "user_confirmed" for v in per_leaf.values()):
@@ -362,10 +452,15 @@ def render_param_elicitation(ask_specs: dict[str, dict], ask_uids: list[str], ev
         if absent:
             lines.append(f"  - {str(ask.get('on_absent', 'No evidence.')).strip()}")
             lines.append(f"    affected: {', '.join(sorted(absent))}")
+        detected = [u for u in ask_uids
+                    if (_leaf_verdict(evidence, u, name) or {}).get("verdict") == "needs_value"]
+        if detected:
+            lines.append(f"  - {str(ask.get('on_detect', '')).strip()}")
+            lines.append(f"    affected: {', '.join(sorted(detected))}")
         disagreeing = [u for u in ask_uids
                        if u not in conflict and u not in absent
                        and (_leaf_verdict(evidence, u, name) or {}).get("verdict")
-                       in ("corroborated", "derived_uncorroborated")]
+                       in DECISIVE_VERDICTS]
         if disagreeing:
             lines.append("  - these samples disagree on the value:")
             lines.append(f"    affected: {', '.join(sorted(disagreeing))}")

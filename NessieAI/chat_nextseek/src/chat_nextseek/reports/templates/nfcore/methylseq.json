@@ -2,8 +2,13 @@
   "report_type": "NFCORE_METHYLSEQ_SAMPLESHEET",
   "description": "nf-core/methylseq samplesheet context for WGBS / RRBS / EM-seq analyses.",
   "params": {
-    "save_reference": {"type": "bool", "default": true, "steerable": true},
-    "multiqc_title":  {"type": "string", "default": null, "steerable": true}
+    "aligner":          {"type": "enum", "allowed": ["bismark", "bwameth"], "default": "bismark", "steerable": true, "help": "Alignment tool to use. The schema also lists 'bismark_hisat' and 'bwamem', which are not offered here: HISAT2 is for splice-aware RNA work, and bwamem is the TAPS aligner."},
+    "rrbs":             {"type": "bool", "default": false, "steerable": true, "help": "Turn on if dealing with MspI digested material. Also makes the pipeline skip the deduplication step."},
+    "em_seq":           {"type": "bool", "default": false, "steerable": true, "help": "Preset for EM-seq libraries."},
+    "pbat":             {"type": "bool", "default": false, "steerable": true, "help": "Preset for working with PBAT libraries."},
+    "cytosine_report":  {"type": "bool", "default": false, "steerable": true, "help": "Output stranded cytosine report, following Bismark's bismark_methylation_extractor step."},
+    "save_reference":   {"type": "bool", "default": true, "steerable": true, "help": "Save reference(s) to results directory"},
+    "multiqc_title":    {"type": "string", "default": null, "steerable": true}
   },
   "reference_resources": ["fasta"],
   "pipeline": {
@@ -11,13 +16,15 @@
     "repository": "https://github.com/nf-core/methylseq",
     "documentation_url": "https://nf-co.re/methylseq/latest/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Required columns: sample, fastq_1, fastq_2.",
+    "core_rule": "Required columns are: sample, fastq_1. fastq_2 is blank for single-end libraries; the optional genome column names a reference genome per row.",
     "required_columns": [
       "sample",
-      "fastq_1",
-      "fastq_2"
+      "fastq_1"
     ],
-    "optional_columns": []
+    "optional_columns": [
+      "fastq_2",
+      "genome"
+    ]
   },
   "samplesheet_template": [
     {
@@ -27,9 +34,10 @@
     }
   ],
   "validation_rules": [
-    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths.",
-    "Single-end libraries leave fastq_2 blank but retain the column header.",
-    "Methylation kit/protocol (e.g., bismark vs bwameth) is selected via pipeline params, not the samplesheet."
+    "sample has no spaces; rows with the same sample value are re-sequenced runs of one sample, and the pipeline concatenates their reads before the alignment.",
+    "fastq_1/fastq_2 must be gzipped FASTQ files ending in .fastq.gz or .fq.gz; the pipeline detects single-end from a blank fastq_2.",
+    "genome is optional and per row; leave it blank and set the reference once for the run.",
+    "The library type (WGBS vs RRBS vs EM-seq vs PBAT) and the aligner (bismark vs bwameth) are set by pipeline params, not by the samplesheet."
   ],
   "report_writer_guidance": {
     "population_priority": [

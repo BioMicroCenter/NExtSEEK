@@ -232,9 +232,13 @@ prerequisites, how to extend it and how to read a failure.
 In `ci-pytest.yml` a failing test in the lanes never fails the job. The lanes
 step fails only when pytest did not run at all (an exit code above 1, such as 4
 for a lane path that no longer exists), and the differ always exits 0 by
-decision (`ci/diff_baseline.py:8-9`). So three steps can fail that job, as the
-comment above the gate step says: the lanes step when the lanes did not run,
-`uv run pytest ci/gate -q`, and the blocking unit tests step. The gate step
+decision (`ci/diff_baseline.py:8-9`). So the steps that can fail that job are the
+ones the comment above the gate step lists: the lanes step when the lanes did not run,
+`uv run pytest ci/gate -q`, the migration check, the blocking unit tests step, and the
+plugin `bin/` dispatch step, which runs the Container-CC plugin's shim tests
+(`NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/tests/`) in the
+cc-runtime environment with the command of the "Plugin `bin/` dispatch" row of
+`NessieAI/tests/README.md`. The gate step
 holds the route registry completeness gate, the route-effects checks (every
 writer a route names exists, and every writer a route enters is named by one),
 the writer registry gate (`ci/writers.py` and the scan agree in both

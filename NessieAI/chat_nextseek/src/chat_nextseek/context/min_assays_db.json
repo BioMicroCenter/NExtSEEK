@@ -718,5 +718,10 @@
     "Name": "miRNA Discovery Analysis",
     "Description": "miRNA discovery identifies known and novel microRNAs from small RNA sequencing. Reads are collapsed, mapped to the genome and scored by miRDeep2, which models the secondary structure and read signature of each candidate precursor and estimates how many novel calls are true at a given score cutoff. Results are produced per sequencing sample.",
     "Tags": "microRNA, miRNA discovery, novel miRNA, small RNA sequencing, miRDeep2, miRBase, nf-core/smrnaseq"
+  },
+  {
+    "Name": "Methylation Calling",
+    "Description": "Methylation calling measures cytosine methylation from bisulfite, enzymatic (EM-seq) or TAPS sequencing. Reads are aligned to a converted reference (Bismark, bwa-meth or bwa-mem), duplicates are removed or marked, and the methylation state of each covered cytosine is read from the conversions in the reads (Bismark methylation extractor, MethylDackel), giving per-CpG methylation levels with their read counts. One result is produced per sequencing sample.",
+    "Tags": "DNA methylation, methylation calling, bisulfite sequencing, WGBS, RRBS, EM-seq, TAPS, CpG methylation, Bismark, MethylDackel, nf-core/methylseq"
   }
 ]
