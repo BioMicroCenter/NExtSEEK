@@ -1,5 +1,6 @@
 {
   "_name": "probe-2026-10-30-tcga-lineage - TCGA erlotinib and the mapping link",
+  "_superseded": "2026-11-09: retired with the TCGA rollback (operator 11-06: TCGA's sequencing is D.SEQ again, not A.ALN). Its A.ALN codes and the measured 54 describe the old shape; do not run it. The corpus cases graph.tcga_erlotinib_with_sequencing, graph.tcga_lung_patients_with_sequencing and graph.tcga_count_patients_with_sequencing (now D.SEQ) replace it.",
   "_why": "On 10-26 and 10-28 the unforced erlotinib question returned 0 (tasks 2586, 2829: T_D_SEQ required; TCGA holds sequencing as A.ALN; #143). Eight turns, one fresh chat each, plus the two consistency turns --tier full adds, PAID: needs the operator's go. Dev only.",
   "_instance_warning": "Dev only: TCGA is on dev, not on production. The number 54 was measured on dev on 10-28; the runner re-pins every count on the box with pin_probe_truths.py.",
   "_measure": {
