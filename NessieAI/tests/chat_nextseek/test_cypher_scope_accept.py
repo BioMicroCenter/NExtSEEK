@@ -137,8 +137,8 @@ def test_report_statements_are_proven(tmp_path):
         out = scope_cypher(cypher, params, CALLER)
         assert isinstance(out, Scoped), getattr(out, "reasons", out)
         # the published report (the third statement) matches the investigations of the project its name resolved to,
-        # and also asks whether a sample sits in a paper study
-        project = ("proj: project clause",) if n == 2 else ()
+        # requires each sample to be the project's own (own), and also asks whether a sample sits in a paper study
+        project = ("proj: project clause", "own: project clause") if n == 2 else ()
         assert out.injected == ("s: sample clause",) + project
         paper = ("pub (Study): joined to s",) if n == 2 else ()
         assert out.joined == ("inv (Investigation): joined to study", "study (Study): joined to s") + paper
