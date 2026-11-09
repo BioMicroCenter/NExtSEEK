@@ -288,6 +288,19 @@ def agent_param_names(pipeline_key: str) -> set[str]:
     return set(ctx.get("params") or {}) | set(ctx.get("reference_resources") or []) | {"genome"}
 
 
+# nf-core/rnaseq 3.18.0 (validateInputParameters) stops at start when with_umi is set, extraction is not skipped
+# and neither barcode pattern is given. Checked on the merged params, so a curated empty default counts as empty.
+_UMI_NEEDS_PATTERN = ("with_umi param is set but neither umitools_bc_pattern nor umitools_bc_pattern2 is: "
+                      "UMI extraction needs a barcode pattern (or skip_umi_extract).")
+
+
+def _cross_param_errors(params: dict[str, Any]) -> list[str]:
+    if (params.get("with_umi") and not params.get("skip_umi_extract")
+            and not params.get("umitools_bc_pattern") and not params.get("umitools_bc_pattern2")):
+        return [_UMI_NEEDS_PATTERN]
+    return []
+
+
 def build_run_params(
     pipeline_key: str,
     agent_params: dict[str, Any] | None,
@@ -336,4 +349,7 @@ def build_run_params(
     merged.update(ref_params)
     # agent overrides win
     merged.update(agent_params)
+    errors = _cross_param_errors(merged)
+    if errors:
+        return {}, errors, "invalid"
     return merged, [], status

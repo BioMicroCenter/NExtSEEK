@@ -469,3 +469,25 @@ def test_every_curated_string_default_passes_when_the_agent_repeats_it():
             continue
         _, errors, _ = pp.build_run_params(f.stem, given, None)
         assert not [e for e in errors if "shell" in e or "plain" in e], (f.stem, errors)
+
+
+def test_with_umi_without_barcode_pattern_is_refused():
+    # the 29 Oct combination: separate UMI read, discard set, pattern left at its empty default
+    merged, errors, status = pp.build_run_params(
+        "rnaseq", agent_params={"with_umi": True, "umi_discard_read": 1}, bundle_key=None)
+    assert merged == {} and status == "invalid"
+    assert len(errors) == 1 and "umitools_bc_pattern" in errors[0]
+
+
+def test_with_umi_and_pattern_passes():
+    for extra in ({"umi_discard_read": 1}, {}):
+        merged, errors, _ = pp.build_run_params(
+            "rnaseq", agent_params={"with_umi": True, "umitools_bc_pattern": "NNNNNNNN", **extra}, bundle_key=None)
+        assert errors == [] and merged["umitools_bc_pattern"] == "NNNNNNNN"
+
+
+def test_umi_rule_skips_and_other_runs():
+    assert pp._cross_param_errors({"with_umi": True, "skip_umi_extract": True, "umitools_bc_pattern": ""}) == []
+    assert pp._cross_param_errors({"with_umi": True, "umitools_bc_pattern2": "NNNN"}) == []
+    assert pp._cross_param_errors({"with_umi": False, "umitools_bc_pattern": ""}) == []
+    assert pp._cross_param_errors({"aligner": "hisat2"}) == []
