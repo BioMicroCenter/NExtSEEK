@@ -144,7 +144,8 @@ def test_extraction_interval_notes_is_public():
 
 
 @pytest.mark.parametrize("note", ["DO-NOT-PUBLISH", "don\u2019t publish", "not to be published", "should not be published",
-                                  "never publish", "not for publishing", "Lower Quality, do not publish"])
+                                  "never publish", "not for publishing", "not for publication",
+                                  "Lower Quality, do not publish"])
 def test_do_not_publish_phrasings_match(note):
     _, withheld, _ = strip_internal_attributes(_md(_s("D.1", "libA", note)))
     assert len(withheld) == 1
