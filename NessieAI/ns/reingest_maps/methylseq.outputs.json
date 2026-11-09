@@ -1,0 +1,172 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/methylseq",
+  "applies_to_versions": ">=4.2,<4.3",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "qc_row_suffixes": ["_1_val_1"],
+  "inventory_globs": [
+    "**/methylation_calls/methylation_coverage/*.bismark.cov.gz",
+    "**/methylation_calls/bedGraph/*.bedGraph.gz",
+    "**/methyldackel/*_CpG.bedGraph",
+    "**/methyldackel/*_CpG.methylKit"
+  ],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["*/deduplicated/*.deduplicated.sorted.bam",
+                     "*/deduplicated/*.markdup.sorted.bam",
+                     "*/alignments/*.sorted.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "*/deduplicated/*.deduplicated.sorted.bam.bai"},
+                     {"glob": "*/deduplicated/*.markdup.sorted.bam.bai"},
+                     {"glob": "*/alignments/*.sorted.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
+        "Software": "nf-core/methylseq"
+      }
+    },
+    {
+      "id": "mseq_bismark",
+      "alternative_group": "methylation_calls",
+      "optional": true,
+      "candidates": ["*/methylation_calls/methylation_coverage/*.bismark.cov.gz"],
+      "sample_type": "A.MSEQ",
+      "assay": "Methylation Calling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "*/methylation_calls/bedGraph/*.bedGraph.gz"}],
+      "attributes": {
+        "DataType": "BISMARK_COV",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Genome": "$params.genome",
+        "Software": "Bismark methylation extractor",
+        "ConversionMethod": "@conversion_method",
+        "MethylationProtocol": "@methylation_protocol",
+        "MeanCpGMethylationPercent": "$metrics.bismark-percent_cpg_meth"
+      }
+    },
+    {
+      "id": "mseq_methyldackel",
+      "alternative_group": "methylation_calls",
+      "optional": true,
+      "candidates": ["methyldackel/*_CpG.bedGraph"],
+      "sample_type": "A.MSEQ",
+      "assay": "Methylation Calling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "attributes": {
+        "DataType": "BEDGRAPH",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Genome": "$params.genome",
+        "Software": "MethylDackel",
+        "ConversionMethod": "@conversion_method",
+        "MethylationProtocol": "@methylation_protocol"
+      }
+    },
+    {
+      "id": "mseq_methyldackel_methylkit",
+      "alternative_group": "methylation_calls",
+      "optional": true,
+      "candidates": ["methyldackel/*_CpG.methylKit"],
+      "sample_type": "A.MSEQ",
+      "assay": "Methylation Calling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "attributes": {
+        "DataType": "METHYLKIT",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Genome": "$params.genome",
+        "Software": "MethylDackel",
+        "ConversionMethod": "@conversion_method",
+        "MethylationProtocol": "@methylation_protocol"
+      }
+    }
+  ],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "MappedPercent": {"from": "bismark-percent_aligned", "target": "D.SEQ", "datatype": "number",
+                      "alternates": ["samtools_stats-reads_mapped_percent"],
+                      "note": "Bismark's percent of reads with a unique best alignment (MultiQC 1.32 bismark module, general-stats column percent_aligned). The alternate, samtools stats on the bwa-meth and bwa-mem alignments as in the rnaseq map, counts any mapped read, multimapped included, so the two paths' values do not mean the same thing. The Bismark key and its value checked against the 4.2.0 -profile test run (fixture 4.2.0-local-test, MultiQC 1.32); the alternate checked against the --aligner bwameth test run (fixture 4.2.0-local-bwameth): reads_mapped_percent is present for every sample, 1.5 for the E. coli sample and 0.0 for the three human SRR389222 subsets, which the test genome does not hold",
+                      "provenance": "seed"},
+    "DuplicationPercent": {"from": "bismark-dup_reads_percent", "target": "D.SEQ", "datatype": "number",
+                           "alternates": ["picard_mark_duplicates-PERCENT_DUPLICATION"],
+                           "note": "Bismark deduplicate's percent of alignments removed as duplicates (MultiQC 1.32 bismark module, general-stats column dup_reads_percent); the alternate is Picard MarkDuplicates on the bwa-meth and bwa-mem paths, as in the rnaseq map. The Bismark key and its value checked against the 4.2.0 -profile test run (fixture 4.2.0-local-test, MultiQC 1.32); the alternate's key seen on the --aligner bwameth test run (fixture 4.2.0-local-bwameth), on the one sample with mapped reads, as 0.0, which cannot tell a fraction from a percentage: its unit rests on the rnaseq map's reading that MultiQC after 1.22 writes general stats after the module's x100 step",
+                           "provenance": "seed"}
+  },
+  "deliberately_unmapped": [
+    {"key": "bismark-percent_chg_meth", "why": "Percentage of cytosines in CHG context called methylated (Bismark's methylation extractor). A.MSEQ records CpG methylation only (MeanCpGMethylationPercent), and no A.MSEQ or D.SEQ field holds non-CpG methylation; in mammalian DNA it is mostly a sign of incomplete bisulfite conversion. A field for it is a schema request."},
+    {"key": "bismark-percent_chh_meth", "why": "Percentage of cytosines in CHH context called methylated (Bismark's methylation extractor). A.MSEQ records CpG methylation only (MeanCpGMethylationPercent), and no A.MSEQ or D.SEQ field holds non-CpG methylation; in mammalian DNA it is mostly a sign of incomplete bisulfite conversion. A field for it is a schema request."},
+    {"key": "bismark-total_c", "why": "Number of cytosines analysed, in millions (MultiQC divides by a million): a count, and D.SEQ has no field for it."},
+    {"key": "bismark-aligned_reads", "why": "Count of uniquely aligned reads, scaled by MultiQC's read-count multiplier (millions by default); MappedPercent records the aligned share from the same Bismark report."},
+    {"key": "bismark-dedup_reads", "why": "Count of alignments left after deduplication, scaled by MultiQC's read-count multiplier (millions by default); DuplicationPercent records the duplicate share from the same report."},
+    {"key": "cutadapt-percent_trimmed", "why": "Percentage of bases (not reads) trimmed by Trim Galore; low signal, as ruled for riboseq."},
+    {"key": "fastqc-percent_gc", "why": "methylseq runs FastQC twice (raw reads, then Trim Galore's trimmed reads) under one MultiQC fastqc section, and a single-end sample's two reports get the same row name, so MultiQC keeps one and overwrites the other: which reads the value describes is unknown. Bisulfite conversion also leaves read GC near 20 percent whatever the library."},
+    {"key": "fastqc-avg_sequence_length", "why": "methylseq's raw and trimmed FastQC reports share one row name for a single-end sample and MultiQC overwrites one with the other, so this may be the length after trimming, not the sequenced read length F_bp means."},
+    {"key": "fastqc-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Bismark deduplicate or Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "fastqc-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "samtools_flagstat-mapped_passed_pct", "why": "samtools flagstat's mapped share on the bwa-meth path; MappedPercent reads samtools stats' reads_mapped_percent from the same alignment."},
+    {"key": "samtools_flagstat-mapped_passed", "why": "A count of mapped reads (MultiQC's millions); MappedPercent records the share."},
+    {"key": "samtools_flagstat-flagstat_total", "why": "A count of alignments (MultiQC's millions), not a measure of the sample."},
+    {"key": "samtools_stats-error_rate", "why": "On the bwa-meth and bwa-mem paths, samtools counts every bisulfite C-to-T (or TAPS) conversion as a mismatch against the reference, so the rate measures conversion as much as sequencing error; MismatchPercent would mislead."},
+    {"key": "samtools_stats-raw_total_sequences", "why": "BAM-record count in millions, both mates of a pair counted: no stand-in for TotalReads."},
+    {"key": "samtools_stats-reads_mapped", "why": "BAM-record count in millions; MappedPercent records the mapped share."},
+    {"key": "samtools_stats-non_primary_alignments", "why": "Secondary and supplementary BAM records, in millions: a record count, not a share, and D.SEQ has no attribute for it."},
+    {"key": "samtools_stats-reads_properly_paired_percent", "why": "Sits near 100 on paired-end bwa alignments and is absent for single-end data, so it tells samples apart by nothing."},
+    {"key": "samtools_stats-reads_MQ0_percent", "why": "Reads with mapping quality 0: as much a property of the reference's repeats as of the library, and not the multimapped share MultimappedPercent holds."},
+    {"key": "samtools_stats-insert_size_average", "why": "Mean insert size of the aligned pairs. D.SEQ has no insert-size attribute; one would be a schema request, not a mapping."}
+  ],
+  "unmapped_files": [
+    {"glob": "*/alignments/logs/*", "why": "Bismark's alignment reports (bismark and bismark_hisat); their numbers are read through MultiQC."},
+    {"glob": "*/alignments/samtools_stats/*", "why": "samtools stats, flagstat and idxstats on the bwa-meth and bwa-mem alignments; their numbers are read through MultiQC."},
+    {"glob": "*/alignments/unmapped/*", "why": "Unmapped reads as FASTQ (with --unmapped): leftovers of the alignment, not a result."},
+    {"glob": "*/alignments/*_bismark_{bt2,hisat2}*.bam", "why": "Bismark's unsorted alignment (with --save_align_intermeds, --skip_deduplication or --rrbs): the same reads as the sorted BAM the aln rule registers, before sorting."},
+    {"glob": "*/alignments/*.bam", "except_globs": ["*/alignments/*.sorted.bam"], "why": "bwa-meth's unsorted alignment, <sample>.bam (with --save_align_intermeds; seen in the 4.2.0 snapshot test 'Params: bwameth with save_reference and save_align_intermeds'): the same reads as the sorted BAM the aln rule registers, before sorting, ruled out as Bismark's is."},
+    {"glob": "*/deduplicated/logs/*", "why": "Bismark deduplication reports; the duplicate share is read through MultiQC."},
+    {"glob": "*/deduplicated/picard_metrics/*", "why": "Picard MarkDuplicates metrics on the bwa-meth and bwa-mem paths; the duplicate share is read through MultiQC."},
+    {"glob": "*/methylation_calls/methylation_calls/*", "why": "Bismark's per-read, per-context cytosine calls (CpG, CHG, CHH by strand): large, and every CpG value in them is summarised in the coverage file the mseq_bismark rule registers."},
+    {"glob": "*/methylation_calls/bedGraph/*.targeted.bedGraph", "why": "The bedGraph limited to the target BED (with --run_targeted_sequencing): a subset of the registered row's bedGraph companion, and A.MSEQ has no Notes to carry a second companion."},
+    {"glob": "*/coverage2cytosine/*", "why": "Bismark coverage2cytosine reports and coverage (with --cytosine_report or --nomeseq): no rule yet (see \"Outputs with no rule yet\" in the README)."},
+    {"glob": "methyldackel/*_{CHG,CHH}.{bedGraph,methylKit}", "why": "MethylDackel's non-CpG calls (with --all_contexts), as bedGraph or, with --methyl_kit, methylKit: no rule yet, and A.MSEQ has one secondary-file slot and no Notes (see \"Outputs with no rule yet\" in the README)."},
+    {"glob": "methyldackel/*.targeted.bedGraph", "why": "MethylDackel's calls limited to the target BED (with --run_targeted_sequencing): a subset of the registered CpG bedGraph."},
+    {"glob": "rastair/{call,methylkit}/*", "why": "Rastair's TAPS methylation calls on the bwa-mem path: no rule yet (see \"Outputs with no rule yet\" in the README)."},
+    {"glob": "*/methylation_calls/{mbias,splitting_report}/*", "why": "Bismark's M-bias tables and methylation-extractor reports: QC read through MultiQC."},
+    {"glob": "methyldackel/mbias/*", "why": "MethylDackel's M-bias tables: QC of the extraction, not a result."},
+    {"glob": "rastair/{mbias,mbiasparser}/*", "why": "Rastair's conversion-by-position tables and the trimming they set for its caller: QC and an intermediate, not a result."},
+    {"glob": "*/reports/*", "why": "Bismark's per-sample HTML reports; their numbers are read through MultiQC."},
+    {"glob": "*/summary/*", "why": "Bismark's run summary report; its numbers are read through MultiQC."},
+    {"glob": "*/qualimap/*", "why": "Qualimap BamQC reports (with --run_qualimap); their numbers are read through MultiQC."},
+    {"glob": "*/preseq/*", "why": "Preseq library-complexity curves (with --run_preseq): plotted in MultiQC, not a sample result."},
+    {"glob": "enrichment_metrics/*", "why": "Picard CollectHsMetrics on target-capture runs (with --run_targeted_sequencing and --collecthsmetrics); read through MultiQC."},
+    {"glob": "*/reference_genome/*", "why": "Aligner indexes built from the reference (with --save_reference): reference files, not sample data."},
+    {"glob": "fastqc/*", "why": "FastQC reports on the raw reads; their numbers are read through MultiQC."},
+    {"glob": "trimgalore/*", "why": "Trim Galore logs, FastQC of the trimmed reads, and the trimmed reads themselves (with --save_trimmed): an intermediate of the registered alignment."},
+    {"glob": "cat/*", "why": "Lanes of one sample concatenated into one FASTQ: an input to the alignment, not a result."}
+  ]
+}

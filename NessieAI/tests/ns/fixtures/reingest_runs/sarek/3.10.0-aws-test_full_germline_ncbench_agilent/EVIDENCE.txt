@@ -1,0 +1,1 @@
+Evidence: nf-core/sarek 3.10.0 AWS results, S3 bucket nf-core-awsmegatests, prefix sarek/results-8ccac7ad37b05dd792447763bf9671b719824587/test_full_germline_ncbench_agilent/, listed 2026-10-23. MultiQC tables downloaded: 7; other files are inventory only.

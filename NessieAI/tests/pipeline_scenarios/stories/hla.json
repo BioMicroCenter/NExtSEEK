@@ -1,0 +1,69 @@
+{
+  "family": "hla",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "rnavar",
+        "smrnaseq",
+        "scrnaseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "accepted",
+        "date": "2026-10-26",
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
+      },
+      "id": "hla-alleles",
+      "question": "Which HLA alleles does this donor carry?",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "rnavar"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "accepted",
+        "date": "2026-10-26",
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
+      },
+      "id": "dna-hla-from-wgs",
+      "question": "Which HLA class I alleles does each donor have, from their whole-genome sequencing?",
+      "cohort": "test::human_wgs_germline",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+      }
+    }
+  ]
+}

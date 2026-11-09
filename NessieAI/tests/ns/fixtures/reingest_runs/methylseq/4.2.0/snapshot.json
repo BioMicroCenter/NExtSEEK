@@ -1,0 +1,33 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.ALN"
+  },
+  "mseq_bismark": {
+   "attributes": [
+    "ConversionMethod",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "MethylationProtocol",
+    "Name",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.MSEQ"
+  }
+ },
+ "warnings": []
+}

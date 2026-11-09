@@ -1,0 +1,141 @@
+{
+  "name": "chip",
+  "description": "ChIP-seq for H3K27ac with an input control, two replicates (nf-core chipseq test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-CHIP-cells1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "MCF-7",
+          "Type": "Breast adenocarcinoma cell line",
+          "Tissue": "Breast"
+        },
+        {
+          "Name": "NTC-CHIP-cells2",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "MCF-7",
+          "Type": "Breast adenocarcinoma cell line",
+          "Tissue": "Breast"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-CHIP-h3k27ac-lib1",
+          "Parent": "NTC-CHIP-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "ChIP library",
+          "Protocol": "ChIP with anti-H3K27ac (Abcam ab4729), 5 ug per IP, NEBNext Ultra II DNA",
+          "Lab": "Test Lab",
+          "Barcode": "GGACTCCT"
+        },
+        {
+          "Name": "NTC-CHIP-input-lib1",
+          "Parent": "NTC-CHIP-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "Input library",
+          "Protocol": "Input control: sonicated chromatin without immunoprecipitation, NEBNext Ultra II DNA",
+          "Lab": "Test Lab",
+          "Barcode": "CTCTCTAC"
+        },
+        {
+          "Name": "NTC-CHIP-h3k27ac-lib2",
+          "Parent": "NTC-CHIP-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "ChIP library",
+          "Protocol": "ChIP with anti-H3K27ac (Abcam ab4729), 5 ug per IP, NEBNext Ultra II DNA",
+          "Lab": "Test Lab",
+          "Barcode": "TAGGCATG"
+        },
+        {
+          "Name": "NTC-CHIP-input-lib2",
+          "Parent": "NTC-CHIP-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "Input library",
+          "Protocol": "Input control: sonicated chromatin without immunoprecipitation, NEBNext Ultra II DNA",
+          "Lab": "Test Lab",
+          "Barcode": "CGAGGCTG"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-CHIP-h3k27ac-1",
+          "Parent": "NTC-CHIP-h3k27ac-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "H3K27ac_REP1_R1.fastq.gz, H3K27ac_REP1_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
+          "SequencingType": "ChIP-seq",
+          "LibraryStrategy": "ChIP-Seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "ChIP",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75,
+          "R_bp": 75
+        },
+        {
+          "Name": "NTC-CHIP-input-1",
+          "Parent": "NTC-CHIP-input-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "INPUT_REP1_R1.fastq.gz, INPUT_REP1_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
+          "SequencingType": "ChIP-seq input",
+          "LibraryStrategy": "ChIP-Seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75,
+          "R_bp": 75
+        },
+        {
+          "Name": "NTC-CHIP-h3k27ac-2",
+          "Parent": "NTC-CHIP-h3k27ac-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "H3K27ac_REP2_R1.fastq.gz, H3K27ac_REP2_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
+          "SequencingType": "ChIPseq",
+          "LibraryStrategy": "ChIP-Seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "ChIP",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75,
+          "R_bp": 75
+        },
+        {
+          "Name": "NTC-CHIP-input-2",
+          "Parent": "NTC-CHIP-input-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "INPUT_REP2_R1.fastq.gz, INPUT_REP2_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
+          "SequencingType": "ChIP-seq (input control)",
+          "LibraryStrategy": "ChIP-Seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75,
+          "R_bp": 75
+        }
+      ]
+    }
+  ]
+}

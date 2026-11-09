@@ -19,6 +19,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | `api/` | the AI HTTP and websocket surface, and `test_nessie_boundaries.py` |
 | `schema_rag/` | schema retrieval |
 | [`chat_nextseek/`](chat_nextseek/README.md) | the NS engine, including `evaluator/` |
+| [`pipeline_scenarios/`](pipeline_scenarios/README.md) | the question → route → pipeline stories, the paid runner, the CI replay of its recorded answers |
 | `build_tools/` | the surface generators |
 | [`e2e/`](e2e/README.md) | the catalog-driven end-to-end DSL (`python -m NessieAI.tests.e2e`) |
 | `nessie_tests/` | the router-aware harness, its corpus and the two review playbooks |
@@ -28,6 +29,8 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Lane | Runtime | Command | Where to run | Cost |
 |---|---|---|---|---|
 | Django AI suites | app image | "Django lane" block below, with one or more `NessieAI/tests/<area>` paths | host, throwaway container | free |
+| Pipeline scenarios replay | app image | "Django lane" block below with `NessieAI/tests/pipeline_scenarios` and `-e PYTHONPATH=/src:/src/NessieAI/chat_nextseek/src:/src/NessieAI/dmac_assistant/src` | host, throwaway container | free |
+| Pipeline scenarios paid eval | live app container | `docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_scenarios.run [--ids ...] --yes` | inside `nextseek` | PAID, approval per run |
 | MySQL concurrency lane (lane M) | app image beside a throwaway MySQL 8.0 | "MySQL concurrency lane" block below | host, over a writable copy | free |
 | CC clean lane | live app container | "CC clean lane" block below | inside `nextseek`, which runs the baked image | free |
 | CC hermetic | host uv | "CC hermetic lane" block below | repo root | free |
@@ -42,7 +45,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Real-stack acceptance | live app container | "Paid acceptance" block below | inside `nextseek` | PAID, approval per run |
 | Acceptance bundle re-check | host or container | "Bundle re-check" block below | repo root | free |
 | cc-runtime unit | cc-runtime uv env | `cd NessieAI/docker/cc-runtime && uv run --no-project --with pytest --with polars --with fastexcel --with xlsxwriter --with orjson --with pydantic --with httpx --with websockets python -m pytest tests/unit -q -o addopts=""` | host | free |
-| Plugin `bin/` dispatch | cc-runtime uv env | `cd NessieAI/docker/cc-runtime && uv run --no-project --with pytest --with httpx --with pydantic --with websockets python -m pytest build_context/plugins/nextseek/bin/tests -q -o addopts=""` | host | free |
+| Plugin `bin/` dispatch | cc-runtime uv env | `cd NessieAI/docker/cc-runtime && uv run --no-project --with pytest --with httpx --with pydantic --with websockets python -m pytest build_context/plugins/nextseek/bin/tests -q -o addopts=""` | host; CI runs it as a blocking step of `ci-pytest.yml` | free |
 | Container start reset | host uv (needs `sh` and `jq`; the app image has no `jq`) | `PYTHONPATH="$PWD" uv run --no-project --with pytest python -m pytest NessieAI/tests/cc/test_cc_agent_folders_entrypoint.py --noconftest -p no:cacheprovider -q` | repo root | free |
 | Resume after the reset (opt-in) | docker + network: a throwaway node:22 container with the pinned Claude Code and a local Messages API stand-in | `RUN_CC_RESUME_CHECK=1 PYTHONPATH="$PWD" uv run --no-project --with pytest python -m pytest NessieAI/tests/cc/test_cc_resume_after_reset.py --noconftest -p no:cacheprovider -q -s` | repo root | free: no model is called |
 | Chat panel unit | Node | `cd NessieAI/chat_frontend && npm ci && npm run test` | host | free |

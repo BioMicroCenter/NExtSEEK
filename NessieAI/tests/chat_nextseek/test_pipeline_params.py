@@ -225,6 +225,7 @@ _TIER1_BATCH = {
     "rnavar":    ("1.3.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1"]),
     "rnafusion":  ("4.1.3", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "fastq_2", "strandedness"]),
     "rnasplice":  ("1.0.4", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "fastq_2", "strandedness", "condition"]),
+    "sarek": ("3.10.0", ["genome", "fasta"], ["patient", "sample", "lane", "fastq_1"]),
 }
 
 

@@ -21,6 +21,7 @@ import pytest
 
 import NessieAI.ns.granular as g
 from NessieAI.ns.reingest import manifest as manifest_mod
+from NessieAI.ns.reingest import mapper as mapper_mod
 from NessieAI.ns.reingest import store as store_mod
 
 pytestmark = pytest.mark.django_db
@@ -162,7 +163,8 @@ def _patch_seek_assays(monkeypatch):
     # And none of the run's files is a sample yet.
     monkeypatch.setattr(
         "nextseek_api.services.reingest_lookups.existing_uids_for_primary_files_strict",
-        lambda sample_type, files: [{"uids": [], "changed": []} for _ in files])
+        lambda sample_type, files, *, project_ids=None: [{"uids": [], "changed": []}
+                                                         for _ in files])
 
 # Default per-sample output inventory a real `run-harvest` would have found
 # for a `star_salmon`-aligned run -- matching rnaseq.outputs.json's own
@@ -286,6 +288,8 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
 _DEFAULTED_SAMPLE_RECORD_FIELDS = {
     "fastq_1", "fastq_2", "d_seq_uid_multirun",
     "strandedness_declared", "strandedness_inferred", "derived",
+    # Only a map that reads `$samplesheet.<column>` (chipseq's antibody) uses it.
+    "samplesheet",
 }
 # Fields `_sample_record` DOES set explicitly, right now.
 _EXPLICIT_SAMPLE_RECORD_FIELDS = {
@@ -960,3 +964,26 @@ def test_a_build_with_no_chat_turn_seam_records_none(rows, tmp_path, monkeypatch
     out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
                     session=_admin_session(False), outputs_dir=str(tmp_path))
     assert out["builds"] and all(b["shown_in"] is None for b in out["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_rows_from_a_reused_run_folder_reach_the_reply(rows, tmp_path, monkeypatch):
+    """The mapper's alternative_rows reach the curator's reply, not only the log: the
+    curator is the one who would upload both rows."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    real_apply = mapper_mod.apply
+
+    def apply_with_alternatives(*args, **kwargs):
+        result = real_apply(*args, **kwargs)
+        result.alternative_rows.append({
+            "sample": "SAMPLE_1", "sample_type": "A.ALN",
+            "files": [{"rule_id": "x", "path": "a/SAMPLE_1.bam"},
+                      {"rule_id": "y", "path": "b/SAMPLE_1.bam"}],
+            "other_picks": []})
+        return result
+
+    monkeypatch.setattr(mapper_mod, "apply", apply_with_alternatives)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert "SAMPLE_1 has 2 A.ALN rows" in result["reply"]

@@ -50,16 +50,17 @@ trap 'exit 143' TERM
 
 # Per-pipeline scientific params come from params.yml (built from the curated
 # per-pipeline JSON in reports/templates/nfcore/); local reference genomes come
-# from luria.config (-c). The CLI flags below (--input/--outdir/--genome)
+# from luria.config (-c). The CLI flags below (--input/--outdir + REFS_FLAGS)
 # override params.yml so the run uses the staged samplesheet, this run dir, and
-# the species-resolved genome key.
+# the species-resolved genome. REFS_FLAGS carries only the reference flags this
+# pipeline's schema declares: nf-schema rejects or warns on an unrecognised param,
+# depending on the pipeline's validation settings.
 nextflow run nf-core/rnaseq -r 3.22.2 -profile singularity \
     -c luria.config \
     -params-file params.yml \
     --input samplesheet.csv \
     --outdir . \
-    --genome GRCh38 \
-    --fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz --gtf /net/x/refs/gencode.v46.basic.annotation.gtf.gz --igenomes_ignore \
+    --genome GRCh38 --fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz --gtf /net/x/refs/gencode.v46.basic.annotation.gtf.gz --igenomes_ignore \
     -w /net/x/work/run \
     -resume
 # The exit trap above labels the run from this script's exit status, so keep nextflow's

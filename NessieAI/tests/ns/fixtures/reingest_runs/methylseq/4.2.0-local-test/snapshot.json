@@ -1,0 +1,37 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "SampleCreationDate",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.ALN"
+  },
+  "mseq_bismark": {
+   "attributes": [
+    "ConversionMethod",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "MeanCpGMethylationPercent",
+    "MethylationProtocol",
+    "Name",
+    "SampleCreationDate",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.MSEQ"
+  }
+ },
+ "warnings": []
+}
