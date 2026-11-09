@@ -63,9 +63,9 @@ def strip_internal_attributes(metadata: Any, *, drop_do_not_publish: bool = Fals
     def is_record(x):
         return isinstance(x, dict) and isinstance(x.get("metadata"), dict)
 
-    def note_of(rec) -> str:
+    def notes_of(rec) -> list[str]:
         m = rec["metadata"]
-        return "\n".join(str(m[k]).strip() for k in m if k.lower() in _INTERNAL and m[k] not in (None, "")).strip()
+        return [str(m[k]).strip() for k in m if k.lower() in _INTERNAL and str(m[k] or "").strip()]
 
     def walk(x):
         if isinstance(x, list):
@@ -75,14 +75,14 @@ def strip_internal_attributes(metadata: Any, *, drop_do_not_publish: bool = Fals
                     m = item["metadata"]
                     public_values.update(str(v).casefold() for k, v in m.items()
                                          if k.lower() not in _INTERNAL and isinstance(v, (str, int, float)))
-                    note = note_of(item)
+                    own = notes_of(item)
+                    notes.extend(own)
+                    note = next((n for n in own if _DO_NOT_PUBLISH_RE.search(n)), "")
                     if note:
-                        notes.append(note)
-                        if _DO_NOT_PUBLISH_RE.search(note):
-                            uid = m.get("UID") or item.get("uuid") or item.get("uid")
-                            withheld.setdefault(uid or m.get("Name"), {"uid": uid, "name": m.get("Name"), "note": note})
-                            if drop_do_not_publish:
-                                continue
+                        uid = m.get("UID") or item.get("uuid") or item.get("uid")
+                        withheld.setdefault(uid or m.get("Name"), {"uid": uid, "name": m.get("Name"), "note": note})
+                        if drop_do_not_publish:
+                            continue
                 out.append(walk(item))
             return out
         if isinstance(x, dict):

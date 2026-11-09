@@ -53,7 +53,7 @@ _TARGET_TYPE_WORDS = {"D.SEQ": "sequencing data", "D.MSP": "mass spectrometry da
 _REPORT_CODE_PATH_THRESHOLD = 10
 # Repository packages are public: internal notes are kept out of them and out of what the coder sees.
 _PUBLIC_REPORT_TYPES = {"GEO", "SRA", "PRIDE"}
-# Operator ruling pending: keep the rows the lab marked "do not publish" and warn (False), or drop them (True).
+# Operator ruling 11-09: keep the rows the lab marked "do not publish" and warn (False); True would drop them.
 DROP_DO_NOT_PUBLISH = False
 
 
@@ -353,11 +353,13 @@ def generate_report_outputs(
     # Public repository packages: the lab's internal notes never reach the coder or the cells.
     public_notes: list[str] | None = None
     withheld: list[dict] = []
+    full_metadata: dict[int, Any] = {}  # id(stripped copy) -> the full bundle, which the user's Metadata JSON keeps
     if report_type_value in _PUBLIC_REPORT_TYPES:
         public_notes = []
         for key, md in list(metadata_map.items()):
             if md:
                 metadata_map[key], w, n = strip_internal_attributes(md, drop_do_not_publish=DROP_DO_NOT_PUBLISH)
+                full_metadata[id(metadata_map[key])] = md
                 withheld += w
                 public_notes += n
 
@@ -609,6 +611,9 @@ def generate_report_outputs(
         "reports": per_uid_reports,
         "merged_report": merged_report,
     }
+    if withheld:
+        # As data too, so the Container-CC op result carries it (the op drops the reply text).
+        reporter_result["warnings"] = [do_not_publish_warning(withheld)]
     report_writer_output = merged_report
 
     # Persist report payloads and metadata
@@ -625,7 +630,7 @@ def generate_report_outputs(
     for idx, entry in enumerate(per_uid_reports):
         uid_key = entry.get("uid") or f"item_{idx}"
         combined_meta = entry.get("metadata") or {}
-        combined_meta = dict(combined_meta)
+        combined_meta = dict(full_metadata.get(id(combined_meta), combined_meta))
         combined_meta["protocols"] = extracted_protocols
         meta_map[uid_key] = combined_meta
         saved = persist_report_file(
@@ -743,7 +748,7 @@ def generate_report_outputs(
             reply_lines.insert(0, narrative.strip())
             break
     if withheld:
-        reply_lines.append(do_not_publish_warning(withheld))
+        reply_lines.append(reporter_result["warnings"][0])
     reply = "\n\n".join(reply_lines)
 
     return reporter_result, report_writer_output, saved_files, reply
