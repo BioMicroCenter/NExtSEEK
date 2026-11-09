@@ -1782,7 +1782,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -1799,7 +1799,7 @@
             "capability": "CC ops: nextseek-parse then nextseek-api-read",
             "assertion": "last_reply matches_re \\b195\\b"
           },
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only: T_MUS, any Treatment1..4 CONTAINS 'ndma'); was 195."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641, as advanced.basic_ndma; no prod row of this case yet. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only: T_MUS, any Treatment1..4 CONTAINS 'ndma'); was 195."
         },
         {
           "artifact_expected": null,
@@ -9962,7 +9962,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -9979,7 +9979,7 @@
             "capability": "CHAT_HISTORY prompt block for follow-ups and pronouns",
             "assertion": "last_reply matches_re \\b195\\b"
           },
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); the turn has no antecedent of its own, so it inherits the NDMA-mouse reading the old key encoded; was 195."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641, as advanced.basic_ndma; no prod row of this case yet. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); the turn has no antecedent of its own, so it inherits the NDMA-mouse reading the old key encoded; was 195."
         },
         {
           "id": "refrec.how_many_of_the_ndma_ones_were_r",
@@ -10036,7 +10036,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -10053,7 +10053,7 @@
             "capability": "Within-chat cross-engine digest",
             "assertion": "last_reply matches_re \\b195\\b"
           },
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); was 195."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641, as advanced.basic_ndma; no prod row of this case yet. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); was 195."
         },
         {
           "id": "refrec.now_narrow_that_down_to_just_the",
