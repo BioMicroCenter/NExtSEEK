@@ -361,10 +361,17 @@ def _defaulted_run_atlas():
             "pipelines": {"hlatyping": {"params": {"seq_type": _spec_default()}}}}
 
 
-def test_check_run_params_corrects_when_supplied_value_disagrees_with_unanimous_defaulted_verdict():
+def test_check_run_params_keeps_a_supplied_value_over_a_unanimous_defaulted_verdict():
+    # A defaulted verdict is a fallback, not evidence (as for row columns): the user's value stands.
     evidence = {"D.SEQ-1": {"seq_type": {"value": "x", "verdict": "defaulted", "evidence": "e"}}}
     out = check_run_params("hlatyping", {"seq_type": "y"}, evidence, atlas=_defaulted_run_atlas())
-    assert out["ask_uids"] == []
+    assert out["ask_uids"] == [] and out["corrections"] == []
+
+
+def test_check_run_params_corrects_when_one_leaf_is_decisive_and_the_rest_defaulted_agree():
+    evidence = {"D.SEQ-1": {"seq_type": {"value": "x", "verdict": "corroborated", "evidence": "e"}},
+                "D.SEQ-2": {"seq_type": {"value": "x", "verdict": "defaulted", "evidence": "e"}}}
+    out = check_run_params("hlatyping", {"seq_type": "y"}, evidence, atlas=_defaulted_run_atlas())
     assert out["corrections"] == [("*", "seq_type", "x")]
 
 
@@ -459,3 +466,202 @@ def test_rnaseq_length_correction_is_in_the_curated_param_menu():
     menu = load_pipeline_context("rnaseq")["params"]
     assert "extra_salmon_quant_args" in menu
     assert menu["extra_salmon_quant_args"]["default"] == ""
+
+
+# --- detect_only params, and a defaulted verdict is not evidence (Task 8) ---
+
+from chat_nextseek.seqera.param_atlas import (  # noqa: E402
+    check_row_column_params, check_run_params, render_param_elicitation,
+)
+
+
+def _detect_spec(**over):
+    spec = {"target": "run_param", "scope": "run", "detect_only": True,
+            "detect": {"signal": "LibraryStrategy", "markers": ["WXS", "exome"]},
+            "corroborate_with": [{"signal": "SequencingType", "markers": ["capture"]}],
+            "ask": {"definition": "the kit BED", "on_detect": "Which BED file?"}}
+    spec.update(over)
+    return spec
+
+
+def test_detect_only_hit_needs_a_value():
+    v = evaluate_data_driven_param(_detect_spec(), {"LibraryStrategy": "WXS"})
+    assert v["verdict"] == "needs_value" and v["value"] is None
+
+
+def test_detect_only_miss_is_not_detected():
+    v = evaluate_data_driven_param(_detect_spec(), {"LibraryStrategy": "WGS"})
+    assert v["verdict"] == "not_detected"
+
+
+def test_detect_only_corroborator_alone_still_detects():
+    v = evaluate_data_driven_param(_detect_spec(), {"SequencingType": "Hybrid capture"})
+    assert v["verdict"] == "needs_value"
+
+
+def test_detect_only_loads_without_allowed_or_derive_from(tmp_path):
+    path = _write(tmp_path, _atlas(params={"intervals": _detect_spec()}))
+    with pytest.warns(UserWarning, match="intervals"):  # hlatyping's menu has no `intervals`
+        atlas = load_param_atlas(path)
+    assert atlas["pipelines"]["hlatyping"]["params"]["intervals"]["detect_only"]
+
+
+def test_detect_only_must_target_run_param(tmp_path):
+    path = _write(tmp_path, _atlas(params={"intervals": _detect_spec(target="row_column")}))
+    with pytest.raises(ParamAtlasError, match="run_param"):
+        load_param_atlas(path)
+
+
+def test_detect_only_needs_markers(tmp_path):
+    path = _write(tmp_path, _atlas(params={"intervals": _detect_spec(detect={"signal": "X", "markers": []})}))
+    with pytest.raises(ParamAtlasError, match="markers"):
+        load_param_atlas(path)
+
+
+def test_required_signals_include_the_detect_signal():
+    atlas = _atlas(params={"intervals": _detect_spec()})
+    assert {"LibraryStrategy", "SequencingType"} <= required_signals("hlatyping", atlas)
+
+
+def test_run_without_the_value_is_asked_and_with_it_is_not():
+    atlas = _atlas(params={"intervals": _detect_spec()})
+    evidence = {"D.SEQ-1-PUB": {"intervals": {"verdict": "needs_value", "value": None}}}
+    asked = check_run_params("hlatyping", {}, evidence, atlas)
+    assert asked["ask_uids"] == ["D.SEQ-1-PUB"] and "intervals" in asked["ask_specs"]
+    assert "Which BED file?" in render_param_elicitation(asked["ask_specs"], asked["ask_uids"], evidence)
+    given = check_run_params("hlatyping", {"intervals": "/net/lab/kit.bed"}, evidence, atlas)
+    assert given["ask_uids"] == [] and given["corrections"] == []
+
+
+def test_a_defaulted_row_value_is_never_corrected():
+    spec = _spec(on_absent="use_default", default="dna")
+    atlas = _atlas(params={"seq_type": spec})
+    evidence = {"S1": {"seq_type": {"verdict": "defaulted", "value": "dna"}}}
+    out = check_row_column_params("hlatyping", [{"sample": "S1", "seq_type": "rna"}], evidence, atlas)
+    assert out["corrections"] == [] and out["ask_uids"] == []
+
+
+# --- review fixes: ambiguous_markers, corroborator validation, shipped sarek entries ---
+
+def _bad_detect_atlas(tmp_path, spec):
+    return _write(tmp_path, _atlas(params={"intervals": spec}))
+
+
+def test_detect_only_needs_on_detect(tmp_path):
+    spec = _detect_spec(ask={"definition": "the kit BED"})
+    with pytest.raises(ParamAtlasError, match="on_detect"):
+        load_param_atlas(_bad_detect_atlas(tmp_path, spec))
+
+
+@pytest.mark.parametrize("corr", [
+    [{"markers": ["capture"]}],
+    [{"signal": "SequencingType"}],
+    [{"signal": "SequencingType", "markers": []}],
+])
+def test_detect_only_corroborators_need_signal_and_markers(tmp_path, corr):
+    with pytest.raises(ParamAtlasError, match="corroborate_with"):
+        load_param_atlas(_bad_detect_atlas(tmp_path, _detect_spec(corroborate_with=corr)))
+
+
+def _ambig_spec(**over):
+    return _spec(ambiguous_markers=["non-tumor", "abnormal"], **over)
+
+
+def test_ambiguous_marker_makes_the_verdict_a_conflict():
+    spec = _ambig_spec()
+    spec["derive_from"]["map"] = {"rna": ["RNA"], "dna": ["WES", "tumor"]}
+    out = evaluate_data_driven_param(spec, {"SequencingType": "Non-tumor WES"})
+    assert out["verdict"] == "conflict"
+
+
+def test_ambiguous_marker_in_a_corroborator_also_conflicts():
+    out = evaluate_data_driven_param(_ambig_spec(), {"SequencingType": "WES", "Name": "abnormal WES"})
+    assert out["verdict"] == "conflict"
+
+
+def test_without_ambiguous_markers_behaviour_is_unchanged():
+    out = evaluate_data_driven_param(_spec(), {"SequencingType": "WES", "Name": "x-WES"})
+    assert out["verdict"] == "corroborated" and out["value"] == "dna"
+
+
+@pytest.mark.parametrize("bad", [[], "abnormal", [""], [1]])
+def test_ambiguous_markers_must_be_a_non_empty_list_of_strings(tmp_path, bad):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(ambiguous_markers=bad)}))
+    with pytest.raises(ParamAtlasError, match="ambiguous_markers"):
+        load_param_atlas(path)
+
+
+def _sarek(name):
+    return data_driven_params("sarek")[name]
+
+
+@pytest.mark.parametrize("signals,verdict,value", [
+    ({"Type": "Primary tumor"}, "derived_uncorroborated", "1"),
+    ({"Type": "Blood"}, "derived_uncorroborated", "0"),
+    ({"Type": "Normal-adjacent tissue"}, "conflict", None),
+    ({"Type": "Non-tumor tissue"}, "conflict", None),
+    ({"Type": "Non-neoplastic tissue"}, "conflict", None),
+    ({"Type": "tumor-free margin"}, "conflict", None),
+    ({"Type": "non tumor tissue"}, "conflict", None),
+    ({}, "defaulted", "0"),
+])
+def test_shipped_sarek_status(signals, verdict, value):
+    out = evaluate_data_driven_param(_sarek("status"), signals)
+    assert out["verdict"] == verdict
+    if verdict != "conflict":
+        assert out["value"] == value
+
+
+def test_shipped_sarek_has_no_intervals_spec_until_its_template_offers_intervals():
+    # The capture-kit BED spec targets the sarek 3.10.0 template's `intervals`, which arrives
+    # with that pin; until then the drift pass would warn on every load.
+    assert "intervals" not in load_param_atlas()["pipelines"]["sarek"]["params"]
+
+
+# --- confirm_in: a row_column spec whose unclear verdicts the pairing table confirms ---------
+
+def test_confirm_in_pairing_table_loads_on_a_row_column_spec(tmp_path):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(confirm_in="pairing_table")}))
+    assert load_param_atlas(path)["pipelines"]["hlatyping"]["params"]["seq_type"]["confirm_in"] == "pairing_table"
+
+
+def test_confirm_in_must_be_on_a_row_column_spec(tmp_path):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(target="run_param", confirm_in="pairing_table")}))
+    with pytest.raises(ParamAtlasError, match="confirm_in"):
+        load_param_atlas(path)
+
+
+def test_confirm_in_takes_only_pairing_table(tmp_path):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(confirm_in="chat")}))
+    with pytest.raises(ParamAtlasError, match="confirm_in"):
+        load_param_atlas(path)
+
+
+def _confirm_atlas():
+    return _atlas(params={"seq_type": _spec(confirm_in="pairing_table")})
+
+
+def test_a_confirm_in_spec_does_not_block_on_conflict_or_absent():
+    rows = [{"sample": "D.SEQ-1", "seq_type": "rna"}, {"sample": "D.SEQ-2", "seq_type": "rna"}]
+    evidence = {"D.SEQ-1": {"seq_type": {"value": None, "verdict": "conflict", "evidence": "e"}},
+                "D.SEQ-2": {"seq_type": {"value": None, "verdict": "absent", "evidence": "e"}}}
+    out = check_row_column_params("hlatyping", rows, evidence, atlas=_confirm_atlas())
+    assert out["ask_uids"] == [] and out["ask_specs"] == {}
+
+
+def test_a_confirm_in_spec_still_corrects_a_decisive_verdict():
+    rows = [{"sample": "D.SEQ-1", "seq_type": "dna"}]
+    out = check_row_column_params("hlatyping", rows, _evidence("corroborated", "rna"), atlas=_confirm_atlas())
+    assert out["corrections"] == [("D.SEQ-1", "seq_type", "rna")]
+
+
+def test_shipped_sarek_status_is_asked_at_the_samplesheet_until_the_pairing_table_lands():
+    # The pairing table (seqera.pairing in configure_run) is not on this branch yet, so an
+    # unclear status must stop write_samplesheet rather than be deferred to a table that never asks.
+    assert "confirm_in" not in _sarek("status")
+
+
+def test_a_sarek_conflict_blocks_the_samplesheet():
+    rows = [{"patient": "P1", "sample": "N1", "status": "0"}]
+    evidence = {"N1": {"status": {"value": None, "verdict": "conflict", "evidence": "ambiguous in Type"}}}
+    assert check_row_column_params("sarek", rows, evidence)["ask_uids"] == ["N1"]
