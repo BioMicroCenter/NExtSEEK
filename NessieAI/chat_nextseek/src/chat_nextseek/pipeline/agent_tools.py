@@ -1453,10 +1453,16 @@ _ATLAS_MISS_NEXT_STEP = (
     "the full nf-core catalog, so it has had less review. Do not name the selection tool.")
 
 
+# Pipelines that fetch data rather than analyse it: the atlas curates analyses, so these are never a miss.
+# ponytail: one-name list; move to a catalog field if a second download-only pipeline appears.
+_NOT_AN_ANALYSIS = frozenset({"fetchngs"})
+
+
 def _flag_atlas_miss(out: str, state: dict, pipeline_key: str) -> str:
     """Flag a built pipeline that is outside the curated atlas, once per key. Judged on what is built, not on
     what the selection model guessed, so a stand-in chosen from the atlas after a decline carries no flag."""
-    if not pipeline_key or pipeline_key in load_atlas()["pipelines"] or state.get("atlas_miss_flagged") == pipeline_key:
+    if (not pipeline_key or pipeline_key in _NOT_AN_ANALYSIS or pipeline_key in load_atlas()["pipelines"]
+            or state.get("atlas_miss_flagged") == pipeline_key):
         return out
     try:
         result = json.loads(out)

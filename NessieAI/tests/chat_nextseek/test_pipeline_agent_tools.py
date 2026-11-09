@@ -985,10 +985,20 @@ def test_configuring_a_non_atlas_pipeline_flags_it_with_the_real_key(monkeypatch
 
 def test_accessions_path_with_a_non_atlas_key_is_flagged_once(monkeypatch):
     monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.load_atlas", lambda: {"pipelines": {"rnaseq": {}}})
+    state = {"pipeline_key": "mag"}
+    out = _json.loads(dispatch_pipeline_tool_call(
+        config=_Cfg(), session={}, state=state, name="resolve_samples",
+        tool_input={"kind": "accessions", "accessions": ["SRR222"]}, log_dir="/tmp"))
+    assert out["atlas_miss"] == {"pipelines": ["mag"]}
+    out2 = _dispatch_configure(monkeypatch, "mag", state)            # same key: not told twice
+    assert "atlas_miss" not in out2
+
+
+def test_a_plain_accession_download_is_not_an_atlas_miss(monkeypatch):
+    """fetchngs only downloads reads; it is not an analysis the atlas curates, so no 'less review' sentence."""
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.load_atlas", lambda: {"pipelines": {"rnaseq": {}}})
     state = {"pipeline_key": "fetchngs"}
     out = _json.loads(dispatch_pipeline_tool_call(
         config=_Cfg(), session={}, state=state, name="resolve_samples",
         tool_input={"kind": "accessions", "accessions": ["SRR222"]}, log_dir="/tmp"))
-    assert out["atlas_miss"] == {"pipelines": ["fetchngs"]}
-    out2 = _dispatch_configure(monkeypatch, "fetchngs", state)       # same key: not told twice
-    assert "atlas_miss" not in out2
+    assert "atlas_miss" not in out

@@ -143,6 +143,11 @@ def test_extraction_interval_notes_is_public():
     assert notes == []
 
 
+def test_never_published_is_not_a_do_not_publish_mark():
+    _, withheld, _ = strip_internal_attributes(_md(_s("D.1", "libA", "This library was never published")))
+    assert withheld == []
+
+
 @pytest.mark.parametrize("note", ["DO-NOT-PUBLISH", "don\u2019t publish", "not to be published", "should not be published",
                                   "never publish", "not for publishing", "not for publication",
                                   "Lower Quality, do not publish"])

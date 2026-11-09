@@ -17,7 +17,7 @@ INTERNAL_FREE_TEXT_ATTRS = ("Notes", "QC_notes", "ShipNotes", "ReceiptNotes")
 _INTERNAL = {a.lower() for a in INTERNAL_FREE_TEXT_ATTRS}
 
 _DO_NOT_PUBLISH_RE = re.compile(
-    r"\b(?:do\W*not|don\W?t|never|should\s+not\s+be|not\s+(?:to\s+be|for))\W*publi(?:sh|cation)", re.I)
+    r"\b(?:do\W*not|don\W?t|never(?=\W*publish(?!ed))|should\s+not\s+be|not\s+(?:to\s+be|for))\W*publi(?:sh|cation)", re.I)
 
 # label regex -> accession pattern a value under that label must match
 _ACCESSION_LABELS = [
