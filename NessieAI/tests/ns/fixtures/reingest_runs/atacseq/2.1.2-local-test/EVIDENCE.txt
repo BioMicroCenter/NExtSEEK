@@ -1,0 +1,9 @@
+nf-core/atacseq 2.1.2, -profile test,docker, run on a workstation (make_fixture.sh --local), read 2026-10-30.
+The test profile's own samplesheet and data; launch_record.json is a stub with an empty cohort.
+Trimmed on import (make_fixture.sh):
+- bwa/merged_library/ataqv/broad_peak/OSMOTIC_STRESS_T0_PE_REP1.ataqv.json: per-peak and per-length series removed, scalar metrics kept
+- bwa/merged_library/ataqv/broad_peak/OSMOTIC_STRESS_T0_PE_REP2.ataqv.json: per-peak and per-length series removed, scalar metrics kept
+- bwa/merged_library/ataqv/broad_peak/OSMOTIC_STRESS_T100_SE_REP1.ataqv.json: per-peak and per-length series removed, scalar metrics kept
+- bwa/merged_library/ataqv/broad_peak/OSMOTIC_STRESS_T100_SE_REP2.ataqv.json: per-peak and per-length series removed, scalar metrics kept
+- bwa/merged_library/ataqv/broad_peak/OSMOTIC_STRESS_T150_SE_REP1.ataqv.json: per-peak and per-length series removed, scalar metrics kept
+- bwa/merged_library/ataqv/broad_peak/OSMOTIC_STRESS_T15_PE_REP1.ataqv.json: per-peak and per-length series removed, scalar metrics kept

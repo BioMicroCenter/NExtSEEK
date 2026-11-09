@@ -612,10 +612,12 @@ def test_shipped_sarek_status(signals, verdict, value):
         assert out["value"] == value
 
 
-def test_shipped_sarek_has_no_intervals_spec_until_its_template_offers_intervals():
-    # The capture-kit BED spec targets the sarek 3.10.0 template's `intervals`, which arrives
-    # with that pin; until then the drift pass would warn on every load.
-    assert "intervals" not in load_param_atlas()["pipelines"]["sarek"]["params"]
+@pytest.mark.parametrize("strategy,verdict", [
+    ("WXS", "needs_value"), ("Targeted Capture", "needs_value"), ("WGS", "not_detected"),
+])
+def test_shipped_sarek_intervals(strategy, verdict):
+    out = evaluate_data_driven_param(_sarek("intervals"), {"LibraryStrategy": strategy})
+    assert out["verdict"] == verdict
 
 
 # --- confirm_in: a row_column spec whose unclear verdicts the pairing table confirms ---------
@@ -655,13 +657,11 @@ def test_a_confirm_in_spec_still_corrects_a_decisive_verdict():
     assert out["corrections"] == [("D.SEQ-1", "seq_type", "rna")]
 
 
-def test_shipped_sarek_status_is_asked_at_the_samplesheet_until_the_pairing_table_lands():
-    # The pairing table (seqera.pairing in configure_run) is not on this branch yet, so an
-    # unclear status must stop write_samplesheet rather than be deferred to a table that never asks.
-    assert "confirm_in" not in _sarek("status")
+def test_shipped_sarek_status_is_confirmed_in_the_pairing_table():
+    assert _sarek("status")["confirm_in"] == "pairing_table"
 
 
-def test_a_sarek_conflict_blocks_the_samplesheet():
+def test_a_sarek_conflict_does_not_block_the_samplesheet():
     rows = [{"patient": "P1", "sample": "N1", "status": "0"}]
     evidence = {"N1": {"status": {"value": None, "verdict": "conflict", "evidence": "ambiguous in Type"}}}
-    assert check_row_column_params("sarek", rows, evidence)["ask_uids"] == ["N1"]
+    assert check_row_column_params("sarek", rows, evidence)["ask_uids"] == []

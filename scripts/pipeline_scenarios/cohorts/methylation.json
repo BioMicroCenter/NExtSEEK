@@ -1,0 +1,93 @@
+{
+  "name": "methylation",
+  "description": "Human RRBS, two samples (nf-core methylseq test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-METH-cells1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "HCT116",
+          "Type": "Colon carcinoma cell line",
+          "Tissue": "Colon",
+          "Treatment1": "DMSO",
+          "TreatmentType": "Chemical"
+        },
+        {
+          "Name": "NTC-METH-cells2",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "HCT116",
+          "Type": "colon carcinoma cell line",
+          "Tissue": "colon",
+          "Treatment1": "5-azacytidine",
+          "TreatmentType": "Chemical",
+          "Treatment1Dose": 1,
+          "Treatment1DoseUnits": "uM"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-METH-lib1",
+          "Parent": "NTC-METH-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "MspI digest, size selection, bisulfite conversion (EZ DNA Methylation-Gold), Ovation RRBS Methyl-Seq System",
+          "Lab": "Test Lab",
+          "Barcode": "ATCACG"
+        },
+        {
+          "Name": "NTC-METH-lib2",
+          "Parent": "NTC-METH-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "MspI digest, size selection, bisulfite conversion (EZ DNA Methylation-Gold), Ovation RRBS Methyl-Seq System",
+          "Lab": "Test Lab",
+          "Barcode": "CGATGT"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-METH-1",
+          "Parent": "NTC-METH-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR389222_sub1.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/methylseq/testdata/",
+          "SequencingType": "RRBS",
+          "LibraryStrategy": "Bisulfite-Seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "Reduced Representation",
+          "LibraryDesign": "Single",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina HiSeq 4000",
+          "F_bp": 75
+        },
+        {
+          "Name": "NTC-METH-2",
+          "Parent": "NTC-METH-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR389222_sub2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/methylseq/testdata/",
+          "SequencingType": "Reduced representation bisulfite sequencing",
+          "LibraryStrategy": "Bisulfite-Seq",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "other",
+          "LibraryDesign": "SINGLE",
+          "ExtractedMolecule": "DNA",
+          "Sequencer": "HiSeq 4000",
+          "F_bp": 75
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+ "aligner": "bwameth",
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "input": "/RUN/samplesheet.csv",
+ "outdir": "/RUN",
+ "skip_deduplication": true
+}

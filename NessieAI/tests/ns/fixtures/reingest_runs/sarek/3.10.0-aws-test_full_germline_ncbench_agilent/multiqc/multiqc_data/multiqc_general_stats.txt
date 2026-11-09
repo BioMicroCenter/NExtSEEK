@@ -1,0 +1,31 @@
+Sample	fastqc_raw-percent_duplicates	fastqc_raw-percent_gc	fastqc_raw-avg_sequence_length	fastqc_raw-median_sequence_length	fastqc_raw-percent_fails	fastqc_raw-total_sequences	fastp_read_preprocessing-pct_duplication	fastp_read_preprocessing-after_filtering_q30_rate	fastp_read_preprocessing-after_filtering_q30_bases	fastp_read_preprocessing-filtering_result_passed_filter_reads	fastp_read_preprocessing-after_filtering_gc_content	fastp_read_preprocessing-pct_surviving_reads	fastp_read_preprocessing-pct_surviving_bases	fastp_read_preprocessing-pct_adapter	fastp_read_preprocessing-before_filtering_read1_mean_length	fastp_read_preprocessing-before_filtering_read2_mean_length	gatk4_markduplicates_mark_duplicates-PERCENT_DUPLICATION	samtools_flagstat_stats-error_rate	samtools_flagstat_stats-non_primary_alignments	samtools_flagstat_stats-reads_mapped	samtools_flagstat_stats-reads_mapped_percent	samtools_flagstat_stats-reads_properly_paired_percent	samtools_flagstat_stats-reads_MQ0_percent	samtools_flagstat_stats-raw_total_sequences	samtools_flagstat_stats-insert_size_average	mosdepth-1_x_pc	mosdepth-5_x_pc	mosdepth-10_x_pc	mosdepth-30_x_pc	mosdepth-50_x_pc	mosdepth-median_coverage	bcftools_stats-number_of_records	bcftools_stats-number_of_SNPs	bcftools_stats-number_of_indels	bcftools_stats-tstv	bcftools_stats-number_of_MNPs	bcftools_stats-number_of_multiallelic_sites	bcftools_stats-number_of_multiallelic_SNP_sites	snpeff-Change_rate	snpeff-Ts_Tv_ratio	snpeff-Number_of_variants_before_filter
+NA12878_200M-1							11.4391	95.0471	18869.500615	199.018152	49.231700000000004	99.509076	98.28113296039605	7.3436265	101.0	101.0																									
+NA12878_200M-1_1	47.42794634586156	49.0	101.0	101	9.090909090909092	100.0																																			
+NA12878_200M-1_2	46.97490037277626	49.0	101.0	101	9.090909090909092	100.0																																			
+NA12878_200M.deepvariant																																53631	47040	6596	1.82	0	96	20			
+NA12878_200M.deepvariant_snpEff																																							57479.0	2.582571	0.053728
+NA12878_200M.freebayes.filtered																																42747	38501	3382	2.61	870	377	15			
+NA12878_200M.freebayes.filtered_snpEff																																							71613.0	2.626756	0.043124
+NA12878_200M.haplotypecaller.filtered																																45266	41163	4114	2.51	0	262	19			
+NA12878_200M.haplotypecaller.filtered_snpEff																																							67900.0	2.547358	0.045528
+NA12878_200M.manta.diploid_sv																																72	0	15	0.0	0	0	0			
+NA12878_200M.manta.diploid_sv_snpEff																																							35000953.0	0.0	7.2e-05
+NA12878_200M.md																	15.0851	0.2164851	0.0	198.884039	99.93261267947057	99.12391609384454	4.55958208274389	199.018152	206.0	100.0	99.0	99.0	97.0	93.0	166										
+NA12878_200M.recal																		0.1871683	0.0	157.899261	99.97601640754037	99.56254241402624	3.977393790972789	157.93714	196.6	100.0	99.0	99.0	97.0	93.0	166										
+NA12878_200M.strelka.variants																																44701	41177	3524	2.47	0	256	30			
+NA12878_200M.strelka.variants_snpEff																																							68693.0	2.51018	0.044957
+NA12878_75M-1							4.66915	95.0473	7076.170461	74.632314	49.2322	99.50975199999999	98.28247384818482	7.34368	101.0	101.0																									
+NA12878_75M-1_1	29.254239427347073	49.0	101.0	101	9.090909090909092	37.5																																			
+NA12878_75M-1_2	28.944123606127334	49.0	101.0	101	9.090909090909092	37.5																																			
+NA12878_75M.deepvariant																																52603	46723	5886	1.81	0	88	13			
+NA12878_75M.deepvariant_snpEff																																							58608.0	2.59553	0.052693
+NA12878_75M.freebayes.filtered																																41690	37782	3095	2.63	818	326	10			
+NA12878_75M.freebayes.filtered_snpEff																																							73502.0	2.649479	0.042016
+NA12878_75M.haplotypecaller.filtered																																44387	40521	3877	2.53	0	224	17			
+NA12878_75M.haplotypecaller.filtered_snpEff																																							69298.0	2.564284	0.044611
+NA12878_75M.manta.diploid_sv																																57	0	7	0.0	0	0	0			
+NA12878_75M.manta.diploid_sv_snpEff																																							41807374.0	0.0	5.7e-05
+NA12878_75M.md																	6.2656	0.216512	0.0	74.582141	99.93277308807549	99.12414078437926	4.56162058702883	74.632314	206.0	99.0	99.0	98.0	87.0	68.0	69										
+NA12878_75M.recal																		0.1871112	0.0	59.209149999999994	99.97605166868944	99.56266392504455	3.981653649922067	59.223333	196.6	99.0	99.0	98.0	87.0	68.0	69										
+NA12878_75M.strelka.variants																																45914	42620	3294	2.4	0	184	26			
+NA12878_75M.strelka.variants_snpEff																																							66993.0	2.462651	0.046098

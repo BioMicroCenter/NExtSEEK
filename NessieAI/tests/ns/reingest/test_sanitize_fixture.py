@@ -110,3 +110,96 @@ def test_missing_arguments_print_usage_and_exit_2():
     assert result.returncode == 2
     assert "Usage: sanitize_fixture.py" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_a_public_nf_core_test_data_url_is_allowed(tmp_path):
+    f = tmp_path / "samplesheet.csv"
+    f.write_text("sample,fastq_1\nS1,https://raw.githubusercontent.com/nf-core/test-datasets/sarek/x/test_1.fastq.gz\n")
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_lookalike_of_the_test_data_url_is_still_refused(tmp_path):
+    f = tmp_path / "p.json"
+    f.write_text('{"x": "https://raw.githubusercontent.com/nf-core-evil/test-datasets/x"}')
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "nf-core-evil" in result.stderr
+
+
+def test_an_allowed_url_followed_by_a_private_one_after_a_comma_is_refused(tmp_path):
+    (tmp_path / "s.csv").write_text(
+        "a,https://raw.githubusercontent.com/nf-core/test-datasets/x/1.fq.gz,https://private.example/y\n")
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "private.example" in result.stderr
+
+
+def test_an_allowed_url_followed_by_a_private_one_after_a_semicolon_is_refused(tmp_path):
+    (tmp_path / "s.csv").write_text(
+        "https://github.com/nf-core/test-datasets/x;https://private.example/y\n")
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "private.example" in result.stderr
+
+
+def test_two_allowed_urls_in_one_row_are_allowed(tmp_path):
+    (tmp_path / "s.csv").write_text(
+        "S1,https://raw.githubusercontent.com/nf-core/test-datasets/x/1.fq.gz,"
+        "https://raw.githubusercontent.com/nf-core/test-datasets/x/2.fq.gz\n")
+    assert run(tmp_path, "/RUN").returncode == 0
+
+
+def test_an_escaped_json_newline_does_not_fold_a_second_url_into_an_allowed_one(tmp_path):
+    (tmp_path / "p.json").write_text(
+        '{"x": "https://github.com/nf-core/test-datasets/a\\nhttps://private.example/y"}')
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "private.example" in result.stderr
+
+
+def test_a_dot_dot_segment_in_an_allowed_url_is_refused(tmp_path):
+    (tmp_path / "p.json").write_text('{"x": "https://raw.githubusercontent.com/nf-core/test-datasets/../../evil/repo/x"}')
+    assert run(tmp_path, "/RUN").returncode == 1
+
+
+def test_a_query_or_fragment_on_an_allowed_url_is_refused(tmp_path):
+    for i, tail in enumerate(("?token=abc", "#frag")):
+        folder = tmp_path / str(i)
+        folder.mkdir()
+        (folder / "p.json").write_text('{"x": "https://github.com/nf-core/test-datasets/x%s"}' % tail)
+        assert run(folder, "/RUN").returncode == 1, tail
+
+
+def test_a_userinfo_or_port_host_lookalike_is_refused(tmp_path):
+    (tmp_path / "p.json").write_text('{"x": "https://github.com@evil.example/nf-core/test-datasets/x"}')
+    assert run(tmp_path, "/RUN").returncode == 1
+
+
+def test_glue_characters_do_not_hide_a_second_url_behind_an_allowed_one(tmp_path):
+    ok = "https://raw.githubusercontent.com/nf-core/test-datasets/a.fq.gz"
+    for i, glued in enumerate((ok + "|https://private.example.org/b", ok + ")https://private.example.org/b",
+                               ok + "}https://private.example.org/b", ok + "https://private.example.org/b")):
+        folder = tmp_path / str(i)
+        folder.mkdir()
+        (folder / "s.csv").write_text(f"S1,{glued}\n")
+        result = run(folder, "/RUN")
+        assert result.returncode == 1 and "private.example.org" in result.stderr, glued
+
+
+def test_a_markdown_link_pair_does_not_hide_a_private_url(tmp_path):
+    (tmp_path / "n.md").write_text(
+        "[a](https://github.com/nf-core/test-datasets/x)[b](https://private.example.org/y)\n")
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "private.example.org" in result.stderr
+
+
+def test_an_allowed_host_path_with_odd_characters_is_refused(tmp_path):
+    (tmp_path / "p.json").write_text('{"x": "https://github.com/nf-core/test-datasets/a%20b|c"}')
+    assert run(tmp_path, "/RUN").returncode == 1
+
+
+def test_closing_punctuation_after_an_allowed_url_is_not_part_of_it(tmp_path):
+    ok = "https://raw.githubusercontent.com/nf-core/test-datasets/x/1.fq.gz"
+    for i, line in enumerate((f"[a]({ok})", f"(data at {ok})", f"see {ok}.", f'"{ok}",', f"<{ok}>;")):
+        folder = tmp_path / str(i)
+        folder.mkdir()
+        (folder / "n.md").write_text(line + "\n")
+        result = run(folder, "/RUN")
+        assert result.returncode == 0, (line, result.stderr)

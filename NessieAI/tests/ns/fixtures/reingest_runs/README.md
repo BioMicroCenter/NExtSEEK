@@ -6,17 +6,52 @@ what the stager would copy (pipeline_info/, the samplesheet, MultiQC tables),
 and `snapshot.json` (the expected row shape). `test_fixture_runs.py` checks every
 folder.
 
-Make one with `scripts/reingest/make_fixture.sh` from a `-profile test` run
-launched through Nessie. It builds the fixture in a temporary folder, rewrites
-the run directory and any extra prefixes you give it to `/RUN`, and scans every
-file. If any absolute path, email address or URL remains, or any file cannot be
-read as UTF-8 text, it refuses and writes nothing into the repo. `launch_record.json`
-is a stub (empty cohort) to complete by hand from the PipelineRun.
+There are three ways to make one, and each is evidence for a rule (G-7 in
+`NessieAI/ns/reingest_maps/README.md`, which says which source is preferred):
+
+- **From nf-core's own published evidence**, with `scripts/reingest/import_evidence.py`:
+  `snapshot` reads the release tag's nf-test snapshot (`tests/<name>.nf.test.snap`) and
+  `conf/test.config`; `aws` lists nf-core's public AWS results for the release and
+  downloads their MultiQC tables, params and software versions. It reads public URLs only
+  and touches no cluster. The folder is `<version>` for a snapshot and
+  `<version>-aws-<profile>` for AWS results. A flag-dependent snapshot test (methylseq's
+  `Params: bwameth with rrbs`) is imported alone with `--test`, given the params its
+  `.nf.test` sets with `--param`, into `<version>-<variant>` with `--variant`. A snapshot gives no file sizes and no MultiQC
+  values, so QC attributes are mapped from AWS results or a Nessie run, never a snapshot.
+- **From a `-profile test` run launched through Nessie**, with
+  `scripts/reingest/make_fixture.sh`. Only the run's owner starts it: it reaches the
+  cluster. `launch_record.json` is a stub (empty cohort) to complete by hand from the
+  PipelineRun.
+- **From a `-profile test,docker` run on a workstation**, with `make_fixture.sh --local`,
+  which touches no cluster. The folder is `<version>-local-test`, or
+  `<version>-local-<variant>` for a run with non-default params (`2.1.0-local-narrow`,
+  `4.2.0-local-bwameth`), and its `EVIDENCE.txt` says where it came from. nf-core writes
+  its iGenomes catalogue (`genomes`) and the `igenomes_base` and `custom_config_base` URLs
+  into the params JSON, which the sanitizer refuses: drop `genomes` and blank the other two
+  in the run's copy before importing. Pass the launch folder and the Nextflow home
+  (`$NXF_HOME`, whose asset cache the params name) as extra prefixes.
+- `make_fixture.sh` trims two kinds of file before sanitizing, and lists each trim in
+  `EVIDENCE.txt`: a MultiQC custom-content `*_mqc.tsv` loses its `#` header lines (display
+  settings, and a tool's homepage URL the sanitizer would refuse; the harvest skips them),
+  and an ataqv JSON keeps only its scalar metrics (the per-peak and per-length series make
+  it hundreds of KB, and the harvest reads only `tss_enrichment`).
+
+Both build the fixture in a temporary folder and run `scripts/reingest/sanitize_fixture.py`
+over it, which rewrites the run directory (and any extra prefixes) to `/RUN` and scans
+every file. If any absolute path, email address or URL remains, or any file cannot be
+read as UTF-8 text, it refuses and nothing is written into the repo.
+
+`EVIDENCE.txt`, written by `import_evidence.py` and `make_fixture.sh --local`, names where a fixture came
+from (repository and tag, or bucket and prefix, without a URL scheme, which the sanitizer
+refuses), the day it was read, and what the source lacks. A folder without it came from a
+Nessie run. It is fixture bookkeeping: no map has to claim it.
 
 The sanitizer refuses rather than edits, so before committing a fixture:
 
 1. Blank params such as `email`, `email_on_fail`, `hook_url` and `multiqc_title`
-   if present, in the params JSON and anywhere else they are echoed.
+   if present, in the params JSON and anywhere else they are echoed, and delete a
+   `#SBATCH --mail-user` line from Nessie's `run.sh` (staged since the harvest reads
+   the run's params from it when a release writes no params JSON).
 2. Review every file in the folder by hand. The scan catches paths, addresses and
    URLs, not lab sample names, user names or hostnames in free text.
 

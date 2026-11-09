@@ -186,6 +186,22 @@ def test_protocol_unavailable_notice_appears_before_the_digest_json_body():
     assert "LibraryStrategy" in text[notice_index:json_body_index]
 
 
+def test_the_protocol_notice_says_the_metadata_cannot_show_a_pooled_library():
+    """241219BRY (owner ruling 2026-10-27): pooled prime-seq reads as plain polyA RNA-Seq in
+    its D.SEQ metadata. With the protocol unread, the notice must not steer to a bulk pick."""
+    digest = {**DIGEST, "protocol_text_status": {
+        "n_protocols": 2, "n_ok": 0, "n_failed": 2,
+        "failure_reasons": ["failed: download failed"],
+    }}
+    text = _build_with_digest(digest).to_prompt_text()
+    notice = text[text.index("PROTOCOL TEXT UNAVAILABLE"):text.index('"n_uids"')]
+    assert "Do not infer the library preparation from protocol titles or filenames." in notice
+    assert "cannot show how the library was built" in notice
+    assert "pool" in notice and "barcode" in notice
+    assert "fork" in notice
+    assert "Judge the library type from the D.SEQ metadata instead" not in notice
+
+
 def test_no_protocol_notice_when_every_protocol_yields_text():
     digest = {**DIGEST, "protocol_text_status": {
         "n_protocols": 1, "n_ok": 1, "n_failed": 0, "failure_reasons": [],

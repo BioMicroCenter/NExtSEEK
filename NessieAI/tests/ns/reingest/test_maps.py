@@ -312,3 +312,84 @@ def test_hlatyping_2_2_is_a_checked_release():
     # MultiQC's multiqc_optitype.txt layout); nf-core reports it as v2.2.0-g<commit>.
     _, warnings = maps.effective(maps.load("hlatyping"), "v2.2.0-g3237d20")
     assert warnings == []
+
+
+@pytest.mark.parametrize("rule", [
+    {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
+     "skip_samples_without_file": True},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
+     "optional": True, "cardinality": "per_run", "skip_samples_without_file": True},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.VCF",
+     "optional": True, "skip_samples_without_file": True},
+], ids=["not optional", "per_run", "no primary_data"])
+def test_skip_samples_without_file_is_only_for_optional_per_sample_primary_rules(rule):
+    with pytest.raises(ValueError, match="skip_samples_without_file"):
+        maps.OutputRule.model_validate(rule)
+
+
+def test_skip_samples_without_file_loads_on_an_optional_per_sample_rule():
+    rule = maps.OutputRule.model_validate(
+        {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
+         "optional": True, "skip_samples_without_file": True})
+    assert rule.skip_samples_without_file
+    assert maps.OutputRule.model_validate(
+        {"id": "b", "candidates": ["x"], "sample_type": "A.VCF"}).skip_samples_without_file is False
+
+
+def test_sareks_germline_callers_skip_samples_and_hlatyping_does_not():
+    sarek = {r.id: r.skip_samples_without_file for r in maps.load("sarek").outputs}
+    assert sarek == {"aln": False, "vcf_haplotypecaller": True, "vcf_deepvariant": True,
+                     "vcf_freebayes": True, "vcf_strelka": True, "vcf_manta": True}
+    assert not any(r.skip_samples_without_file for r in maps.load("hlatyping").outputs)
+
+
+@pytest.mark.parametrize("rule", [
+    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "optional": True,
+     "alternative_group": "g"},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "primary_data": True,
+     "optional": True, "cardinality": "per_run", "alternative_group": "g"},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "primary_data": True,
+     "optional": True, "alternative_group": ""},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.MSEQ", "primary_data": True,
+     "alternative_group": "g"},
+], ids=["no primary_data", "per_run", "empty", "not optional"])
+def test_alternative_group_is_only_for_optional_per_sample_primary_rules(rule):
+    with pytest.raises(ValueError, match="alternative_group"):
+        maps.OutputRule.model_validate(rule)
+
+
+def test_an_alternative_group_holds_rules_of_one_sample_type():
+    with pytest.raises(ValueError, match="alternative_group"):
+        maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "outputs": [
+            {"id": "a", "candidates": ["a"], "sample_type": "A.MSEQ", "primary_data": True,
+             "optional": True, "alternative_group": "g"},
+            {"id": "b", "candidates": ["b"], "sample_type": "A.ALN", "primary_data": True,
+             "optional": True, "alternative_group": "g"}]})
+
+
+def _grouped(rule_id, group="g"):
+    return {"id": rule_id, "candidates": [rule_id], "sample_type": "A.MSEQ",
+            "primary_data": True, "optional": True, "alternative_group": group}
+
+
+def test_an_alternative_group_needs_two_rules():
+    with pytest.raises(ValueError, match="alternative_group"):
+        maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "map_version": 2,
+                                         "outputs": [_grouped("a"), _grouped("b", "h")]})
+    # A version override's rule counts toward the group; replacing a rule does not.
+    maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "map_version": 2,
+                                     "outputs": [_grouped("a")],
+                                     "versions": [{"range": ">=2", "outputs": [_grouped("b")]}]})
+    with pytest.raises(ValueError, match="alternative_group"):
+        maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "map_version": 2,
+                                         "outputs": [_grouped("a")],
+                                         "versions": [{"range": ">=2",
+                                                       "outputs": [_grouped("a")]}]})
+
+
+def test_peak_callers_are_alternatives_and_bigwigs_and_variant_callers_are_not():
+    for pipeline in ("atacseq", "chipseq"):
+        groups = {r.id: r.alternative_group for r in maps.load(pipeline).outputs
+                  if r.sample_type == "A.CHRM" and r.cardinality == "per_sample"}
+        assert groups == {"peaks_narrow": "peaks", "peaks_broad": "peaks", "bigwig": None}
+    assert not any(r.alternative_group for r in maps.load("sarek").outputs)

@@ -1,0 +1,194 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/atacseq",
+  "applies_to_versions": ">=2.1,<2.2",
+  "accepts_parent_types": ["D.SEQ"],
+  "replicate_samples": true,
+  "inventory_globs": [
+    "**/*.mRp.clN_peaks.narrowPeak",
+    "**/*.mLb.clN_peaks.narrowPeak",
+    "**/*.mRp.clN_peaks.broadPeak",
+    "**/*.mLb.clN_peaks.broadPeak",
+    "**/*.mRp.clN.bigWig",
+    "**/*.mLb.clN.bigWig",
+    "**/consensus_peaks.mLb.clN.bed",
+    "**/consensus_peaks.mLb.clN.featureCounts.txt"
+  ],
+  "harvest_globs": ["multiqc/*/multiqc_data/multiqc_picard_dups.yaml"],
+  "derived_metrics": ["duplication_pct"],
+  "row_defaults": {
+    "Name": "@row_name"
+  },
+  "module_tables": {
+    "multiqc_picard_dups.yaml": {"namespace": "picard_dups"},
+    "multiqc_picard_dups.txt": {"namespace": "picard_dups"},
+    "multiqc_mlib_frip_score-plot.txt": {"namespace": "mlib_frip", "shape": "bargraph"},
+    "multiqc_mrep_frip_score-plot.txt": {"namespace": "mrep_frip", "shape": "bargraph"},
+    "multiqc_mlib_peak_count-plot.txt": {"namespace": "mlib_peak_count", "shape": "bargraph"},
+    "multiqc_mrep_peak_count-plot.txt": {"namespace": "mrep_peak_count", "shape": "bargraph"},
+    "multiqc_samtools_flagstat.txt": {"namespace": "samtools_flagstat_lib", "suffix": "_T1",
+                                      "columns": ["mapped_passed_pct"]}
+  },
+  "sample_files": {
+    "fingerprint": {"glob": "*/merged_library/deeptools/plotfingerprint/<sample>.mLb.clN.plotFingerprint.qcmetrics.txt",
+                    "reader": "table", "columns": ["Synthetic JS Distance"]},
+    "ataqv": {"glob": "*/merged_library/ataqv/*/<sample>.ataqv.json", "reader": "ataqv",
+              "columns": ["tss_enrichment"]}
+  },
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["*/merged_replicate/*.mRp.clN.sorted.bam",
+                     "*/merged_library/*.mLb.clN.sorted.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "*/merged_replicate/*.mRp.clN.sorted.bam.bai"},
+                     {"glob": "*/merged_library/*.mLb.clN.sorted.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@row_name",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
+        "Software": "nf-core/atacseq"
+      }
+    },
+    {
+      "id": "peaks_narrow",
+      "alternative_group": "peaks",
+      "candidates": ["*/merged_replicate/macs2/narrow_peak/*.mRp.clN_peaks.narrowPeak",
+                     "*/merged_library/macs2/narrow_peak/*.mLb.clN_peaks.narrowPeak"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "attributes": {
+        "DataType": "narrowPeak",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq",
+        "FRiPPercent": "$derived.frip_pct",
+        "PeakCount": "$derived.peak_count"
+      }
+    },
+    {
+      "id": "peaks_broad",
+      "alternative_group": "peaks",
+      "candidates": ["*/merged_replicate/macs2/broad_peak/*.mRp.clN_peaks.broadPeak",
+                     "*/merged_library/macs2/broad_peak/*.mLb.clN_peaks.broadPeak"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "attributes": {
+        "DataType": "broadPeak",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq",
+        "FRiPPercent": "$derived.frip_pct",
+        "PeakCount": "$derived.peak_count"
+      }
+    },
+    {
+      "id": "bigwig",
+      "candidates": ["*/merged_replicate/bigwig/*.mRp.clN.bigWig",
+                     "*/merged_library/bigwig/*.mLb.clN.bigWig"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "attributes": {
+        "DataType": "bigWig",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq"
+      }
+    },
+    {
+      "id": "consensus",
+      "candidates": ["*/merged_library/macs2/{narrow_peak,broad_peak}/consensus/consensus_peaks.mLb.clN.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "optional": true,
+      "companions": [{"glob": "*/merged_library/macs2/{narrow_peak,broad_peak}/consensus/consensus_peaks.mLb.clN.featureCounts.txt"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq"
+      }
+    }
+  ],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "MappedPercent": {
+      "from": "samtools_flagstat_lib-mapped_passed_pct", "target": "D.SEQ", "datatype": "number",
+      "note": "samtools flagstat on each sequencing run's own alignment, before merging and filtering (MultiQC section 'LIB: SAMTools', rows <sample>_REP<n>_T<run>): the first of the release's four flagstat sections, so MultiQC 1.13 writes it as multiqc_samtools_flagstat.txt and the other three as _1 (merged library, unfiltered), _2 (filtered) and _3 (merged replicates); verified against multiqc_sources.txt on 2.1.2-local-test. mapped_passed_pct is already a percentage. A replicate sequenced once is its run _T1; one sequenced over several runs is a multi-run sample and gets no backfill.",
+      "provenance": "seed"
+    },
+    "FingerprintJSD": {
+      "from": "fingerprint-Synthetic JS Distance", "target": "D.SEQ", "datatype": "number",
+      "note": "deepTools plotFingerprint's Synthetic JS Distance: the Jensen-Shannon distance between the library's fingerprint (cumulative coverage over genome bins) and a uniform, synthetic one, 0 to 1, higher meaning more enrichment. The release passes no --JSDsample, so the plain JS Distance column is never written; verified on the narrow-peak -profile test run. Read from <sample>.mLb.clN.plotFingerprint.qcmetrics.txt (each replicate's merged, filtered library). Multi-run samples get no backfill.",
+      "provenance": "seed"
+    },
+    "TSSEnrichment": {
+      "from": "ataqv-tss_enrichment", "target": "D.SEQ", "datatype": "number",
+      "note": "ataqv's TSS enrichment score (metrics.tss_enrichment in <sample>.ataqv.json, each replicate's merged library): coverage at transcription start sites over flanking background, higher meaning better signal to noise. The JSON also lists every peak, so on a large run some files may exceed the harvest's caps and are then recorded as truncated and give no value. Verified on 2.1.2-local-narrow, where ataqv writes tss_enrichment as null for the single-end replicates (T100, T150), so they get none. Multi-run samples get no backfill.",
+      "provenance": "seed"
+    },
+    "DuplicationPercent": {
+      "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
+      "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.13 writes it as multiqc_picard_dups.txt (1.13 writes its tables as text whatever the config's data_format: yaml says), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. The merged-replicate MarkDuplicates table MultiQC writes under its own anchor (mrep_picard) is not read: its rows are the replicate groups, which have no D.SEQ of their own. Table name, row names and the fraction checked against the 2.1.2 -profile test run (fixture 2.1.2-local-test)",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": [
+    {"key": "mlib_frip-value", "why": "The replicate's FRiP score, a 0-1 fraction; its peak row's FRiPPercent reads it as a percentage through $derived.frip_pct (a merged replicate's row reads mrep_frip, the group's own)."},
+    {"key": "mlib_peak_count-value", "why": "The replicate's peak count; its peak row's PeakCount reads it through $derived.peak_count (a merged replicate's row reads mrep_peak_count)."},
+    {"key": "picard_dups-PERCENT_DUPLICATION", "why": "Picard's 0-1 fraction; DuplicationPercent reads it as a percentage through $derived.duplication_pct."},
+    {"key": "picard_dups-LIBRARY", "why": "Picard's library name (the read group's LB), not a measurement."},
+    {"key": "picard_dups-UNPAIRED_READS_EXAMINED", "why": "A read count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
+    {"key": "picard_dups-READ_PAIRS_EXAMINED", "why": "A read-pair count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
+    {"key": "picard_dups-SECONDARY_OR_SUPPLEMENTARY_RDS", "why": "A count of secondary and supplementary records: no D.SEQ attribute means it."},
+    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent reads samtools flagstat's percentage per sequencing run instead."},
+    {"key": "picard_dups-UNPAIRED_READ_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
+    {"key": "picard_dups-READ_PAIR_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
+    {"key": "picard_dups-READ_PAIR_OPTICAL_DUPLICATES", "why": "Optical duplicates, a subset of the duplicates DuplicationPercent counts: no D.SEQ attribute means it."},
+    {"key": "picard_dups-ESTIMATED_LIBRARY_SIZE", "why": "Picard's estimate of unique molecules in the library: a library-complexity measure no D.SEQ attribute means."}
+  ],
+  "unmapped_files": [
+    {"glob": "fastqc/*", "why": "FastQC reports on the raw reads; QC, not a result of the analysis."},
+    {"glob": "trimgalore/*", "why": "Trim Galore logs, FastQC of the trimmed reads, and the trimmed reads themselves (with --save_trimmed): an intermediate of the registered alignment."},
+    {"glob": "*/library/*", "why": "Library-level alignments (with --save_align_intermeds), their samtools stats, STAR logs and unmapped reads (with --save_unaligned): intermediates of the merged-library BAM the aln rule registers."},
+    {"glob": "*/merged_{library,replicate}/*.{mLb,mRp}.{sorted,mkD.sorted,flT.sorted,flT.name_sorted}.bam*", "why": "Merged, duplicate-marked and pre-orphan-removal BAMs (with --save_align_intermeds): earlier states of the filtered clN BAM the aln rule registers."},
+    {"glob": "*/merged_library/*.mLb.clN.bam", "why": "The orphan-removed alignment before sorting (with --save_align_intermeds): the same reads as the sorted clN BAM the aln rule registers."},
+    {"glob": "*/merged_library/{samtools_stats,picard_metrics,preseq}/*", "why": "samtools, Picard and Preseq QC of the merged alignments; summarised in the MultiQC report."},
+    {"glob": "*/merged_replicate/{samtools_stats,picard_metrics}/*", "why": "samtools and Picard QC of the merged-replicate alignments; summarised in the MultiQC report."},
+    {"glob": "*/merged_library/deeptools/*", "why": "deepTools plotFingerprint and plotProfile QC (enrichment and TSS profiles): plotted in the MultiQC report, not a sample result. FingerprintJSD is read from the qcmetrics file (sample_files) onto the D.SEQ."},
+    {"glob": "*/merged_library/ataqv/*", "why": "ataqv's per-sample ATAC-seq QC JSON and its HTML viewer: QC. TSSEnrichment is read from the JSON (sample_files) onto the D.SEQ."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/*_peaks.{xls,gappedPeak}", "why": "MACS2's peak table and gapped peaks: the same calls as the narrowPeak or broadPeak file the peaks rules register."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/*_summits.bed", "why": "MACS2 summits (narrow mode): one point per registered peak, derived from the same call."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/*.annotatePeaks.txt", "why": "HOMER peak-to-gene annotation of the registered peaks (and of the consensus set): an annotation a user can rebuild from the registered files, and a peak row's one secondary slot is kept for its own losing variant (G-4)."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/qc/*", "why": "MACS2 and HOMER QC plots and the FRiP, peak-count and annotation MultiQC custom-content files: QC, read from MultiQC's copies of the FRiP and peak-count files (module_tables)."},
+    {"glob": "*/merged_library/macs2/*/consensus/*.{saf,boolean.txt,boolean.annotatePeaks.txt,boolean.intersect.txt,boolean.intersect.plot.pdf}", "why": "The consensus peak set again as SAF and as presence/absence spreadsheets, and its UpSetR intersection files: reformats of the consensus BED the consensus rule registers."},
+    {"glob": "*/merged_library/macs2/*/consensus/{deseq2,sizeFactors}/*", "why": "atacseq's DESeq2 step is QC only: PCA, sample distances and the vst DESeqDataSet over the consensus counts, with no contrast. No differential result exists to register."},
+    {"glob": "*/merged_replicate/macs2/*/consensus/deseq2/*", "why": "The same QC-only DESeq2 step over the merged-replicate consensus counts: PCA and sample distances, with no contrast."},
+    {"glob": "igv/*", "why": "IGV session file and its file list: points at the registered files, holds no data of its own."},
+    {"glob": "genome/*", "why": "Reference FASTA, blacklist, gene BED and aligner indexes (with --save_reference): reference files, not sample data."}
+  ]
+}

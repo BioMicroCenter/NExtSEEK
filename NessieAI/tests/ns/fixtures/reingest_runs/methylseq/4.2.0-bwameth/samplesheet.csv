@@ -1,0 +1,5 @@
+sample,fastq_1,fastq_2,genome
+SRR389222_sub1,/RUN/inputs/SRR389222_sub1.fastq.gz,,
+SRR389222_sub2,/RUN/inputs/SRR389222_sub2.fastq.gz,,
+SRR389222_sub3,/RUN/inputs/SRR389222_sub3.fastq.gz,,
+Ecoli_10K_methylated,/RUN/inputs/Ecoli_10K_methylated_R1.fastq.gz,/RUN/inputs/Ecoli_10K_methylated_R2.fastq.gz,

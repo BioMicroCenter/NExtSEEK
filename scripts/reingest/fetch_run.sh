@@ -3,10 +3,12 @@
 # into <into>/<name>. Run it yourself, from your Mac; set REINGEST_SSH_HOST to
 # the cluster's ssh host alias first:
 #
-#   scripts/reingest/fetch_run.sh <name> <remote-outdir> <remote-samplesheet> [<remote-contrasts>] [--into <dir>]
+#   scripts/reingest/fetch_run.sh <name> <remote-outdir> <remote-samplesheet> [<remote-contrasts>] [--into <dir>] [--local]
 #
 # --into <dir>: the parent folder the run is copied into, as <dir>/<name>
 # (default: .claude/reingest-local-test in this checkout).
+# --local: the outdir and samplesheet are on this machine (a -profile test,docker
+# run made here), so nothing goes over ssh and REINGEST_SSH_HOST is not needed.
 #
 # <remote-contrasts>: differentialabundance's contrasts file, for runs that keep
 # it in the launch folder. It is copied in under its own name, at the top level,
@@ -24,17 +26,20 @@
 # (default HEAD, the checked-out commit), so they follow the code you have.
 # The samplesheet is saved as <name>/samplesheet.csv. Safe to rerun.
 set -euo pipefail
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
-into=""; args=()
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+into=""; local_run=""; args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --into) [ $# -ge 2 ] || usage; into="$2"; shift 2 ;;
+    --local) local_run=1; shift ;;
     *) args+=("$1"); shift ;;
   esac
 done
 set -- ${args[@]+"${args[@]}"}
 [ $# -eq 3 ] || [ $# -eq 4 ] || usage
-: "${REINGEST_SSH_HOST:?set REINGEST_SSH_HOST to the cluster ssh host alias}"
+[ -n "$local_run" ] || : "${REINGEST_SSH_HOST:?set REINGEST_SSH_HOST to the cluster ssh host alias}"
+# Where the run's files are read from: the cluster over ssh, or this machine.
+src_prefix() { if [ -n "$local_run" ]; then printf '%s' "$1"; else printf '%s:%s' "$REINGEST_SSH_HOST" "$1"; fi; }
 name=$1 remote=$2 sheet=$3 contrasts=${4:-}
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(git -C "$here" rev-parse --show-toplevel)"
@@ -73,6 +78,9 @@ inventory += [p for m in sorted((work / "maps").glob("*.json"))
               for p in json.loads(m.read_text()).get("inventory_globs", [])]
 extra = [p for m in sorted((work / "maps").glob("*.json"))
          for p in json.loads(m.read_text()).get("harvest_globs", [])]
+# A map's per-sample QC files, with * for <sample>: maps.SampleFile.staged_glob.
+extra += [f["glob"].replace("<sample>", "*") for m in sorted((work / "maps").glob("*.json"))
+          for f in json.loads(m.read_text()).get("sample_files", {}).values()]
 inventory_names = {p.rsplit("/", 1)[-1] for p in inventory}   # same rule as harvest.staged_globs
 staged = list(dict.fromkeys(consts["GENERIC_GLOBS"]
                             + [p for p in extra if p.rsplit("/", 1)[-1] not in inventory_names]))
@@ -82,7 +90,7 @@ json.dump({"staged": staged, "inventory": inventory, "max_file_bytes": int(cap.g
           open(work / "patterns.json", "w"))
 PY
 
-# 2. On the cluster: list which files match. Only names and sizes come back.
+# 2. Where the run is: list which files match. Only names and sizes come back.
 cat > "$work/match.py" <<'PY'
 import json, pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
@@ -124,8 +132,13 @@ echo "== $name"
 # The remote dir goes through the remote shell: quote it, and hand it to python as
 # its own argument (sys.argv[1]) rather than splicing it into the python source.
 remote_q="$(printf '%q' "$remote")"
-ssh "$REINGEST_SSH_HOST" "python3 -c \"import sys; src, spec = sys.stdin.read().split('__SPEC__', 1); sys.argv = ['m', sys.argv[1]]; sys.stdin = __import__('io').StringIO(spec); exec(src)\" $remote_q" \
-  < "$work/remote_input" > "$work/matches.tsv"
+splitter="import sys; src, spec = sys.stdin.read().split('__SPEC__', 1); sys.argv = ['m', sys.argv[1]]; sys.stdin = __import__('io').StringIO(spec); exec(src)"
+if [ -n "$local_run" ]; then
+  python3 -c "$splitter" "$remote" < "$work/remote_input" > "$work/matches.tsv"
+else
+  ssh "$REINGEST_SSH_HOST" "python3 -c \"$splitter\" $remote_q" \
+    < "$work/remote_input" > "$work/matches.tsv"
+fi
 
 max=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["max_file_bytes"])' "$work/patterns.json")
 awk -F'\t' -v max="$max" '$1=="STAGE" && $2<=max {print $3}' "$work/matches.tsv" > "$work/stage.txt"
@@ -135,7 +148,7 @@ awk -F'\t' '$1=="NAME" {print $3}' "$work/matches.tsv" > "$work/names.txt"
 # 3. Copy the staged files; make empty stand-ins for the name-only ones.
 mkdir -p "$out"
 if [ -s "$work/stage.txt" ]; then
-  rsync -a -L --files-from="$work/stage.txt" "$REINGEST_SSH_HOST:$remote/" "$out/"
+  rsync -a -L --files-from="$work/stage.txt" "$(src_prefix "$remote")/" "$out/"
 fi
 while IFS= read -r f; do
   mkdir -p "$out/$(dirname "$f")"; [ -e "$out/$f" ] || : > "$out/$f"
@@ -148,9 +161,10 @@ if [ -n "$report" ]; then
   awk -F'\t' '$1=="REPORT" {print "<div>" $3 "</div>"}' "$work/matches.tsv" > "$out/$report"
   echo "   newest report: $report -> $(awk -F'\t' '$1=="REPORT" {print ($3 == "" ? "(no verdict)" : $3)}' "$work/matches.tsv")"
 fi
-scp -q "$REINGEST_SSH_HOST:$sheet" "$out/samplesheet.csv"
+copy() { if [ -n "$local_run" ]; then cp "$1" "$2"; else scp -q "$REINGEST_SSH_HOST:$1" "$2"; fi; }
+copy "$sheet" "$out/samplesheet.csv"
 if [ -n "$contrasts" ]; then
-  scp -q "$REINGEST_SSH_HOST:$contrasts" "$out/$(basename "$contrasts")"
+  copy "$contrasts" "$out/$(basename "$contrasts")"
   echo "   contrasts file: $(basename "$contrasts")"
 fi
 

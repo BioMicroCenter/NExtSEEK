@@ -195,7 +195,7 @@ directory** — that's the evidence.
 | `atacseq` | ⛔ no data | 0 samples mention ATAC |
 | `chipseq` | ⛔ no data | 0 mention ChIP |
 | `methylseq` | ⛔ no data | 0 mention methylation or bisulfite. Its bug was real and is fixed; the retest it asked for was never possible |
-| `sarek` | ❌ untested | Was sending a setting it rejects; fixed 2026-08-04. First run since is the real test |
+| `sarek` | ❌ untested | Pinned to 3.10.0 with a template read off its schemas. Reference is `GATK.GRCh38`, staged by `luria/refs/stage_dna_refs.sh`. The launch has not been tried on Luria: the first run is the real test |
 | `ampliseq` | 🔧 **launches now, analysis failed** | Run `ampliseq-smoke_260805_185243_0`. Three separate bugs fixed to get here — bad settings, the fetch filling the wrong column, and a sample-name format it rejects. It now downloads, validates and starts. It then fails at DADA2 error-model learning; see *If a run fails*. **Covers our largest library type** (1,179 amplicon samples) |
 | `seqinspector` | ❌ untested | Needs no reference genome; cheapest way to prove the launch path works |
 | `hlatyping` | ❌ untested | Brings its own reference data |

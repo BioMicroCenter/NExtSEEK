@@ -1,0 +1,59 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Software"
+   ],
+   "rows": 6,
+   "sample_type": "A.ALN"
+  },
+  "bigwig": {
+   "attributes": [
+    "Antibody",
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "Pipeline"
+   ],
+   "rows": 6,
+   "sample_type": "A.CHRM"
+  },
+  "consensus_narrow": {
+   "attributes": [
+    "Antibody",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Pipeline"
+   ],
+   "rows": 1,
+   "sample_type": "A.CHRM"
+  },
+  "peaks_narrow": {
+   "attributes": [
+    "Antibody",
+    "DataType",
+    "FRiPPercent",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "PeakCount",
+    "Pipeline"
+   ],
+   "rows": 4,
+   "sample_type": "A.CHRM"
+  }
+ },
+ "warnings": [
+  "SPT5_INPUT_REP1: no file for optional rule peaks_narrow; no row written",
+  "SPT5_INPUT_REP2: no file for optional rule peaks_narrow; no row written",
+  "bwa/merged_library/macs3/narrow_peak/consensus/SPT5/SPT5.consensus_peaks.bed: no sample with antibody 'SPT5' (SPT5_T0_REP1, SPT5_T0_REP2, SPT5_T15_REP1, SPT5_T15_REP2) resolved to a D.SEQ; the consensus_narrow row has no Parent"
+ ]
+}

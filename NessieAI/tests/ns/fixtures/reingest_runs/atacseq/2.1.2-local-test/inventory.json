@@ -1,0 +1,166 @@
+[
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP2.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T0_PE_REP2.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP2.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T100_SE_REP2.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T150_SE_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T150_SE_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T15_PE_REP1.mLb.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/OSMOTIC_STRESS_T15_PE_REP1.mLb.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/OSMOTIC_STRESS_T0_PE_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/OSMOTIC_STRESS_T0_PE_REP2.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/OSMOTIC_STRESS_T100_SE_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/OSMOTIC_STRESS_T100_SE_REP2.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/OSMOTIC_STRESS_T150_SE_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/bigwig/OSMOTIC_STRESS_T15_PE_REP1.mLb.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/OSMOTIC_STRESS_T0_PE_REP1.mLb.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/OSMOTIC_STRESS_T0_PE_REP2.mLb.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/OSMOTIC_STRESS_T100_SE_REP1.mLb.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/OSMOTIC_STRESS_T100_SE_REP2.mLb.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/OSMOTIC_STRESS_T150_SE_REP1.mLb.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/OSMOTIC_STRESS_T15_PE_REP1.mLb.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.featureCounts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/consensus/deseq2/consensus_peaks.mLb.clN.dds.RData",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/consensus/deseq2/consensus_peaks.mLb.clN.rds",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_library/macs2/broad_peak/consensus/deseq2/size_factors/consensus_peaks.mLb.clN.size_factors.RData",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/OSMOTIC_STRESS_T0_PE.mRp.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/OSMOTIC_STRESS_T0_PE.mRp.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/OSMOTIC_STRESS_T100_SE.mRp.clN.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/OSMOTIC_STRESS_T100_SE.mRp.clN.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/bigwig/OSMOTIC_STRESS_T0_PE.mRp.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/bigwig/OSMOTIC_STRESS_T100_SE.mRp.clN.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/macs2/broad_peak/OSMOTIC_STRESS_T0_PE.mRp.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/macs2/broad_peak/OSMOTIC_STRESS_T100_SE.mRp.clN_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/macs2/broad_peak/consensus/deseq2/consensus_peaks.mRp.clN.dds.RData",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/macs2/broad_peak/consensus/deseq2/consensus_peaks.mRp.clN.rds",
+  "bytes": 0
+ },
+ {
+  "path": "bwa/merged_replicate/macs2/broad_peak/consensus/deseq2/size_factors/consensus_peaks.mRp.clN.size_factors.RData",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/broad_peak/multiqc_report.html",
+  "bytes": 0
+ }
+]

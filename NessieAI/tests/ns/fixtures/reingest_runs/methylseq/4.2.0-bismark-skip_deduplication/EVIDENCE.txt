@@ -1,0 +1,1 @@
+Evidence: GitHub nf-core/methylseq tag 4.2.0, test "Params: bismark with skip_deduplication" of tests/bismark_variants.nf.test.snap and conf/test.config, read 2026-10-27. Params the test sets, given by hand: skip_deduplication=true. File sizes are not in a snapshot, so every inventory entry has bytes 0. No MultiQC values: snapshots hold none.

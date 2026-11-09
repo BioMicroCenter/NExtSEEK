@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,21 +53,37 @@ def test_exactly_one_of_rows_or_files(rows, paths):
                                  scope_project_ids=None, rows=rows, xlsx_paths=paths)
 
 
-def test_stage_workbook_copy_lands_in_the_upload_dir(tmp_path, settings):
+def test_stage_workbook_copy_lands_where_the_daily_sweep_looks(tmp_path, settings, monkeypatch):
+    """The copy goes beside the uploaded sheets, in <state_dir>/uploads/, which
+    purge_durable_state clears; never into MEDIA_ROOT, where nothing removed it
+    and whose uploads/production tree is served."""
+    from nextseek_api.batch_upload import job_index
+
     settings.MEDIA_ROOT = str(tmp_path / "media")
+    monkeypatch.setenv("BATCH_UPLOAD_STATE_DIR", str(tmp_path / "state"))
     src = tmp_path / "reingest_A_ALN.xlsx"
     src.write_bytes(b"xlsx")
     dest = views.stage_workbook_copy(str(src))
-    assert dest.startswith(str(tmp_path / "media" / views._UPLOAD_DIR))
+    # The sweep's own default: os.path.join(state_dir(), "uploads") in purge_durable_state.
+    assert os.path.dirname(dest) == os.path.join(job_index.state_dir(), "uploads")
+    assert not dest.startswith(str(tmp_path / "media"))
     assert dest.endswith("_reingest_A_ALN.xlsx")
     assert open(dest, "rb").read() == b"xlsx"
 
 
-def test_two_same_second_copies_of_one_workbook_do_not_overwrite(tmp_path, settings):
+def test_a_copy_that_fails_leaves_nothing_behind(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_UPLOAD_STATE_DIR", str(tmp_path / "state"))
+    with pytest.raises(OSError):
+        views.stage_workbook_copy(str(tmp_path / "missing.xlsx"))
+    assert os.listdir(tmp_path / "state" / "uploads") == []
+
+
+def test_two_same_second_copies_of_one_workbook_do_not_overwrite(tmp_path, settings, monkeypatch):
     """Staged copies are what the worker reads, so two uploads of the same
     workbook name must land at different paths, or the bytes uploaded stop
     being the bytes reviewed."""
     settings.MEDIA_ROOT = str(tmp_path / "media")
+    monkeypatch.setenv("BATCH_UPLOAD_STATE_DIR", str(tmp_path / "state"))
     src = tmp_path / "reingest_A_ALN.xlsx"
     src.write_bytes(b"first")
     with patch("nextseek_api.batch_upload.views.time.time", return_value=1700000000.0):

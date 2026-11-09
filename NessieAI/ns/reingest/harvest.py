@@ -65,14 +65,18 @@ _SAMPLESHEET_GLOB = "*.csv"
 # against general_stats' 10.5 KB.
 _MULTIQC_TXT_GLOB = "multiqc*/**/*_data/multiqc_*.txt"
 # Per-module MultiQC tables read for tools that put nothing in general stats:
-# {file name: (key namespace, Sample-column suffix)}. Each column becomes the
+# {file name: (key namespace, Sample-column suffix, shape, columns)}. Each column (each of
+# `columns` when the map names some) becomes the
 # metric `<namespace>-<column>`, the same shape as a general-stats key; general
 # stats wins where both have one. nf-core/hlatyping's OptiType alleles are only
 # in multiqc_optitype.txt, whose Sample column keeps OptiType's "_result"
 # (verified on a real 2.2.0 run). Staged by _MULTIQC_TXT_GLOB, so no new glob.
-_MODULE_TABLES: dict[str, tuple[str, str]] = {
-    "multiqc_optitype.txt": ("optitype", "_result"),
+_MODULE_TABLES: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
+    "multiqc_optitype.txt": ("optitype", "_result", "table", ()),
 }
+# Where a module table is looked for, by its file name: a MultiQC data folder. A map's own
+# tables (`module_tables`) may be .yaml, which only that map's harvest_globs stage.
+_MULTIQC_DATA_DIR = "multiqc*/**/*_data/"
 _RSEQC_READ_DISTRIBUTION_GLOB = "*/rseqc/read_distribution/*.read_distribution.txt"
 _RSEQC_INFER_EXPERIMENT_GLOB = "*/rseqc/infer_experiment/*.infer_experiment.txt"
 # STAR's own per-sample summary. In GENERIC_GLOBS because it is PARSED
@@ -86,6 +90,11 @@ _STAR_LOG_GLOB = "*/log/*.Log.final.out"
 # harvest_local reads only the one file params.contrasts names.
 _CONTRASTS_TSV_GLOB = "*.tsv"
 _CONTRASTS_YAML_GLOB = "*.y*ml"
+# Nessie's own launch files, beside pipeline_info/ (its run.sh launches with
+# `--outdir .`): the run's params, for a release that writes no params JSON
+# (parsers.parse_launch_params).
+_LAUNCH_PARAMS_GLOB = "params.yml"
+_LAUNCH_SCRIPT_GLOB = "run.sh"
 
 GENERIC_GLOBS: tuple[str, ...] = (
     _PARAMS_GLOB,
@@ -99,6 +108,8 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _STAR_LOG_GLOB,
     _CONTRASTS_TSV_GLOB,
     _CONTRASTS_YAML_GLOB,
+    _LAUNCH_PARAMS_GLOB,
+    _LAUNCH_SCRIPT_GLOB,
 )
 
 # Not a glob: the stage script (granular._STAGE_SCRIPT) reads Nextflow's
@@ -364,6 +375,15 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     if found:
         sources["params"], text = found[0], found[1]
         out.params = parsers.parse_params(text)
+    else:
+        # nf-core/atacseq 2.1.2 writes no params JSON: rebuild the params from the
+        # files Nessie launched it with, so $params.genome and $params.aligner resolve.
+        launch = [f for f in (first(_LAUNCH_PARAMS_GLOB), first(_LAUNCH_SCRIPT_GLOB)) if f]
+        if launch:
+            texts = {rel: text for rel, text in launch}
+            out.params = parsers.parse_launch_params(texts.get(_LAUNCH_PARAMS_GLOB),
+                                                     texts.get(_LAUNCH_SCRIPT_GLOB))
+            sources["params"] = " + ".join(texts)
 
     _read_contrasts(out, base, read, sources, warnings)
 
@@ -423,13 +443,46 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             f"multiqc general stats at {picked} could not be read; "
             "QC metrics unavailable")
 
+    from NessieAI.ns.reingest import uid_resolve
+
+    # Which sample types this run's own pipeline may point back to as a
+    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
+    # is only just now known (parsed from software_versions, above; it is ""
+    # when that file never arrived), so this is the first point in the
+    # harvest where the map CAN be resolved -- not at this function's own
+    # call site (the caller stages files and invokes harvest_local before
+    # any pipeline identity is known at all). An unrecognised or not-yet-
+    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
+    # to the same ("D.SEQ",) scope this lookup always used, rather than
+    # raising out of a read-only harvest step.
+    try:
+        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
+    except maps.UnknownPipelineMap:
+        pipeline_map = None
+    accepts_parent_types = (
+        tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
+        else ("D.SEQ",))
+
     module_tables: dict[str, tuple[str, dict[str, dict]]] = {}
-    for filename, (namespace, suffix) in _MODULE_TABLES.items():
-        path = _pick_module_table(all_named(_MULTIQC_TXT_GLOB, filename), picked, warnings)
+    wanted_tables = dict(_MODULE_TABLES)
+    if pipeline_map is not None:
+        wanted_tables.update({name: (table.namespace, table.suffix, table.shape, tuple(table.columns))
+                              for name, table in pipeline_map.module_tables.items()})
+    for filename, (namespace, suffix, shape, columns) in wanted_tables.items():
+        if namespace in module_tables:
+            continue  # the same table as .txt and as .yaml: the first one read wins
+        path = _pick_module_table(all_named(_MULTIQC_DATA_DIR + filename, filename), picked, warnings)
         text = read(path) if path else None
         if text is not None:
             sources[f"metrics_{namespace}"] = path
-            module_tables[namespace] = (suffix, parsers.parse_general_stats(text))
+            parse = (parsers.parse_multiqc_yaml_table if filename.endswith((".yaml", ".yml"))
+                     else parsers.parse_general_stats)
+            table = parse(text)
+            if columns:
+                table = {row: {c: v for c, v in values.items() if c in columns}
+                         for row, values in table.items()}
+            module_tables[namespace] = (suffix, parsers.bargraph_values(table)
+                                        if shape == "bargraph" else table)
 
     sheet = _find_samplesheet(base, read)
     rows: list[dict] = []
@@ -490,25 +543,17 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         else:
             warnings.append("no validated samplesheet; samples cannot be resolved")
 
-    from NessieAI.ns.reingest import uid_resolve
-
-    # Which sample types this run's own pipeline may point back to as a
-    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
-    # is only just now known (parsed from software_versions, above; it is ""
-    # when that file never arrived), so this is the first point in the
-    # harvest where the map CAN be resolved -- not at this function's own
-    # call site (the caller stages files and invokes harvest_local before
-    # any pipeline identity is known at all). An unrecognised or not-yet-
-    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
-    # to the same ("D.SEQ",) scope this lookup always used, rather than
-    # raising out of a read-only harvest step.
-    try:
-        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
-    except maps.UnknownPipelineMap:
-        pipeline_map = None
-    accepts_parent_types = (
-        tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
-        else ("D.SEQ",))
+    # A replicate-keyed map (atacseq, chipseq): one sample per biological
+    # replicate, `<sample>_REP<replicate>`, as nf-core names its files. Every
+    # other map keeps one sample per samplesheet `sample` -- see
+    # maps.PipelineMap.replicate_samples.
+    if pipeline_map is not None and pipeline_map.replicate_samples and rows:
+        rows, out.replicate_groups = uid_resolve.key_by_replicate(rows)
+        if not out.replicate_groups:
+            warnings.append(
+                f"{out.pipeline.name} names its files per replicate, but the samplesheet "
+                "has no integer `replicate` column on every row; samples are keyed by "
+                "`sample` alone, so replicates sharing a name are one multi-run sample")
 
     # `uid_resolve.resolve` keeps its original one-argument
     # Callable[[str], list[str]] contract (see its own module docstring) --
@@ -540,6 +585,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     # has a second row to skip.
     seen_samples: set[str] = set()
     row_counts = Counter(str(row.get("sample") or "") for row in rows)
+    sheet_columns = pipeline_map.samplesheet_columns() if pipeline_map is not None else set()
 
     for row in rows:
         name = str(row.get("sample") or "")
@@ -571,8 +617,11 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                     f"{row_counts[name]} contributing D.SEQ parents; Parent "
                     "will be a partial list")
         metrics = {**_module_metrics(name, module_tables),
+                   **_sample_file_metrics(base, name, pipeline_map, read, sources),
                    **_sample_metrics(name, stats, sample_names=set(row_counts),
-                                     claimed=mapper.claimed_raw_keys(pipeline_map))}
+                                     claimed=mapper.claimed_raw_keys(pipeline_map),
+                                     row_suffixes=tuple(pipeline_map.qc_row_suffixes)
+                                     if pipeline_map is not None else ())}
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
@@ -585,7 +634,15 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             # A per-sample tool file (RSeQC, the STAR log) wins over a value
             # derived from a general-stats column (Salmon's library type).
             derived={**derived.from_metrics(metrics), **_derived_for(base, name, read)},
+            samplesheet=_samplesheet_cells(row, sheet_columns),
         ))
+
+    # A replicate group's merged row has metrics of its own in some module tables (atacseq's
+    # merged-replicate FRiP and peak count); no sample carries them, so the group does.
+    for group in out.replicate_groups:
+        group_metrics = _module_metrics(group, module_tables)
+        if group_metrics:
+            out.group_metrics[group] = group_metrics
 
     # SampleRecord.parent_sample_type: one batched call for every resolved
     # parent UID in the whole run, first-occurrence de-duplicated -- never
@@ -610,7 +667,11 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     # never globbed or read here. Each entry becomes one `outputs` record,
     # attributed to a sample where derivable; `named_outputs` is then
     # resolved from that same list.
-    sample_names = [s.nfcore_sample for s in out.samples]
+    # A replicate group's own name attributes its group-level files (atacseq's
+    # merged replicates); the longest match still wins, so `<sample>_REP1.*`
+    # stays the replicate's.
+    sample_names = [s.nfcore_sample for s in out.samples] + [
+        g for g in out.replicate_groups if g not in {s.nfcore_sample for s in out.samples}]
     for entry in inventory or []:
         rel = str((entry or {}).get("path") or "")
         if not rel:
@@ -804,6 +865,21 @@ def _pick_module_table(candidates: list[str], stats_path: str | None,
     return None
 
 
+def _samplesheet_cells(row: dict, columns: set[str]) -> dict[str, str]:
+    """A samplesheet row's cells for `SampleRecord.samplesheet`: only the `columns` the
+    run's map reads (`PipelineMap.samplesheet_columns`, chipseq's `antibody`), each
+    non-empty and no path or URL. The manifest is stored and handed to Container-CC
+    whole, so a column no map reads (sarek's sex and status, a lab's clinical
+    columns) is never kept."""
+    cells: dict[str, str] = {}
+    for column in sorted(columns):
+        text = str(row.get(column) or "").strip()
+        if not text or text.startswith(("/", "~", "${")) or "://" in text:
+            continue
+        cells[column] = text
+    return cells
+
+
 def _module_metrics(name: str, module_tables: dict[str, tuple[str, dict[str, dict]]]) -> dict:
     """`name`'s row from each per-module table, keyed `<namespace>-<column>`.
     The row is `name` plus the table's Sample suffix, else `name` itself."""
@@ -812,6 +888,36 @@ def _module_metrics(name: str, module_tables: dict[str, tuple[str, dict[str, dic
         row = table.get(f"{name}{suffix}") if suffix else None
         for column, value in (row if row is not None else table.get(name, {})).items():
             metrics[f"{namespace}-{column}"] = value
+    return metrics
+
+
+_SAMPLE_FILE_READERS = {
+    "value": parsers.parse_mqc_value,
+    "table": parsers.parse_sample_row,
+    "ataqv": lambda text, sample: parsers.parse_ataqv_metrics(text),
+}
+
+
+def _sample_file_metrics(base: Path, name: str, pipeline_map, read, sources: dict) -> dict:
+    """`name`'s values from the map's per-sample QC files (`maps.SampleFile`), keyed
+    `<namespace>-<column>`. The first file the glob matches for `name` is read; a file over
+    the harvest caps is recorded in `caps.truncated` by `read`, and leaves no value."""
+    metrics: dict = {}
+    for namespace, spec in (pipeline_map.sample_files.items() if pipeline_map is not None else ()):
+        pattern = spec.glob.replace(maps.SAMPLE_PLACEHOLDER, name)
+        match = next(iter(sorted(base.glob(pattern))), None)
+        if match is None:
+            continue
+        rel = str(match.relative_to(base))
+        text = read(rel)
+        if not text:
+            continue
+        values = _SAMPLE_FILE_READERS[spec.reader](text, name)
+        if spec.columns:
+            values = {c: v for c, v in values.items() if c in spec.columns}
+        if values:
+            sources.setdefault(f"metrics_{namespace}", spec.glob)
+        metrics.update({f"{namespace}-{column}": value for column, value in values.items()})
     return metrics
 
 
@@ -1007,9 +1113,10 @@ _MATE_ROWS = (("_1", "R1"), ("_2", "R2"))
 
 
 def _sample_metrics(name: str, stats: dict, *, sample_names: set[str],
-                    claimed: set[str]) -> dict:
-    """`name`'s own general-stats row, plus its per-read rows' columns that a
-    map rule reads, as `<column>@R1` / `<column>@R2`.
+                    claimed: set[str], row_suffixes: tuple[str, ...] = ()) -> dict:
+    """`name`'s own general-stats row, its `<name><suffix>` rows (the map's
+    qc_row_suffixes, best first), and its per-read rows' columns that a map rule reads,
+    as `<column>@R1` / `<column>@R2`.
 
     FastQC and Cutadapt run once per read file, and MultiQC writes those
     values only on `<name>_1` / `<name>_2` rows, never on the sample's own
@@ -1017,8 +1124,16 @@ def _sample_metrics(name: str, stats: dict, *, sample_names: set[str],
     the review queue. A mate row that is itself a sample in this run (a real
     replicate named `<name>_1`) is never folded, and neither is a row with
     any column a per-read row cannot have (see `_is_per_read_column`).
+    nf-core/sarek names no row after the sample at all: its alignment metrics
+    sit on `<name>.recal` and `<name>.md`, which `row_suffixes` folds in whole.
     """
     metrics = dict(stats.get(name, {}))
+    for suffix in row_suffixes:
+        row = f"{name}{suffix}"
+        if row in sample_names:
+            continue
+        for column, value in (stats.get(row) or {}).items():
+            metrics.setdefault(column, value)
     for suffix, tag in _MATE_ROWS:
         mate = f"{name}{suffix}"
         if mate in sample_names or mate not in stats:

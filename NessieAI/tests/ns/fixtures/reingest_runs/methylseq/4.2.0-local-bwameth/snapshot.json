@@ -1,0 +1,34 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "SampleCreationDate",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.ALN"
+  },
+  "mseq_methyldackel": {
+   "attributes": [
+    "ConversionMethod",
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "MethylationProtocol",
+    "Name",
+    "SampleCreationDate",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.MSEQ"
+  }
+ },
+ "warnings": []
+}

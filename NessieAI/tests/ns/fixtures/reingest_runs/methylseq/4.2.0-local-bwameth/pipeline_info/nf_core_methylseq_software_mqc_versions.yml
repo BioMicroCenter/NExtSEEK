@@ -1,0 +1,33 @@
+BWAMETH_ALIGN:
+  bwameth: 0.2.9
+BWAMETH_INDEX:
+  bwameth: 0.2.9
+GUNZIP:
+  gunzip: 1.13
+METHYLDACKEL_EXTRACT:
+  methyldackel: 0.6.1
+METHYLDACKEL_MBIAS:
+  methyldackel: 0.6.1
+PICARD_MARKDUPLICATES:
+  picard: 3.4.0
+SAMTOOLS_FLAGSTAT:
+  samtools: 1.22.1
+SAMTOOLS_INDEX_ALIGNMENTS:
+  samtools: 1.22.1
+SAMTOOLS_INDEX_DEDUPLICATED:
+  samtools: 1.22.1
+TRIMGALORE:
+  trimgalore: 0.6.10
+  cutadapt: 4.9
+  pigz: 2.8
+Workflow:
+    nf-core/methylseq: v4.2.0-g5aa5646
+    Nextflow: 26.10.4
+FASTQC:
+  fastqc: 0.12.1
+MULTIQC:
+  multiqc: 1.32
+SAMTOOLS_SORT:
+  samtools: 1.22.1
+SAMTOOLS_STATS:
+  samtools: 1.22.1

@@ -1,0 +1,1624 @@
+{
+ "agent_model": "us.anthropic.claude-opus-5-5",
+ "decision": {
+  "reasoning": "The user is asking an analysis question about their sequenced samples (specifically, where chromatin is open in treated versus untreated cells). According to the routing instructions, questions about what the user's sequenced samples show, such as open chromatin, variant calling, or methylation, are routed to nextseek_query where the pipeline agent will offer the appropriate nf-core pipeline run to produce the requested data.",
+  "route": "nextseek_query",
+  "router_cost_usd": 0.021458,
+  "router_model": "gemini-3.1-pro-preview",
+  "source": "baml"
+ },
+ "fingerprint": "52dc58da5a3a61fd7cf1f104c7d111b090bdf67d8966f8f07887e52824e7e50b",
+ "fingerprint_files": {
+  "NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py": "58ba91cf432f173dc67c10bd6f5415c492c8f71ae86edbbf726daafd009ed40c",
+  "NessieAI/chat_nextseek/src/chat_nextseek/helpers/results.py": "5406f85f40ae8974fd292cbb270d6f523bfde1f99cb4db7362101ac459217bdb",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent.py": "13f196a68116731997a688125fcf1e1eba1031a9284ac4d26691b99f9829d0c8",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "ebe006293c89d4608e9fe2fb57633c3cfc57755d1bd4e2b8b403e2bac44d7131",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/sample_digest.py": "bca2e04a221a26874eeb3c06d0e3296a9d159f47d7d26d44885a56cfd3791709",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "eeba85794dcf9e423b2b5e2cc84c93dd7030cf9608e29a51fb572bae4ddd5c29",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "4b1dcd24f29281721fc26d2502f89e84a3ca3c16d5777405961b072c49bb7c41",
+  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "467cffb781bf88eb2684aee401c4fb19c29ebb73ea834493cc4c1a2a8979a679",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "3ccb91215b600a42da7f41d2bdf0563b3a797f8b8ec35fe8e8cb9f21b663598a",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/protocols.py": "9649ec5069407cc720453c99afc5cf8bbf20454b81722d02ea929ca13f5eda83",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/ampliseq.json": "6a3b072239f99d6b10d6fff34ed70877b698ef408e340a37defd372c844ba866",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/atacseq.json": "b9f5c46371dfbd32e8268a56fb42731e46c3959a475ae30eff91eb6e23b52c3a",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/bacass.json": "fb97cf6fb7d763cbda5b1e18d1b873a6101ba6f56d31c540a1a2b6056f3c9e3b",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/bactmap.json": "6ca017698e2aadea4761d3a3b985b5b601cfb1976866aa1adbcfcbbbba42b65b",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/bamtofastq.json": "3a18713f2b8a14c5104f6285f8575581197c7b496bf4438ade213ea3842e3b5a",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/chipseq.json": "b57947edc27409b7fbb5cb316f335f6cdf2e770de9d394a260cf2f4cd05c7006",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/crisprseq.json": "4e2b87a756260d300f4a3c9473e02e029c3cb5c71aa81372e204ab090b7e1edb",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/denovotranscript.json": "988aeecd1a9b11756def987c6b6139dea2ccd015ba8e1ee4919b7be706f2fbb0",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/detaxizer.json": "ac0865489ded157df80c29735a1258021c22a862c5840ab7553d017c2dd04cf0",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/fastqrepair.json": "ee116b026fe4355033291cd5d9a476d568bb1f36baa62c8abb713a047a33cb16",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/fetchngs.json": "1f569c662815890e6555878a9b054fea166969e4cabb80c73efd409b27f17618",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/genomeassembler.json": "9b20ef71d6512cc3ccc6f06d2225673aeb465bee47c66781c4a6869ba724003d",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/hic.json": "36518f32d37f84765c4e88b007e6ed9288b5d5376eedca125e8a47533c1a2cc2",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/hlatyping.json": "a38021d6a7e21117e0dac908b85d1af0f206677a3eae3e27dfb08b600c89a6f9",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/mag.json": "9aa412b7c5d07121975364f98b201ffdf44de10f84483cb85940d96ff4b9d7c3",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/magmap.json": "a5c40b8bde6dd0b0f6d280e833d1aa44915cef98fc32b81708b8c96fa2e1f028",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/metatdenovo.json": "14955ec17be62960ae333ec1c6235faf5a74ae2b39ffa9c0f538d1c685eac36c",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/methylseq.json": "8bffc602d92541bcba7d2a5610c7dfea904ba60c01a62481ff11183944da9f21",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/nanoseq.json": "cc4ebbac7177bf64f5d2cec18f2f83a3e049c425bd6191cac71fa5700bc277d4",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/pacvar.json": "ee0baa925e24d53c9ca8b86ffbc6a95bcc5eab972b94271283b3cf0ce759dd57",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/pathogensurveillance.json": "de3dfad90af86d38284989b6ffbd5b593095a8640cd40c376e60d3c9240c02fb",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/reference_bundles.json": "a291b39257db0113c0123130cf324e4cef7803aba343fe467462f08470d570da",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/riboseq.json": "a76c30cb263a7c813b78a4a19ebea51be3b97e3616076a4611410aeaab6a3720",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnafusion.json": "cbc3ddff1d1e8b191f5ce5e3c88af44d675ae86526ce481729edceaa8dfe31ce",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "a0bb48d3357408a840299291e7790158549d12933388780c9608b1962f50453f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnasplice.json": "d1b90f1dd7d7f62d83d45dfab174297bbeb0b9066ebd57a2e547dd3e864fa3c9",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnavar.json": "aacc774339be64ec5b6c5ec1bb80397d3ffc4288aa12b32598889c5a6516ac19",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/sarek.json": "e5ccf7fc6b1429a35e99c408846224dfd1ee5ff3196a4259a8790b5630ce708f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/scrnaseq.json": "f404a4baa9a089fcd38863205bdedd9e0cc56bbd817a28aabd9b2629bfd9f74d",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/seqinspector.json": "d27564ffc46334d8c324b3db27dbe862490300717200801a0461cc9000e05360",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/smrnaseq.json": "96fff52be552bfe7ec0b684b7301a1ffc97a900d95b69ed4a9e14077019ae3f3",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/viralintegration.json": "b9f17edc4996a213c14a6c2f4290bcb9ba3245f1992e131aabb0d25d0a964b26",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/viralmetagenome.json": "dc1e8c4faf17d38c9516ec088adc8e252f8e304b7fa1699894abc59d54da2efb",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/viralrecon.json": "2aeab3de026f27b7f533cf339c616d2f2b2a5ef7ad41e5ca161168174abc9ca3",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/catalog.py": "960b31dd1df425dbd8f29ddcde3693a24e4d6f7e6429666f4513d1915ee3deed",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_atlas.py": "7c4fe5b2fc1c5e50ed8d98000922b1884585f9838f29750eb6b7172b64c8ead0",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_dna_atlas.json": "3a03bf5c6127beefb6f3ed42d9451c92405f58cafaa25a4a38c39d07a62fff46",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_param_atlas.json": "1bdb33272b6128cf8f3ecac4b214ac5dfba3c946760cd597169a70ade6118881",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_rna_atlas.json": "b80ccc597708a29ca193cb4f90842635130f238298da6fe92c7a18f3190d1f6f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_schema.py": "526c06f3adab32b34d7ba971f509ecb79cada816528d99d460e1fe7212d2610e",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "3e0a5b55bc10046d6ab47a92b385f024d3b6a52b64ec580638a32950dc4b1858",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/schema_check.py": "fa3a6754490a193bc266e9a7bbe3d41b924ffffda4df02b91e3b97df0e37d014",
+  "NessieAI/dmac_assistant/baml_src/clients.baml": "4061e044f74d793a9bb2d9561c1cd7200d23e4cddd5f812e62f568fec2c1ad84",
+  "NessieAI/dmac_assistant/baml_src/router.baml": "ef317b8217639ff1fa5431d8f87b87583fcfdcc90a7f94fc168a5ce94106cd65",
+  "NessieAI/dmac_assistant/build_context/route_capabilities.json": "7400931cf611e30778478f5307733e8f3789a1637d45890955daa9b5cc46e1e0",
+  "NessieAI/dmac_assistant/src/dmac_assistant/router/__init__.py": "8d45026f14f612a9d79e0f7990a646e6fd50bc9fdd8c6f869475cfb6656714f8",
+  "NessieAI/dmac_assistant/src/dmac_assistant/router/agent.py": "0ad73cf447a12d4668d3f6539392d068c951942379f1d617c4c8d997c04934b4",
+  "NessieAI/dmac_assistant/src/dmac_assistant/router/capabilities.py": "c62f1dad4a4533554cbbd8bba86b11f2168476994b58ef52a61bf72212e225f4",
+  "NessieAI/dmac_assistant/src/dmac_assistant/router/models.py": "8f373dcb94450561e7b0dcd2db15b5fc692ebde0ef55d1e7061bef3b09f3c6c5",
+  "NessieAI/router/baml_introspect.py": "8f7c36468347d601a2b185b0b598014f9a12c0e0a63f4b57af4513e0aa5c9131",
+  "NessieAI/router/family_labels.py": "b62460d0aed0e15536f69ad63371e0bb1e2037009f18c86e10d8bb84c66f3b9b",
+  "NessieAI/router/followup.py": "ba9c6b1d5e2cbdd4451adf445868a21cda79f5b0b01a3638669808a5fba9de4b",
+  "NessieAI/router/laya.py": "d14de087f492be3540202c895f97f52f8290cd63ef3a71f28278e249dce57f29",
+  "NessieAI/router/laya_common.py": "0e5de2adfaa6a2f92070daaa4c70d59effecf530c2b250800b37d6ab4507aac8",
+  "NessieAI/router/laya_options.json": "3d0c0b6bd27d8894d470f0f9c4b072b7ad1522266a9e69023fc51dc857a76387",
+  "NessieAI/router/policy.py": "55d43b96d16e85c13da6e7be5304ddf9eabdc8a458262cd49e0308bbe3943295",
+  "NessieAI/router/posterior_selector.py": "16b669254aa5731241510c0fb838fc80ec0c15b183cf611509b1a201fbd1a40e",
+  "NessieAI/router/router.py": "81a17262ae1bcfe00e9b755ad287781e5bd2da1f4c4bac4385b417c8741a63fa",
+  "NessieAI/router/router_context.py": "70a27763218a83ff27a0c9dd46419a444b445e9f402dc3c130da9ed5050a8b75",
+  "NessieAI/router/run_done.py": "e6e3de3d0969a6cfb2e4f287cd948d039426ef1713ad926e024b317e8dc8f908",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.nextflow_schema.json": "efe37d724f78ebb205df20ce3c7d17397c0e578542a301d44f1356bc302eefba",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.schema_input.json": "89ef2a299d57ca4e6b0ce16faa2345322087243c2a86f140e5ea89183009b8c4",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/chipseq.nextflow_schema.json": "216737980f7cac1b5e7c339df76b4570364258b100283e168d1242336b36d7ab",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/chipseq.schema_input.json": "66cddc2fed28a0324610ca66773ef66d17d798b6c4702a2e1b78db0631b328ac",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/hlatyping.nextflow_schema.json": "467e4e566ff84d09d078905aedb63085ac8f47b37808c40c854daef30307350d",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/hlatyping.schema_input.json": "9b5e8c411f4eddb285b55d1191b2e664c2cc202115cde17f378bb66fb57b6e36",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/methylseq.nextflow_schema.json": "d36c0badea1d18fe483a5736d5f36add86e34b03bc8fd7bd958769a89581239f",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/methylseq.schema_input.json": "c0f30905daf652baa68569a7dfa9723d788efa90cfa84d212663073db3a903fe",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/rnafusion.nextflow_schema.json": "a2e710475b6311e8721eae5bc273266712d02187e958a5ec0dd95e0a2e2b33ab",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/rnafusion.schema_input.json": "6c8eb90ac1a5586dbcd278bfda29d82f10bcb4a0e7fc9f19a810a12ddc45e30b",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/rnaseq.nextflow_schema.json": "e58dc178a02f3814db237946823b50b72c3a771a0f0f2459213524c20518bc56",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/rnaseq.schema_input.json": "691d368c0ca56a9a5f0c9ba24b84ef63adf74fb9dce1fd989cbcbd31c9bf1f28",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/rnasplice.nextflow_schema.json": "e167e1d044ae661ab7346c098a85b1a760c59e16e69c100730c5c8ca4dd85783",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/rnasplice.schema_input.json": "dad4d25f163e209bf9a289dc7e17337e7040c4b7d87dd6772d2e35f8c03e6693",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/sarek.nextflow_schema.json": "9710ac2b8f052ea264064772fc4c94e52accf402a918ce71da49970210a0218a",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/sarek.schema_input.json": "79a82c21f14dc158ffeb8ca10780179bbdac375802319a77f70db251f8db937b",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/scrnaseq.nextflow_schema.json": "2cd1edc62a452bdd59c3964998f86eeb91b95be482468b1cca5a063fbf96f173",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/scrnaseq.schema_input.json": "9372dd9162b1f2d0abc672f2b677aa3f11270bd336fb9d26a2a5c780a2ee42b3",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/smrnaseq.nextflow_schema.json": "d9826e8f4928e59911470b894d6d7c43c3cd2572779d67a2bcc7bc21df7d0b57",
+  "NessieAI/tests/chat_nextseek/fixtures/nfcore/smrnaseq.schema_input.json": "9fd73b127fb354771aff9facbee43b04f5705141ea9347279b90937608f0d382",
+  "NessieAI/tests/nessie_tests/corpus.json#families": "79b76fe97a5b50864fdfb6333b4763a87219a23e59edf00dd84aff24db8013ea",
+  "NessieAI/tests/pipeline_scenarios/run.py": "5aff8a7fd123c9b89e017fe7d33811d4cfa7535988ced9fe6ef3143b8030b1d4"
+ },
+ "laya_mode": "off",
+ "outcome": {
+  "error": null,
+  "launch_params": {
+   "aligner": "bwa",
+   "genome": "GRCh38",
+   "narrow_peak": false,
+   "read_length": 50,
+   "save_reference": true,
+   "with_control": false
+  },
+  "pipeline_key": "atacseq",
+  "replies": [
+   "I've built an nf-core/atacseq run for your four samples. Nothing has been submitted yet. They're paired-end Omni-ATAC libraries from K562 cells, two treated with JQ1 and two with DMSO, which is the kind of data this pipeline is for.\n\n**What the run gives you:** the open-chromatin regions (peaks) in each sample and in each group, plus a read-count table for every peak across all four samples. The pipeline also runs its own comparison of the two groups. That's a first look at which regions open or close with JQ1, not a full analysis of the differences.\n\n**Samplesheet:** one samplesheet, 4 samples.\n| Sample | Condition | Replicate |\n|---|---|---|\n| D.SEQ-261028BMC-7 | DMSO | 1 |\n| D.SEQ-261028BMC-8 | DMSO | 2 |\n| D.SEQ-261028BMC-9 | JQ1 (500 nM) | 1 |\n| D.SEQ-261028BMC-10 | JQ1 (500 nM) | 2 |\n\n**Run settings:**\n- **Reference:** the local Luria reference for human GRCh38 (GRCh38.primary_assembly.genome.fa.gz, gencode.v46.basic.annotation.gtf.gz).\n- **Aligner:** bwa.\n- **Peaks:** broad peaks, which is the default. I can switch to narrow peaks if you'd like.\n- **No input controls.**\n- **Read length set to 50.** The reads are actually 38 bp, but the pipeline only accepts 50, 75, 100, 150 or 200, so I used the closest one. This setting only affects the genome-size estimate used when calling peaks.\n- **Parameter check passed.**\n\n**Run time:** there's no estimate for this pipeline yet.\n\nWith two replicates per group, the test can run, but it has limited power to pick up smaller changes.\n\nOnce it finishes, just tell me \"my run is done\" and I'll turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is built and ready. Tell me if you want to change anything, such as narrow peaks or a different aligner."
+  ],
+  "route": "nextseek_query",
+  "selection": {
+   "pipelines": [
+    "atacseq"
+   ],
+   "reason": "These are paired-end Omni-ATAC (Tn5 tagmentation) genomic libraries from human K562 cells treated with JQ1 or DMSO, two replicates each, so atacseq can call open-chromatin peaks and compare accessibility between treated and control (ATAC references still need staging on Luria before it can run).",
+   "verdict": "chosen"
+  },
+  "uids": [
+   "D.SEQ-261028BMC-7",
+   "D.SEQ-261028BMC-8",
+   "D.SEQ-261028BMC-9",
+   "D.SEQ-261028BMC-10"
+  ]
+ },
+ "score": {
+  "grade": "PASS",
+  "reasons": [
+   "acceptable"
+  ]
+ },
+ "story": {
+  "acceptable": [
+   [
+    "atacseq"
+   ]
+  ],
+  "cohort": "test::atac",
+  "expect": null,
+  "family": "chromatin",
+  "history": [],
+  "id": "atac-plain",
+  "launch": {
+   "built": true,
+   "must_match": {}
+  },
+  "must_not": [
+   "chipseq",
+   "rnaseq"
+  ],
+  "question": "Where is the chromatin open in the treated cells compared with the untreated ones?",
+  "replies": [],
+  "route": "nextseek_query"
+ },
+ "tape": {
+  "entries": {
+   "agent": [
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
+       {
+        "id": "tooluse_2GtlMMcDYBdQB4eVUjcvFz",
+        "input": {
+         "kind": "last_search",
+         "question": "Where is the chromatin open in the treated cells compared with the untreated ones?"
+        },
+        "name": "select_pipeline",
+        "type": "tool_use"
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 1998,
+       "http_status": 200,
+       "reasoning_blocks": 0,
+       "request_id": "80b61303-ed7b-4275-9528-3ff616c28e31",
+       "retry_attempts": 0,
+       "stop_reason": "tool_use"
+      },
+      "stop_reason": "tool_use",
+      "usage": {
+       "cache_read_tokens": 10971,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 98,
+       "prompt_tokens": 172,
+       "total_tokens": 11241
+      }
+     }
+    },
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
+       {
+        "text": "Using nf-core/atacseq: these are paired-end Omni-ATAC libraries from K562 cells (JQ1 vs DMSO, two replicates each).",
+        "type": "text"
+       },
+       {
+        "id": "tooluse_AbPQtmQXFRwSYeSe9k4vHN",
+        "input": {
+         "kind": "last_search",
+         "pipeline_key": "atacseq"
+        },
+        "name": "resolve_samples",
+        "type": "tool_use"
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 2399,
+       "http_status": 200,
+       "reasoning_blocks": 0,
+       "request_id": "842cff6e-0a30-490c-8e61-c19b36c6ed21",
+       "retry_attempts": 0,
+       "stop_reason": "tool_use"
+      },
+      "stop_reason": "tool_use",
+      "usage": {
+       "cache_read_tokens": 10971,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 137,
+       "prompt_tokens": 473,
+       "total_tokens": 11581
+      }
+     }
+    },
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
+       {
+        "id": "tooluse_sbvNyH4EGDIZg8Hq0NySfS",
+        "input": {
+         "cohorts": [
+          {
+           "label": "jq1-vs-dmso",
+           "rows": [
+            {
+             "condition": "DMSO",
+             "replicate": 1,
+             "sample": "D.SEQ-261028BMC-7"
+            },
+            {
+             "condition": "DMSO",
+             "replicate": 2,
+             "sample": "D.SEQ-261028BMC-8"
+            },
+            {
+             "condition": "JQ1",
+             "replicate": 1,
+             "sample": "D.SEQ-261028BMC-9"
+            },
+            {
+             "condition": "JQ1",
+             "replicate": 2,
+             "sample": "D.SEQ-261028BMC-10"
+            }
+           ]
+          }
+         ],
+         "pipeline_key": "atacseq"
+        },
+        "name": "write_samplesheet",
+        "type": "tool_use"
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 2962,
+       "http_status": 200,
+       "reasoning_blocks": 0,
+       "request_id": "d85a5437-26ef-42f4-af74-f18236511190",
+       "retry_attempts": 0,
+       "stop_reason": "tool_use"
+      },
+      "stop_reason": "tool_use",
+      "usage": {
+       "cache_read_tokens": 10971,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 258,
+       "prompt_tokens": 5322,
+       "total_tokens": 16551
+      }
+     }
+    },
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
+       {
+        "id": "tooluse_LD4vGJha9tEkFzHFYjuAVz",
+        "input": {
+         "params": {
+          "read_length": 50
+         },
+         "pipeline_key": "atacseq"
+        },
+        "name": "configure_run",
+        "type": "tool_use"
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 2058,
+       "http_status": 200,
+       "reasoning_blocks": 0,
+       "request_id": "61517df3-e3e1-4e85-bb90-1b6bc62e1d34",
+       "retry_attempts": 0,
+       "stop_reason": "tool_use"
+      },
+      "stop_reason": "tool_use",
+      "usage": {
+       "cache_read_tokens": 10971,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 85,
+       "prompt_tokens": 5749,
+       "total_tokens": 16805
+      }
+     }
+    },
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
+       {
+        "reasoningContent": {
+         "reasoningText": {
+          "signature": "CAQSugQKEggTEAEYAjgBQgh0aGlua2luZxIMMRZBiKx97pDSfrwqGgyfp+9R7K4iEuNOuZ4iMBSaX27utPGmFTsUf7O7WoEkyp7rcEwsRHWZzsN2DfDvZmTgAnFJtaHKQUdIuAsgCSrVA3GpIsDO1ZQr898batoENaFJjngu2eoz3PDfy6WmrxyfG0V4CtdDhBR+PWR0W4msXCL5vi6zozoqhsMwZuAnduPti9XW0CaN1MXdxfVKBOeD+e9eMlRntlif3+mhblJmKKQGJDH2F4vel1toylCxrzS2srKcKjH/ErtF6mTh/tXxTprDfuaPtX7NzRwpFyO73dtor+pkLFuEvnz6RBM7hBE0b/ipAZqUzSCv3vsIKFqSV9W4LnrfgdZtk5g8tuFgef4qy4KhpT3vuTDaMp/eIx7OdikjM/vU4uP2UO7Q0bFlBh3pIAzJ66kKBaeDHJawjbSabixKpwIAIrIt1IzQhxgBS8YRWiarLmHL/X9TkTWe+BTVCP2iFfqkvDZg7M/lCJLiGnoOAwbGCE3LVUcNE1SIPp1ofP/6FLJJG+4qLndZb/iFwrEVkED/CGtFRTedemkvLDNllta0820X4xT150nC0htxBI9TZ2LqPcrJUivTHuYv5jTGMpDEFOYn07PkDTC+BOp6q9U0zCS946GnFQRdsY1o38FcYXT4RadDyeUKPFnDaouE5cTwoV+jCQ5n68DxbEU71uq6h+mccxgavtavthy7OXg7JloQqyEd897Dnn0h4EsYAQ==",
+          "text": ""
+         }
+        }
+       },
+       {
+        "text": "I've built an nf-core/atacseq run for your four samples. Nothing has been submitted yet. They're paired-end Omni-ATAC libraries from K562 cells, two treated with JQ1 and two with DMSO, which is the kind of data this pipeline is for.\n\n**What the run gives you:** the open-chromatin regions (peaks) in each sample and in each group, plus a read-count table for every peak across all four samples. The pipeline also runs its own comparison of the two groups. That's a first look at which regions open or close with JQ1, not a full analysis of the differences.\n\n**Samplesheet:** one samplesheet, 4 samples.\n| Sample | Condition | Replicate |\n|---|---|---|\n| D.SEQ-261028BMC-7 | DMSO | 1 |\n| D.SEQ-261028BMC-8 | DMSO | 2 |\n| D.SEQ-261028BMC-9 | JQ1 (500 nM) | 1 |\n| D.SEQ-261028BMC-10 | JQ1 (500 nM) | 2 |\n\n**Run settings:**\n- **Reference:** the local Luria reference for human GRCh38 (GRCh38.primary_assembly.genome.fa.gz, gencode.v46.basic.annotation.gtf.gz).\n- **Aligner:** bwa.\n- **Peaks:** broad peaks, which is the default. I can switch to narrow peaks if you'd like.\n- **No input controls.**\n- **Read length set to 50.** The reads are actually 38 bp, but the pipeline only accepts 50, 75, 100, 150 or 200, so I used the closest one. This setting only affects the genome-size estimate used when calling peaks.\n- **Parameter check passed.**\n\n**Run time:** there's no estimate for this pipeline yet.\n\nWith two replicates per group, the test can run, but it has limited power to pick up smaller changes.\n\nOnce it finishes, just tell me \"my run is done\" and I'll turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is built and ready. Tell me if you want to change anything, such as narrow peaks or a different aligner.",
+        "type": "text"
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 7767,
+       "http_status": 200,
+       "reasoning_blocks": 1,
+       "request_id": "391cea12-d4bf-4504-b264-67961835879b",
+       "retry_attempts": 0,
+       "stop_reason": "end_turn"
+      },
+      "stop_reason": "end_turn",
+      "usage": {
+       "cache_read_tokens": 10971,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 749,
+       "prompt_tokens": 6164,
+       "total_tokens": 17884
+      }
+     }
+    }
+   ],
+   "annotate_metadata_with_sampletypes": [
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "body": {
+       "identifiers": [
+        "D.SEQ-261028BMC-7",
+        "D.SEQ-261028BMC-8",
+        "D.SEQ-261028BMC-9",
+        "D.SEQ-261028BMC-10"
+       ]
+      },
+      "data": {
+       "data": [
+        {
+         "n_samples": 4,
+         "sample_type": "CEL",
+         "sample_type_description": "A cell sample represents a defined population of living or preserved cells collected or cultured for experimental study. These samples form the foundation for exploring biological mechanisms, testing treatments, or generating derived materials. Each reflects a specific origin or condition, such as tissue type, species, or growth environment.",
+         "sample_type_name": "Cell",
+         "samples": [
+          {
+           "id": "1308983",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-10"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-10"
+          },
+          {
+           "id": "1308984",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-7"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-7"
+          },
+          {
+           "id": "1308985",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-8"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-8"
+          },
+          {
+           "id": "1308986",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-9"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-9"
+          }
+         ]
+        },
+        {
+         "n_samples": 4,
+         "sample_type": "D.SEQ",
+         "sample_type_description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz",
+         "sample_type_name": "Sequencing Data",
+         "samples": [
+          {
+           "id": "1308991",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822140_1.fastq.gz, SRR1822140_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-jq1-2",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-10",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATAC",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-10",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-10"
+          },
+          {
+           "id": "1308992",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822137_1.fastq.gz, SRR1822137_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-ctrl-1",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-7",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATAC-seq",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-7",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-7"
+          },
+          {
+           "id": "1308993",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822138_1.fastq.gz, SRR1822138_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-ctrl-2",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-8",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATACseq",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-8",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-8"
+          },
+          {
+           "id": "1308994",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822139_1.fastq.gz, SRR1822139_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-jq1-1",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-9",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATAC-seq",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-9",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-9"
+          }
+         ]
+        },
+        {
+         "n_samples": 4,
+         "sample_type": "DNA",
+         "sample_type_description": "A DNA sample contains extracted genetic material isolated from a biological source. It serves as input for sequencing, amplification, or other genomic analyses.",
+         "sample_type_name": "DNA Sample",
+         "samples": [
+          {
+           "id": "1308987",
+           "metadata": {
+            "Barcode": "ACTGCATA",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib2",
+            "Parent": "CEL-261028BMC-10",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-10"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-10"
+          },
+          {
+           "id": "1308988",
+           "metadata": {
+            "Barcode": "CTCTCTAT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib1",
+            "Parent": "CEL-261028BMC-7",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-7"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-7"
+          },
+          {
+           "id": "1308989",
+           "metadata": {
+            "Barcode": "TATCCTCT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib2",
+            "Parent": "CEL-261028BMC-8",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-8"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-8"
+          },
+          {
+           "id": "1308990",
+           "metadata": {
+            "Barcode": "GTAAGGAG",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib1",
+            "Parent": "CEL-261028BMC-9",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-9"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-9"
+          }
+         ]
+        }
+       ],
+       "failed_uids": 0,
+       "lineage_complete": true,
+       "total_children": 8,
+       "total_sample_types": 3,
+       "total_samples": 12
+      },
+      "method": "POST",
+      "ok": true,
+      "query": {
+       "page_size": 1000
+      },
+      "status_code": 200,
+      "url": "<url>"
+     }
+    }
+   ],
+   "digest": [
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "ok": true
+     }
+    }
+   ],
+   "fetch_reporter_metadata": [
+    {
+     "args": "49974a5f8920f5b2",
+     "value": {
+      "body": {
+       "identifiers": [
+        "D.SEQ-261028BMC-7",
+        "D.SEQ-261028BMC-8",
+        "D.SEQ-261028BMC-9",
+        "D.SEQ-261028BMC-10"
+       ]
+      },
+      "data": {
+       "data": [
+        {
+         "n_samples": 4,
+         "sample_type": "CEL",
+         "samples": [
+          {
+           "id": "1308983",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-10"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-10"
+          },
+          {
+           "id": "1308984",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-7"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-7"
+          },
+          {
+           "id": "1308985",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-ctrl-cells2",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "DMSO",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-8"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-8"
+          },
+          {
+           "id": "1308986",
+           "metadata": {
+            "CellLine": "K562",
+            "Name": "NTC-ATAC-jq1-cells1",
+            "Scientist": "REDACTED",
+            "Species": "Homo sapiens",
+            "Tissue": "Bone marrow",
+            "Treatment1": "JQ1",
+            "Treatment1Dose": 500,
+            "Treatment1DoseUnits": "nM",
+            "TreatmentType": "Chemical",
+            "Type": "Chronic myelogenous leukemia cell line",
+            "UID": "CEL-261028BMC-9"
+           },
+           "sample_type_id": 3,
+           "uuid": "CEL-261028BMC-9"
+          }
+         ]
+        },
+        {
+         "n_samples": 4,
+         "sample_type": "D.SEQ",
+         "samples": [
+          {
+           "id": "1308991",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822140_1.fastq.gz, SRR1822140_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-jq1-2",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-10",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATAC",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-10",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-10"
+          },
+          {
+           "id": "1308992",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822137_1.fastq.gz, SRR1822137_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-ctrl-1",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-7",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATAC-seq",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-7",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-7"
+          },
+          {
+           "id": "1308993",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822138_1.fastq.gz, SRR1822138_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-ctrl-2",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-8",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATACseq",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-8",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-8"
+          },
+          {
+           "id": "1308994",
+           "metadata": {
+            "20mers": "",
+            "5_3UTR": "",
+            "Accession": "",
+            "AnalyzedDate": "",
+            "CDSPercent": "",
+            "Checksum_PrimaryData": "",
+            "Checksum_PrimaryType": "",
+            "Checksum_SecondaryData": "",
+            "Checksum_SecondaryType": "",
+            "Checksum_TertiaryData": "",
+            "Checksum_TertiaryType": "",
+            "ClusterDate": "",
+            "CompleteDate": "",
+            "ContamPercent": "",
+            "Contamination": "",
+            "DataType": "FASTQ",
+            "DuplicationPercent": "",
+            "ExonIntergenicRatio": "",
+            "ExonIntronRatio": "",
+            "ExpressionKit": "",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 38,
+            "File_PrimaryData": "SRR1822139_1.fastq.gz, SRR1822139_2.fastq.gz",
+            "File_SecondaryData": "",
+            "File_TertiaryData": "",
+            "FingerprintJSD": "",
+            "FlowCellType": "",
+            "FlowLane": "",
+            "GenesDetected": "",
+            "GenesDetectedPercent": "",
+            "Genome": "",
+            "IndexInlineLength": "",
+            "IndexInlineStartNT": "",
+            "IntergenicPercent": "",
+            "IntronPercent": "",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "other",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "ATAC-seq",
+            "Link_Contamination": "",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/atacseq/testdata/",
+            "Link_QC": "",
+            "Link_Reviewer": "",
+            "Link_SRA": "",
+            "Link_SecondaryData": "",
+            "Link_TertiaryData": "",
+            "MappedPercent": "",
+            "MaxReads": "",
+            "MiniKnowVersion": "",
+            "MismatchPercent": "",
+            "ModCall": "",
+            "Mode": "",
+            "N50": "",
+            "N50Units": "",
+            "NSC": "",
+            "Name": "NTC-ATAC-jq1-1",
+            "Notes": "",
+            "NumAligned": "",
+            "NumReads": "",
+            "NumReadsUnits": "",
+            "Parent": "DNA-261028BMC-9",
+            "PrepUser": "",
+            "Primer": "",
+            "Protocol": "",
+            "Publish_uri": "",
+            "QCAssay": "",
+            "QCPlatform": "",
+            "RSC": "",
+            "R_bp": 38,
+            "ReadLanePct": "",
+            "ReagentCatalogNum": "",
+            "ReagentManufacturer": "",
+            "Repository": "",
+            "RepositoryID": "",
+            "RepositoryLink": "",
+            "SampleCreationDate": "",
+            "Scientist": "REDACTED",
+            "SenseAntisenseRatio": "",
+            "Sequencer": "Illumina NextSeq 500",
+            "SequencingFacility": "",
+            "SequencingFacilityLink": "",
+            "SequencingFacilityLocation": "",
+            "SequencingType": "ATAC-seq",
+            "TSSEnrichment": "",
+            "Top30CountPercent": "",
+            "TotalReads": "",
+            "UID": "D.SEQ-261028BMC-9",
+            "UTRPercent": "",
+            "UnalignedReads": "",
+            "Yield": "",
+            "YieldUnits": "",
+            "rRNAPercent": ""
+           },
+           "sample_type_id": 11,
+           "uuid": "D.SEQ-261028BMC-9"
+          }
+         ]
+        },
+        {
+         "n_samples": 4,
+         "sample_type": "DNA",
+         "samples": [
+          {
+           "id": "1308987",
+           "metadata": {
+            "Barcode": "ACTGCATA",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib2",
+            "Parent": "CEL-261028BMC-10",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-10"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-10"
+          },
+          {
+           "id": "1308988",
+           "metadata": {
+            "Barcode": "CTCTCTAT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib1",
+            "Parent": "CEL-261028BMC-7",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-7"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-7"
+          },
+          {
+           "id": "1308989",
+           "metadata": {
+            "Barcode": "TATCCTCT",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-ctrl-lib2",
+            "Parent": "CEL-261028BMC-8",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-8"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-8"
+          },
+          {
+           "id": "1308990",
+           "metadata": {
+            "Barcode": "GTAAGGAG",
+            "Lab": "REDACTED",
+            "Name": "NTC-ATAC-jq1-lib1",
+            "Parent": "CEL-261028BMC-9",
+            "Protocol": "Omni-ATAC, 50,000 nuclei, Illumina Tagment DNA TDE1 enzyme",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261028BMC-9"
+           },
+           "sample_type_id": 10,
+           "uuid": "DNA-261028BMC-9"
+          }
+         ]
+        }
+       ],
+       "failed_uids": 0,
+       "lineage_complete": true,
+       "total_children": 8,
+       "total_sample_types": 3,
+       "total_samples": 12
+      },
+      "method": "POST",
+      "ok": true,
+      "query": {
+       "page_size": 1000
+      },
+      "status_code": 200,
+      "url": "<url>"
+     }
+    }
+   ],
+   "payload": [
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": "adcc71b37a9df33ea2fb465a9d812818cc1d1ee1a52c602387fef4ff28c647c5"
+    }
+   ],
+   "schemas": {
+    "atacseq/2.1.2/assets/schema_input.json": {
+     "fixture": "atacseq.schema_input.json",
+     "sha256": "89ef2a299d57ca4e6b0ce16faa2345322087243c2a86f140e5ea89183009b8c4"
+    },
+    "atacseq/2.1.2/nextflow_schema.json": {
+     "fixture": "atacseq.nextflow_schema.json",
+     "sha256": "efe37d724f78ebb205df20ce3c7d17397c0e578542a301d44f1356bc302eefba"
+    },
+    "chipseq/2.1.0/assets/schema_input.json": {
+     "fixture": "chipseq.schema_input.json",
+     "sha256": "66cddc2fed28a0324610ca66773ef66d17d798b6c4702a2e1b78db0631b328ac"
+    },
+    "chipseq/2.1.0/nextflow_schema.json": {
+     "fixture": "chipseq.nextflow_schema.json",
+     "sha256": "216737980f7cac1b5e7c339df76b4570364258b100283e168d1242336b36d7ab"
+    },
+    "hlatyping/2.2.0/assets/schema_input.json": {
+     "fixture": "hlatyping.schema_input.json",
+     "sha256": "9b5e8c411f4eddb285b55d1191b2e664c2cc202115cde17f378bb66fb57b6e36"
+    },
+    "hlatyping/2.2.0/nextflow_schema.json": {
+     "fixture": "hlatyping.nextflow_schema.json",
+     "sha256": "467e4e566ff84d09d078905aedb63085ac8f47b37808c40c854daef30307350d"
+    },
+    "methylseq/4.2.0/assets/schema_input.json": {
+     "fixture": "methylseq.schema_input.json",
+     "sha256": "c0f30905daf652baa68569a7dfa9723d788efa90cfa84d212663073db3a903fe"
+    },
+    "methylseq/4.2.0/nextflow_schema.json": {
+     "fixture": "methylseq.nextflow_schema.json",
+     "sha256": "d36c0badea1d18fe483a5736d5f36add86e34b03bc8fd7bd958769a89581239f"
+    },
+    "rnafusion/4.1.3/assets/schema_input.json": {
+     "fixture": "rnafusion.schema_input.json",
+     "sha256": "6c8eb90ac1a5586dbcd278bfda29d82f10bcb4a0e7fc9f19a810a12ddc45e30b"
+    },
+    "rnafusion/4.1.3/nextflow_schema.json": {
+     "fixture": "rnafusion.nextflow_schema.json",
+     "sha256": "a2e710475b6311e8721eae5bc273266712d02187e958a5ec0dd95e0a2e2b33ab"
+    },
+    "rnaseq/3.18.0/assets/schema_input.json": {
+     "fixture": "rnaseq.schema_input.json",
+     "sha256": "691d368c0ca56a9a5f0c9ba24b84ef63adf74fb9dce1fd989cbcbd31c9bf1f28"
+    },
+    "rnaseq/3.18.0/nextflow_schema.json": {
+     "fixture": "rnaseq.nextflow_schema.json",
+     "sha256": "e58dc178a02f3814db237946823b50b72c3a771a0f0f2459213524c20518bc56"
+    },
+    "rnasplice/1.0.4/assets/schema_input.json": {
+     "fixture": "rnasplice.schema_input.json",
+     "sha256": "dad4d25f163e209bf9a289dc7e17337e7040c4b7d87dd6772d2e35f8c03e6693"
+    },
+    "rnasplice/1.0.4/nextflow_schema.json": {
+     "fixture": "rnasplice.nextflow_schema.json",
+     "sha256": "e167e1d044ae661ab7346c098a85b1a760c59e16e69c100730c5c8ca4dd85783"
+    },
+    "sarek/3.10.0/assets/schema_input.json": {
+     "fixture": "sarek.schema_input.json",
+     "sha256": "79a82c21f14dc158ffeb8ca10780179bbdac375802319a77f70db251f8db937b"
+    },
+    "sarek/3.10.0/nextflow_schema.json": {
+     "fixture": "sarek.nextflow_schema.json",
+     "sha256": "9710ac2b8f052ea264064772fc4c94e52accf402a918ce71da49970210a0218a"
+    },
+    "scrnaseq/2.7.1/assets/schema_input.json": {
+     "fixture": "scrnaseq.schema_input.json",
+     "sha256": "9372dd9162b1f2d0abc672f2b677aa3f11270bd336fb9d26a2a5c780a2ee42b3"
+    },
+    "scrnaseq/2.7.1/nextflow_schema.json": {
+     "fixture": "scrnaseq.nextflow_schema.json",
+     "sha256": "2cd1edc62a452bdd59c3964998f86eeb91b95be482468b1cca5a063fbf96f173"
+    },
+    "smrnaseq/2.4.1/assets/schema_input.json": {
+     "fixture": "smrnaseq.schema_input.json",
+     "sha256": "9fd73b127fb354771aff9facbee43b04f5705141ea9347279b90937608f0d382"
+    },
+    "smrnaseq/2.4.1/nextflow_schema.json": {
+     "fixture": "smrnaseq.nextflow_schema.json",
+     "sha256": "d9826e8f4928e59911470b894d6d7c43c3cd2572779d67a2bcc7bc21df7d0b57"
+    }
+   },
+   "selection": [
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": "{\"pipelines\": [\"atacseq\"], \"reason\": \"These are paired-end Omni-ATAC (Tn5 tagmentation) genomic libraries from human K562 cells treated with JQ1 or DMSO, two replicates each, so atacseq can call open-chromatin peaks and compare accessibility between treated and control (ATAC references still need staging on Luria before it can run).\", \"basis\": \"data\"}"
+    }
+   ]
+  }
+ }
+}

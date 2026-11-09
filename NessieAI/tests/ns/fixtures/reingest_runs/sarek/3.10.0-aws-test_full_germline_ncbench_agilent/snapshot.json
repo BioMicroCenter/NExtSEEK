@@ -1,0 +1,97 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "Coverage10xPercent",
+    "Coverage30xPercent",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "MedianCoverage",
+    "Name",
+    "SampleCreationDate",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.ALN"
+  },
+  "vcf_deepvariant": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.VCF"
+  },
+  "vcf_freebayes": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.VCF"
+  },
+  "vcf_haplotypecaller": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.VCF"
+  },
+  "vcf_manta": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.VCF"
+  },
+  "vcf_strelka": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.VCF"
+  }
+ },
+ "warnings": [
+  "NA12878_200M: no Notes on A.ALN; also in run: preprocessing/markduplicates/NA12878_200M/NA12878_200M.md.cram.crai, preprocessing/markduplicates/NA12878_200M/NA12878_200M.md.cram",
+  "NA12878_75M: no Notes on A.ALN; also in run: preprocessing/markduplicates/NA12878_75M/NA12878_75M.md.cram.crai, preprocessing/markduplicates/NA12878_75M/NA12878_75M.md.cram"
+ ]
+}
