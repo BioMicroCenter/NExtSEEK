@@ -79,3 +79,29 @@ def test_midnight_dates_become_plain_dates_other_times_stay():
     m = out["data"]["data"][0]["samples"][0]["metadata"]
     assert (m["Born"], m["Seen"], m["Free"]) == ("2014-10-28", "2014-10-28 09:30:00", "at 2020-01-02.")
     assert md["data"]["data"][0]["samples"][0]["metadata"]["Born"].endswith("00:00:00")
+
+
+# ---- wiring ----
+def test_fetched_metadata_bundle_has_plain_dates(monkeypatch):
+    from chat_nextseek.reports import metadata as mdmod
+    raw = _md(_s("D.1", "a", SampleCreationDate="2020-02-11 00:00:00"))
+    monkeypatch.setattr(mdmod, "tool_nextseek_api_request", lambda *a, **k: raw)
+    out = mdmod.fetch_reporter_metadata(object(), ["D.1"])
+    assert out["data"]["data"][0]["samples"][0]["metadata"]["SampleCreationDate"] == "2020-02-11"
+
+
+def test_code_path_scrubs_leaks_from_the_coders_rows():
+    from unittest.mock import MagicMock
+    from chat_nextseek.reports import outputs as outmod
+    from chat_nextseek.schemas import ReportCoderOutput
+
+    md = {"data": {"data": [{"sample_type": "D.SEQ", "samples": [
+        {"metadata": {"UID": f"D.SEQ-{i}", "Name": f"lab_{i}"}} for i in range(12)]}]}}
+    code = ("result = {'samples': [{'description': 'Arm: A; Lab-only remark here; SRA run: ' + "
+            "s['metadata']['Name']} for g in data['data']['data'] for s in g['samples']]}")
+    coder = MagicMock(return_value=ReportCoderOutput(extraction_code=code))
+    out = outmod._produce_report_output(
+        config=MagicMock(), user_query="q", report_type_value="GEO", reporter_context={},
+        template_for_llm={"samples": [{}]}, metadata=md, report_writer_fn=MagicMock(),
+        report_coder_fn=coder, log_dir="/tmp", internal_notes=["Lab-only remark here"])
+    assert {r["description"] for r in out.report.samples} == {"Arm: A"}

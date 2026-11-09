@@ -23,6 +23,7 @@ from .metadata import (
     filter_summary_for_deg,
 )
 from .nfcore import _handle_nfcore_artifacts
+from .public_checks import do_not_publish_warning, scrub_public_report, strip_internal_attributes
 from .protocols import (
     download_and_extract_protocol_blobs,
     extract_protocol_refs_from_metadata,
@@ -50,6 +51,10 @@ _TARGET_TYPE_FOR_REPORT = {"GEO": "D.SEQ", "SRA": "D.SEQ", "PRIDE": "D.MSP"}
 _TARGET_TYPE_WORDS = {"D.SEQ": "sequencing data", "D.MSP": "mass spectrometry data"}
 #: Operator 2026-10-14: more than 10 samples takes the code path (was 20).
 _REPORT_CODE_PATH_THRESHOLD = 10
+# Repository packages are public: internal notes are kept out of them and out of what the coder sees.
+_PUBLIC_REPORT_TYPES = {"GEO", "SRA", "PRIDE"}
+# Operator ruling pending: keep the rows the lab marked "do not publish" and warn (False), or drop them (True).
+DROP_DO_NOT_PUBLISH = False
 
 
 class ReportCodePathError(RuntimeError):
@@ -171,6 +176,7 @@ def _produce_report_output(
     report_coder_fn=None,
     notes="",
     log_dir=None,
+    internal_notes=None,
 ):
     """Gate between the deterministic code path (more than ``_REPORT_CODE_PATH_THRESHOLD`` samples) and the LLM
     report_writer (small submissions). Returns a report-writer output model; raises ``ReportCodePathError`` when
@@ -214,6 +220,8 @@ def _produce_report_output(
                 rows = (result or {}).get(row_key)
                 if isinstance(rows, list) and len(rows) == count:
                     print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
+                    if internal_notes is not None:
+                        result, _ = scrub_public_report(result, internal_notes)
                     lead = _code_path_lead(canonical, metadata, target_type, result)
                     return _wrap_report_result(report_type_value, result, coder_output, lead)
                 got = len(rows) if isinstance(rows, list) else "n/a"
@@ -239,7 +247,10 @@ def _produce_report_output(
         reporter_context=reporter_context,
         notes=notes,
     )
-    return report_writer_fn(config, user_query, report_writer_plan, template_for_llm)
+    out = report_writer_fn(config, user_query, report_writer_plan, template_for_llm)
+    if internal_notes is not None and hasattr(out, "model_dump"):
+        out = type(out).model_validate(scrub_public_report(out.model_dump(), internal_notes)[0])
+    return out
 
 
 def persist_report_file(
@@ -338,6 +349,17 @@ def generate_report_outputs(
         print("[DEBUG][REPORTER] Combined metadata fetch ok:", metadata.get("ok"), "uids:", uids)
         metadata = annotate_metadata_with_sampletypes(config, metadata) if metadata else metadata
         metadata_map["__all__"] = metadata
+
+    # Public repository packages: the lab's internal notes never reach the coder or the cells.
+    public_notes: list[str] | None = None
+    withheld: list[dict] = []
+    if report_type_value in _PUBLIC_REPORT_TYPES:
+        public_notes = []
+        for key, md in list(metadata_map.items()):
+            if md:
+                metadata_map[key], w, n = strip_internal_attributes(md, drop_do_not_publish=DROP_DO_NOT_PUBLISH)
+                withheld += w
+                public_notes += n
 
     # Collect and fetch protocols
     all_protocol_refs: dict[tuple[str, str], dict[str, str]] = {}
@@ -528,6 +550,7 @@ def generate_report_outputs(
                 report_coder_fn=report_coder_fn,
                 notes=getattr(reporter_plan, "notes", ""),
                 log_dir=log_dir,
+                internal_notes=public_notes,
             )
             per_uid_reports.append(
                 {
@@ -568,6 +591,7 @@ def generate_report_outputs(
             report_coder_fn=report_coder_fn,
             notes=getattr(reporter_plan, "notes", ""),
             log_dir=log_dir,
+            internal_notes=public_notes,
         )
         per_uid_reports.append(
             {
@@ -718,6 +742,8 @@ def generate_report_outputs(
         if narrative:
             reply_lines.insert(0, narrative.strip())
             break
+    if withheld:
+        reply_lines.append(do_not_publish_warning(withheld))
     reply = "\n\n".join(reply_lines)
 
     return reporter_result, report_writer_output, saved_files, reply
