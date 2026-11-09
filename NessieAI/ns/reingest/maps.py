@@ -7,6 +7,7 @@ file reviewable in a diff rather than a security surface.
 """
 from __future__ import annotations
 
+import fnmatch
 import re
 from pathlib import Path
 from typing import Literal
@@ -60,6 +61,10 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # `pipelines` package (not looked up like a `$ref`); the validator below checks them.
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
+# A sample's own samplesheet cells (SampleRecord.samplesheet). On a row with no sample
+# in scope (per_run, per_file) it resolves to the value every sample of the run shares,
+# else None; a per_file rule with `parents_by_samplesheet` narrows the run to its parents.
+_SAMPLESHEET_SECTION = "samplesheet"
 _RUN_SECTION_ATTR = {"outputs": "named_outputs"}
 
 
@@ -123,6 +128,23 @@ class OutputRule(BaseModel):
     # A flag-dependent output (--cram, --tools salmon). Matching nothing is
     # expected, so it is not reported as a miss (spec G-10).
     optional: bool = False
+    # Optional per_sample rules only: a sample with no file for this rule gets no
+    # row, and the skip is logged. For outputs some samples never have by design,
+    # such as a germline caller's VCF for the tumours of a tumour/normal run.
+    # Unset, such a sample gets a fileless row, whose hard block on the upload is
+    # what makes a genuinely missing file (hlatyping's OptiType call) visible.
+    skip_samples_without_file: bool = False
+    # Optional primary rules only, per_sample or per_file, two or more to a group,
+    # all of one sample type and cardinality: rules naming one group are
+    # alternative outputs, of which one launch writes at most one per sample
+    # (methylseq's Bismark coverage, MethylDackel bedGraph or methylKit; atacseq's
+    # narrow or broad peaks), or per file stem for per_file rules (chipseq's narrow
+    # or broad consensus of one antibody). A sample (or replicate group, or stem)
+    # with rows from two of them got files from two launches in one reused run
+    # folder (nf-core never deletes a stale output): every row is kept, and the
+    # mapper warns and tells the curator. None for an output that coexists with its
+    # siblings of the same type (a bigwig beside peaks, sarek's callers).
+    alternative_group: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
     # Whether this rule's rows also receive the map's `provenance_attributes`
     # (mapper.apply merges that one flat dict into every row of every output
@@ -144,6 +166,12 @@ class OutputRule(BaseModel):
     # project happened to be first. None means emit no ASSAY rows for this
     # rule -- the pre-existing behaviour, not an error.
     assay: str | None = None
+    # per_file only: a samplesheet column whose value names the row's file (its
+    # @file_stem). The row is parented only by the samples whose column holds that
+    # value, not by every sample of the run: nf-core/chipseq writes one consensus
+    # peak set per `antibody`, which its controls and the other antibodies' samples
+    # did not make.
+    parents_by_samplesheet: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -169,6 +197,19 @@ class OutputRule(BaseModel):
         declare primary data. It takes exactly one candidate pattern: per-stem
         candidate fallback is not supported. Companions pair with each row's
         file by its stem (see mapper._pairs_with_row_file)."""
+        if self.skip_samples_without_file and not (
+                self.optional and self.cardinality == "per_sample" and self.primary_data):
+            raise ValueError(f"rule {self.id!r}: skip_samples_without_file is for optional "
+                             "per_sample rules that set primary_data (the mapper's skip "
+                             "guard reads the primary file)")
+        if self.parents_by_samplesheet and self.cardinality != "per_file":
+            raise ValueError(f"rule {self.id!r}: parents_by_samplesheet is for per_file rules")
+        if self.alternative_group is not None and not (
+                self.alternative_group and self.optional
+                and self.cardinality in ("per_sample", "per_file") and self.primary_data):
+            raise ValueError(f"rule {self.id!r}: alternative_group must be a non-empty name, "
+                             "on an optional per_sample or per_file rule that sets "
+                             "primary_data (a launch writes at most one of a group's outputs)")
         if self.cardinality == "per_file":
             if not self.primary_data:
                 raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")
@@ -192,6 +233,79 @@ class UnmappedRuling(BaseModel):
     model_config = ConfigDict(extra="forbid")
     key: str
     why: str
+
+
+class UnmappedFiles(BaseModel):
+    """Run files no rule registers, on purpose, each with its reason (`unmapped_files` in
+    NessieAI/ns/reingest_maps/README.md). The mapper drops a matching file before any rule
+    sees it, so it is never a candidate or companion; with claims_every_file set, the
+    fixture test also counts it as claimed."""
+    model_config = ConfigDict(extra="forbid")
+    glob: str
+    why: str
+    #: Files `glob` also matches that this ruling leaves to the rules. fnmatch cannot say
+    #: "a .bam that is not a .sorted.bam", and bwa-meth writes its raw alignment as
+    #: `alignments/<sample>.bam` beside the `<sample>.sorted.bam` a rule reads.
+    except_globs: list[str] = Field(default_factory=list)
+
+    def rules_out(self, path: str) -> bool:
+        """Whether this ruling drops `path`: `fnmatch` (whose `*` crosses `/`) over the
+        brace-expanded glob, unless an `except_globs` pattern matches it too."""
+        def matches(pattern: str) -> bool:
+            return any(fnmatch.fnmatch(path, g) for g in expand_braces(pattern))
+        return matches(self.glob) and not any(matches(e) for e in self.except_globs)
+
+
+class ModuleTable(BaseModel):
+    """A per-module MultiQC data file this map's pipeline writes, read like the harvest's
+    own `_MODULE_TABLES`: each column becomes the metric `<namespace>-<column>`, from the
+    row named `<sample><suffix>`, else `<sample>`. For a pipeline that writes no
+    general-stats table (atacseq and chipseq exclude it), this is where its QC is.
+
+    `shape: bargraph` is MultiQC's custom-content bar graph written as a table (atacseq's
+    `multiqc_mlib_frip_score-plot.txt`): one row per sample with its one value under a
+    column named after that row or its file, every other cell blank. It reads as the single
+    metric `<namespace>-value`.
+
+    `columns`, when set, are the only columns read; the table's others never become
+    metrics (samtools flagstat writes some 35, of which a map wants one)."""
+    model_config = ConfigDict(extra="forbid")
+    namespace: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    suffix: str = ""
+    shape: Literal["table", "bargraph"] = "table"
+    columns: list[str] = Field(default_factory=list)
+
+
+SAMPLE_PLACEHOLDER = "<sample>"
+
+
+class SampleFile(BaseModel):
+    """A per-sample QC file a tool writes outside MultiQC's tables, found by `glob` with
+    `<sample>` standing for the sample's name (`<` and `>` are not glob or brace syntax,
+    so the stager copies the pattern with `*` in its place). Its values become the
+    sample's metrics `<namespace>-<column>`, like a module table's:
+
+    - `value`: a MultiQC custom-content file, `<name>\t<value>` under `#` header lines
+      (chipseq's `<sample>.FRiP_mqc.tsv`, `.spp_nsc_mqc.tsv`): the column `value`;
+    - `table`: a tab-separated table with a `Sample` header, read from the row named
+      `<sample>` or `<sample>.<anything>` (deepTools plotFingerprint's qcmetrics, which
+      also holds the control's row);
+    - `ataqv`: ataqv's JSON, its `metrics` scalars.
+
+    `columns`, when set, are the only ones read."""
+    model_config = ConfigDict(extra="forbid")
+    glob: str
+    reader: Literal["value", "table", "ataqv"]
+    columns: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _names_the_sample(self):
+        if SAMPLE_PLACEHOLDER not in self.glob:
+            raise ValueError(f"a sample file's glob must contain {SAMPLE_PLACEHOLDER}: {self.glob}")
+        return self
+
+    def staged_glob(self) -> str:
+        return self.glob.replace(SAMPLE_PLACEHOLDER, "*")
 
 
 class VersionOverride(BaseModel):
@@ -242,10 +356,59 @@ class PipelineMap(BaseModel):
     provenance_attributes: dict[str, str] = Field(default_factory=dict)
     qc_attributes: dict[str, AttributeRule] = Field(default_factory=dict)
     deliberately_unmapped: list[UnmappedRuling] = Field(default_factory=list)
+    #: MultiQC general-stats rows that belong to a sample but are named <sample><suffix>
+    #: (sarek: "<sample>.recal", "<sample>.md"), best first. Their columns join the sample's
+    #: metrics; a column the sample's own row or an earlier suffix already holds is kept.
+    qc_row_suffixes: list[str] = Field(default_factory=list)
+    #: MultiQC data files, by file name (`multiqc_picard_dups.yaml`), read as module
+    #: tables on top of the harvest's own `_MODULE_TABLES`. A `.yaml` name (MultiQC's
+    #: `data_format: yaml`) also needs a `harvest_globs` entry: only `.txt` tables are
+    #: staged for every pipeline.
+    module_tables: dict[str, ModuleTable] = Field(default_factory=dict)
+    #: Per-sample QC files outside MultiQC's tables, by metric namespace (chipseq's
+    #: phantompeakqualtools coefficients, deepTools fingerprint metrics, ataqv's TSS
+    #: enrichment). Staged with `<sample>` as `*`; see `SampleFile`.
+    sample_files: dict[str, SampleFile] = Field(default_factory=dict)
+    #: When true, the fixture contract test requires every file in a run to be a rule's
+    #: candidate or companion, or to match an `unmapped_files` glob.
+    claims_every_file: bool = False
+    unmapped_files: list[UnmappedFiles] = Field(default_factory=list)
+    #: When true, a samplesheet `replicate` column splits each `sample` into one sample per
+    #: biological replicate, `<sample>_REP<replicate>` (the id nf-core/atacseq and
+    #: nf-core/chipseq give each replicate's files), with the samplesheet's `sample` kept
+    #: as the replicate group (`RunManifest.replicate_groups`). Off for every other map:
+    #: a `replicate` column there is sample metadata, and rows sharing a `sample` stay
+    #: one multi-run sample.
+    replicate_samples: bool = False
+
+    def samplesheet_columns(self) -> set[str]:
+        """The samplesheet columns this map reads: every `$samplesheet.<column>` in a
+        rule's attributes, a version override's, `row_defaults` or
+        `provenance_attributes`, and every rule's `parents_by_samplesheet`. The harvest
+        keeps only these cells (`SampleRecord.samplesheet`), so a column no map reads
+        (sarek's sex or status) never reaches the stored manifest."""
+        rules = list(self.outputs) + [r for o in self.versions for r in o.outputs]
+        values = [v for rule in rules for v in rule.attributes.values()]
+        values += list(self.row_defaults.values()) + list(self.provenance_attributes.values())
+        prefix = f"${_SAMPLESHEET_SECTION}."
+        columns = {v[len(prefix):] for v in values
+                   if isinstance(v, str) and v.startswith(prefix) and len(v) > len(prefix)}
+        return columns | {r.parents_by_samplesheet for r in rules if r.parents_by_samplesheet}
 
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""
         return {entry.key for entry in self.deliberately_unmapped}
+
+    @model_validator(mode="after")
+    def sample_file_namespaces(self):
+        """A metric key is `<namespace>-<column>`, split at its first `-`, so a sample
+        file's namespace has a module table's shape and is not also a module table's."""
+        tables = {t.namespace for t in self.module_tables.values()}
+        for namespace in self.sample_files:
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", namespace) or namespace in tables:
+                raise ValueError(f"sample file namespace {namespace!r} must be lower_snake_case "
+                                 "and not a module table's")
+        return self
 
     @model_validator(mode="after")
     def computed_names_must_exist(self):
@@ -282,6 +445,25 @@ class PipelineMap(BaseModel):
         dupes = sorted({i for i in ids if ids.count(i) > 1})
         if dupes:
             raise ValueError(f"duplicate rule id(s): {dupes}")
+        types_by_group: dict[str, set[str]] = {}
+        ids_by_group: dict[str, set[str]] = {}
+        kinds_by_group: dict[str, set[str]] = {}
+        for rule in self.outputs + [r for o in self.versions for r in o.outputs]:
+            if rule.alternative_group:
+                types_by_group.setdefault(rule.alternative_group, set()).add(rule.sample_type)
+                ids_by_group.setdefault(rule.alternative_group, set()).add(rule.id)
+                kinds_by_group.setdefault(rule.alternative_group, set()).add(rule.cardinality)
+        mixed = sorted(g for g, types in types_by_group.items() if len(types) > 1)
+        if mixed:
+            raise ValueError(f"alternative_group(s) {mixed} hold rules of more than one "
+                             "sample type")
+        mixed = sorted(g for g, kinds in kinds_by_group.items() if len(kinds) > 1)
+        if mixed:
+            raise ValueError(f"alternative_group(s) {mixed} mix per_sample and per_file rules")
+        alone = sorted(g for g, ids in ids_by_group.items() if len(ids) < 2)
+        if alone:
+            raise ValueError(f"alternative_group(s) {alone} name only one rule; a group "
+                             "needs two or more")
         for spec in [self.applies_to_versions] if self.applies_to_versions else []:
             _specifier(spec)
         known = set(ids)
@@ -380,7 +562,8 @@ def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, lis
 
 
 def all_harvest_globs() -> tuple[str, ...]:
-    """Every committed map's ``harvest_globs``, deduplicated, in a stable order.
+    """Every committed map's ``harvest_globs`` and ``sample_files`` (each with ``*`` for
+    ``<sample>``), deduplicated, in a stable order.
 
     The UNION across pipelines, not one map's list, because staging happens
     before the pipeline is known: `run-harvest` copies files off the cluster and
@@ -400,10 +583,13 @@ def all_harvest_globs() -> tuple[str, ...]:
     seen: dict[str, None] = {}
     for pipeline in available():
         try:
-            for pattern in load(pipeline).harvest_globs:
-                seen.setdefault(pattern, None)
+            pipeline_map = load(pipeline)
         except Exception:
             continue
+        for pattern in pipeline_map.harvest_globs:
+            seen.setdefault(pattern, None)
+        for sample_file in pipeline_map.sample_files.values():
+            seen.setdefault(sample_file.staged_glob(), None)
     return tuple(seen)
 
 
@@ -433,6 +619,14 @@ def resolve_ref(ref: str, run_manifest, sample=None):
     body = ref[1:]
     section, _, key = body.partition(".")
 
+    if section == _SAMPLESHEET_SECTION:
+        if not key:
+            return None
+        if sample is not None:
+            return (getattr(sample, "samplesheet", None) or {}).get(key) or None
+        values = {(getattr(s, "samplesheet", None) or {}).get(key) or None
+                  for s in getattr(run_manifest, "samples", None) or []}
+        return values.pop() if len(values) == 1 else None
     if section in _SAMPLE_SECTIONS:
         if sample is None:
             return None

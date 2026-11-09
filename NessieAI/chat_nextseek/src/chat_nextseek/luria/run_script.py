@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Sequence
 
 # Operator-specific slots. Both land inside a shell script executed on Luria, so
 # both are allow-listed fail-closed like every other slot in this module.
@@ -183,6 +184,34 @@ LURIA_GENOMES: dict[str, dict[str, str]] = {
                 "gtf":   "Macaca_fascicularis.Macaca_fascicularis_6.0.116.gtf.gz"},
     "Mmul_10": {"fasta": "Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz",
                 "gtf":   "Macaca_mulatta.Mmul_10.116.gtf.gz"},
+    # The GATK GRCh38 bundle that nf-core/sarek 3.10.0's own iGenomes entry ('GATK.GRCh38',
+    # conf/igenomes.config) names, staged by luria/refs/stage_dna_refs.sh. Its contigs match
+    # the dbSNP, known-indel and gnomAD files below, which the GENCODE FASTA does not promise.
+    # No GTF: sarek declares no gtf param.
+    "GATK.GRCh38": {"fasta": "GATK.GRCh38/Homo_sapiens_assembly38.fasta"},
+}
+
+# Reference files beyond fasta/gtf, by kind, under the same refs root. A pipeline names the
+# kinds it takes, and under which param, in LURIA_PIPELINE_LAUNCH["resource_params"]; a kind
+# a genome has not staged is not passed. known_indels is a '*' glob over a folder because
+# sarek's own brace form ({a,b}.vcf.gz) is refused by refuse_shell_syntax. A path ending in
+# '/' is a folder: bwa is iGenomes' prebuilt BWA index, which sarek otherwise rebuilds from
+# the FASTA on every run (its schema's bwa is a directory-path).
+LURIA_GENOME_RESOURCES: dict[str, dict[str, str]] = {
+    "GATK.GRCh38": {
+        "fasta_fai": "GATK.GRCh38/Homo_sapiens_assembly38.fasta.fai",
+        "dict": "GATK.GRCh38/Homo_sapiens_assembly38.dict",
+        "dbsnp": "GATK.GRCh38/dbsnp_146.hg38.vcf.gz",
+        "dbsnp_tbi": "GATK.GRCh38/dbsnp_146.hg38.vcf.gz.tbi",
+        "known_indels": "GATK.GRCh38/known_indels/*.vcf.gz",
+        "known_indels_tbi": "GATK.GRCh38/known_indels/*.vcf.gz.tbi",
+        "germline_resource": "GATK.GRCh38/af-only-gnomad.hg38.vcf.gz",
+        "germline_resource_tbi": "GATK.GRCh38/af-only-gnomad.hg38.vcf.gz.tbi",
+        "pon": "GATK.GRCh38/1000g_pon.hg38.vcf.gz",
+        "pon_tbi": "GATK.GRCh38/1000g_pon.hg38.vcf.gz.tbi",
+        "wgs_intervals": "GATK.GRCh38/wgs_calling_regions_noseconds.hg38.bed",
+        "bwa": "GATK.GRCh38/BWAIndex/",
+    },
 }
 
 
@@ -205,23 +234,28 @@ def _ref_file(name: str, uncompressed: bool) -> str:
 
 def local_luria_ref_files(genome_key: str | None,
                           pipeline: str | None = None) -> dict[str, str] | None:
-    """The {'fasta','gtf'} FILENAMES of the local Luria reference for genome_key,
-    or None when there is no local ref. Filenames (not absolute paths) so the host
-    side can name them without knowing the Luria refs_root. With `pipeline`, they are
-    the files that pipeline's run is given (uncompressed for nf-core/rnavar)."""
+    """The {'fasta','gtf'} FILENAMES of the local Luria reference for genome_key (gtf appears
+    only when the genome has one), or None when there is no local ref. Filenames (not
+    absolute paths) so the host side can name them without knowing the Luria refs_root.
+    With `pipeline`, they are the files that pipeline's run is given (uncompressed for
+    nf-core/rnavar)."""
     ref = LURIA_GENOMES.get(str(genome_key or ""))
     if not ref:
         return None
     plain = luria_launch_profile(pipeline)["uncompressed_refs"]
-    return {"fasta": _ref_file(ref["fasta"], plain), "gtf": _ref_file(ref["gtf"], plain)}
+    out = {"fasta": _ref_file(ref["fasta"], plain)}
+    if ref.get("gtf"):
+        out["gtf"] = _ref_file(ref["gtf"], plain)
+    return out
 
 
 _LURIA_CONFIG_HEADER = (
     "// luria.config — local reference genomes for nf-core on MIT Luria.\n"
     "// Generated from luria.run_script.LURIA_GENOMES. The params.genomes MAP resolution is\n"
     "// unreliable in Nextflow (getGenomeAttribute returns the value but the workflow assertion\n"
-    "// sees empty), so submit_to_luria ALSO passes explicit --fasta/--gtf on the CLI — that is\n"
-    "// what actually wires the references. This map is kept for --genome key identity.\n"
+    "// sees empty), so submit_to_luria ALSO passes on the CLI the reference flags the\n"
+    "// pipeline's schema declares (reference_cli_flags) — that is what actually wires the\n"
+    "// references. This map is kept for --genome key identity.\n"
 )
 
 
@@ -229,13 +263,15 @@ def genome_ref_paths(genome: str, refs_root: str, *,
                      uncompressed: bool = False) -> tuple[str | None, str | None]:
     """Absolute (fasta, gtf) for a genome key under refs_root, or (None, None) when the genome
     has no local refs registered (caller then falls back to --genome/iGenomes). `uncompressed`
-    names the plain .fa/.gtf provisioned beside each .gz."""
+    names the plain .fa/.gtf provisioned beside each .gz. gtf is None for a genome that
+    registers none (GATK.GRCh38)."""
     ref = LURIA_GENOMES.get(str(genome or ""))
     if not ref:
         return (None, None)
     root = str(refs_root or "").rstrip("/")
+    gtf = ref.get("gtf")
     return (f"{root}/{_ref_file(ref['fasta'], uncompressed)}",
-            f"{root}/{_ref_file(ref['gtf'], uncompressed)}")
+            f"{root}/{_ref_file(gtf, uncompressed)}" if gtf else None)
 
 
 # How a pipeline is launched when it differs from the default, which every pipeline was
@@ -244,9 +280,26 @@ def genome_ref_paths(genome: str, refs_root: str, *,
 # schema rejects a .gtf.gz (pattern ^\S+\.gtf$), and given a .fa.gz its GUNZIP_FASTA got no
 # task, so nothing downstream ran and Nextflow still reported success (cause unknown). The
 # run that worked used the v2 parser; whether rnavar needs v2 is NOT established.
-_DEFAULT_LAUNCH = {"syntax_parser": "v1", "uncompressed_refs": False}
+_DEFAULT_LAUNCH = {"syntax_parser": "v1", "uncompressed_refs": False,
+                   "genome_alias": {}, "resource_params": {}}
 LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
     "nf-core/rnavar": {"syntax_parser": "v2", "uncompressed_refs": True},
+    # nf-core/sarek 3.10.0 (NOT yet run on Luria). Its own key for GRCh38 is GATK.GRCh38,
+    # and BQSR, Mutect2 and whole-genome intervals take the bundle files staged with it
+    # (param names read from its nextflow_schema.json at 3.10.0). It declares no gtf.
+    "nf-core/sarek": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {
+            "fasta_fai": "fasta_fai", "dict": "dict",
+            "dbsnp": "dbsnp", "dbsnp_tbi": "dbsnp_tbi",
+            "known_indels": "known_indels", "known_indels_tbi": "known_indels_tbi",
+            "germline_resource": "germline_resource",
+            "germline_resource_tbi": "germline_resource_tbi",
+            "pon": "pon", "pon_tbi": "pon_tbi",
+            "wgs_intervals": "intervals",
+            "bwa": "bwa",
+        },
+    },
 }
 
 
@@ -259,6 +312,11 @@ def luria_launch_profile(pipeline: str | None) -> dict:
     return {**_DEFAULT_LAUNCH, **LURIA_PIPELINE_LAUNCH.get(name, {})}
 
 
+def pipeline_catalog_key(pipeline: str | None) -> str:
+    """The NFCORE_PIPELINE_CATALOG key for 'nf-core/sarek', its GitHub URL, or 'sarek'."""
+    return _normalize_pipeline_name(pipeline or "").rsplit("/", 1)[-1].lower()
+
+
 def luria_params_overrides(pipeline: str | None, genome: str | None) -> dict:
     """Params the launcher adds to params.yml. Under the v2 parser a bare boolean CLI flag
     reaches nf-schema as the string "true" ("Value is [string] but should be [boolean]";
@@ -267,6 +325,27 @@ def luria_params_overrides(pipeline: str | None, genome: str | None) -> dict:
     if luria_launch_profile(pipeline)["syntax_parser"] == "v2" and has_local_luria_ref(genome):
         return {"igenomes_ignore": True}
     return {}
+
+
+def luria_run_genome(pipeline: str | None, genome: str) -> str:
+    """The genome key a pipeline's run uses on Luria: its own alias for the species-resolved
+    key when it registers one (nf-core/sarek: GRCh38 -> GATK.GRCh38), else the key itself."""
+    return luria_launch_profile(pipeline)["genome_alias"].get(genome, genome)
+
+
+def luria_resource_params(pipeline: str | None, genome: str | None, refs_root: str,
+                          supplied: dict | None = None) -> dict[str, str]:
+    """{param: absolute path} for each resource kind the pipeline takes and the genome has
+    staged. A param the run already sets (`supplied`: a user's exome BED for intervals) keeps
+    that value; params.yml overrides would otherwise replace it."""
+    if not refs_root or not _REFS_ROOT_RE.fullmatch(str(refs_root)):
+        raise ValueError(f"invalid refs_root {refs_root!r}")
+    root = str(refs_root).rstrip("/")
+    staged = LURIA_GENOME_RESOURCES.get(str(genome or ""), {})
+    supplied = supplied or {}
+    return {param: f"{root}/{staged[kind]}"
+            for kind, param in luria_launch_profile(pipeline)["resource_params"].items()
+            if kind in staged and supplied.get(param) in (None, "")}
 
 
 def render_luria_config(refs_root: str, resources: dict | None = None) -> str:
@@ -278,10 +357,10 @@ def render_luria_config(refs_root: str, resources: dict | None = None) -> str:
     root = str(refs_root).rstrip("/")
     lines = [_LURIA_CONFIG_HEADER, "params {", "    genomes {"]
     for key, ref in LURIA_GENOMES.items():
-        lines += [f"        '{key}' {{",
-                  f"            fasta = '{root}/{ref['fasta']}'",
-                  f"            gtf   = '{root}/{ref['gtf']}'",
-                  "        }"]
+        lines += [f"        '{key}' {{", f"            fasta = '{root}/{ref['fasta']}'"]
+        if ref.get("gtf"):
+            lines.append(f"            gtf   = '{root}/{ref['gtf']}'")
+        lines.append("        }")
     lines += ["    }", "}", ""]
     # Newer nf-core templates (rnaseq 3.22) set process.shell to a multi-line string. Nextflow
     # 26.04 pastes that string into the container launch verbatim, so bash then runs
@@ -476,13 +555,21 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
                       resources: dict | None, refs_root: str | None = None,
                       aligner: str | None = None, working: str | None = None,
                       needs_fetch: bool = False, fastq_cache: str | None = None,
-                      fetchngs_revision: str = "1.12.0") -> str:
+                      fetchngs_revision: str = "1.12.0",
+                      reference_cli_flags: Sequence[str] | None = None) -> str:
     """Substitute the validated slots into the fixed run.sh template. When `refs_root` is given
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
     (pipeline, aligner) has a vendored clone registered (LURIA_VENDORED_PIPELINES) and `working`
     is given, the run uses that local clone with NO `-r` (else the tag checkout wipes the patches).
-    The Nextflow parser and compressed-or-plain references follow LURIA_PIPELINE_LAUNCH."""
+    The Nextflow parser and compressed-or-plain references follow LURIA_PIPELINE_LAUNCH.
+
+    `reference_cli_flags` is the subset of {genome, fasta, gtf} the pipeline's pinned
+    nextflow_schema.json declares (the catalog field of the same name), and only those are
+    emitted: nf-schema rejects or warns on an unrecognised param, depending on the
+    pipeline's validation settings, so --gtf is never passed to sarek or methylseq, and
+    ampliseq declares none of the three. None keeps all three, for callers that predate
+    the field."""
     revision = validate_revision(revision)
     pipeline = validate_pipeline(pipeline)
     genome = validate_genome(genome)
@@ -491,21 +578,28 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     source, rev = resolve_pipeline_source(pipeline, aligner, revision, working)
     source = validate_pipeline(source)          # clone path or stock name; both match _PIPELINE_RE
     revision_flag = f" {rev}" if rev else ""     # leading space only when present -> no double space
-    refs_flags = ""
+    accepts = ({"genome", "fasta", "gtf"} if reference_cli_flags is None
+               else set(reference_cli_flags))
+    flags: list[str] = []
+    if "genome" in accepts:
+        flags.append(f"--genome {genome}")
     if refs_root:
         if not _REFS_ROOT_RE.fullmatch(str(refs_root)):
             raise ValueError(f"invalid refs_root {refs_root!r}")
         fasta, gtf = genome_ref_paths(genome, refs_root,
                                       uncompressed=profile["uncompressed_refs"])
-        if fasta and gtf:
+        local = [f"--{name} {path}" for name, path in (("fasta", fasta), ("gtf", gtf))
+                 if path and name in accepts]
+        if local:
             # --igenomes_ignore: --genome otherwise also pulls iGenomes' prebuilt indexes,
             # which --fasta/--gtf do not replace, and rnaseq 3.22 aligned our GENCODE refs
             # with iGenomes' old STARIndex ("Genome version: 20201 is INCOMPATIBLE";
             # VERIFIED on Luria). Ignored, the pipeline builds its indexes from these files.
             # Under v2 it is in params.yml instead (luria_params_overrides).
-            refs_flags = f"--fasta {fasta} --gtf {gtf}"
+            flags += local
             if not luria_params_overrides(pipeline, genome).get("igenomes_ignore"):
-                refs_flags += " --igenomes_ignore"
+                flags.append("--igenomes_ignore")
+    refs_flags = " ".join(flags)
     fetchngs_block = ""
     if needs_fetch:
         if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):

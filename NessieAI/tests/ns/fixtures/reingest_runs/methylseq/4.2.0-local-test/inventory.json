@@ -1,0 +1,70 @@
+[
+ {
+  "path": "bismark/deduplicated/Ecoli_10K_methylated.deduplicated.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/Ecoli_10K_methylated.deduplicated.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/SRR389222_sub1.deduplicated.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/SRR389222_sub1.deduplicated.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/SRR389222_sub2.deduplicated.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/SRR389222_sub2.deduplicated.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/SRR389222_sub3.deduplicated.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/deduplicated/SRR389222_sub3.deduplicated.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.deduplicated.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/SRR389222_sub1_trimmed_bismark_bt2.deduplicated.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/SRR389222_sub2_trimmed_bismark_bt2.deduplicated.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/bedGraph/SRR389222_sub3_trimmed_bismark_bt2.deduplicated.bedGraph.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/Ecoli_10K_methylated_1_val_1_bismark_bt2_pe.deduplicated.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/SRR389222_sub1_trimmed_bismark_bt2.deduplicated.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/SRR389222_sub2_trimmed_bismark_bt2.deduplicated.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bismark/methylation_calls/methylation_coverage/SRR389222_sub3_trimmed_bismark_bt2.deduplicated.bismark.cov.gz",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bismark/multiqc_report.html",
+  "bytes": 0
+ }
+]

@@ -3,6 +3,7 @@ import pytest
 
 from chat_nextseek.pipeline.selection import (
     SELECTION_SECTIONS,
+    SYSTEM_PROMPT,
     Verdict,
     decide,
     out_of_scope,
@@ -189,3 +190,13 @@ def test_out_of_scope_helper_shape():
     assert verdict.kind == "out_of_scope"
     assert verdict.pipelines == []
     assert verdict.reason == "no evidence"
+
+
+def test_the_prompt_does_not_call_the_atlas_rna_only():
+    assert "covers RNA pipelines only" not in SYSTEM_PROMPT
+    assert "sarek" in SYSTEM_PROMPT
+
+
+def test_the_prompt_no_longer_calls_chromatin_or_methylation_outside_the_atlas():
+    assert "chromatin, methylation or metagenomics, for now" not in SYSTEM_PROMPT
+    assert "metagenomics, Hi-C or CUT&RUN, for now" in SYSTEM_PROMPT

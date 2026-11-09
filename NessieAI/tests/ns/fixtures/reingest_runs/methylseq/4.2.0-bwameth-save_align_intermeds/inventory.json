@@ -1,0 +1,706 @@
+[
+ {
+  "path": "bwameth/alignments/Ecoli_10K_methylated.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/Ecoli_10K_methylated.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/Ecoli_10K_methylated.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub1.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub1.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub1.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub2.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub2.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub2.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub3.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub3.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/SRR389222_sub3.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/Ecoli_10K_methylated.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/Ecoli_10K_methylated.stats",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/SRR389222_sub1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/SRR389222_sub1.stats",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/SRR389222_sub2.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/SRR389222_sub2.stats",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/SRR389222_sub3.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/alignments/samtools_stats/SRR389222_sub3.stats",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/Ecoli_10K_methylated.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/Ecoli_10K_methylated.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub1.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub1.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub2.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub2.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub3.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub3.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/picard_metrics/Ecoli_10K_methylated.markdup.sorted.MarkDuplicates.metrics.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/picard_metrics/SRR389222_sub1.markdup.sorted.MarkDuplicates.metrics.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/picard_metrics/SRR389222_sub2.markdup.sorted.MarkDuplicates.metrics.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/picard_metrics/SRR389222_sub3.markdup.sorted.MarkDuplicates.metrics.txt",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/reference_genome/BwamethIndex/genome.fa.bwameth.c2t",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/reference_genome/BwamethIndex/genome.fa.bwameth.c2t.amb",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/reference_genome/BwamethIndex/genome.fa.bwameth.c2t.ann",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/reference_genome/BwamethIndex/genome.fa.bwameth.c2t.bwt",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/reference_genome/BwamethIndex/genome.fa.bwameth.c2t.pac",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/reference_genome/BwamethIndex/genome.fa.bwameth.c2t.sa",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/Ecoli_10K_methylated_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/Ecoli_10K_methylated_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/SRR389222_sub1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/SRR389222_sub2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/SRR389222_sub3_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/Ecoli_10K_methylated_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/Ecoli_10K_methylated_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/SRR389222_sub1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/SRR389222_sub2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "fastqc/zips/SRR389222_sub3_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/Ecoli_10K_methylated.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/SRR389222_sub1.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/SRR389222_sub2.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/SRR389222_sub3.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/mbias/Ecoli_10K_methylated.mbias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/mbias/SRR389222_sub1.mbias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/mbias/SRR389222_sub2.mbias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/mbias/SRR389222_sub3.mbias.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/cutadapt_filtered_reads_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/cutadapt_trimmed_sequences_plot_3_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/cutadapt_trimmed_sequences_plot_3_Obs_Exp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc-status-check-heatmap.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_adapter_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_overrepresented_sequences_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_per_base_n_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_per_base_sequence_quality_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_per_sequence_gc_content_plot_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_per_sequence_gc_content_plot_Percentages.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_per_sequence_quality_scores_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_sequence_counts_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_sequence_duplication_levels_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/fastqc_top_overrepresented_sequences_table.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_cutadapt.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_fastqc.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_general_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_picard_dups.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_samtools_flagstat.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_samtools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/picard_MarkIlluminaAdapters_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/picard_MeanQualityByCycle_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/picard_MeanQualityByCycle_histogram_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/picard_QualityScoreDistribution_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/picard_deduplication.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/samtools-flagstat-pct-table.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/samtools-flagstat-table.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/samtools-stats-dp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_data/samtools_alignment_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/cutadapt_filtered_reads_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/cutadapt_filtered_reads_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/cutadapt_trimmed_sequences_plot_3_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/cutadapt_trimmed_sequences_plot_3_Obs_Exp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_adapter_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_overrepresented_sequences_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_per_base_n_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_per_base_sequence_quality_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Percentages.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_per_sequence_quality_scores_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_sequence_counts_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_sequence_counts_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_sequence_duplication_levels_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/fastqc_top_overrepresented_sequences_table.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/picard_deduplication-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/picard_deduplication-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/samtools-flagstat-pct-table.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/samtools-flagstat-table.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/samtools-stats-dp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/samtools_alignment_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/pdf/samtools_alignment_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/cutadapt_filtered_reads_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/cutadapt_filtered_reads_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/cutadapt_trimmed_sequences_plot_3_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/cutadapt_trimmed_sequences_plot_3_Obs_Exp.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_adapter_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_overrepresented_sequences_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_per_base_n_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_per_base_sequence_quality_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Percentages.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_per_sequence_quality_scores_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_sequence_counts_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_sequence_counts_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_sequence_duplication_levels_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/fastqc_top_overrepresented_sequences_table.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/picard_deduplication-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/picard_deduplication-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/samtools-flagstat-pct-table.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/samtools-flagstat-table.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/samtools-stats-dp.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/samtools_alignment_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/png/samtools_alignment_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/cutadapt_filtered_reads_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/cutadapt_filtered_reads_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/cutadapt_trimmed_sequences_plot_3_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/cutadapt_trimmed_sequences_plot_3_Obs_Exp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_adapter_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_overrepresented_sequences_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_per_base_n_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_per_base_sequence_quality_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Percentages.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_per_sequence_quality_scores_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_sequence_counts_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_sequence_counts_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_sequence_duplication_levels_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/fastqc_top_overrepresented_sequences_table.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/picard_deduplication-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/picard_deduplication-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/samtools-flagstat-pct-table.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/samtools-flagstat-table.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/samtools-stats-dp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/samtools_alignment_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_plots/svg/samtools_alignment_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_methylseq_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_methylseq_topic_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/Ecoli_10K_methylated_1_val_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/Ecoli_10K_methylated_2_val_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/SRR389222_sub1_trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/SRR389222_sub2_trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/SRR389222_sub3_trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/Ecoli_10K_methylated_1_val_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/Ecoli_10K_methylated_2_val_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/SRR389222_sub1_trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/SRR389222_sub2_trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/fastqc/zips/SRR389222_sub3_trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/Ecoli_10K_methylated_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/Ecoli_10K_methylated_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/SRR389222_sub1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/SRR389222_sub2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "trimgalore/logs/SRR389222_sub3.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ }
+]

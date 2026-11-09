@@ -1,0 +1,9 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "genome": "testdata.nf-core.sarek",
+ "input": "/RUN/samplesheet.csv",
+ "outdir": "/RUN",
+ "split_fastq": 0,
+ "tools": "strelka"
+}

@@ -19,6 +19,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | `api/` | the AI HTTP and websocket surface, and `test_nessie_boundaries.py` |
 | `schema_rag/` | schema retrieval |
 | [`chat_nextseek/`](chat_nextseek/README.md) | the NS engine, including `evaluator/` |
+| [`pipeline_scenarios/`](pipeline_scenarios/README.md) | the question → route → pipeline stories, the paid runner, the CI replay of its recorded answers |
 | `build_tools/` | the surface generators |
 | [`e2e/`](e2e/README.md) | the catalog-driven end-to-end DSL (`python -m NessieAI.tests.e2e`) |
 | `nessie_tests/` | the router-aware harness, its corpus and the two review playbooks |
@@ -28,6 +29,8 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Lane | Runtime | Command | Where to run | Cost |
 |---|---|---|---|---|
 | Django AI suites | app image | "Django lane" block below, with one or more `NessieAI/tests/<area>` paths | host, throwaway container | free |
+| Pipeline scenarios replay | app image | "Django lane" block below with `NessieAI/tests/pipeline_scenarios` and `-e PYTHONPATH=/src:/src/NessieAI/chat_nextseek/src:/src/NessieAI/dmac_assistant/src` | host, throwaway container | free |
+| Pipeline scenarios paid eval | live app container | `docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_scenarios.run [--ids ...] --yes` | inside `nextseek` | PAID, approval per run |
 | MySQL concurrency lane (lane M) | app image beside a throwaway MySQL 8.0 | "MySQL concurrency lane" block below | host, over a writable copy | free |
 | CC clean lane | live app container | "CC clean lane" block below | inside `nextseek`, which runs the baked image | free |
 | CC hermetic | host uv | "CC hermetic lane" block below | repo root | free |

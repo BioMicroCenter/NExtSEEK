@@ -1,0 +1,54 @@
+[
+ {
+  "path": "bwameth/deduplicated/Ecoli_10K_methylated.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/Ecoli_10K_methylated.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub1.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub1.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub2.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub2.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub3.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "bwameth/deduplicated/SRR389222_sub3.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/Ecoli_10K_methylated.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/SRR389222_sub1.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/SRR389222_sub2.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "methyldackel/SRR389222_sub3.markdup.sorted_CpG.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/bwameth/multiqc_report.html",
+  "bytes": 0
+ }
+]

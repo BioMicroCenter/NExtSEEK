@@ -63,7 +63,7 @@ class DigestError(Exception):
 #: `reads_R1.fastq.gz` classifies on `.fastq` and `analysis.zarr.zip` on `.zarr`.
 _COMPRESSION_SUFFIXES = (".gz", ".bz2", ".zip", ".zst", ".xz")
 
-#: Raw sequencing reads — the input every pipeline in the RNA atlas requires.
+#: Raw sequencing reads — the input every pipeline in the atlas requires.
 _RAW_READ_EXTS = frozenset({".fastq", ".fq"})
 _ALIGNED_READ_EXTS = frozenset({".bam", ".cram", ".sam"})
 

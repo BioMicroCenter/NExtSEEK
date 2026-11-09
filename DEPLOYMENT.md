@@ -166,6 +166,19 @@ Key facts every operator must internalize:
    never bake them into images, never echo their values into logs or docs.
 8. **Paid/live LLM lanes are approval-gated** (§7, Appendix). Never run them
    as a side effect of a deploy.
+   A prod deploy that changes `router.baml`, the selection or pipeline-agent
+   prompts, an nf-core atlas, an `nfcore` template or a reingest map needs a
+   fresh paid pipeline-scenarios run
+   (`NessieAI/tests/pipeline_scenarios/README.md`) with no FAIL and at least as
+   many PASSes as the last accepted run, once one exists, approved by the owner.
+   That run is approved separately and never run by the deploy itself. The
+   full list of files whose change invalidates the recordings is `INPUTS` in
+   `NessieAI/tests/pipeline_scenarios/fingerprint.py`. CI does not enforce
+   this; the deployer checks it. Make that run on a stack built from a commit
+   whose fingerprint inputs equal the branch's: deploy the branch itself, not a
+   `merge(local)` that also carries other branches' changes to those files.
+   `record.py` refuses a run made under any other fingerprint, so a run on the
+   wrong commit is paid for and cannot be recorded.
 9. **Pruning is not cleanup: it destroys backups.** Rollback tags and cached
    layers on the deploy host are the rollback path. Get the owner's explicit
    approval per item before removing images, tags, or volumes.

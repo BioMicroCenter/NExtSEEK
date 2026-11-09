@@ -23,7 +23,8 @@ try:
 except Exception:  # pragma: no cover
     _yaml = None
 
-from .run_script import (luria_params_overrides, render_run_script, render_luria_config,
+from .run_script import (luria_params_overrides, luria_resource_params, luria_run_genome,
+                         pipeline_catalog_key, render_run_script, render_luria_config,
                          render_process_config, sanitize_job_name, validate_resources)
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
@@ -218,6 +219,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     if not genome:
         print(f"[LURIA][SUBMIT] entry {name!r}: no resolved genome — defaulting to GRCh38 "
               "(VERIFY the cohort is human before trusting results!)")
+    run_genome = luria_run_genome(pipeline, run_genome)
 
     # run.sh drives the run with explicit --fasta/--gtf for the resolved genome (path > iGenomes;
     # the params.genomes map resolution is unreliable), -params-file params.yml (curated params),
@@ -232,12 +234,18 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # executor limits, so Nextflow never schedules more than SLURM gave the job.
     res = validate_resources(resources)
     tmp_files: list[str] = []
+    # Which of --genome/--fasta/--gtf this pipeline's schema declares (catalog field);
+    # nf-schema rejects or warns on an unrecognised param, depending on the pipeline's
+    # validation settings, so they cannot all be passed to every run.
+    ref_flags = (NFCORE_PIPELINE_CATALOG.get(pipeline_catalog_key(pipeline)) or {}).get(
+        "reference_cli_flags")
     try:
         run_sh = render_run_script(
             job_name=safe, pipeline=pipeline, revision=revision, run_dir=remote_run_dir,
             work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=res,
             refs_root=refs_root, aligner=(launch_params or {}).get("aligner"), working=working,
             needs_fetch=needs_fetch, fastq_cache=fastq_cache, fetchngs_revision=fetchngs_rev,
+            reference_cli_flags=ref_flags,
         )
         run_tmp = _write_temp(run_sh, prefix="run_", suffix=".sh"); tmp_files.append(run_tmp)
         # luria.config = genomes map + executor limits + any curated per-protocol process ext.args
@@ -247,7 +255,9 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
                         + render_process_config(process_args))
         cfg_tmp = _write_temp(luria_config, prefix="luriacfg_", suffix=".config")
         tmp_files.append(cfg_tmp)
-        params_yml = _build_params_yml(launch_params, luria_params_overrides(pipeline, run_genome))
+        overrides = {**luria_params_overrides(pipeline, run_genome),
+                     **luria_resource_params(pipeline, run_genome, refs_root, launch_params)}
+        params_yml = _build_params_yml(launch_params, overrides)
         params_tmp = _write_temp(params_yml, prefix="params_", suffix=".yml")
         tmp_files.append(params_tmp)
 
