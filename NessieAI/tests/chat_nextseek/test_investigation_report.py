@@ -266,6 +266,21 @@ def test_a_project_name_matches_that_projects_investigations_by_its_id(monkeypat
     assert "CONTAINS" not in cypher
 
 
+@pytest.mark.parametrize("name, project_id", [("Alder", 2), ("Birch", 5)])
+def test_a_projects_published_samples_are_a_subset_of_the_projects_own_samples(monkeypatch, tmp_path, name, project_id):
+    """The project's own samples are the ones linked to it (seek projects_samples, IN_PROJECT on the Sample). The
+    published block walks Investigation -> Study -> Sample, so a sample in the project's investigation that is not
+    linked to the project (another project's lab) must not count: "of which N are published" is a subset."""
+    _result, cypher, params = _published(monkeypatch, tmp_path, name)
+    assert "EXISTS { MATCH (s)-[:IN_PROJECT]->(own:Project) WHERE own.id = $project_id }" in cypher
+    assert params["project_id"] == project_id
+
+
+def test_an_investigation_scoped_published_report_has_no_sample_project_condition(monkeypatch, tmp_path):
+    _result, cypher, _params = _published(monkeypatch, tmp_path, "Cedar Investigation")
+    assert "own:Project" not in cypher
+
+
 def test_the_published_report_keeps_only_samples_with_a_doi_or_pmid_or_in_a_paper_study(monkeypatch, tmp_path):
     _result, cypher, _params = _published(monkeypatch, tmp_path, "Cedar Investigation")
     assert "coalesce(toString(s.DOI), '') <> '' OR coalesce(toString(s.PMID), '') <> ''" in cypher

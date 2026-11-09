@@ -765,6 +765,10 @@ def run_project_published_report(  # noqa: C901
         cypher_conditions.append(
             "EXISTS { MATCH (inv)-[:IN_PROJECT]->(proj:Project) WHERE proj.id = $project_id }")
         cypher_params["project_id"] = int(project_id)
+        # The headline counts are the project's own samples (projects_samples), but an investigation can also hold
+        # samples of other projects' labs. Count only samples linked to the project itself, so "of which N are
+        # published" is a subset of the headline and the studies are those of those samples.
+        cypher_conditions.append("EXISTS { MATCH (s)-[:IN_PROJECT]->(own:Project) WHERE own.id = $project_id }")
     elif investigation_scope is not None and not skip_hint:
         condition, params = _investigation_condition(*investigation_scope)
         cypher_conditions.append(condition)
