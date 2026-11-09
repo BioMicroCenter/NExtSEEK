@@ -235,7 +235,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 }
               ]
             }
@@ -249,7 +249,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 195 MUS samples have Treatment1='NDMA'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS + JSON $.Treatment1='NDMA' = 195; a whole-blob LIKE '%NDMA%' over MUS also gives 195.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
+          "_why": "Re-pinned 2026-11-09 (operator: '1,641: include chem link'): 1,641 = Treatment fields + spelled-out name + mice linked through an NDMA chemical record, as the graded prod r5 row answers. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.cd8_antibodies",
@@ -2649,7 +2649,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(\\b304\\b|A\\.GEX|MDL-250912LAU|gene expression|model)"
+                  "value": "\\b304\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.GEX|MDL-250912LAU|gene expression|model)"
                 },
                 {
                   "field": "last_reply",
@@ -2659,7 +2664,7 @@
               ]
             }
           ],
-          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
+          "_why": "Re-keyed 2026-11-09 (operator: 'samples from humans' = Patients plus everything derived from them): the reply must give the 304 patients AND the derived records she is Scientist on; a zero or a patients-only answer fails. Older note follows. || No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code. || 2026-11-03 (r5, F8, operator: 'Yes, skip on dev'): needs records or run folders dev does not hold, so requires_env NESSIE_ON_PROD records it skipped on any other box; the deploy runner sets NESSIE_ON_<INSTANCE>. A hand run on prod without the runner must set NESSIE_ON_PROD=1.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 444 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {
@@ -11831,7 +11836,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?551\\b"
+                  "value": "\\b1,?641\\b"
                 },
                 {
                   "field": "parser_plan.mode",
@@ -11855,7 +11860,7 @@
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED. As generated this was a single turn reading 'Actually, hang on \u2014 find me the mice treated with NDMA first', which has no antecedent to interrupt and so tests nothing; the capability it names is the in-progress pipeline-wizard gate. Given a real first turn that opens a pipeline build, the second turn now tests whether an explicit mid-wizard redirect is honoured.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. D.SEQ-230512FOR-288-PUB exists (SRR24445250). The interrupt must be ANSWERED (195 NDMA mice), not swallowed by the open wizard. || VERIFIED: seek_production MySQL, verified 2026-08-06: UID present; MUS Treatment1='NDMA' = 195.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): turn 2 is 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); D.SEQ-230512FOR-288 exists (without the -PUB suffix, which no prod UID carries); was 195."
+          "_why": "Re-pinned 2026-11-09 (operator): turn 2 is 1,641 NDMA mice, as in advanced.basic_ndma. Older note follows. || Re-keyed 2026-09-23 against production (fairdata): turn 2 is 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); D.SEQ-230512FOR-288 exists (without the -PUB suffix, which no prod UID carries); was 195."
         }
       ]
     },
