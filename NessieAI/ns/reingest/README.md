@@ -77,7 +77,8 @@ per-job path cannot be listed until the allowlist supports patterns.
   type. `NessieAI/tests/ns/reingest/test_map_contract.py` gates the committed maps in CI;
   the superuser approve endpoint gates database rules, because the CI test cannot see them.
   A proposed attribute that does not exist is a schema request for the Attribute API, not a
-  mapping problem.
+  mapping problem. What a box must hold before the committed maps can run (house assays, sample
+  types, attributes, catalog rows) and how to seed it: `docs/reingest-seeding-rollout.md`.
 - **A map is data, not code.** See `maps.resolve_ref`.
 - **A human's ruling is never overwritten by a later automated sighting.** Repetition is
   evidence, not a veto: a repeat bumps `times_proposed` and never reopens a terminal row.
