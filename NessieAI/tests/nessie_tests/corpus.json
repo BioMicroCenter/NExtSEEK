@@ -2182,6 +2182,76 @@
           ],
           "_why": "318 of the 745 CC-genotype mice carry SAS at the lab position of their UID (SEEK has an institution record for SAS); the other 427 are BEH. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Genotype =~ '(?i)^CC[0-9].*' AND s.uuid =~ '^[^-]+-[0-9]{6}SAS-.*'. A project reading does not narrow anything here (all 745 are IMPAcTb), so the lab position is the only reading that answers 'group'. || WAS: a substituted search for 'cross' returned 4 BEH-coded 'Crossblocking' mice; the reply did say they were not this group's (B3). || TESTS: a strain filter and a lab filter together.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 426 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "id": "route.ns_run_done_context_count",
+          "family": "sample_search",
+          "name": "a finished run as context for a count \u2192 nextseek_query",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "The sequencing run is complete; how many D.SEQ samples are in project 12?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: a message that mentions a finished run only as context for another request is routed by that request. The run-done backstop (NessieAI/router/run_done.py) fires only when the whole message is the hand-off, so this search stays on NExtSEEK (the backstop's `reingest` redirect would make it container_cc).",
+          "_added_2026_10_30_run_done_intent": "Added 2026-10-30 with SF-9 (run-done by intent): a finished run named only as context for a sample search no longer goes to Container-CC's reingest."
+        },
+        {
+          "id": "route.ns_run_done_context_search",
+          "family": "sample_search",
+          "name": "a finished run as context for a search \u2192 nextseek_query",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Our sequencing run finished last week. Which samples are from project 12?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: a message that mentions a finished run only as context for another request is routed by that request. The run-done backstop (NessieAI/router/run_done.py) fires only when the whole message is the hand-off, so this search stays on NExtSEEK (the backstop's `reingest` redirect would make it container_cc).",
+          "_added_2026_10_30_run_done_intent": "Added 2026-10-30 with SF-9 (run-done by intent): a finished run named only as context for a sample search no longer goes to Container-CC's reingest."
         }
       ]
     },
