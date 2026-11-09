@@ -229,6 +229,19 @@ question and you left it out; still list it yourself):
     → sampletype: CEL (purified or cultured cell populations)
     → also keep the cell type name as a keyword
 
+  RNA-seq, RNA-sequencing, RNAseq, RNA sequencing, transcriptome sequencing, bulk RNA-seq:
+    → sampletypes: A.GEX, A.ALN, D.SEQ (the analysis and raw-data types that hold the result)
+    → RNA only as the last candidate, never on its own
+    → RNA is EXTRACTED RNA: the input to sequencing, not evidence that sequencing happened.
+      An instance may hold its RNA-seq results on A.GEX, on A.ALN, or on D.SEQ, so emit all
+      three and let the downstream agents pick the one that holds samples.
+
+  WGS, whole genome sequencing, whole-genome sequencing, WES, exome, whole exome sequencing,
+  DNA sequencing, DNA-seq:
+    → sampletypes: D.SEQ, A.ALN, A.VCF, A.CNV (the raw-data and analysis types)
+    → DNA only as the last candidate, never on its own
+    → DNA is EXTRACTED DNA, the input to sequencing, exactly as RNA is above.
+
   Any term matching a project/study name or alias in the provided PROJECTS CATALOG:
     → projects field (canonical name) AND keywords
     → NOT sample types or assays
