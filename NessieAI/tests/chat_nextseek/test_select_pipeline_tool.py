@@ -539,3 +539,20 @@ def test_the_tool_and_the_prompt_describe_the_atlas_as_it_is_not_as_rna_only():
         assert "only rna" not in low and "only covers rna" not in low
         assert all(word in low for word in ("rna", "dna variant", "hla", "chromatin", "methylation"))
         assert "cannot judge" in low
+
+
+def test_an_atlas_miss_reaches_the_agent_with_the_pipeline_asked_for(monkeypatch):
+    """The miss must not stay silent: the tool result and the saved state carry it,
+    and the message tells the agent to say so to the user."""
+    state = {}
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["mag"], "reason": "metagenome assembly"}', state=state)
+    assert out["verdict"] == "out_of_scope"
+    assert out["atlas_miss"] == {"pipelines": ["mag"]}
+    assert state["selection"]["atlas_miss"] == ["mag"]
+    assert agent_tools._ATLAS_MISS_NEXT_STEP.strip() in out["message"]
+
+
+def test_a_chosen_atlas_pipeline_carries_no_miss(monkeypatch):
+    out = _call_real_decide(monkeypatch, '{"pipelines": ["rnaseq"], "reason": "bulk"}')
+    assert "atlas_miss" not in out

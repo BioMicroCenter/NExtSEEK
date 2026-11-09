@@ -200,3 +200,46 @@ def test_the_prompt_does_not_call_the_atlas_rna_only():
 def test_the_prompt_no_longer_calls_chromatin_or_methylation_outside_the_atlas():
     assert "chromatin, methylation or metagenomics, for now" not in SYSTEM_PROMPT
     assert "metagenomics, Hi-C or CUT&RUN, for now" in SYSTEM_PROMPT
+
+
+# --- the atlas miss: a pipeline outside every curated atlas is flagged, not silent ---
+# ATLAS_KEYS stands in for the merged RNA + DNA atlas (load_atlas() merges both).
+
+def test_a_pipeline_in_no_atlas_sets_the_miss_flag_and_names_it():
+    verdict, _ = _decide('{"pipelines": ["mag"], "reason": "metagenome assembly"}')
+    assert verdict.kind == "out_of_scope"
+    assert verdict.atlas_miss is True
+    assert verdict.asked == ["mag"]
+
+
+def test_an_atlas_basis_refusal_sets_the_miss_flag():
+    verdict, _ = _decide('{"pipelines": [], "reason": "nothing here does Hi-C", "basis": "atlas"}')
+    assert verdict.atlas_miss is True
+
+
+@pytest.mark.parametrize("key", ["rnaseq", "scrnaseq"])
+def test_a_pipeline_in_the_atlas_does_not_set_the_miss_flag(key):
+    verdict, _ = _decide('{"pipelines": ["%s"], "reason": "fits"}' % key)
+    assert verdict.kind == "chosen"
+    assert verdict.atlas_miss is False
+
+
+def test_an_unlaunchable_atlas_key_is_not_a_miss():
+    verdict, _ = _decide('{"pipelines": ["differentialabundance"], "reason": "compare"}')
+    assert verdict.atlas_miss is False
+
+
+def test_a_data_refusal_and_a_model_failure_are_not_misses():
+    refused, _ = _decide('{"pipelines": [], "reason": "mixed kinds", "basis": "data"}')
+    failed, _ = _decide(raises=RuntimeError("boom"))
+    assert refused.atlas_miss is False and failed.atlas_miss is False
+
+
+@pytest.mark.parametrize("key", ["rnaseq", "sarek", "methylseq"])
+def test_keys_of_the_real_rna_and_dna_atlases_are_never_a_miss(key):
+    from chat_nextseek.seqera.nfcore_atlas import load_atlas
+    keys = set(load_atlas()["pipelines"])
+    client = _StubClient('{"pipelines": ["%s"], "reason": "fits"}' % key)
+    verdict = decide(client=client, model="m", budget=None, payload="P", question="Q",
+                     atlas_keys=keys)
+    assert verdict.kind == "chosen" and verdict.atlas_miss is False

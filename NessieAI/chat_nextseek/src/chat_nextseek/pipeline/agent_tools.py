@@ -1445,6 +1445,12 @@ _ONLY_DROPPED_NEXT_STEP = (
     "Otherwise call conclude(outcome='rejected') with that explanation. Do not mention "
     "the selection tool to the user.")
 
+# PLACEHOLDER wording (see proposals/b4-atlas.md): appended when the request is not in the
+# curated atlas, so the user hears that the choice came from the full catalog.
+_ATLAS_MISS_NEXT_STEP = (
+    " ATLAS MISS (placeholder): tell the user this pipeline is not in the curated atlas "
+    "and that you chose from the full catalog.")
+
 
 # Added to the message when any of the cohort's protocols could not be read: the verdict
 # then rests on the metadata alone, and the user must hear that before they confirm a run.
@@ -1499,6 +1505,10 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
                 message += _DROPPED_NEXT_STEP.format(names=names)
             else:
                 message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        if verdict.atlas_miss:
+            state["selection"]["atlas_miss"] = verdict.asked
+            result["atlas_miss"] = {"pipelines": verdict.asked}
+            message += _ATLAS_MISS_NEXT_STEP
         if protocol_status and protocol_status.get("n_failed"):
             unread = {"n_failed": protocol_status["n_failed"],
                       "n_protocols": protocol_status.get("n_protocols", protocol_status["n_failed"])}
