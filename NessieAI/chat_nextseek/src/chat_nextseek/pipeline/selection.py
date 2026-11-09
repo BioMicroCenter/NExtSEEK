@@ -94,10 +94,16 @@ class Verdict:
     #: Atlas pipelines the model named that the build path cannot launch. They are
     #: dropped from `pipelines`, not held against the rest of the answer.
     dropped: list[str] = field(default_factory=list)
+    #: True when the choice fell to the full catalog because the request is not in the
+    #: curated atlas (RNA + DNA); `asked` holds the pipeline names the model named, if any.
+    atlas_miss: bool = False
+    asked: list[str] = field(default_factory=list)
 
 
-def out_of_scope(reason: str, raw: str = "") -> Verdict:
-    return Verdict(kind="out_of_scope", pipelines=[], reason=reason, raw=raw)
+def out_of_scope(reason: str, raw: str = "", *, atlas_miss: bool = False,
+                 asked: list[str] | None = None) -> Verdict:
+    return Verdict(kind="out_of_scope", pipelines=[], reason=reason, raw=raw,
+                   atlas_miss=atlas_miss, asked=asked or [])
 
 
 _FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
@@ -167,16 +173,19 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
         if basis == "data":
             return Verdict(kind="refused", pipelines=[], reason=reason, raw=raw)
         if basis == "atlas":
-            return out_of_scope(f"no pipeline in the atlas does this: {reason}", raw)
+            return out_of_scope(f"no pipeline in the atlas does this: {reason}", raw,
+                                atlas_miss=True)
         return out_of_scope(
             f"the selection model declined without saying whether the data or the atlas "
             f"was the reason ({basis!r}): {reason}", raw)
 
+    # "nf-core/rnaseq", "RNAseq " and "rnaseq" name the same pipeline; only a different pipeline is a miss.
+    chosen = [k.strip().lower().removeprefix("nf-core/") for k in chosen]
     invented = [k for k in chosen if k not in atlas_keys]
     if invented:
         return out_of_scope(
             f"the selection model named {', '.join(sorted(set(invented)))}, "
-            "which is not in the atlas", raw)
+            "which is not in the atlas", raw, atlas_miss=True, asked=sorted(set(invented)))
 
     if len(chosen) > MAX_FORK:
         return out_of_scope(

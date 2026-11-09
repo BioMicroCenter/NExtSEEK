@@ -539,3 +539,35 @@ def test_the_tool_and_the_prompt_describe_the_atlas_as_it_is_not_as_rna_only():
         assert "only rna" not in low and "only covers rna" not in low
         assert all(word in low for word in ("rna", "dna variant", "hla", "chromatin", "methylation"))
         assert "cannot judge" in low
+
+
+def test_an_atlas_miss_is_kept_as_data_with_no_user_sentence_at_selection_time(monkeypatch):
+    """The sentence is added where the built pipeline is known, so it is never false here."""
+    state = {}
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["mag"], "reason": "metagenome assembly"}', state=state)
+    assert out["verdict"] == "out_of_scope"
+    assert state["selection"]["atlas_miss"] == {"pipelines": ["mag"]}
+    assert agent_tools._ATLAS_MISS_NEXT_STEP.strip() not in out["message"]
+
+
+def test_a_basis_atlas_decline_stores_a_truthy_miss(monkeypatch):
+    state = {}
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": [], "reason": "nothing does Hi-C", "basis": "atlas"}', state=state)
+    assert out["verdict"] == "out_of_scope"
+    assert state["selection"]["atlas_miss"]          # {"pipelines": []} is truthy
+    assert agent_tools._ATLAS_MISS_NEXT_STEP.strip() not in out["message"]
+
+
+def test_a_prefixed_or_cased_atlas_key_is_not_a_miss(monkeypatch):
+    for name in ("nf-core/rnaseq", " RNAseq "):
+        state = {}
+        out = _call_real_decide(monkeypatch, '{"pipelines": ["%s"], "reason": "bulk"}' % name, state=state)
+        assert out["verdict"] == "chosen" and out["pipelines"] == ["rnaseq"]
+        assert "atlas_miss" not in state["selection"]
+
+
+def test_a_chosen_atlas_pipeline_carries_no_miss(monkeypatch):
+    out = _call_real_decide(monkeypatch, '{"pipelines": ["rnaseq"], "reason": "bulk"}')
+    assert "atlas_miss" not in out

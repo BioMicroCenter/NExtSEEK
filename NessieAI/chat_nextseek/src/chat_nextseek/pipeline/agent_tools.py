@@ -1445,6 +1445,30 @@ _ONLY_DROPPED_NEXT_STEP = (
     "Otherwise call conclude(outcome='rejected') with that explanation. Do not mention "
     "the selection tool to the user.")
 
+# Appended to the configure/resolve result when the pipeline actually built is not in the curated atlas
+# (operator-approved wording, 11-09), so the user hears the choice came from the full catalog.
+_ATLAS_MISS_NEXT_STEP = (
+    " The request is not covered by Nessie's curated pipeline atlas. When you tell the user which pipeline "
+    "you are using, say in one plain sentence that it is not in the curated atlas and that you chose it from "
+    "the full nf-core catalog, so it has had less review. Do not name the selection tool.")
+
+
+def _flag_atlas_miss(out: str, state: dict, pipeline_key: str) -> str:
+    """Flag a built pipeline that is outside the curated atlas, once per key. Judged on what is built, not on
+    what the selection model guessed, so a stand-in chosen from the atlas after a decline carries no flag."""
+    if not pipeline_key or pipeline_key in load_atlas()["pipelines"] or state.get("atlas_miss_flagged") == pipeline_key:
+        return out
+    try:
+        result = json.loads(out)
+    except ValueError:
+        return out
+    if not isinstance(result, dict) or not result.get("ok"):
+        return out
+    state["atlas_miss_flagged"] = pipeline_key
+    result["atlas_miss"] = {"pipelines": [pipeline_key]}
+    result["message"] = (result.get("message") or "") + _ATLAS_MISS_NEXT_STEP
+    return json.dumps(result)
+
 
 # Added to the message when any of the cohort's protocols could not be read: the verdict
 # then rests on the metadata alone, and the user must hear that before they confirm a run.
@@ -1499,13 +1523,17 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
                 message += _DROPPED_NEXT_STEP.format(names=names)
             else:
                 message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        if verdict.atlas_miss:
+            # data only: the user sentence is added where the built pipeline is known (_flag_atlas_miss)
+            state["selection"]["atlas_miss"] = {"pipelines": verdict.asked}
         if protocol_status and protocol_status.get("n_failed"):
             unread = {"n_failed": protocol_status["n_failed"],
                       "n_protocols": protocol_status.get("n_protocols", protocol_status["n_failed"])}
             result["protocol_text_unavailable"] = unread
             message += _PROTOCOL_UNREAD_NEXT_STEP.format(**unread)
         result["message"] = message
-        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
+        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines,
+                                 **({"atlas_miss": True} if verdict.atlas_miss else {})})
         return json.dumps(result)
 
     question = (tool_input.get("question") or "").strip()
@@ -1659,13 +1687,15 @@ def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool
         return tool_select_pipeline(config, session, state, tool_input, send_event=send_event)
     if name == "resolve_samples":
         pipeline_key = state.get("pipeline_key") or tool_input.get("pipeline_key") or ""
-        return tool_resolve_samples(config, session, state, tool_input, pipeline_key)
+        out = tool_resolve_samples(config, session, state, tool_input, pipeline_key)
+        return _flag_atlas_miss(out, state, pipeline_key) if tool_input.get("kind") == "accessions" else out
     if name == "write_samplesheet":
         state["pipeline_key"] = tool_input.get("pipeline_key") or state.get("pipeline_key")
         return tool_write_samplesheet(config, state, tool_input, log_dir)
     if name == "configure_run":
         state["pipeline_key"] = tool_input.get("pipeline_key") or state.get("pipeline_key")
-        return tool_configure_run(config, state, tool_input, log_dir)
+        out = tool_configure_run(config, state, tool_input, log_dir)
+        return _flag_atlas_miss(out, state, state.get("pipeline_key") or "")
     if name == "submit_to_tower":
         return tool_submit_to_tower(config, state)
     if name == "submit_to_luria":
