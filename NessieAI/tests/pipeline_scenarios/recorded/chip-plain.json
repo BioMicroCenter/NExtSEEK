@@ -1,23 +1,23 @@
 {
  "agent_model": "us.anthropic.claude-opus-5-5",
  "decision": {
-  "reasoning": "The user is asking an analysis question about where a protein (H3K27ac) binds in the sequenced samples returned in the previous turn. According to the routing rules, questions asking what the user's sequenced samples show, such as where a protein binds, go to nextseek_query, where the pipeline agent will offer the appropriate nf-core run to produce that data.",
+  "reasoning": "The user is asking where a protein (H3K27ac) binds in the previously identified sequenced samples. According to the routing instructions, analyses of the user's own sequencing data (including asking where a protein binds) go to nextseek_query, where the pipeline agent will offer the appropriate nf-core run to produce that data.",
   "route": "nextseek_query",
-  "router_cost_usd": 0.019686,
+  "router_cost_usd": 0.024208,
   "router_model": "gemini-3.1-pro-preview",
   "source": "baml"
  },
- "fingerprint": "52dc58da5a3a61fd7cf1f104c7d111b090bdf67d8966f8f07887e52824e7e50b",
+ "fingerprint": "81d162f793c1e2cb6ad773c7a8ce55503c3e1e2dcd672c12e0be483a364c151b",
  "fingerprint_files": {
   "NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py": "58ba91cf432f173dc67c10bd6f5415c492c8f71ae86edbbf726daafd009ed40c",
   "NessieAI/chat_nextseek/src/chat_nextseek/helpers/results.py": "5406f85f40ae8974fd292cbb270d6f523bfde1f99cb4db7362101ac459217bdb",
   "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent.py": "13f196a68116731997a688125fcf1e1eba1031a9284ac4d26691b99f9829d0c8",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "ebe006293c89d4608e9fe2fb57633c3cfc57755d1bd4e2b8b403e2bac44d7131",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "f73ddd2819802f5738fab5340fdd628cde4aec43d9ab076a03df4ed6af58f416",
   "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/sample_digest.py": "bca2e04a221a26874eeb3c06d0e3296a9d159f47d7d26d44885a56cfd3791709",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "eeba85794dcf9e423b2b5e2cc84c93dd7030cf9608e29a51fb572bae4ddd5c29",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "4b1dcd24f29281721fc26d2502f89e84a3ca3c16d5777405961b072c49bb7c41",
-  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "467cffb781bf88eb2684aee401c4fb19c29ebb73ea834493cc4c1a2a8979a679",
-  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "3ccb91215b600a42da7f41d2bdf0563b3a797f8b8ec35fe8e8cb9f21b663598a",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "0f2eeda93b226f6559dfa264393aa7fe9e1d8d4117d1d90bb9850740b3928147",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "b0cf15d314fa23aff6d3cd269815ad1688f079c2d5f967d54950c3d25c5a2d4f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "6c438cbb33ac609c304278b26172d6be40bb30c1fcee1c43a9643eb03a8851c5",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "2080c7fa415a2b264679df2081e8209c65778b1958396fffa1cfe8cfecf98a8c",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/protocols.py": "9649ec5069407cc720453c99afc5cf8bbf20454b81722d02ea929ca13f5eda83",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/ampliseq.json": "6a3b072239f99d6b10d6fff34ed70877b698ef408e340a37defd372c844ba866",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/atacseq.json": "b9f5c46371dfbd32e8268a56fb42731e46c3959a475ae30eff91eb6e23b52c3a",
@@ -43,7 +43,7 @@
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/reference_bundles.json": "a291b39257db0113c0123130cf324e4cef7803aba343fe467462f08470d570da",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/riboseq.json": "a76c30cb263a7c813b78a4a19ebea51be3b97e3616076a4611410aeaab6a3720",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnafusion.json": "cbc3ddff1d1e8b191f5ce5e3c88af44d675ae86526ce481729edceaa8dfe31ce",
-  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "a0bb48d3357408a840299291e7790158549d12933388780c9608b1962f50453f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "fb1914d43a575ca8e923ff01376a88aa23f3569e21791ca8ab0d24afec5cd585",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnasplice.json": "d1b90f1dd7d7f62d83d45dfab174297bbeb0b9066ebd57a2e547dd3e864fa3c9",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnavar.json": "aacc774339be64ec5b6c5ec1bb80397d3ffc4288aa12b32598889c5a6516ac19",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/sarek.json": "e5ccf7fc6b1429a35e99c408846224dfd1ee5ff3196a4259a8790b5630ce708f",
@@ -59,10 +59,10 @@
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_param_atlas.json": "1bdb33272b6128cf8f3ecac4b214ac5dfba3c946760cd597169a70ade6118881",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_rna_atlas.json": "b80ccc597708a29ca193cb4f90842635130f238298da6fe92c7a18f3190d1f6f",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_schema.py": "526c06f3adab32b34d7ba971f509ecb79cada816528d99d460e1fe7212d2610e",
-  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "3e0a5b55bc10046d6ab47a92b385f024d3b6a52b64ec580638a32950dc4b1858",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "4ca819e8f59cc5eddeb4fcfb64fae4771846c318d41760b9bae1915729a48998",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/schema_check.py": "fa3a6754490a193bc266e9a7bbe3d41b924ffffda4df02b91e3b97df0e37d014",
   "NessieAI/dmac_assistant/baml_src/clients.baml": "4061e044f74d793a9bb2d9561c1cd7200d23e4cddd5f812e62f568fec2c1ad84",
-  "NessieAI/dmac_assistant/baml_src/router.baml": "ef317b8217639ff1fa5431d8f87b87583fcfdcc90a7f94fc168a5ce94106cd65",
+  "NessieAI/dmac_assistant/baml_src/router.baml": "a14c457362bf6a544f31429988da7e24e692eef0a595744fa677138b2680cfd7",
   "NessieAI/dmac_assistant/build_context/route_capabilities.json": "7400931cf611e30778478f5307733e8f3789a1637d45890955daa9b5cc46e1e0",
   "NessieAI/dmac_assistant/src/dmac_assistant/router/__init__.py": "8d45026f14f612a9d79e0f7990a646e6fd50bc9fdd8c6f869475cfb6656714f8",
   "NessieAI/dmac_assistant/src/dmac_assistant/router/agent.py": "0ad73cf447a12d4668d3f6539392d068c951942379f1d617c4c8d997c04934b4",
@@ -73,12 +73,12 @@
   "NessieAI/router/followup.py": "ba9c6b1d5e2cbdd4451adf445868a21cda79f5b0b01a3638669808a5fba9de4b",
   "NessieAI/router/laya.py": "d14de087f492be3540202c895f97f52f8290cd63ef3a71f28278e249dce57f29",
   "NessieAI/router/laya_common.py": "0e5de2adfaa6a2f92070daaa4c70d59effecf530c2b250800b37d6ab4507aac8",
-  "NessieAI/router/laya_options.json": "3d0c0b6bd27d8894d470f0f9c4b072b7ad1522266a9e69023fc51dc857a76387",
-  "NessieAI/router/policy.py": "55d43b96d16e85c13da6e7be5304ddf9eabdc8a458262cd49e0308bbe3943295",
+  "NessieAI/router/laya_options.json": "e1b9570e7c8f631454051dadfb0dcdbd48656e944f1f983709874404ee7cb2d9",
+  "NessieAI/router/policy.py": "db4a23dd66d3f0ba798c08eacfdefa1d4a9408b6a941707a832385dc6bf9dead",
   "NessieAI/router/posterior_selector.py": "16b669254aa5731241510c0fb838fc80ec0c15b183cf611509b1a201fbd1a40e",
   "NessieAI/router/router.py": "81a17262ae1bcfe00e9b755ad287781e5bd2da1f4c4bac4385b417c8741a63fa",
   "NessieAI/router/router_context.py": "70a27763218a83ff27a0c9dd46419a444b445e9f402dc3c130da9ed5050a8b75",
-  "NessieAI/router/run_done.py": "e6e3de3d0969a6cfb2e4f287cd948d039426ef1713ad926e024b317e8dc8f908",
+  "NessieAI/router/run_done.py": "0f1162a0b6e52dcc84c3b8dd5b1fc227b0a7c458d75a3b29065c432e3f412e2c",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.nextflow_schema.json": "efe37d724f78ebb205df20ce3c7d17397c0e578542a301d44f1356bc302eefba",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.schema_input.json": "89ef2a299d57ca4e6b0ce16faa2345322087243c2a86f140e5ea89183009b8c4",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/chipseq.nextflow_schema.json": "216737980f7cac1b5e7c339df76b4570364258b100283e168d1242336b36d7ab",
@@ -108,27 +108,28 @@
   "launch_params": {
    "aligner": "bwa",
    "genome": "GRCh38",
+   "multiqc_title": "MCF-7 H3K27ac vs input",
    "narrow_peak": false,
    "read_length": 75,
    "save_reference": true
   },
   "pipeline_key": "chipseq",
   "replies": [
-   "I've set up an nf-core/chipseq run for your four MCF-7 libraries. It will call H3K27ac peaks against the input, which answers where H3K27ac binds compared with the input. Nothing has been submitted yet.\n\n**What you'll get:** H3K27ac peak files for each replicate, a consensus peak set across both replicates, signal tracks you can view in a genome browser, and QC reports.\n\n**Samplesheet** (one file, 4 paired-end samples, 75 bp reads):\n| Sample | Role | Replicate | Control |\n|---|---|---|---|\n| D.SEQ-261028BMC-11 | H3K27ac IP | 1 | D.SEQ-261028BMC-12 |\n| D.SEQ-261028BMC-13 | H3K27ac IP | 2 | D.SEQ-261028BMC-14 |\n| D.SEQ-261028BMC-12 | Input | 1 | \u2013 |\n| D.SEQ-261028BMC-14 | Input | 2 | \u2013 |\n\nI paired each IP with the input of the same replicate number. Tell me if the inputs should be paired differently.\n\n**Run settings:**\n- **Reference:** the local Luria human genome (GRCh38): `GRCh38.primary_assembly.genome.fa.gz` with the `gencode.v46.basic.annotation.gtf.gz` annotation.\n- **Aligner:** bwa.\n- **Read length:** 75, which the peak caller (MACS3) uses to work out the genome size.\n- **Peak mode:** broad, the default. H3K27ac often gives sharper peaks, so I can switch to narrow-peak mode if you prefer.\n- **Parameter check:** the settings passed the pipeline's check.\n\n**Run time:** I don't have a run-time estimate for this pipeline yet.\n\nOnce the run finishes, just tell me \"my run is done\" and I'll turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is ready. Do you want to change anything, such as the peak mode, the aligner or how the inputs are paired?"
+   "I've set up an nf-core/chipseq run for your four MCF-7 libraries. It will find where H3K27ac is enriched over the input in each replicate and give you peak files (BED/narrowPeak-style), signal tracks you can view in a browser, and QC reports. It has not been submitted.\n\n**Samplesheet:** one sheet with 4 samples. I paired each H3K27ac pull-down with the input from the same replicate:\n\n| Sample | Role | Replicate | Control |\n|---|---|---|---|\n| D.SEQ-261110NA-5 | H3K27ac pull-down (Abcam ab4729) | 1 | D.SEQ-261110NA-6 |\n| D.SEQ-261110NA-7 | H3K27ac pull-down (Abcam ab4729) | 2 | D.SEQ-261110NA-8 |\n| D.SEQ-261110NA-6 | Input | 1 | \u2014 |\n| D.SEQ-261110NA-8 | Input | 2 | \u2014 |\n\n**Run settings:**\n- **Genome:** human GRCh38, using the local Luria reference files (`GRCh38.primary_assembly.genome.fa.gz` and `gencode.v46.basic.annotation.gtf.gz`).\n- **Aligner:** bwa.\n- **Peak calling:** broad peaks (the default), which suits a histone mark like H3K27ac. I can switch to narrow peaks if you'd rather.\n- **Read length:** 75 bp paired-end, as recorded for these libraries; it's used to estimate the genome size for peak calling.\n- **Reference index:** will be saved for reuse. The pipeline's parameter check passed.\n\n**Run time:** I don't have a time estimate for this pipeline yet.\n\nWhen it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is ready. Tell me if you want to change anything, such as the aligner, narrow peaks or the input pairing."
   ],
   "route": "nextseek_query",
   "selection": {
    "pipelines": [
     "chipseq"
    ],
-   "reason": "These are paired-end human MCF-7 ChIP-seq libraries, two anti-H3K27ac IP replicates (Abcam ab4729) plus a sonicated-chromatin input control, so chipseq calls H3K27ac peaks against the input; ChIP references still need staging on Luria before it can run.",
+   "reason": "These are paired-end human MCF-7 ChIP-seq libraries, anti-H3K27ac IPs (Abcam ab4729) with matched input controls from sonicated chromatin, so chipseq can call H3K27ac peaks against the input; ChIP references still need staging on Luria before it can run.",
    "verdict": "chosen"
   },
   "uids": [
-   "D.SEQ-261028BMC-11",
-   "D.SEQ-261028BMC-12",
-   "D.SEQ-261028BMC-13",
-   "D.SEQ-261028BMC-14"
+   "D.SEQ-261110NA-5",
+   "D.SEQ-261110NA-6",
+   "D.SEQ-261110NA-7",
+   "D.SEQ-261110NA-8"
   ]
  },
  "score": {
@@ -167,7 +168,7 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_ae10FzDlQ9p4IWkI7DSr4R",
+        "id": "tooluse_QTOkDbUR51HGn4Yv1WGwbL",
         "input": {
          "kind": "last_search",
          "question": "Where does H3K27ac bind in these samples compared with the input?"
@@ -177,21 +178,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 1731,
+       "bedrock_latency_ms": 1749,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "2285462c-84b5-4c60-aa0d-9eaebc941ed9",
+       "request_id": "b3f7d570-eae1-4da8-87f9-1d6830fc04c7",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
        "completion_tokens": 94,
-       "prompt_tokens": 168,
-       "total_tokens": 11233
+       "prompt_tokens": 165,
+       "total_tokens": 11375
       }
      }
     },
@@ -200,11 +201,11 @@
      "value": {
       "content": [
        {
-        "text": "Using nf-core/chipseq: these are human MCF-7 H3K27ac ChIP-seq IPs with a matched input control, so peaks can be called against the input.",
+        "text": "Using nf-core/chipseq: these are human MCF-7 H3K27ac ChIP-seq libraries with matched inputs, so peaks can be called against the input.",
         "type": "text"
        },
        {
-        "id": "tooluse_g00iERmWxxunsSuA84U7Vg",
+        "id": "tooluse_nux8TY0asprBkW6A2Quymp",
         "input": {
          "kind": "last_search",
          "pipeline_key": "chipseq"
@@ -214,21 +215,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2650,
+       "bedrock_latency_ms": 2142,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "e3462494-2080-4648-9b62-40d029b5e51e",
+       "request_id": "5bcfcdf2-ae04-4d70-80ab-39579306c8e5",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
        "completion_tokens": 138,
-       "prompt_tokens": 461,
-       "total_tokens": 11570
+       "prompt_tokens": 456,
+       "total_tokens": 11710
       }
      }
     },
@@ -237,15 +238,11 @@
      "value": {
       "content": [
        {
-        "reasoningContent": {
-         "reasoningText": {
-          "signature": "CAQS9QUKEggTEAEYAjgBQgh0aGlua2luZxIMIb79eEtNLVzw3uHmGgzzARJjoFVRtNUh33oiMORdERCpM/8tvXJoACQ81vVAZwDGaS9lmS+gO/P4hI6G0zpJgZOnYAv1muD1jAl/FiqQBRzUIptBYBOX1qzaGG4rxcr6KYOE3imUcvuPtxKD9TEeQXgophfxWga5CHRupA0TTRu06qSOf1b4OSTvo5uoSMu57ayZXdVCBFWvq2pSdEqYaYOG631wzSYrE9TIjhLKZsA/yNRCdZm7UpLfjjKUmHJLR//iX6jVpby2YY4tg3AnDnirORF2HQKb1xH35sIevrLLzBCEoxDRUBbLnMvmja80pZKEanFVzFi1VeDI7eLm980V7YlgNaFKfRkBCvkucBFM7V1yKa0ulbv++jgoJwimaHrODZS3bXDJ457zhEuujXfGVwsD+qq/1wD5TSSzgQLEINWZsgvZiPQ79RupZ+7VGiCYjvBd5jm/+JC6NW863Z/eGaDG6ZaFXWe/3aRsfwkTQ8hbGE/VEYBqB/ABn2aePk8X3r2BmkgD5X64aIo2yFjmO4WBvgQFazip3vCn1DBXyQOR29429jFPzMxd0VBk7Wd/N0XmNmAdHlNOskxldKLoGjV9wabgyTojJExpQNwGCMbHOcoFAvrH2qALJ6bqEDwIX0I17k9P3+thh7B01CpQ1RI2higggaw2INPQi8lM1XuHIIDIRT1DkhkrNCykJS0l6JWZVHEhY2F0E79gHEQxqLDZg+UhAMRYzSOr+KEU3Hi9FSCq+no/hbBf1sm7qgmzktkmHKxJiag/Yw1s0RSJMjCklAswCSWpOaCJHVmlz9c3bvzXr40c9BAphmaF77Qh5+5G8WVVid9+Siisvg/z+ItdnGsExESWD1CW/x62aiiWZWXdC+wnK0D20bM/z3vjbPTUJ66U5OrUw0PSWFZrsTrtHOliiiCoLntrye7R8zeKxUCNDxbORms1Sj3oNYIZbDqb/aVIpWDPQ12fGAE=",
-          "text": ""
-         }
-        }
+        "text": "Pair replicate 1 IP with input 1, replicate 2 with input 2.",
+        "type": "text"
        },
        {
-        "id": "tooluse_kezGszZKspQ1OQrfLJjfxJ",
+        "id": "tooluse_l90d9APN2mPNRwQUAdnMIE",
         "input": {
          "cohorts": [
           {
@@ -253,31 +250,31 @@
            "rows": [
             {
              "antibody": "H3K27ac",
-             "control": "D.SEQ-261028BMC-12",
+             "control": "D.SEQ-261110NA-6",
              "control_replicate": 1,
              "replicate": 1,
-             "sample": "D.SEQ-261028BMC-11"
+             "sample": "D.SEQ-261110NA-5"
             },
             {
              "antibody": "H3K27ac",
-             "control": "D.SEQ-261028BMC-14",
+             "control": "D.SEQ-261110NA-8",
              "control_replicate": 2,
              "replicate": 2,
-             "sample": "D.SEQ-261028BMC-13"
+             "sample": "D.SEQ-261110NA-7"
             },
             {
              "antibody": "",
              "control": "",
              "control_replicate": "",
              "replicate": 1,
-             "sample": "D.SEQ-261028BMC-12"
+             "sample": "D.SEQ-261110NA-6"
             },
             {
              "antibody": "",
              "control": "",
              "control_replicate": "",
              "replicate": 2,
-             "sample": "D.SEQ-261028BMC-14"
+             "sample": "D.SEQ-261110NA-8"
             }
            ]
           }
@@ -289,21 +286,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 4907,
+       "bedrock_latency_ms": 3718,
        "http_status": 200,
-       "reasoning_blocks": 1,
-       "request_id": "daa2cc7e-97d2-497c-8c83-ab7138eefa9c",
+       "reasoning_blocks": 0,
+       "request_id": "f300e61f-e958-4b62-994b-4ee21043ac22",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 439,
-       "prompt_tokens": 5048,
-       "total_tokens": 16458
+       "completion_tokens": 353,
+       "prompt_tokens": 4198,
+       "total_tokens": 15667
       }
      }
     },
@@ -312,9 +309,10 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_FJzDCZ535XtxK4b2SIklmy",
+        "id": "tooluse_WxMYJmOlQOiuej9KongGvL",
         "input": {
          "params": {
+          "multiqc_title": "MCF-7 H3K27ac vs input",
           "read_length": 75
          },
          "pipeline_key": "chipseq"
@@ -324,21 +322,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2135,
+       "bedrock_latency_ms": 2178,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "8828e5d5-7ff7-4dd3-98bf-e0351848baa7",
+       "request_id": "483fe1f7-ea9d-4c7f-bb3f-48eb135e478b",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 85,
-       "prompt_tokens": 5672,
-       "total_tokens": 16728
+       "completion_tokens": 111,
+       "prompt_tokens": 4738,
+       "total_tokens": 15965
       }
      }
     },
@@ -349,32 +347,32 @@
        {
         "reasoningContent": {
          "reasoningText": {
-          "signature": "CAQShgUKEggTEAEYAjgBQgh0aGlua2luZxIMfZtsJsOb+LhSVl2mGgyxDA7i/x7pi7pNcosiMMLp3oECcjzP+fks5SS9orZfvRLST/qthEqSm0u6nC3e9d5ATSqg9I6QfRsfAJWr2yqhBDjiMhghTHFbgBf8GlrrRr0ZHKnAWC/RNUPSrilUETSG0kDonn7fvnovcx5CWA7gDjyKIieD9hvLwgaIy6it1A5ltKodQIibwgBTOwhdzmPPxuQU3+Qkea8vgJL9wRe4RIr15rpP7KYuWupTStoaExmaJ6zzj5dgI85EPrqdGAOrSUn479UIJQIK6BYsVe4lsMsgJJtn2P/trC3B4S73K+25D1JFUNJT2NjLISCVGum3N/o6CSS+u+cqGYqTpLWtLduJNCf/nzHCgUCLwQmZ8pD/+iKIPKFN8AFsg3HabgDwJklza6VB1jB5wE/5irinrtrMpH1ZAldSgCfdNrRyvy7psSey0/mnDJGARAjEwO8Uy7pPGadLwHPJt0CzNnOeBu3v5gmE6rKUPWuSB7ICqpfhB/C/qXb+NZbNYjcMzhZogt9/g+E4FPHT9uv95U8o34eaOKXaoaaI5lqvA5DCF3pqA8fyRIFRyWOttEs0yz59Z80cKpWgcshFkRI1gVx3HWrKdmItOnhuDqoJg9+e0kX8p/A+jv6nvSiIFXwLQ/dt9VHtJzvSuZUMRHD6hKeqmsYVEGhg3nLc+E/9CoNFxdLTH0fulr/KPMIKq9++IbdqgpET147n287VGLYB0e95JH61ZtRbMCkDK/0agT41Tvhy+p5IccPKbkMFITEU9OlXLTSvfw5EvgU/6ObmE+b4G7WyNrGAY2xq8JtbWpYFtU3xGAE=",
+          "signature": "CAQStwQKEggTEAEYAjgBQgh0aGlua2luZxIMto+dQednYYjXFD/YGgy5mcqzh+mlkID5x2UiMPLR3tRq8gP1pLkQ6YKJq6ZvsZHlgqbhgwDHlj5brm0792TKyT9np/T497TzKlM6HSrSAxDq1lhYbEoKGbq8A4e5EDcrrFzdb/I+Ky2soNxyNcb87sytLZVxGX5SuEyFu/Qq7Jin2VWptCn8uGGU4M60EE3JjVCCT7lLuRHWzD1pXdzM5xyqOPJDVfuZwtY5EAQ6Y1VI4xDupaxoir9W48yCGTRImmvMSkOjP8m0CbnrujfSi2XYTr7NCEJQ2kHiwg5tlC29cfDww5P4O49bcTEi5pCU8bE2qgGsWx83QLeSRtobkMF8821ZmzO/bE3F0IdWEN4RdovkZgWijvmpi+/M/pXvHyizEx041WgQ/oZf2ormcIiXOtcTyLdqC/IB+tqLLfvXnTr582wgNz8IVRfCGxHNeh/pqx7jbRGOBt4icqRgwM4YfaLhHBEv5AiJZJzDip+htqyvksZziiaGnllFIdwXjjEivB4AIHHR9b95VdVpssqGp2EWPEkyYyHYwfYBrQZsNHb8BvZMJd9E8WA+OcNi7xVN5mH705U7peGubUDxE7ZeCmlhmDDvcpUIeJG7dp7m/LPe81CoA2axc9Iw5bGtJHx8zpX0uic6AmX61yt9YyG5CUZsAEVBiRO4VxXBCxGe75CCfUOcdMFSYxc1vaH35G5Nqdh/Sz9/pueqZVnmB8kYAQ==",
           "text": ""
          }
         }
        },
        {
-        "text": "I've set up an nf-core/chipseq run for your four MCF-7 libraries. It will call H3K27ac peaks against the input, which answers where H3K27ac binds compared with the input. Nothing has been submitted yet.\n\n**What you'll get:** H3K27ac peak files for each replicate, a consensus peak set across both replicates, signal tracks you can view in a genome browser, and QC reports.\n\n**Samplesheet** (one file, 4 paired-end samples, 75 bp reads):\n| Sample | Role | Replicate | Control |\n|---|---|---|---|\n| D.SEQ-261028BMC-11 | H3K27ac IP | 1 | D.SEQ-261028BMC-12 |\n| D.SEQ-261028BMC-13 | H3K27ac IP | 2 | D.SEQ-261028BMC-14 |\n| D.SEQ-261028BMC-12 | Input | 1 | \u2013 |\n| D.SEQ-261028BMC-14 | Input | 2 | \u2013 |\n\nI paired each IP with the input of the same replicate number. Tell me if the inputs should be paired differently.\n\n**Run settings:**\n- **Reference:** the local Luria human genome (GRCh38): `GRCh38.primary_assembly.genome.fa.gz` with the `gencode.v46.basic.annotation.gtf.gz` annotation.\n- **Aligner:** bwa.\n- **Read length:** 75, which the peak caller (MACS3) uses to work out the genome size.\n- **Peak mode:** broad, the default. H3K27ac often gives sharper peaks, so I can switch to narrow-peak mode if you prefer.\n- **Parameter check:** the settings passed the pipeline's check.\n\n**Run time:** I don't have a run-time estimate for this pipeline yet.\n\nOnce the run finishes, just tell me \"my run is done\" and I'll turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is ready. Do you want to change anything, such as the peak mode, the aligner or how the inputs are paired?",
+        "text": "I've set up an nf-core/chipseq run for your four MCF-7 libraries. It will find where H3K27ac is enriched over the input in each replicate and give you peak files (BED/narrowPeak-style), signal tracks you can view in a browser, and QC reports. It has not been submitted.\n\n**Samplesheet:** one sheet with 4 samples. I paired each H3K27ac pull-down with the input from the same replicate:\n\n| Sample | Role | Replicate | Control |\n|---|---|---|---|\n| D.SEQ-261110NA-5 | H3K27ac pull-down (Abcam ab4729) | 1 | D.SEQ-261110NA-6 |\n| D.SEQ-261110NA-7 | H3K27ac pull-down (Abcam ab4729) | 2 | D.SEQ-261110NA-8 |\n| D.SEQ-261110NA-6 | Input | 1 | \u2014 |\n| D.SEQ-261110NA-8 | Input | 2 | \u2014 |\n\n**Run settings:**\n- **Genome:** human GRCh38, using the local Luria reference files (`GRCh38.primary_assembly.genome.fa.gz` and `gencode.v46.basic.annotation.gtf.gz`).\n- **Aligner:** bwa.\n- **Peak calling:** broad peaks (the default), which suits a histone mark like H3K27ac. I can switch to narrow peaks if you'd rather.\n- **Read length:** 75 bp paired-end, as recorded for these libraries; it's used to estimate the genome size for peak calling.\n- **Reference index:** will be saved for reuse. The pipeline's parameter check passed.\n\n**Run time:** I don't have a time estimate for this pipeline yet.\n\nWhen it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nThe run is ready. Tell me if you want to change anything, such as the aligner, narrow peaks or the input pairing.",
         "type": "text"
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 7352,
+       "bedrock_latency_ms": 7353,
        "http_status": 200,
        "reasoning_blocks": 1,
-       "request_id": "fd79b6bd-cb65-4f75-b36e-416f998e8c8b",
+       "request_id": "18225c72-cf67-4337-9ad0-b42692982819",
        "retry_attempts": 0,
        "stop_reason": "end_turn"
       },
       "stop_reason": "end_turn",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 724,
-       "prompt_tokens": 6082,
-       "total_tokens": 17777
+       "completion_tokens": 697,
+       "prompt_tokens": 5203,
+       "total_tokens": 17016
       }
      }
     }
@@ -385,10 +383,10 @@
      "value": {
       "body": {
        "identifiers": [
-        "D.SEQ-261028BMC-11",
-        "D.SEQ-261028BMC-12",
-        "D.SEQ-261028BMC-13",
-        "D.SEQ-261028BMC-14"
+        "D.SEQ-261110NA-5",
+        "D.SEQ-261110NA-6",
+        "D.SEQ-261110NA-7",
+        "D.SEQ-261110NA-8"
        ]
       },
       "data": {
@@ -400,7 +398,7 @@
          "sample_type_name": "Cell",
          "samples": [
           {
-           "id": "1308995",
+           "id": "1308505",
            "metadata": {
             "CellLine": "MCF-7",
             "Name": "NTC-CHIP-cells1",
@@ -408,13 +406,13 @@
             "Species": "Homo sapiens",
             "Tissue": "Breast",
             "Type": "Breast adenocarcinoma cell line",
-            "UID": "CEL-261028BMC-11"
+            "UID": "CEL-261110NA-5"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-11"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-5"
           },
           {
-           "id": "1308996",
+           "id": "1308506",
            "metadata": {
             "CellLine": "MCF-7",
             "Name": "NTC-CHIP-cells2",
@@ -422,10 +420,10 @@
             "Species": "Homo sapiens",
             "Tissue": "Breast",
             "Type": "Breast adenocarcinoma cell line",
-            "UID": "CEL-261028BMC-12"
+            "UID": "CEL-261110NA-6"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-12"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-6"
           }
          ]
         },
@@ -436,400 +434,96 @@
          "sample_type_name": "Sequencing Data",
          "samples": [
           {
-           "id": "1309001",
+           "id": "1308511",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "H3K27ac_REP1_R1.fastq.gz, H3K27ac_REP1_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "ChIP",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-h3k27ac-1",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-11",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-5",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIP-seq",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-11",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-5"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-11"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-5"
           },
           {
-           "id": "1309002",
+           "id": "1308512",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "INPUT_REP1_R1.fastq.gz, INPUT_REP1_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-input-1",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-12",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-6",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIP-seq input",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-12",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-6"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-12"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-6"
           },
           {
-           "id": "1309003",
+           "id": "1308513",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "H3K27ac_REP2_R1.fastq.gz, H3K27ac_REP2_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "ChIP",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-h3k27ac-2",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-13",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-7",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIPseq",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-13",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-7"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-13"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-7"
           },
           {
-           "id": "1309004",
+           "id": "1308514",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "INPUT_REP2_R1.fastq.gz, INPUT_REP2_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-input-2",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-14",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-8",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIP-seq (input control)",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-14",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-8"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-14"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-8"
           }
          ]
         },
@@ -840,64 +534,64 @@
          "sample_type_name": "DNA Sample",
          "samples": [
           {
-           "id": "1308997",
+           "id": "1308507",
            "metadata": {
             "Barcode": "GGACTCCT",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-h3k27ac-lib1",
-            "Parent": "CEL-261028BMC-11",
+            "Parent": "CEL-261110NA-5",
             "Protocol": "ChIP with anti-H3K27ac (Abcam ab4729), 5 ug per IP, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "ChIP library",
-            "UID": "DNA-261028BMC-11"
+            "UID": "DNA-261110NA-5"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-11"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-5"
           },
           {
-           "id": "1308998",
+           "id": "1308508",
            "metadata": {
             "Barcode": "CTCTCTAC",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-input-lib1",
-            "Parent": "CEL-261028BMC-11",
+            "Parent": "CEL-261110NA-5",
             "Protocol": "Input control: sonicated chromatin without immunoprecipitation, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "Input library",
-            "UID": "DNA-261028BMC-12"
+            "UID": "DNA-261110NA-6"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-12"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-6"
           },
           {
-           "id": "1308999",
+           "id": "1308509",
            "metadata": {
             "Barcode": "TAGGCATG",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-h3k27ac-lib2",
-            "Parent": "CEL-261028BMC-12",
+            "Parent": "CEL-261110NA-6",
             "Protocol": "ChIP with anti-H3K27ac (Abcam ab4729), 5 ug per IP, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "ChIP library",
-            "UID": "DNA-261028BMC-13"
+            "UID": "DNA-261110NA-7"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-13"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-7"
           },
           {
-           "id": "1309000",
+           "id": "1308510",
            "metadata": {
             "Barcode": "CGAGGCTG",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-input-lib2",
-            "Parent": "CEL-261028BMC-12",
+            "Parent": "CEL-261110NA-6",
             "Protocol": "Input control: sonicated chromatin without immunoprecipitation, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "Input library",
-            "UID": "DNA-261028BMC-14"
+            "UID": "DNA-261110NA-8"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-14"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-8"
           }
          ]
         }
@@ -928,14 +622,14 @@
    ],
    "fetch_reporter_metadata": [
     {
-     "args": "1d478e472dd9a744",
+     "args": "9edb6cbbb72b19cf",
      "value": {
       "body": {
        "identifiers": [
-        "D.SEQ-261028BMC-11",
-        "D.SEQ-261028BMC-12",
-        "D.SEQ-261028BMC-13",
-        "D.SEQ-261028BMC-14"
+        "D.SEQ-261110NA-5",
+        "D.SEQ-261110NA-6",
+        "D.SEQ-261110NA-7",
+        "D.SEQ-261110NA-8"
        ]
       },
       "data": {
@@ -945,7 +639,7 @@
          "sample_type": "CEL",
          "samples": [
           {
-           "id": "1308995",
+           "id": "1308505",
            "metadata": {
             "CellLine": "MCF-7",
             "Name": "NTC-CHIP-cells1",
@@ -953,13 +647,13 @@
             "Species": "Homo sapiens",
             "Tissue": "Breast",
             "Type": "Breast adenocarcinoma cell line",
-            "UID": "CEL-261028BMC-11"
+            "UID": "CEL-261110NA-5"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-11"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-5"
           },
           {
-           "id": "1308996",
+           "id": "1308506",
            "metadata": {
             "CellLine": "MCF-7",
             "Name": "NTC-CHIP-cells2",
@@ -967,10 +661,10 @@
             "Species": "Homo sapiens",
             "Tissue": "Breast",
             "Type": "Breast adenocarcinoma cell line",
-            "UID": "CEL-261028BMC-12"
+            "UID": "CEL-261110NA-6"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-12"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-6"
           }
          ]
         },
@@ -979,400 +673,96 @@
          "sample_type": "D.SEQ",
          "samples": [
           {
-           "id": "1309001",
+           "id": "1308511",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "H3K27ac_REP1_R1.fastq.gz, H3K27ac_REP1_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "ChIP",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-h3k27ac-1",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-11",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-5",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIP-seq",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-11",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-5"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-11"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-5"
           },
           {
-           "id": "1309002",
+           "id": "1308512",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "INPUT_REP1_R1.fastq.gz, INPUT_REP1_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-input-1",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-12",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-6",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIP-seq input",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-12",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-6"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-12"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-6"
           },
           {
-           "id": "1309003",
+           "id": "1308513",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "H3K27ac_REP2_R1.fastq.gz, H3K27ac_REP2_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "ChIP",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-h3k27ac-2",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-13",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-7",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIPseq",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-13",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-7"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-13"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-7"
           },
           {
-           "id": "1309004",
+           "id": "1308514",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 75,
             "File_PrimaryData": "INPUT_REP2_R1.fastq.gz, INPUT_REP2_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "ChIP-Seq",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/chipseq/testdata/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-CHIP-input-2",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-14",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-8",
             "R_bp": 75,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NextSeq 500",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "ChIP-seq (input control)",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-14",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-8"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-14"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-8"
           }
          ]
         },
@@ -1381,64 +771,64 @@
          "sample_type": "DNA",
          "samples": [
           {
-           "id": "1308997",
+           "id": "1308507",
            "metadata": {
             "Barcode": "GGACTCCT",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-h3k27ac-lib1",
-            "Parent": "CEL-261028BMC-11",
+            "Parent": "CEL-261110NA-5",
             "Protocol": "ChIP with anti-H3K27ac (Abcam ab4729), 5 ug per IP, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "ChIP library",
-            "UID": "DNA-261028BMC-11"
+            "UID": "DNA-261110NA-5"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-11"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-5"
           },
           {
-           "id": "1308998",
+           "id": "1308508",
            "metadata": {
             "Barcode": "CTCTCTAC",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-input-lib1",
-            "Parent": "CEL-261028BMC-11",
+            "Parent": "CEL-261110NA-5",
             "Protocol": "Input control: sonicated chromatin without immunoprecipitation, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "Input library",
-            "UID": "DNA-261028BMC-12"
+            "UID": "DNA-261110NA-6"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-12"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-6"
           },
           {
-           "id": "1308999",
+           "id": "1308509",
            "metadata": {
             "Barcode": "TAGGCATG",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-h3k27ac-lib2",
-            "Parent": "CEL-261028BMC-12",
+            "Parent": "CEL-261110NA-6",
             "Protocol": "ChIP with anti-H3K27ac (Abcam ab4729), 5 ug per IP, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "ChIP library",
-            "UID": "DNA-261028BMC-13"
+            "UID": "DNA-261110NA-7"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-13"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-7"
           },
           {
-           "id": "1309000",
+           "id": "1308510",
            "metadata": {
             "Barcode": "CGAGGCTG",
             "Lab": "REDACTED",
             "Name": "NTC-CHIP-input-lib2",
-            "Parent": "CEL-261028BMC-12",
+            "Parent": "CEL-261110NA-6",
             "Protocol": "Input control: sonicated chromatin without immunoprecipitation, NEBNext Ultra II DNA",
             "Scientist": "REDACTED",
             "Type": "Input library",
-            "UID": "DNA-261028BMC-14"
+            "UID": "DNA-261110NA-8"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-14"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-8"
           }
          ]
         }
@@ -1462,7 +852,7 @@
    "payload": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "fd25dc8b646b9fe5da0ab206c3e02115c45f4299febc910c6f259dbf54a25725"
+     "value": "2eebb10c3b3c4ff393653271227791cf9f9241a0466622a9fff822b1f75b88b9"
     }
    ],
    "schemas": {
@@ -1550,7 +940,7 @@
    "selection": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "{\"pipelines\": [\"chipseq\"], \"reason\": \"These are paired-end human MCF-7 ChIP-seq libraries, two anti-H3K27ac IP replicates (Abcam ab4729) plus a sonicated-chromatin input control, so chipseq calls H3K27ac peaks against the input; ChIP references still need staging on Luria before it can run.\", \"basis\": \"data\"}"
+     "value": "{\"pipelines\": [\"chipseq\"], \"reason\": \"These are paired-end human MCF-7 ChIP-seq libraries, anti-H3K27ac IPs (Abcam ab4729) with matched input controls from sonicated chromatin, so chipseq can call H3K27ac peaks against the input; ChIP references still need staging on Luria before it can run.\", \"basis\": \"data\"}"
     }
    ]
   }

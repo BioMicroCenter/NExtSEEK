@@ -1,23 +1,23 @@
 {
  "agent_model": "us.anthropic.claude-opus-5-5",
  "decision": {
-  "reasoning": "The user is requesting to launch an nf-core pipeline (sarek). Launching and configuring nf-core pipelines over NExtSEEK samples is handled by the pipeline agent within the nextseek_query route.",
+  "reasoning": "The user is asking to run an nf-core pipeline (sarek) on the samples found in the previous turn. Launching nf-core pipelines and building their samplesheets over a resolved cohort is handled by the pipeline agent on the nextseek_query route.",
   "route": "nextseek_query",
-  "router_cost_usd": 0.01888,
+  "router_cost_usd": 0.025004,
   "router_model": "gemini-3.1-pro-preview",
   "source": "baml"
  },
- "fingerprint": "52dc58da5a3a61fd7cf1f104c7d111b090bdf67d8966f8f07887e52824e7e50b",
+ "fingerprint": "81d162f793c1e2cb6ad773c7a8ce55503c3e1e2dcd672c12e0be483a364c151b",
  "fingerprint_files": {
   "NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py": "58ba91cf432f173dc67c10bd6f5415c492c8f71ae86edbbf726daafd009ed40c",
   "NessieAI/chat_nextseek/src/chat_nextseek/helpers/results.py": "5406f85f40ae8974fd292cbb270d6f523bfde1f99cb4db7362101ac459217bdb",
   "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent.py": "13f196a68116731997a688125fcf1e1eba1031a9284ac4d26691b99f9829d0c8",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "ebe006293c89d4608e9fe2fb57633c3cfc57755d1bd4e2b8b403e2bac44d7131",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "f73ddd2819802f5738fab5340fdd628cde4aec43d9ab076a03df4ed6af58f416",
   "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/sample_digest.py": "bca2e04a221a26874eeb3c06d0e3296a9d159f47d7d26d44885a56cfd3791709",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "eeba85794dcf9e423b2b5e2cc84c93dd7030cf9608e29a51fb572bae4ddd5c29",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "4b1dcd24f29281721fc26d2502f89e84a3ca3c16d5777405961b072c49bb7c41",
-  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "467cffb781bf88eb2684aee401c4fb19c29ebb73ea834493cc4c1a2a8979a679",
-  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "3ccb91215b600a42da7f41d2bdf0563b3a797f8b8ec35fe8e8cb9f21b663598a",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "0f2eeda93b226f6559dfa264393aa7fe9e1d8d4117d1d90bb9850740b3928147",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "b0cf15d314fa23aff6d3cd269815ad1688f079c2d5f967d54950c3d25c5a2d4f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "6c438cbb33ac609c304278b26172d6be40bb30c1fcee1c43a9643eb03a8851c5",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "2080c7fa415a2b264679df2081e8209c65778b1958396fffa1cfe8cfecf98a8c",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/protocols.py": "9649ec5069407cc720453c99afc5cf8bbf20454b81722d02ea929ca13f5eda83",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/ampliseq.json": "6a3b072239f99d6b10d6fff34ed70877b698ef408e340a37defd372c844ba866",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/atacseq.json": "b9f5c46371dfbd32e8268a56fb42731e46c3959a475ae30eff91eb6e23b52c3a",
@@ -43,7 +43,7 @@
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/reference_bundles.json": "a291b39257db0113c0123130cf324e4cef7803aba343fe467462f08470d570da",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/riboseq.json": "a76c30cb263a7c813b78a4a19ebea51be3b97e3616076a4611410aeaab6a3720",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnafusion.json": "cbc3ddff1d1e8b191f5ce5e3c88af44d675ae86526ce481729edceaa8dfe31ce",
-  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "a0bb48d3357408a840299291e7790158549d12933388780c9608b1962f50453f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "fb1914d43a575ca8e923ff01376a88aa23f3569e21791ca8ab0d24afec5cd585",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnasplice.json": "d1b90f1dd7d7f62d83d45dfab174297bbeb0b9066ebd57a2e547dd3e864fa3c9",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnavar.json": "aacc774339be64ec5b6c5ec1bb80397d3ffc4288aa12b32598889c5a6516ac19",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/sarek.json": "e5ccf7fc6b1429a35e99c408846224dfd1ee5ff3196a4259a8790b5630ce708f",
@@ -59,10 +59,10 @@
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_param_atlas.json": "1bdb33272b6128cf8f3ecac4b214ac5dfba3c946760cd597169a70ade6118881",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_rna_atlas.json": "b80ccc597708a29ca193cb4f90842635130f238298da6fe92c7a18f3190d1f6f",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_schema.py": "526c06f3adab32b34d7ba971f509ecb79cada816528d99d460e1fe7212d2610e",
-  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "3e0a5b55bc10046d6ab47a92b385f024d3b6a52b64ec580638a32950dc4b1858",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "4ca819e8f59cc5eddeb4fcfb64fae4771846c318d41760b9bae1915729a48998",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/schema_check.py": "fa3a6754490a193bc266e9a7bbe3d41b924ffffda4df02b91e3b97df0e37d014",
   "NessieAI/dmac_assistant/baml_src/clients.baml": "4061e044f74d793a9bb2d9561c1cd7200d23e4cddd5f812e62f568fec2c1ad84",
-  "NessieAI/dmac_assistant/baml_src/router.baml": "ef317b8217639ff1fa5431d8f87b87583fcfdcc90a7f94fc168a5ce94106cd65",
+  "NessieAI/dmac_assistant/baml_src/router.baml": "a14c457362bf6a544f31429988da7e24e692eef0a595744fa677138b2680cfd7",
   "NessieAI/dmac_assistant/build_context/route_capabilities.json": "7400931cf611e30778478f5307733e8f3789a1637d45890955daa9b5cc46e1e0",
   "NessieAI/dmac_assistant/src/dmac_assistant/router/__init__.py": "8d45026f14f612a9d79e0f7990a646e6fd50bc9fdd8c6f869475cfb6656714f8",
   "NessieAI/dmac_assistant/src/dmac_assistant/router/agent.py": "0ad73cf447a12d4668d3f6539392d068c951942379f1d617c4c8d997c04934b4",
@@ -73,12 +73,12 @@
   "NessieAI/router/followup.py": "ba9c6b1d5e2cbdd4451adf445868a21cda79f5b0b01a3638669808a5fba9de4b",
   "NessieAI/router/laya.py": "d14de087f492be3540202c895f97f52f8290cd63ef3a71f28278e249dce57f29",
   "NessieAI/router/laya_common.py": "0e5de2adfaa6a2f92070daaa4c70d59effecf530c2b250800b37d6ab4507aac8",
-  "NessieAI/router/laya_options.json": "3d0c0b6bd27d8894d470f0f9c4b072b7ad1522266a9e69023fc51dc857a76387",
-  "NessieAI/router/policy.py": "55d43b96d16e85c13da6e7be5304ddf9eabdc8a458262cd49e0308bbe3943295",
+  "NessieAI/router/laya_options.json": "e1b9570e7c8f631454051dadfb0dcdbd48656e944f1f983709874404ee7cb2d9",
+  "NessieAI/router/policy.py": "db4a23dd66d3f0ba798c08eacfdefa1d4a9408b6a941707a832385dc6bf9dead",
   "NessieAI/router/posterior_selector.py": "16b669254aa5731241510c0fb838fc80ec0c15b183cf611509b1a201fbd1a40e",
   "NessieAI/router/router.py": "81a17262ae1bcfe00e9b755ad287781e5bd2da1f4c4bac4385b417c8741a63fa",
   "NessieAI/router/router_context.py": "70a27763218a83ff27a0c9dd46419a444b445e9f402dc3c130da9ed5050a8b75",
-  "NessieAI/router/run_done.py": "e6e3de3d0969a6cfb2e4f287cd948d039426ef1713ad926e024b317e8dc8f908",
+  "NessieAI/router/run_done.py": "0f1162a0b6e52dcc84c3b8dd5b1fc227b0a7c458d75a3b29065c432e3f412e2c",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.nextflow_schema.json": "efe37d724f78ebb205df20ce3c7d17397c0e578542a301d44f1356bc302eefba",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.schema_input.json": "89ef2a299d57ca4e6b0ce16faa2345322087243c2a86f140e5ea89183009b8c4",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/chipseq.nextflow_schema.json": "216737980f7cac1b5e7c339df76b4570364258b100283e168d1242336b36d7ab",
@@ -110,18 +110,18 @@
    "genome": "GRCh38",
    "save_output_as_bam": false,
    "save_reference": true,
-   "tools": "mutect2,strelka,manta",
+   "tools": "mutect2,strelka,manta,haplotypecaller",
    "wes": false
   },
   "pipeline_key": "sarek",
   "replies": [
-   "I've set up nf-core/sarek in tumour\u2013normal mode for patient **NTC-TN-P1** (female, 58, stage II colorectal adenocarcinoma). Before I can finish, please check the tumour/normal pairing:\n\n| patient | sample | status | metadata |\n|---|---|---|---|\n| NTC-TN-P1 | D.SEQ-261028BMC-5 | **1 (tumour)** | Primary tumour tissue, colon, surgical resection |\n| NTC-TN-P1 | D.SEQ-261028BMC-6 | **0 (normal)** | Blood (matched normal), pre-operative blood draw |\n\n**What's built**\n- **Samplesheet:** 2 samples, both whole-genome sequencing (WGS) with paired 150 bp reads from a NovaSeq 6000. Sex is set to XX and lane to L001. The tool fills in the FASTQ paths from the metadata.\n- **Reference:** the local Luria GRCh38 reference (`GATK.GRCh38/Homo_sapiens_assembly38.fasta`). Since this is whole-genome data, it uses the staged GATK calling regions.\n- **Settings:**\n  - Aligner: bwa-mem\n  - Variant callers: mutect2 and strelka for small somatic variants, manta for structural variants\n  - `wes`: false\n  - The reference is saved with the run\n  - The parameter check passed\n- **Run time:** roughly 8\u201324.5 hours from when the job starts on Luria, plus any time waiting in the queue. This is a rough range, mainly driven by 2 whole-genome samples at about 4\u201312 hours each.\n\nI picked the callers myself because you didn't name any. I can also add msisensorpro (microsatellite instability) or muse, or a germline caller such as haplotypecaller or deepvariant. ASCAT/Control-FREEC (copy number) and variant annotation (VEP/snpEff) aren't available on Luria.\n\nIs the pairing right? Tell me to go ahead, or tell me what to change. When the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review."
+   "I've set up a tumour\u2013normal sarek run for patient NTC-TN-P1. Before it can go, I need you to confirm which sample is the tumour and which is the normal.\n\n**Tumour/normal pairing** (one samplesheet, 2 samples)\n\n| patient | sample | status | metadata |\n|---|---|---|---|\n| NTC-TN-P1 | D.SEQ-261110NA-11 | **1 (tumour)** | Primary tumour tissue, colon, surgical resection, WGS |\n| NTC-TN-P1 | D.SEQ-261110NA-12 | **0 (normal)** | Blood (matched normal), pre-operative blood draw, WGS |\n\nBoth samples are paired-end 150 bp whole-genome sequencing from an Illumina NovaSeq 6000. The patient is female, so sex is set to XX.\n\n**Run settings**\n- **Reference:** the local Luria GRCh38 reference (`GATK.GRCh38/Homo_sapiens_assembly38.fasta`).\n- **Variant callers:**\n  - mutect2 and strelka for somatic SNVs and indels\n  - manta for structural variants\n  - haplotypecaller for germline calls on the normal\n- **Other settings:**\n  - Aligner: bwa-mem\n  - wes: false, because this is whole-genome data. The staged GATK calling regions are used.\n  - The pipeline's parameter check passed.\n- **Not available here:** annotation (VEP/snpEff) and copy-number calling (ASCAT/Control-FREEC), because their reference files aren't set up on Luria.\n\n**Run time:** about 8\u201324.5 hours from when the job starts on Luria, plus any time waiting in the queue. Most of that is aligning and calling variants for the 2 whole genomes. This is a rough range, not a promise.\n\nWhen the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nIs the pairing right? Reply to confirm, or tell me what to change (callers, aligner, etc.)."
   ],
   "route": "nextseek_query",
   "selection": null,
   "uids": [
-   "D.SEQ-261028BMC-5",
-   "D.SEQ-261028BMC-6"
+   "D.SEQ-261110NA-11",
+   "D.SEQ-261110NA-12"
   ]
  },
  "score": {
@@ -167,7 +167,7 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_vbzckUaXkKcTmLcIfxBmaQ",
+        "id": "tooluse_eBnT6ekVJvCLCith8T7aQ4",
         "input": {
          "kind": "last_search",
          "pipeline_key": "sarek"
@@ -177,21 +177,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2324,
+       "bedrock_latency_ms": 1922,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "d15305ca-0857-4b2c-bcf0-698028eb18b3",
+       "request_id": "e8312f6f-8403-4e02-9878-2b13614d4925",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
        "completion_tokens": 81,
-       "prompt_tokens": 152,
-       "total_tokens": 11204
+       "prompt_tokens": 150,
+       "total_tokens": 11347
       }
      }
     },
@@ -200,7 +200,7 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_AeIfND2CIqZLgEN77SLTps",
+        "id": "tooluse_FyaRROrcbuQbmvqkDgvsVc",
         "input": {
          "cohorts": [
           {
@@ -209,14 +209,14 @@
             {
              "lane": "L001",
              "patient": "NTC-TN-P1",
-             "sample": "D.SEQ-261028BMC-5",
+             "sample": "D.SEQ-261110NA-11",
              "sex": "XX",
              "status": "1"
             },
             {
              "lane": "L001",
              "patient": "NTC-TN-P1",
-             "sample": "D.SEQ-261028BMC-6",
+             "sample": "D.SEQ-261110NA-12",
              "sex": "XX",
              "status": "0"
             }
@@ -227,12 +227,36 @@
         },
         "name": "write_samplesheet",
         "type": "tool_use"
-       },
+       }
+      ],
+      "metadata": {
+       "bedrock_latency_ms": 2952,
+       "http_status": 200,
+       "reasoning_blocks": 0,
+       "request_id": "8a3787f0-66b7-4f53-9827-812f5c104c1a",
+       "retry_attempts": 0,
+       "stop_reason": "tool_use"
+      },
+      "stop_reason": "tool_use",
+      "usage": {
+       "cache_read_tokens": 11116,
+       "cache_ttl": "1h",
+       "cache_write_tokens": 0,
+       "completion_tokens": 212,
+       "prompt_tokens": 4307,
+       "total_tokens": 15635
+      }
+     }
+    },
+    {
+     "args": "aec8c9025ce6da5b",
+     "value": {
+      "content": [
        {
-        "id": "tooluse_BWCEEgsKofxGNWI1j7Nvia",
+        "id": "tooluse_t5fXU6Hz8ulo6f8XSD2QbD",
         "input": {
          "params": {
-          "tools": "mutect2,strelka,manta"
+          "tools": "mutect2,strelka,manta,haplotypecaller"
          },
          "pipeline_key": "sarek"
         },
@@ -241,21 +265,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 3313,
+       "bedrock_latency_ms": 2491,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "5d377269-15df-43b7-8b7e-149ec3d6c125",
+       "request_id": "4b00873f-23a0-4786-a7fd-836824cd3232",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 305,
-       "prompt_tokens": 5145,
-       "total_tokens": 16421
+       "completion_tokens": 102,
+       "prompt_tokens": 4690,
+       "total_tokens": 15908
       }
      }
     },
@@ -266,32 +290,32 @@
        {
         "reasoningContent": {
          "reasoningText": {
-          "signature": "CAQSjwQKEggTEAEYAjgBQgh0aGlua2luZxIM+Viql3PLCfR9dr2hGgyzymHkG4QJCDEm1VsiMH8Ijxgq+8rx/5fvNjZfGQ7oXjD6tRZCcuchrSIzJKbtTsUzUQMfiO5rsoP0xb5QXiqqA34u2RxuuUQVb8lm4ls/7TBduopriKqc3fxGODE7ad2HYSv7KjtOwMhx20i9lrerz3ZZNfF/NutW7+ReS4dquetHO/VI/fD2LXQTwefuF8Uj40Tylb6DeeinifC6MwaeB/XFwfKETDRipUEbEwQQJXojQ89f971vXM0qYzdLwJ5Pr3tawE05M6EKnMoTrqkUV+Ne2EO+ZKJObo+CqfPTvxhtWP8GJpgSsk1jk9nqMsGRfDaYh5BNnTRf9YWYbi4TBK0ycazel3i0hWhST53MuD23pXiOEn7/DM3hl++LPgUvs3S3/CdtlgdyBZOLdHHwfJvpvlbiS2FYQ472EVMeMt4DXXyfUywqV9qhcTJZ5/EEhJ4G6ohLub2ZR6UDMCe8G/eXRkKS78denURzWUEkKW8p43QxtSgjQRYavFc0cCgiYsACSSf3SLZH4R6XxXsjQwuCEZS5m3+tztiDxRhy7GIiOrBKU7Q/ovsdFEsKdPwRPY+S1wklTwMyTM10jGzDrGK/7Ny0i1TtoEO2iAwyYHW4zth+koFYRdzMCF3cvBzQze2HOIDdUf4VNRgB",
+          "signature": "CAQSiQQKEggTEAEYAjgBQgh0aGlua2luZxIMewV741D1+vit5H9fGgwilN7kFUCDJfCvLdIiMNwGT1L0cF9LWkbkx0vQYrXUEUSTgLyLIYc6X0cAoEtA/4UeX+svskf2owUlhZn32CqkA/upwOzaCfUESW+KkbFCdOkhtZ6mmkbJal8dlGgqYfhoYpJuNfBBABv2Blcz3UVFmkK8js/ElAr4LsGCYA/dOBVHZPhj91Qu7vr+8MzmMM5Krii89ePUNZ29uRwOCzkVzh3j2xk8tTOteZynGqbZDJF9h3vIT/JDCsb8jlotFUmdOyDF6VZ1gS/nAQ61lSSjdYMk6xsQFzIBh+ltG0kUmq0zJXkat5x4WtMwbO8xv/pr9ZWmF/7D6/XKtRJWZNaWmsIfTJE/MzEfx+d3Qdurb/jRqINIEK8KWbLBi20saeaLJMSIgFChjH16qFEEgL5w+sd1E//bzmvB71n92QL9Cbw0VGLueeTUVo1Ev89/pSZ5eQ5oQUmGBzBdwajrjfHNHezZyYe4k/LloP2Hv65hpxX18M560+vDWYiOfSjlCND9efxCnc/i3ljLVjgDqbiaYwRhs1xeeoRct2JL9K1xtyh/M0WfC22FjFstWmhH1vVbvVbC4Gd6V3hprhykK12N0AeJlzVtNXt4ktZL0mQX2lAXqgAKXoRXvZ33TzvpPAXJsc78vBgB",
           "text": ""
          }
         }
        },
        {
-        "text": "I've set up nf-core/sarek in tumour\u2013normal mode for patient **NTC-TN-P1** (female, 58, stage II colorectal adenocarcinoma). Before I can finish, please check the tumour/normal pairing:\n\n| patient | sample | status | metadata |\n|---|---|---|---|\n| NTC-TN-P1 | D.SEQ-261028BMC-5 | **1 (tumour)** | Primary tumour tissue, colon, surgical resection |\n| NTC-TN-P1 | D.SEQ-261028BMC-6 | **0 (normal)** | Blood (matched normal), pre-operative blood draw |\n\n**What's built**\n- **Samplesheet:** 2 samples, both whole-genome sequencing (WGS) with paired 150 bp reads from a NovaSeq 6000. Sex is set to XX and lane to L001. The tool fills in the FASTQ paths from the metadata.\n- **Reference:** the local Luria GRCh38 reference (`GATK.GRCh38/Homo_sapiens_assembly38.fasta`). Since this is whole-genome data, it uses the staged GATK calling regions.\n- **Settings:**\n  - Aligner: bwa-mem\n  - Variant callers: mutect2 and strelka for small somatic variants, manta for structural variants\n  - `wes`: false\n  - The reference is saved with the run\n  - The parameter check passed\n- **Run time:** roughly 8\u201324.5 hours from when the job starts on Luria, plus any time waiting in the queue. This is a rough range, mainly driven by 2 whole-genome samples at about 4\u201312 hours each.\n\nI picked the callers myself because you didn't name any. I can also add msisensorpro (microsatellite instability) or muse, or a germline caller such as haplotypecaller or deepvariant. ASCAT/Control-FREEC (copy number) and variant annotation (VEP/snpEff) aren't available on Luria.\n\nIs the pairing right? Tell me to go ahead, or tell me what to change. When the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.",
+        "text": "I've set up a tumour\u2013normal sarek run for patient NTC-TN-P1. Before it can go, I need you to confirm which sample is the tumour and which is the normal.\n\n**Tumour/normal pairing** (one samplesheet, 2 samples)\n\n| patient | sample | status | metadata |\n|---|---|---|---|\n| NTC-TN-P1 | D.SEQ-261110NA-11 | **1 (tumour)** | Primary tumour tissue, colon, surgical resection, WGS |\n| NTC-TN-P1 | D.SEQ-261110NA-12 | **0 (normal)** | Blood (matched normal), pre-operative blood draw, WGS |\n\nBoth samples are paired-end 150 bp whole-genome sequencing from an Illumina NovaSeq 6000. The patient is female, so sex is set to XX.\n\n**Run settings**\n- **Reference:** the local Luria GRCh38 reference (`GATK.GRCh38/Homo_sapiens_assembly38.fasta`).\n- **Variant callers:**\n  - mutect2 and strelka for somatic SNVs and indels\n  - manta for structural variants\n  - haplotypecaller for germline calls on the normal\n- **Other settings:**\n  - Aligner: bwa-mem\n  - wes: false, because this is whole-genome data. The staged GATK calling regions are used.\n  - The pipeline's parameter check passed.\n- **Not available here:** annotation (VEP/snpEff) and copy-number calling (ASCAT/Control-FREEC), because their reference files aren't set up on Luria.\n\n**Run time:** about 8\u201324.5 hours from when the job starts on Luria, plus any time waiting in the queue. Most of that is aligning and calling variants for the 2 whole genomes. This is a rough range, not a promise.\n\nWhen the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nIs the pairing right? Reply to confirm, or tell me what to change (callers, aligner, etc.).",
         "type": "text"
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 8241,
+       "bedrock_latency_ms": 7697,
        "http_status": 200,
        "reasoning_blocks": 1,
-       "request_id": "2616f620-9978-46e5-9ab7-6b4280f451d4",
+       "request_id": "9bd7f71d-4348-4ed4-9ec5-a241f3a346d5",
        "retry_attempts": 0,
        "stop_reason": "end_turn"
       },
       "stop_reason": "end_turn",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 754,
-       "prompt_tokens": 6135,
-       "total_tokens": 17860
+       "completion_tokens": 713,
+       "prompt_tokens": 5269,
+       "total_tokens": 17098
       }
      }
     }
@@ -302,8 +326,8 @@
      "value": {
       "body": {
        "identifiers": [
-        "D.SEQ-261028BMC-5",
-        "D.SEQ-261028BMC-6"
+        "D.SEQ-261110NA-11",
+        "D.SEQ-261110NA-12"
        ]
       },
       "data": {
@@ -315,35 +339,35 @@
          "sample_type_name": "Cell",
          "samples": [
           {
-           "id": "1308977",
-           "metadata": {
-            "Disease": "colorectal adenocarcinoma",
-            "Name": "NTC-TN-p1-tumour",
-            "Parent": "PAT-261028BMC-1",
-            "Scientist": "REDACTED",
-            "Source": "Surgical resection",
-            "Species": "Homo sapiens",
-            "Tissue": "Colon",
-            "Type": "Primary tumour tissue",
-            "UID": "CEL-261028BMC-5"
-           },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-5"
-          },
-          {
-           "id": "1308978",
+           "id": "1308522",
            "metadata": {
             "Name": "NTC-TN-p1-normal",
-            "Parent": "PAT-261028BMC-1",
+            "Parent": "PAT-261110NA-1",
             "Scientist": "REDACTED",
             "Source": "Pre-operative blood draw",
             "Species": "Homo sapiens",
             "Tissue": "Blood",
             "Type": "Blood (matched normal)",
-            "UID": "CEL-261028BMC-6"
+            "UID": "CEL-261110NA-10"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-6"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-10"
+          },
+          {
+           "id": "1308523",
+           "metadata": {
+            "Disease": "colorectal adenocarcinoma",
+            "Name": "NTC-TN-p1-tumour",
+            "Parent": "PAT-261110NA-1",
+            "Scientist": "REDACTED",
+            "Source": "Surgical resection",
+            "Species": "Homo sapiens",
+            "Tissue": "Colon",
+            "Type": "Primary tumour tissue",
+            "UID": "CEL-261110NA-9"
+           },
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-9"
           }
          ]
         },
@@ -354,202 +378,50 @@
          "sample_type_name": "Sequencing Data",
          "samples": [
           {
-           "id": "1308981",
+           "id": "1308526",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 150,
             "File_PrimaryData": "NTC-TN-p1-tumour_R1.fastq.gz, NTC-TN-p1-tumour_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-TN-p1-tumour-WGS",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-5",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-11",
             "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "WGS",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-5",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-11"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-5"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-11"
           },
           {
-           "id": "1308982",
+           "id": "1308527",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 150,
             "File_PrimaryData": "NTC-TN-p1-normal_R1.fastq.gz, NTC-TN-p1-normal_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-TN-p1-normal-WGS",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-6",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-12",
             "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "whole-genome",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-6",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-12"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-6"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-12"
           }
          ]
         },
@@ -560,43 +432,43 @@
          "sample_type_name": "DNA Sample",
          "samples": [
           {
-           "id": "1308979",
+           "id": "1308524",
            "metadata": {
             "Barcode": "AGCTTAGC",
             "Lab": "REDACTED",
             "Name": "NTC-TN-p1-tumour-lib",
-            "Parent": "CEL-261028BMC-5",
+            "Parent": "CEL-261110NA-9",
             "Protocol": "Illumina DNA Prep, 100 ng input",
             "Scientist": "REDACTED",
-            "UID": "DNA-261028BMC-5"
+            "UID": "DNA-261110NA-11"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-5"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-11"
           },
           {
-           "id": "1308980",
+           "id": "1308525",
            "metadata": {
             "Barcode": "TCGAACGT",
             "Lab": "REDACTED",
             "Name": "NTC-TN-p1-normal-lib",
-            "Parent": "CEL-261028BMC-6",
+            "Parent": "CEL-261110NA-10",
             "Protocol": "Illumina DNA Prep, 100 ng input",
             "Scientist": "REDACTED",
-            "UID": "DNA-261028BMC-6"
+            "UID": "DNA-261110NA-12"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-6"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-12"
           }
          ]
         },
         {
          "n_samples": 1,
          "sample_type": "PAT",
-         "sample_type_description": "A patient sample represents a human participant enrolled in a study, whose dated clinical events (follow-ups, treatments with their drugs and outcomes, diagnoses, test results) are Patient Visit (PAV) samples derived from the patient. It serves as the source for clinical information and biological material collected to investigate health, disease, or treatment effects.",
+         "sample_type_description": "A patient sample represents a human participant enrolled in a study. It serves as the source for clinical information and biological material collected to investigate health, disease, or treatment effects.",
          "sample_type_name": "Patient",
          "samples": [
           {
-           "id": "1308976",
+           "id": "1308521",
            "metadata": {
             "Age": "58",
             "Age_Units": "years",
@@ -606,10 +478,10 @@
             "Name": "NTC-TN-patient1",
             "Scientist": "REDACTED",
             "Sex": "F",
-            "UID": "PAT-261028BMC-1"
+            "UID": "PAT-261110NA-1"
            },
-           "sample_type_id": 7,
-           "uuid": "PAT-261028BMC-1"
+           "sample_type_id": 25,
+           "uuid": "PAT-261110NA-1"
           }
          ]
         }
@@ -632,12 +504,12 @@
    ],
    "fetch_reporter_metadata": [
     {
-     "args": "1277e65c5d08f4c3",
+     "args": "774b51f93aeb45cd",
      "value": {
       "body": {
        "identifiers": [
-        "D.SEQ-261028BMC-5",
-        "D.SEQ-261028BMC-6"
+        "D.SEQ-261110NA-11",
+        "D.SEQ-261110NA-12"
        ]
       },
       "data": {
@@ -647,35 +519,35 @@
          "sample_type": "CEL",
          "samples": [
           {
-           "id": "1308977",
-           "metadata": {
-            "Disease": "colorectal adenocarcinoma",
-            "Name": "NTC-TN-p1-tumour",
-            "Parent": "PAT-261028BMC-1",
-            "Scientist": "REDACTED",
-            "Source": "Surgical resection",
-            "Species": "Homo sapiens",
-            "Tissue": "Colon",
-            "Type": "Primary tumour tissue",
-            "UID": "CEL-261028BMC-5"
-           },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-5"
-          },
-          {
-           "id": "1308978",
+           "id": "1308522",
            "metadata": {
             "Name": "NTC-TN-p1-normal",
-            "Parent": "PAT-261028BMC-1",
+            "Parent": "PAT-261110NA-1",
             "Scientist": "REDACTED",
             "Source": "Pre-operative blood draw",
             "Species": "Homo sapiens",
             "Tissue": "Blood",
             "Type": "Blood (matched normal)",
-            "UID": "CEL-261028BMC-6"
+            "UID": "CEL-261110NA-10"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-6"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-10"
+          },
+          {
+           "id": "1308523",
+           "metadata": {
+            "Disease": "colorectal adenocarcinoma",
+            "Name": "NTC-TN-p1-tumour",
+            "Parent": "PAT-261110NA-1",
+            "Scientist": "REDACTED",
+            "Source": "Surgical resection",
+            "Species": "Homo sapiens",
+            "Tissue": "Colon",
+            "Type": "Primary tumour tissue",
+            "UID": "CEL-261110NA-9"
+           },
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-9"
           }
          ]
         },
@@ -684,202 +556,50 @@
          "sample_type": "D.SEQ",
          "samples": [
           {
-           "id": "1308981",
+           "id": "1308526",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 150,
             "File_PrimaryData": "NTC-TN-p1-tumour_R1.fastq.gz, NTC-TN-p1-tumour_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-TN-p1-tumour-WGS",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-5",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-11",
             "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "WGS",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-5",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-11"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-5"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-11"
           },
           {
-           "id": "1308982",
+           "id": "1308527",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "genomic DNA",
             "F_bp": 150,
             "File_PrimaryData": "NTC-TN-p1-normal_R1.fastq.gz, NTC-TN-p1-normal_R2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "Paired",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-TN-p1-normal-WGS",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-6",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-12",
             "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "Illumina NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "whole-genome",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-6",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-12"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-6"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-12"
           }
          ]
         },
@@ -888,32 +608,32 @@
          "sample_type": "DNA",
          "samples": [
           {
-           "id": "1308979",
+           "id": "1308524",
            "metadata": {
             "Barcode": "AGCTTAGC",
             "Lab": "REDACTED",
             "Name": "NTC-TN-p1-tumour-lib",
-            "Parent": "CEL-261028BMC-5",
+            "Parent": "CEL-261110NA-9",
             "Protocol": "Illumina DNA Prep, 100 ng input",
             "Scientist": "REDACTED",
-            "UID": "DNA-261028BMC-5"
+            "UID": "DNA-261110NA-11"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-5"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-11"
           },
           {
-           "id": "1308980",
+           "id": "1308525",
            "metadata": {
             "Barcode": "TCGAACGT",
             "Lab": "REDACTED",
             "Name": "NTC-TN-p1-normal-lib",
-            "Parent": "CEL-261028BMC-6",
+            "Parent": "CEL-261110NA-10",
             "Protocol": "Illumina DNA Prep, 100 ng input",
             "Scientist": "REDACTED",
-            "UID": "DNA-261028BMC-6"
+            "UID": "DNA-261110NA-12"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-6"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-12"
           }
          ]
         },
@@ -922,7 +642,7 @@
          "sample_type": "PAT",
          "samples": [
           {
-           "id": "1308976",
+           "id": "1308521",
            "metadata": {
             "Age": "58",
             "Age_Units": "years",
@@ -932,10 +652,10 @@
             "Name": "NTC-TN-patient1",
             "Scientist": "REDACTED",
             "Sex": "F",
-            "UID": "PAT-261028BMC-1"
+            "UID": "PAT-261110NA-1"
            },
-           "sample_type_id": 7,
-           "uuid": "PAT-261028BMC-1"
+           "sample_type_id": 25,
+           "uuid": "PAT-261110NA-1"
           }
          ]
         }

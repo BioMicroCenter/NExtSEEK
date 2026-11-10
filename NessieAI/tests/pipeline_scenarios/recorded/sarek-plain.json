@@ -1,23 +1,23 @@
 {
  "agent_model": "us.anthropic.claude-opus-5-5",
  "decision": {
-  "reasoning": "The user is asking to find variants or mutations in their sequenced samples identified in the previous turn. According to the routing rules, questions asking what the user's sequenced samples show (such as which variants or mutations they carry) are routed to nextseek_query, where the pipeline agent can offer and build the appropriate nf-core pipeline run to produce the data.",
+  "reasoning": "The user is asking to analyze sequencing data to identify variants for the samples retrieved in the previous turn. According to the instructions, questions asking what the user's sequenced samples show (such as which variants or mutations they carry) are routed to nextseek_query, where the pipeline agent will handle it by offering to configure and launch the appropriate nf-core pipeline.",
   "route": "nextseek_query",
-  "router_cost_usd": 0.023854,
+  "router_cost_usd": 0.026338,
   "router_model": "gemini-3.1-pro-preview",
   "source": "baml"
  },
- "fingerprint": "52dc58da5a3a61fd7cf1f104c7d111b090bdf67d8966f8f07887e52824e7e50b",
+ "fingerprint": "81d162f793c1e2cb6ad773c7a8ce55503c3e1e2dcd672c12e0be483a364c151b",
  "fingerprint_files": {
   "NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py": "58ba91cf432f173dc67c10bd6f5415c492c8f71ae86edbbf726daafd009ed40c",
   "NessieAI/chat_nextseek/src/chat_nextseek/helpers/results.py": "5406f85f40ae8974fd292cbb270d6f523bfde1f99cb4db7362101ac459217bdb",
   "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent.py": "13f196a68116731997a688125fcf1e1eba1031a9284ac4d26691b99f9829d0c8",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "ebe006293c89d4608e9fe2fb57633c3cfc57755d1bd4e2b8b403e2bac44d7131",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py": "f73ddd2819802f5738fab5340fdd628cde4aec43d9ab076a03df4ed6af58f416",
   "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/sample_digest.py": "bca2e04a221a26874eeb3c06d0e3296a9d159f47d7d26d44885a56cfd3791709",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "eeba85794dcf9e423b2b5e2cc84c93dd7030cf9608e29a51fb572bae4ddd5c29",
-  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "4b1dcd24f29281721fc26d2502f89e84a3ca3c16d5777405961b072c49bb7c41",
-  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "467cffb781bf88eb2684aee401c4fb19c29ebb73ea834493cc4c1a2a8979a679",
-  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "3ccb91215b600a42da7f41d2bdf0563b3a797f8b8ec35fe8e8cb9f21b663598a",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection.py": "0f2eeda93b226f6559dfa264393aa7fe9e1d8d4117d1d90bb9850740b3928147",
+  "NessieAI/chat_nextseek/src/chat_nextseek/pipeline/selection_context.py": "b0cf15d314fa23aff6d3cd269815ad1688f079c2d5f967d54950c3d25c5a2d4f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/prompts/pipeline_agent.txt": "6c438cbb33ac609c304278b26172d6be40bb30c1fcee1c43a9643eb03a8851c5",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py": "2080c7fa415a2b264679df2081e8209c65778b1958396fffa1cfe8cfecf98a8c",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/protocols.py": "9649ec5069407cc720453c99afc5cf8bbf20454b81722d02ea929ca13f5eda83",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/ampliseq.json": "6a3b072239f99d6b10d6fff34ed70877b698ef408e340a37defd372c844ba866",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/atacseq.json": "b9f5c46371dfbd32e8268a56fb42731e46c3959a475ae30eff91eb6e23b52c3a",
@@ -43,7 +43,7 @@
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/reference_bundles.json": "a291b39257db0113c0123130cf324e4cef7803aba343fe467462f08470d570da",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/riboseq.json": "a76c30cb263a7c813b78a4a19ebea51be3b97e3616076a4611410aeaab6a3720",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnafusion.json": "cbc3ddff1d1e8b191f5ce5e3c88af44d675ae86526ce481729edceaa8dfe31ce",
-  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "a0bb48d3357408a840299291e7790158549d12933388780c9608b1962f50453f",
+  "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnaseq.json": "fb1914d43a575ca8e923ff01376a88aa23f3569e21791ca8ab0d24afec5cd585",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnasplice.json": "d1b90f1dd7d7f62d83d45dfab174297bbeb0b9066ebd57a2e547dd3e864fa3c9",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/rnavar.json": "aacc774339be64ec5b6c5ec1bb80397d3ffc4288aa12b32598889c5a6516ac19",
   "NessieAI/chat_nextseek/src/chat_nextseek/reports/templates/nfcore/sarek.json": "e5ccf7fc6b1429a35e99c408846224dfd1ee5ff3196a4259a8790b5630ce708f",
@@ -59,10 +59,10 @@
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_param_atlas.json": "1bdb33272b6128cf8f3ecac4b214ac5dfba3c946760cd597169a70ade6118881",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_rna_atlas.json": "b80ccc597708a29ca193cb4f90842635130f238298da6fe92c7a18f3190d1f6f",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/nfcore_schema.py": "526c06f3adab32b34d7ba971f509ecb79cada816528d99d460e1fe7212d2610e",
-  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "3e0a5b55bc10046d6ab47a92b385f024d3b6a52b64ec580638a32950dc4b1858",
+  "NessieAI/chat_nextseek/src/chat_nextseek/seqera/pipeline_params.py": "4ca819e8f59cc5eddeb4fcfb64fae4771846c318d41760b9bae1915729a48998",
   "NessieAI/chat_nextseek/src/chat_nextseek/seqera/schema_check.py": "fa3a6754490a193bc266e9a7bbe3d41b924ffffda4df02b91e3b97df0e37d014",
   "NessieAI/dmac_assistant/baml_src/clients.baml": "4061e044f74d793a9bb2d9561c1cd7200d23e4cddd5f812e62f568fec2c1ad84",
-  "NessieAI/dmac_assistant/baml_src/router.baml": "ef317b8217639ff1fa5431d8f87b87583fcfdcc90a7f94fc168a5ce94106cd65",
+  "NessieAI/dmac_assistant/baml_src/router.baml": "a14c457362bf6a544f31429988da7e24e692eef0a595744fa677138b2680cfd7",
   "NessieAI/dmac_assistant/build_context/route_capabilities.json": "7400931cf611e30778478f5307733e8f3789a1637d45890955daa9b5cc46e1e0",
   "NessieAI/dmac_assistant/src/dmac_assistant/router/__init__.py": "8d45026f14f612a9d79e0f7990a646e6fd50bc9fdd8c6f869475cfb6656714f8",
   "NessieAI/dmac_assistant/src/dmac_assistant/router/agent.py": "0ad73cf447a12d4668d3f6539392d068c951942379f1d617c4c8d997c04934b4",
@@ -73,12 +73,12 @@
   "NessieAI/router/followup.py": "ba9c6b1d5e2cbdd4451adf445868a21cda79f5b0b01a3638669808a5fba9de4b",
   "NessieAI/router/laya.py": "d14de087f492be3540202c895f97f52f8290cd63ef3a71f28278e249dce57f29",
   "NessieAI/router/laya_common.py": "0e5de2adfaa6a2f92070daaa4c70d59effecf530c2b250800b37d6ab4507aac8",
-  "NessieAI/router/laya_options.json": "3d0c0b6bd27d8894d470f0f9c4b072b7ad1522266a9e69023fc51dc857a76387",
-  "NessieAI/router/policy.py": "55d43b96d16e85c13da6e7be5304ddf9eabdc8a458262cd49e0308bbe3943295",
+  "NessieAI/router/laya_options.json": "e1b9570e7c8f631454051dadfb0dcdbd48656e944f1f983709874404ee7cb2d9",
+  "NessieAI/router/policy.py": "db4a23dd66d3f0ba798c08eacfdefa1d4a9408b6a941707a832385dc6bf9dead",
   "NessieAI/router/posterior_selector.py": "16b669254aa5731241510c0fb838fc80ec0c15b183cf611509b1a201fbd1a40e",
   "NessieAI/router/router.py": "81a17262ae1bcfe00e9b755ad287781e5bd2da1f4c4bac4385b417c8741a63fa",
   "NessieAI/router/router_context.py": "70a27763218a83ff27a0c9dd46419a444b445e9f402dc3c130da9ed5050a8b75",
-  "NessieAI/router/run_done.py": "e6e3de3d0969a6cfb2e4f287cd948d039426ef1713ad926e024b317e8dc8f908",
+  "NessieAI/router/run_done.py": "0f1162a0b6e52dcc84c3b8dd5b1fc227b0a7c458d75a3b29065c432e3f412e2c",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.nextflow_schema.json": "efe37d724f78ebb205df20ce3c7d17397c0e578542a301d44f1356bc302eefba",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/atacseq.schema_input.json": "89ef2a299d57ca4e6b0ce16faa2345322087243c2a86f140e5ea89183009b8c4",
   "NessieAI/tests/chat_nextseek/fixtures/nfcore/chipseq.nextflow_schema.json": "216737980f7cac1b5e7c339df76b4570364258b100283e168d1242336b36d7ab",
@@ -115,19 +115,19 @@
   },
   "pipeline_key": "sarek",
   "replies": [
-   "I've built a germline variant-calling run for your two blood donors. Nothing has been submitted yet.\n\n**What you'll get:** a VCF for each donor listing the small variants (SNVs and short indels) that donor carries, plus larger structural variants. Both samples are human whole-genome DNA from PBMCs (Illumina DNA PCR-Free, paired-end 2\u00d7150, NovaSeq 6000).\n\n**Samplesheet** (one file, 2 samples):\n| sample | patient | status |\n|---|---|---|\n| D.SEQ-261028BMC-1 | donor1 | 0 (normal) |\n| D.SEQ-261028BMC-2 | donor2 | 0 (normal) |\n\nBoth donors are marked normal, so the run calls inherited variants only. There is no tumour/normal pair, so no somatic (acquired) mutation calling. Please check this pairing table is right.\n\n**Run settings:**\n- **Pipeline:** nf-core/sarek, whole-genome mode\n- **Variant callers:** HaplotypeCaller for small variants, Manta for structural variants\n- **Aligner:** bwa-mem\n- **Reference:** the local Luria GRCh38 genome (GATK `Homo_sapiens_assembly38.fasta`)\n- **Variant annotation** (e.g. VEP, snpEff) isn't included, because the files it needs aren't set up on Luria.\n- The pipeline's parameter check passed.\n\n**Run time:** about 8\u201324.5 hours once the job starts on Luria, plus time waiting in the cluster queue. Most of that is processing two whole genomes at about 4\u201312 hours each. This is a rough first guess, not a measured figure.\n\nWhen it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nCan you confirm the pairing table and settings? You could also add callers such as DeepVariant or Strelka, or switch the aligner."
+   "I've built a nf-core/sarek germline run for the two donors. It hasn't been submitted yet.\n\n**What you'll get:** a VCF for each donor. It lists the small variants (SNVs and short indels) called with GATK HaplotypeCaller and the larger structural variants called with Manta. Variant annotation isn't available here yet.\n\n**Samples** (one samplesheet, both labelled normal/germline):\n\n| patient (donor) | sample | lane | status |\n|---|---|---|---|\n| CEL-261110NA-7 (donor1, PBMC) | D.SEQ-261110NA-9 (NTC-WGS-1) | L001 | 0 (normal) |\n| CEL-261110NA-8 (donor2, PBMC) | D.SEQ-261110NA-10 (NTC-WGS-2) | L001 | 0 (normal) |\n\nBoth are paired-end 2\u00d7150 whole-genome libraries (PCR-free prep, NovaSeq 6000). Each donor is a separate patient. There's no tumour sample, so this is germline calling only, with no somatic tumour/normal pairing.\n\n**Run settings:**\n- Callers (`tools`): `haplotypecaller,manta`\n- Aligner: `bwa-mem`, using the BWA index already on Luria\n- Whole genome (`wes: false`), using the standard GATK calling regions\n- Genome: the local Luria reference for GRCh38 (`GATK.GRCh38/Homo_sapiens_assembly38.fasta`)\n- The pipeline's parameter check passed.\n\n**Run time:** about 8\u201324.5 hours once the job starts on Luria, plus any time waiting in the queue. Each of the two samples takes about 4\u201312 hours. This is a rough first estimate, not a promise.\n\nWhen the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nCan you confirm the table is right, with each library under its donor and both as normal? If it is, the run is ready to go. Or tell me what to change, such as adding the DeepVariant caller or switching to `bwa-mem2`."
   ],
   "route": "nextseek_query",
   "selection": {
    "pipelines": [
     "sarek"
    ],
-   "reason": "These are human whole-genome DNA libraries (Illumina DNA PCR-Free, paired-end, GENOMIC/WGS) from two PBMC donors, and the question asks which germline variants each donor carries, which is sarek's germline calling on the staged GRCh38 bundle; there is no tumour/normal pair, so it would be germline only.",
+   "reason": "These are human PCR-free whole-genome DNA libraries (paired-end, GENOMIC, WGS) from two donors' PBMCs, so sarek's germline variant calling against the staged GRCh38 bundle directly answers which variants each donor carries.",
    "verdict": "chosen"
   },
   "uids": [
-   "D.SEQ-261028BMC-1",
-   "D.SEQ-261028BMC-2"
+   "D.SEQ-261110NA-9",
+   "D.SEQ-261110NA-10"
   ]
  },
  "score": {
@@ -169,7 +169,7 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_xQM1i76mbEUVdDhWCNiZOV",
+        "id": "tooluse_4EV9C1AIxDrcdNc4k5OomV",
         "input": {
          "kind": "last_search",
          "question": "Which variants do these two blood donors carry?"
@@ -179,21 +179,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2052,
+       "bedrock_latency_ms": 2025,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "895b78d9-11bb-4d0c-8de3-014d4c049e38",
+       "request_id": "dc49356c-d08f-48cb-9535-6e35ce3478ec",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
        "completion_tokens": 87,
-       "prompt_tokens": 140,
-       "total_tokens": 11198
+       "prompt_tokens": 138,
+       "total_tokens": 11341
       }
      }
     },
@@ -202,11 +202,11 @@
      "value": {
       "content": [
        {
-        "text": "Using nf-core/sarek: these are human whole-genome DNA libraries from two PBMC donors, so germline variant calling answers your question.",
+        "text": "Using nf-core/sarek: these are human PCR-free whole-genome DNA libraries from two donors' PBMCs, so germline variant calling answers which variants each carries.",
         "type": "text"
        },
        {
-        "id": "tooluse_TfBIg5KHGuZp3KZdLAeHep",
+        "id": "tooluse_bRYhXx08UsmimBGkVjLMlu",
         "input": {
          "kind": "last_search",
          "pipeline_key": "sarek"
@@ -216,21 +216,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 7233,
+       "bedrock_latency_ms": 2290,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "faf186f3-15d0-47bc-9901-c1831853a98a",
+       "request_id": "14deb282-f7fd-4a49-a5f5-269520adfc3d",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 128,
-       "prompt_tokens": 437,
-       "total_tokens": 11536
+       "completion_tokens": 139,
+       "prompt_tokens": 405,
+       "total_tokens": 11660
       }
      }
     },
@@ -239,22 +239,30 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_ijFXbVxPTlZt002U7zdIvR",
+        "reasoningContent": {
+         "reasoningText": {
+          "signature": "CAQSzQUKEggTEAEYAjgBQgh0aGlua2luZxIM0nbL971K635yu1LiGgzTH6tbTndWhW9N1gciMN/oq0hhe2t/OlTHcrhGdnb76PhLaJuqxO/zHduxKEXzv+z9xyZ+evKYou1/nUeQpyroBMbS2z3mgpGpa1AEPf0BwM7zOdgYIFxt/lzWv2DfDJHXNliVi3jqwbsZ/JRmmknssBxx6Fi0XB+BlfkTh0eB7ZYWkeyyNm0IwY4mqZfhNG1BfxQY0G3J/jIYuwqX0jUrd4Xnd1Cvg+r9zFKjn8nG1itgdgRAmLzCWw+ggj3zxHT6+gdqSRQvCI+vuQ/Ojtl3jhPm06Fg/p9MX/S3CYv5Em7pl3Wqhc5ZaXZa2QMP3Q/kBsPM0OHuDX9BjDWtwWvc416mpwCANDP4cVvlTrfxxHV6bm8tVAA3aNcm9s1dkZDhUMc4Y9HOOxu68cShlPC//ATNm3YBOWO7u1sapYF0gzRzWsnbKp0FU/ZPu/OqudjzwektEA26oIgkiPX592WJQq6/x0afBCHV+2g1hHFFBb4cvD4oIIpWhBD6aceEpgRVMOlFz/K3KObKR3iOw0VEK/woPmQhn4uxSgqvlhRgBbB1YejrpY2rbiiHYKDz0pzd9gyGTnQLTPqTJiwWJF1hna9Tkpgji7dDWemOwNn+wcmOHrp4IiQI3esc5uO6IVMhtFVmHJ0qrggAPjOR5rRFNtsNl/rD9K2X1SI/2tO2yTXvEaHyIGQOdeLmUXmHC70nfvbX+PVZY/+nc6dvDZ1au05hNXdmj+NU4GGpDgBsGgmvQaMA6A5vGOrjpnezprtDhzXEzCWmj3P4GsWbv9Ydlv19uDLnzpe5tjV2vonQ1hPE373J3z+zy5DpHE1s3noRgDuvSX3gj11p2Bw8WfruUyAuTKCJu7GQNwO8nfcBZAFAbaVLBJO8KfMcX2jqKHAtktZxPGi1khkYAQ==",
+          "text": ""
+         }
+        }
+       },
+       {
+        "id": "tooluse_xOZissCJwLyijjAcEORPQ0",
         "input": {
          "cohorts": [
           {
-           "label": "blood-donors",
+           "label": "blood-donors-wgs",
            "rows": [
             {
              "lane": "L001",
-             "patient": "donor1",
-             "sample": "D.SEQ-261028BMC-1",
+             "patient": "CEL-261110NA-7",
+             "sample": "D.SEQ-261110NA-9",
              "status": "0"
             },
             {
              "lane": "L001",
-             "patient": "donor2",
-             "sample": "D.SEQ-261028BMC-2",
+             "patient": "CEL-261110NA-8",
+             "sample": "D.SEQ-261110NA-10",
              "status": "0"
             }
            ]
@@ -267,21 +275,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2697,
+       "bedrock_latency_ms": 3952,
        "http_status": 200,
-       "reasoning_blocks": 0,
-       "request_id": "41e79e16-64dc-429d-b9a1-54d97ca01163",
+       "reasoning_blocks": 1,
+       "request_id": "bfc15fd1-63d8-4d22-9896-fece2949d82c",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 184,
-       "prompt_tokens": 5106,
-       "total_tokens": 16261
+       "completion_tokens": 314,
+       "prompt_tokens": 4245,
+       "total_tokens": 15675
       }
      }
     },
@@ -290,11 +298,9 @@
      "value": {
       "content": [
        {
-        "id": "tooluse_8mz82Tc0Y5EmmL1vEf78qi",
+        "id": "tooluse_E3i7WHqfxejhInYkri0RSP",
         "input": {
-         "params": {
-          "tools": "haplotypecaller,manta"
-         },
+         "params": {},
          "pipeline_key": "sarek"
         },
         "name": "configure_run",
@@ -302,21 +308,21 @@
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 2249,
+       "bedrock_latency_ms": 1672,
        "http_status": 200,
        "reasoning_blocks": 0,
-       "request_id": "8b9ac610-ef8e-4f01-91e8-79b06079ff4a",
+       "request_id": "e8fd5c70-2582-4b7e-ba6d-57e405c4d534",
        "retry_attempts": 0,
        "stop_reason": "tool_use"
       },
       "stop_reason": "tool_use",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 93,
-       "prompt_tokens": 5445,
-       "total_tokens": 16509
+       "completion_tokens": 77,
+       "prompt_tokens": 4724,
+       "total_tokens": 15917
       }
      }
     },
@@ -327,32 +333,32 @@
        {
         "reasoningContent": {
          "reasoningText": {
-          "signature": "CAQSgQUKEggTEAEYAjgBQgh0aGlua2luZxIMubcercqefbRUcRyoGgzXsw8jTjN+M2qOrKAiMAayBW2NNF3opSlFukCyWtHtqZtt21iTu/B2vkrTweZSBmMfW5AVLjPS14i1VtUXoyqcBJD8vZxNxkGgLiMCtqMzOOWsvLwgtpcFqtKn8aY73pR1auMuBiWT7YIjkA+6Hy3NhT6CYOt3PTDu+hyTXm4QnaHd8ue0Hia/ZxPKk1i8ipgXQXXjDlqyb6D5Fw65J3GYAIsYLZsv7X8YHgUQeXa35I4v0h2+/pzqc8rKipVaPZcYJj3TCLOjmtzYqAbP+gvdOqfxe6GaYAXtqTdWzLQwbRRfMRoH35DeXJxuqZPfCSJAV+3j1DzNwX3N36YyC/CRlhoLcTUPwYCZo+cXLOXsWxRuf2jChZg8J/lrL4jHujrMMv/OjyMcvXLjEXk86XppC/iKK4hTcLDVn3BNzXqVvqlGMLW7O25Ghdlfw3tnh/QluM6pBkpsGyKn0KHOpvc+UZmtAHlSEKS1t9q9zW4dr1arFhJtqsLZ+F0ufEGimT6pLZEu869TLO5aO4wxUZ9GVH4Jx9lEXUKIRJt9cD/pAmJS8tbsXlQtcObv/W28ZCeUnmRxBqiPWvBti6BHB8T6ofe28baKGHp1mOECc6NxX7XfV7lwELhGbd2cOO/zpQ1N+ni4eSAuqYk2R8Hi688TtVg5H/kAPv29p+o0okNoUJOPmxGtxdFEmrvCtf+BFCC0PMEMEe53BDxhuBmx9Om4K2L7CtmkPOHSvccYJDvy1ZBJYPGy+LjApmfPdB2ygXf3GrxIBnqtS3iRfS+A50aeqfqgMAi3dCnbkdPHZxgB",
+          "signature": "CAQSqgUKEggTEAEYAjgBQgh0aGlua2luZxIMSyW4vvwl/oXiUPgVGgyQnwQ8S2I0rr/fz78iMFU90CS3vAUBaLvIyaRJsBET8c5l2X2r1VM+Tgq37cShX5r8FnLqVZnBUhmK2Z1fmCrFBLOx33aLIHEil+xDx0Ip1MyIRquAtU4CHVUMpMkHwCzWeIf/xVWybkUptKG9eURMyNkkzQ4H+l4e0i+94N5shsYlydoaajv0AgwaSiDAY+/m/+yw4pwC3yNX+TahwlZwu2I6Il16A/GebvhaaDiRSQUBYQp6ayU+nVfIYughz5RIOcmO9UR6s8V8XSVeY5L6m3iiD7h2Q4+U/4IWzSpBN7EVhyrWLEzso5H7G73bSToTPSyPabsCGRVaBFaIrobHcsA17cQxvQy78rY47lbYm49xugO40On3/4whdDIU2NR8MPyHNwG1tXMcaEe2AW13WPC+AZDhi5bsWmgd+rdPf/Dc1+Evdu9xUnZVRXLz1sFdNi7DrYzYDDvzV0OXRbINssTNqn47I5mxmsTQvmzCgoX8/3jQUlteOwOJVA4TczDtdIN6LS1522xmwgkG0jUoy0oDGQn0L1tJm5jkao2QDbvc+kJkVqlfhafJ2ZwiVKT1Jxe0SxwGvdl511qPdSbA781tDj3EREUJRDFHJJC1HZdHZVSPcQ6H/3s84hXWw+XG7Zd2OS99QQrix0YD5Gdm/QbEebHWZpeXbymutgZKndd6A76M+lOwvZ5LE1yzFUCeIcREg1EMq0vtyyrsi1vEN+HxYBucfQjv4rAOfPeFJo1hb0A1onQDu7yIQVdmcESjFPX4wii4NdUXlTWDVrSg7uAN7UWDXJD7Bba9mcbq49Wx8Y91AastYZVzn15aaGiCdYiCH0inWK8ZcmA2IckMTqgZSYqfGAE=",
           "text": ""
          }
         }
        },
        {
-        "text": "I've built a germline variant-calling run for your two blood donors. Nothing has been submitted yet.\n\n**What you'll get:** a VCF for each donor listing the small variants (SNVs and short indels) that donor carries, plus larger structural variants. Both samples are human whole-genome DNA from PBMCs (Illumina DNA PCR-Free, paired-end 2\u00d7150, NovaSeq 6000).\n\n**Samplesheet** (one file, 2 samples):\n| sample | patient | status |\n|---|---|---|\n| D.SEQ-261028BMC-1 | donor1 | 0 (normal) |\n| D.SEQ-261028BMC-2 | donor2 | 0 (normal) |\n\nBoth donors are marked normal, so the run calls inherited variants only. There is no tumour/normal pair, so no somatic (acquired) mutation calling. Please check this pairing table is right.\n\n**Run settings:**\n- **Pipeline:** nf-core/sarek, whole-genome mode\n- **Variant callers:** HaplotypeCaller for small variants, Manta for structural variants\n- **Aligner:** bwa-mem\n- **Reference:** the local Luria GRCh38 genome (GATK `Homo_sapiens_assembly38.fasta`)\n- **Variant annotation** (e.g. VEP, snpEff) isn't included, because the files it needs aren't set up on Luria.\n- The pipeline's parameter check passed.\n\n**Run time:** about 8\u201324.5 hours once the job starts on Luria, plus time waiting in the cluster queue. Most of that is processing two whole genomes at about 4\u201312 hours each. This is a rough first guess, not a measured figure.\n\nWhen it finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nCan you confirm the pairing table and settings? You could also add callers such as DeepVariant or Strelka, or switch the aligner.",
+        "text": "I've built a nf-core/sarek germline run for the two donors. It hasn't been submitted yet.\n\n**What you'll get:** a VCF for each donor. It lists the small variants (SNVs and short indels) called with GATK HaplotypeCaller and the larger structural variants called with Manta. Variant annotation isn't available here yet.\n\n**Samples** (one samplesheet, both labelled normal/germline):\n\n| patient (donor) | sample | lane | status |\n|---|---|---|---|\n| CEL-261110NA-7 (donor1, PBMC) | D.SEQ-261110NA-9 (NTC-WGS-1) | L001 | 0 (normal) |\n| CEL-261110NA-8 (donor2, PBMC) | D.SEQ-261110NA-10 (NTC-WGS-2) | L001 | 0 (normal) |\n\nBoth are paired-end 2\u00d7150 whole-genome libraries (PCR-free prep, NovaSeq 6000). Each donor is a separate patient. There's no tumour sample, so this is germline calling only, with no somatic tumour/normal pairing.\n\n**Run settings:**\n- Callers (`tools`): `haplotypecaller,manta`\n- Aligner: `bwa-mem`, using the BWA index already on Luria\n- Whole genome (`wes: false`), using the standard GATK calling regions\n- Genome: the local Luria reference for GRCh38 (`GATK.GRCh38/Homo_sapiens_assembly38.fasta`)\n- The pipeline's parameter check passed.\n\n**Run time:** about 8\u201324.5 hours once the job starts on Luria, plus any time waiting in the queue. Each of the two samples takes about 4\u201312 hours. This is a rough first estimate, not a promise.\n\nWhen the run finishes, just tell Nessie \"my run is done\" and Nessie will turn the outputs into NExtSEEK upload workbooks for you to review.\n\nCan you confirm the table is right, with each library under its donor and both as normal? If it is, the run is ready to go. Or tell me what to change, such as adding the DeepVariant caller or switching to `bwa-mem2`.",
         "type": "text"
        }
       ],
       "metadata": {
-       "bedrock_latency_ms": 7641,
+       "bedrock_latency_ms": 7866,
        "http_status": 200,
        "reasoning_blocks": 1,
-       "request_id": "e6ba30f3-fb08-45db-a5a1-1e3a8f74dc78",
+       "request_id": "03116d28-5adf-4889-a8df-dbb11237afb7",
        "retry_attempts": 0,
        "stop_reason": "end_turn"
       },
       "stop_reason": "end_turn",
       "usage": {
-       "cache_read_tokens": 10971,
+       "cache_read_tokens": 11116,
        "cache_ttl": "1h",
        "cache_write_tokens": 0,
-       "completion_tokens": 709,
-       "prompt_tokens": 5986,
-       "total_tokens": 17666
+       "completion_tokens": 761,
+       "prompt_tokens": 5261,
+       "total_tokens": 17138
       }
      }
     }
@@ -363,8 +369,8 @@
      "value": {
       "body": {
        "identifiers": [
-        "D.SEQ-261028BMC-1",
-        "D.SEQ-261028BMC-2"
+        "D.SEQ-261110NA-9",
+        "D.SEQ-261110NA-10"
        ]
       },
       "data": {
@@ -376,7 +382,7 @@
          "sample_type_name": "Cell",
          "samples": [
           {
-           "id": "1308964",
+           "id": "1308515",
            "metadata": {
             "Name": "NTC-WGS-donor1",
             "Scientist": "REDACTED",
@@ -384,13 +390,13 @@
             "Species": "Homo sapiens",
             "Tissue": "Blood",
             "Type": "Peripheral blood mononuclear cells",
-            "UID": "CEL-261028BMC-1"
+            "UID": "CEL-261110NA-7"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-1"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-7"
           },
           {
-           "id": "1308965",
+           "id": "1308516",
            "metadata": {
             "Name": "NTC-WGS-donor2",
             "Scientist": "REDACTED",
@@ -398,10 +404,10 @@
             "Species": "human",
             "Tissue": "blood",
             "Type": "PBMC",
-            "UID": "CEL-261028BMC-2"
+            "UID": "CEL-261110NA-8"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-2"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-8"
           }
          ]
         },
@@ -412,202 +418,50 @@
          "sample_type_name": "Sequencing Data",
          "samples": [
           {
-           "id": "1308968",
+           "id": "1308519",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
-            "ExtractedMolecule": "genomic DNA",
-            "F_bp": 150,
-            "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
-            "LibraryDesign": "Paired",
-            "LibrarySelection": "RANDOM",
-            "LibrarySource": "GENOMIC",
-            "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
-            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
-            "Name": "NTC-WGS-1",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-1",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
-            "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
-            "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
-            "Sequencer": "Illumina NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
-            "SequencingType": "WGS",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-1",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
-           },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-1"
-          },
-          {
-           "id": "1308969",
-           "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
-            "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "DNA",
             "F_bp": 150,
             "File_PrimaryData": "test2_1.fastq.gz, test2_2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "PAIRED",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-WGS-2",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-2",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-10",
             "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "Whole Genome Sequencing",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-2",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-10"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-2"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-10"
+          },
+          {
+           "id": "1308520",
+           "metadata": {
+            "DataType": "FASTQ",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 150,
+            "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "RANDOM",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "WGS",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+            "Name": "NTC-WGS-1",
+            "Parent": "DNA-261110NA-9",
+            "R_bp": 150,
+            "Scientist": "REDACTED",
+            "Sequencer": "Illumina NovaSeq 6000",
+            "SequencingType": "WGS",
+            "UID": "D.SEQ-261110NA-9"
+           },
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-9"
           }
          ]
         },
@@ -618,36 +472,36 @@
          "sample_type_name": "DNA Sample",
          "samples": [
           {
-           "id": "1308966",
-           "metadata": {
-            "Barcode": "ACGTTGCA",
-            "BarcodeType": "IDT for Illumina UD",
-            "Lab": "REDACTED",
-            "Name": "NTC-WGS-lib1",
-            "Parent": "CEL-261028BMC-1",
-            "Protocol": "Illumina DNA PCR-Free Prep, 350 bp insert",
-            "Scientist": "REDACTED",
-            "Type": "Illumina Library",
-            "UID": "DNA-261028BMC-1"
-           },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-1"
-          },
-          {
-           "id": "1308967",
+           "id": "1308517",
            "metadata": {
             "Barcode": "TTGCAACG",
             "BarcodeType": "IDT for Illumina UD",
             "Lab": "REDACTED",
             "Name": "NTC-WGS-lib2",
-            "Parent": "CEL-261028BMC-2",
+            "Parent": "CEL-261110NA-8",
             "Protocol": "Illumina DNA PCR-Free Prep",
             "Scientist": "REDACTED",
             "Type": "Illumina Library",
-            "UID": "DNA-261028BMC-2"
+            "UID": "DNA-261110NA-10"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-2"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-10"
+          },
+          {
+           "id": "1308518",
+           "metadata": {
+            "Barcode": "ACGTTGCA",
+            "BarcodeType": "IDT for Illumina UD",
+            "Lab": "REDACTED",
+            "Name": "NTC-WGS-lib1",
+            "Parent": "CEL-261110NA-7",
+            "Protocol": "Illumina DNA PCR-Free Prep, 350 bp insert",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261110NA-9"
+           },
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-9"
           }
          ]
         }
@@ -678,12 +532,12 @@
    ],
    "fetch_reporter_metadata": [
     {
-     "args": "3250df112a2e0f19",
+     "args": "c4943274e4b473d2",
      "value": {
       "body": {
        "identifiers": [
-        "D.SEQ-261028BMC-1",
-        "D.SEQ-261028BMC-2"
+        "D.SEQ-261110NA-9",
+        "D.SEQ-261110NA-10"
        ]
       },
       "data": {
@@ -693,7 +547,7 @@
          "sample_type": "CEL",
          "samples": [
           {
-           "id": "1308964",
+           "id": "1308515",
            "metadata": {
             "Name": "NTC-WGS-donor1",
             "Scientist": "REDACTED",
@@ -701,13 +555,13 @@
             "Species": "Homo sapiens",
             "Tissue": "Blood",
             "Type": "Peripheral blood mononuclear cells",
-            "UID": "CEL-261028BMC-1"
+            "UID": "CEL-261110NA-7"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-1"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-7"
           },
           {
-           "id": "1308965",
+           "id": "1308516",
            "metadata": {
             "Name": "NTC-WGS-donor2",
             "Scientist": "REDACTED",
@@ -715,10 +569,10 @@
             "Species": "human",
             "Tissue": "blood",
             "Type": "PBMC",
-            "UID": "CEL-261028BMC-2"
+            "UID": "CEL-261110NA-8"
            },
-           "sample_type_id": 3,
-           "uuid": "CEL-261028BMC-2"
+           "sample_type_id": 15,
+           "uuid": "CEL-261110NA-8"
           }
          ]
         },
@@ -727,202 +581,50 @@
          "sample_type": "D.SEQ",
          "samples": [
           {
-           "id": "1308968",
+           "id": "1308519",
            "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
             "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
-            "ExtractedMolecule": "genomic DNA",
-            "F_bp": 150,
-            "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
-            "LibraryDesign": "Paired",
-            "LibrarySelection": "RANDOM",
-            "LibrarySource": "GENOMIC",
-            "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
-            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
-            "Name": "NTC-WGS-1",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-1",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
-            "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
-            "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
-            "Sequencer": "Illumina NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
-            "SequencingType": "WGS",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-1",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
-           },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-1"
-          },
-          {
-           "id": "1308969",
-           "metadata": {
-            "20mers": "",
-            "5_3UTR": "",
-            "Accession": "",
-            "AnalyzedDate": "",
-            "CDSPercent": "",
-            "Checksum_PrimaryData": "",
-            "Checksum_PrimaryType": "",
-            "Checksum_SecondaryData": "",
-            "Checksum_SecondaryType": "",
-            "Checksum_TertiaryData": "",
-            "Checksum_TertiaryType": "",
-            "ClusterDate": "",
-            "CompleteDate": "",
-            "ContamPercent": "",
-            "Contamination": "",
-            "DataType": "FASTQ",
-            "DuplicationPercent": "",
-            "ExonIntergenicRatio": "",
-            "ExonIntronRatio": "",
-            "ExpressionKit": "",
             "ExtractedMolecule": "DNA",
             "F_bp": 150,
             "File_PrimaryData": "test2_1.fastq.gz, test2_2.fastq.gz",
-            "File_SecondaryData": "",
-            "File_TertiaryData": "",
-            "FingerprintJSD": "",
-            "FlowCellType": "",
-            "FlowLane": "",
-            "GenesDetected": "",
-            "GenesDetectedPercent": "",
-            "Genome": "",
-            "IndexInlineLength": "",
-            "IndexInlineStartNT": "",
-            "IntergenicPercent": "",
-            "IntronPercent": "",
             "LibraryDesign": "PAIRED",
             "LibrarySelection": "RANDOM",
             "LibrarySource": "GENOMIC",
             "LibraryStrategy": "WGS",
-            "Link_Contamination": "",
             "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
-            "Link_QC": "",
-            "Link_Reviewer": "",
-            "Link_SRA": "",
-            "Link_SecondaryData": "",
-            "Link_TertiaryData": "",
-            "MappedPercent": "",
-            "MaxReads": "",
-            "MiniKnowVersion": "",
-            "MismatchPercent": "",
-            "ModCall": "",
-            "Mode": "",
-            "N50": "",
-            "N50Units": "",
-            "NSC": "",
             "Name": "NTC-WGS-2",
-            "Notes": "",
-            "NumAligned": "",
-            "NumReads": "",
-            "NumReadsUnits": "",
-            "Parent": "DNA-261028BMC-2",
-            "PrepUser": "",
-            "Primer": "",
-            "Protocol": "",
-            "Publish_uri": "",
-            "QCAssay": "",
-            "QCPlatform": "",
-            "RSC": "",
+            "Parent": "DNA-261110NA-10",
             "R_bp": 150,
-            "ReadLanePct": "",
-            "ReagentCatalogNum": "",
-            "ReagentManufacturer": "",
-            "Repository": "",
-            "RepositoryID": "",
-            "RepositoryLink": "",
-            "SampleCreationDate": "",
             "Scientist": "REDACTED",
-            "SenseAntisenseRatio": "",
             "Sequencer": "NovaSeq 6000",
-            "SequencingFacility": "",
-            "SequencingFacilityLink": "",
-            "SequencingFacilityLocation": "",
             "SequencingType": "Whole Genome Sequencing",
-            "TSSEnrichment": "",
-            "Top30CountPercent": "",
-            "TotalReads": "",
-            "UID": "D.SEQ-261028BMC-2",
-            "UTRPercent": "",
-            "UnalignedReads": "",
-            "Yield": "",
-            "YieldUnits": "",
-            "rRNAPercent": ""
+            "UID": "D.SEQ-261110NA-10"
            },
-           "sample_type_id": 11,
-           "uuid": "D.SEQ-261028BMC-2"
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-10"
+          },
+          {
+           "id": "1308520",
+           "metadata": {
+            "DataType": "FASTQ",
+            "ExtractedMolecule": "genomic DNA",
+            "F_bp": 150,
+            "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
+            "LibraryDesign": "Paired",
+            "LibrarySelection": "RANDOM",
+            "LibrarySource": "GENOMIC",
+            "LibraryStrategy": "WGS",
+            "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+            "Name": "NTC-WGS-1",
+            "Parent": "DNA-261110NA-9",
+            "R_bp": 150,
+            "Scientist": "REDACTED",
+            "Sequencer": "Illumina NovaSeq 6000",
+            "SequencingType": "WGS",
+            "UID": "D.SEQ-261110NA-9"
+           },
+           "sample_type_id": 33,
+           "uuid": "D.SEQ-261110NA-9"
           }
          ]
         },
@@ -931,36 +633,36 @@
          "sample_type": "DNA",
          "samples": [
           {
-           "id": "1308966",
-           "metadata": {
-            "Barcode": "ACGTTGCA",
-            "BarcodeType": "IDT for Illumina UD",
-            "Lab": "REDACTED",
-            "Name": "NTC-WGS-lib1",
-            "Parent": "CEL-261028BMC-1",
-            "Protocol": "Illumina DNA PCR-Free Prep, 350 bp insert",
-            "Scientist": "REDACTED",
-            "Type": "Illumina Library",
-            "UID": "DNA-261028BMC-1"
-           },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-1"
-          },
-          {
-           "id": "1308967",
+           "id": "1308517",
            "metadata": {
             "Barcode": "TTGCAACG",
             "BarcodeType": "IDT for Illumina UD",
             "Lab": "REDACTED",
             "Name": "NTC-WGS-lib2",
-            "Parent": "CEL-261028BMC-2",
+            "Parent": "CEL-261110NA-8",
             "Protocol": "Illumina DNA PCR-Free Prep",
             "Scientist": "REDACTED",
             "Type": "Illumina Library",
-            "UID": "DNA-261028BMC-2"
+            "UID": "DNA-261110NA-10"
            },
-           "sample_type_id": 10,
-           "uuid": "DNA-261028BMC-2"
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-10"
+          },
+          {
+           "id": "1308518",
+           "metadata": {
+            "Barcode": "ACGTTGCA",
+            "BarcodeType": "IDT for Illumina UD",
+            "Lab": "REDACTED",
+            "Name": "NTC-WGS-lib1",
+            "Parent": "CEL-261110NA-7",
+            "Protocol": "Illumina DNA PCR-Free Prep, 350 bp insert",
+            "Scientist": "REDACTED",
+            "Type": "Illumina Library",
+            "UID": "DNA-261110NA-9"
+           },
+           "sample_type_id": 32,
+           "uuid": "DNA-261110NA-9"
           }
          ]
         }
@@ -984,7 +686,7 @@
    "payload": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "d6d33535244c93fb2a90b1df96beb714210a58b30a83728edcaf5c5c0598e5a4"
+     "value": "7c599384535e59f2c552f5698878f9cb987fa1fa86172e3c9cc89223fd34e201"
     }
    ],
    "schemas": {
@@ -1072,7 +774,7 @@
    "selection": [
     {
      "args": "aec8c9025ce6da5b",
-     "value": "{\"pipelines\": [\"sarek\"], \"reason\": \"These are human whole-genome DNA libraries (Illumina DNA PCR-Free, paired-end, GENOMIC/WGS) from two PBMC donors, and the question asks which germline variants each donor carries, which is sarek's germline calling on the staged GRCh38 bundle; there is no tumour/normal pair, so it would be germline only.\", \"basis\": \"data\"}"
+     "value": "{\"pipelines\": [\"sarek\"], \"reason\": \"These are human PCR-free whole-genome DNA libraries (paired-end, GENOMIC, WGS) from two donors' PBMCs, so sarek's germline variant calling against the staged GRCh38 bundle directly answers which variants each donor carries.\", \"basis\": \"data\"}"
     }
    ]
   }
