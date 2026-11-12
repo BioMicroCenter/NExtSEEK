@@ -13,26 +13,23 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "accepted",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
+        "state": "changed",
+        "date": "2026-11-12",
+        "note": "Owner's ruling (2026-11-12): 241219BRY is pooled 3' prime-seq (owner's ruling 2026-10-27, see expression-two-groups). 3' reads do not cover the HLA class I exons, so refusing to build hlatyping is correct. The 2026-10-26 migrated ruling, which expected an hlatyping build, predates the pool ruling. The story now expects a reasoned refusal and no launch."
       },
       "id": "hla-alleles",
       "question": "Which HLA alleles does this donor carry?",
       "cohort": "241219BRY::A.GEX",
-      "acceptable": [
-        [
-          "hlatyping"
-        ]
-      ],
+      "acceptable": [],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
-      }
+        "pipelines": "241219BRY is pooled 3' prime-seq (SOP 65): barcoded oligo(dT) libraries read from the 3' end, one read only barcode and UMI. These reads do not cover the HLA class I exons, so hlatyping cannot resolve the donor's alleles from them. The right reply refuses with that reason, may say which reads would work (WES, WGS or full-length RNA-seq), and builds nothing."
+      },
+      "expect": "refuse"
     },
     {
       "route": "nextseek_query",
