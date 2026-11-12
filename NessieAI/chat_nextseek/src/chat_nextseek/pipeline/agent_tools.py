@@ -858,6 +858,10 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         control_errors = _atacseq_control_errors(merged.get("with_control"), _samplesheet_rows(state))
         if control_errors:
             return json.dumps({"ok": False, "errors": control_errors})
+    if pipeline_key == "cutandrun":
+        sheet_errors = _cutandrun_sheet_errors(merged.get("use_control"), _samplesheet_rows(state))
+        if sheet_errors:
+            return json.dumps({"ok": False, "errors": sheet_errors})
 
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (seqera.pairing).
@@ -1040,6 +1044,40 @@ def _atacseq_control_errors(with_control: Any, rows: list[dict]) -> list[str]:
                 "is not a sample and replicate of this samplesheet; name the control's own sample "
                 "and replicate values, and include the control as a row.")
     return errors
+
+
+def _cutandrun_sheet_errors(use_control: Any, rows: list[dict]) -> list[str]:
+    """Why a cutandrun sheet would stop at its samplesheet check ([] when it would pass).
+
+    nf-core/cutandrun 3.2.2's bin/check_samplesheet.py exits on a single-end row, a control
+    that is no group of the sheet or is the row's own group, a control row that names a
+    control, and --use_control true with no control at all (its default is true). A row
+    with no FASTQ yet (an accession the fetchngs pre-stage downloads) is not checked for
+    pairing: its reads are not known here.
+    """
+    on = not (use_control is False or str(use_control).strip().lower() == "false")
+    groups = {str(r.get("group") or "").strip() for r in rows}
+    named = {str(r.get("control") or "").strip() for r in rows} - {""}
+    errors = []
+    if on and rows and not named:
+        errors.append("use_control is true but no row names a control: put the IgG control "
+                      "group's name in the control column of each target row, or set "
+                      "use_control=false if the cohort has no control libraries.")
+    for row in rows:
+        group = str(row.get("group") or "").strip()
+        control = str(row.get("control") or "").strip()
+        if str(row.get("fastq_1") or "").strip() and not str(row.get("fastq_2") or "").strip():
+            errors.append(f"row {group!r}: no fastq_2. cutandrun runs paired-end reads only; "
+                          "a single-end library cannot be run with it.")
+        if control and control not in groups:
+            errors.append(f"row {group!r}: control {control!r} is no group of this samplesheet; "
+                          "include the control libraries as rows of their own group.")
+        if control and control == group:
+            errors.append(f"row {group!r}: a group cannot be its own control.")
+        elif control and group in named:
+            errors.append(f"row {group!r}: it is another group's control, so its own control "
+                          "must be empty.")
+    return list(dict.fromkeys(errors))
 
 
 def _ask_for_genome(pipeline_key: str, names: list[str], reference_status: str,

@@ -43,6 +43,8 @@ PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "pacvar": {"mapped": "bam", "index": "pbi"},
     "detaxizer": {"fastq_1": "short_reads_fastq_1", "fastq_2": "short_reads_fastq_2"},
     "pathogensurveillance": {"sample": "sample_id", "fastq_1": "path", "fastq_2": "path_2"},
+    # cutandrun names a sample's group `group`; replicates of one group share it.
+    "cutandrun": {"sample": "group"},
 }
 
 
@@ -219,8 +221,9 @@ SAMPLE_ID_PROVENANCE_COLUMN = "nextseek_uid"
 # this order, empty where a row has no value. `if_used` follows them, in order, only when
 # some row fills one of its columns, and is left out otherwise. Every other catalogued
 # pipeline reads its sheet by column name (nf-schema samplesheetToList, nf-validation
-# fromSamplesheet, or a DictReader checker such as rnasplice's).
-PIPELINE_HEADER_PREFIX: dict[str, dict[str, list[str]]] = {
+# fromSamplesheet, or a DictReader checker such as rnasplice's). `exact` writes only those
+# columns: a checker that counts each row's fields refuses any extra one.
+PIPELINE_HEADER_PREFIX: dict[str, dict[str, Any]] = {
     # atacseq 2.1.2: four columns, then control/control_replicate only with --with_control.
     # Without it, columns past the four are carried through and a control value still
     # reaches meta.control, so the two are written only when a row names a control
@@ -231,6 +234,11 @@ PIPELINE_HEADER_PREFIX: dict[str, dict[str, list[str]]] = {
     "chipseq": {"columns": ["sample", "fastq_1", "fastq_2", "replicate", "antibody", "control",
                             "control_replicate"],
                 "if_used": []},
+    # cutandrun 3.2.2: bin/check_samplesheet.py requires header[:5] to be exactly
+    # group,replicate,fastq_1,fastq_2,control (named after the alias renames sample), and
+    # every row to have exactly five fields, so no other column is written.
+    "cutandrun": {"columns": ["group", "replicate", "fastq_1", "fastq_2", "control"],
+                  "if_used": [], "exact": True},
 }
 
 
@@ -397,6 +405,8 @@ def _positional_columns(pipeline: str, rows: Sequence[Mapping[str, Any]],
     used = [c for c in prefix["if_used"]
             if any(str(row.get(c) if row.get(c) is not None else "").strip() for row in rows)]
     head = list(prefix["columns"]) + (list(prefix["if_used"]) if used else [])
+    if prefix.get("exact"):
+        return head
     return head + [c for c in columns if c not in head and c not in prefix["if_used"]]
 
 

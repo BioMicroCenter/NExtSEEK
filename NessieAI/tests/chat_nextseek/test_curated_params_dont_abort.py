@@ -451,7 +451,8 @@ def test_sarek_bam_output_is_not_steerable():
     assert "CRAM" in spec["help"]
 
 
-PINS = {"atacseq": "2.1.2", "chipseq": "2.1.0", "methylseq": "4.2.0"}  # Task 3 Step 2, owner-approved
+PINS = {"atacseq": "2.1.2", "chipseq": "2.1.0", "methylseq": "4.2.0",  # Task 3 Step 2, owner-approved
+        "cutandrun": "3.2.2"}  # owner-approved 2026-11-12
 
 
 @pytest.mark.parametrize("key", sorted(PINS))
@@ -629,6 +630,41 @@ def test_chipseq_header_always_carries_its_seven_columns_in_order(tmp_path):
     """chipseq 2.1.0's checker reads all seven by position, controls or not."""
     lines = _sheet_lines(tmp_path, "chipseq", [{"replicate": 1, "sample": "A"}])
     assert lines[0].split(",")[:7] == CHIP_HEADER
+
+
+CUTANDRUN_HEADER = ["group", "replicate", "fastq_1", "fastq_2", "control"]
+
+
+def test_cutandrun_header_is_exactly_its_five_columns(tmp_path):
+    """cutandrun 3.2.2's checker reads the five by position and refuses a row with more fields."""
+    rows = [{"sample": "h3k27me3", "replicate": 1, "control": "igg", "cohort": "c", "accession": ""},
+            {"sample": "igg", "replicate": 1, "control": ""}]
+    lines = _sheet_lines(tmp_path, "cutandrun", rows)
+    assert lines[0].split(",") == CUTANDRUN_HEADER
+    assert all(len(line.split(",")) == 5 for line in lines)
+    assert lines[1].split(",")[0] == "h3k27me3" and lines[1].split(",")[4] == "igg"
+
+
+def _cut_row(group, control="", fastq_2="/net/x/r2.fastq.gz"):
+    return {"group": group, "replicate": "1", "fastq_1": "/net/x/r1.fastq.gz",
+            "fastq_2": fastq_2, "control": control}
+
+
+@pytest.mark.parametrize("use_control, rows, expect", [
+    (True, [_cut_row("k27", "igg"), _cut_row("igg")], []),
+    (None, [_cut_row("k27", "igg"), _cut_row("igg")], []),
+    (False, [_cut_row("k27"), _cut_row("k4")], []),
+    (True, [_cut_row("k27"), _cut_row("k4")], ["no row names a control"]),
+    ("true", [_cut_row("k27", "igg")], ["is no group"]),
+    (True, [_cut_row("k27", "k27")], ["its own control"]),
+    (True, [_cut_row("k27", "igg"), _cut_row("igg", "k27")], ["must be empty", "must be empty"]),
+    (False, [_cut_row("k27", fastq_2="")], ["paired-end reads only"]),
+    (False, [{**_cut_row("k27", fastq_2=""), "fastq_1": ""}], []),
+])
+def test_cutandrun_sheet_errors_match_its_samplesheet_check(use_control, rows, expect):
+    from chat_nextseek.pipeline.agent_tools import _cutandrun_sheet_errors
+    errors = _cutandrun_sheet_errors(use_control, rows)
+    assert len(errors) == len(expect) and all(e in got for e, got in zip(expect, errors)), errors
 
 
 IN_ROW = {"sample": "D.SEQ-IN-1", "replicate": 1}

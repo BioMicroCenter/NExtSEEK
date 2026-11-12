@@ -134,6 +134,29 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "control mapping in metadata."
         ),
     },
+    "cutandrun": {
+        "repo": "https://github.com/nf-core/cutandrun",
+        "default_revision": "3.2.2",
+        "description": "CUT&RUN and CUT&Tag peak calling with spike-in and IgG-control normalisation.",
+        "common_assays": ["CUT&RUN", "CUT&Tag", "CUTRUN", "CUTTAG"],
+        "default_genome": "GRCh38",
+        "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
+        # assets/schema_input.json at 3.2.2 requires all five; bin/check_samplesheet.py reads
+        # them by position and refuses single-end rows.
+        "required_columns": ["group", "replicate", "fastq_1", "fastq_2", "control"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^CUT[-_ &]?(and|&)?[-_ ]?RUN$",
+            r"^CUT[-_ &]?(and|&)?[-_ ]?Tag$",
+        ],
+        "pipeline_kind_description": (
+            "CUT&RUN / CUT&Tag peak calling, paired-end only. Each sample belongs to a "
+            "group (its target) with numbered replicates; an IgG control group is named "
+            "in the control column, or use_control is off."
+        ),
+    },
     "sarek": {
         "repo": "https://github.com/nf-core/sarek",
         "default_revision": "3.10.0",
