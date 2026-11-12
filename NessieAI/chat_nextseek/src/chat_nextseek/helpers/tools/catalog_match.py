@@ -87,8 +87,8 @@ def shortlist_catalog(
     user_text: str,
     sampletypes: list[dict],
     assays: list[dict],
-    k_st: int = 50,
-    k_a: int = 75,
+    k_st: int | None = 50,
+    k_a: int | None = 75,
     *,
     sampletype_index=None,  # SemanticIndex | None
     assay_index=None,       # SemanticIndex | None
@@ -163,7 +163,7 @@ def shortlist_catalog(
 
 
 def _legacy_shortlist(
-    user_text: str, sampletypes: list[dict], assays: list[dict], k_st: int, k_a: int,
+    user_text: str, sampletypes: list[dict], assays: list[dict], k_st: int | None, k_a: int | None,
 ) -> tuple[list[dict], list[dict]]:
     """Original two-catalog rapidfuzz-only shortlister, preserved for fallback."""
     q_norm = _norm_text(user_text)
@@ -176,8 +176,9 @@ def _legacy_shortlist(
 
 
 def _legacy_shortlist_one(
-    user_text: str, items: list[dict], k: int, doc_fn, code_key: str | None,
+    user_text: str, items: list[dict], k: int | None, doc_fn, code_key: str | None,
 ) -> list[dict]:
+    """Top ``k`` items by blended score, or every item ranked when ``k`` is None (no cut)."""
     q_norm = _norm_text(user_text)
     q_tokens = _tokenize(user_text)
     if not q_norm:

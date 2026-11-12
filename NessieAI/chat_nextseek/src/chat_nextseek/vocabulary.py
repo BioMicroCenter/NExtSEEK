@@ -1,7 +1,8 @@
 """The turn's vocabulary: one way to build it, for the NS turn, its pre-run and a Container-CC turn (2026-09-28).
 
 ``resolve_vocabulary`` is the NS turn's own prelude, moved here unchanged: the lexical shortlist of the catalogs
-(``SHORTLIST_SAMPLETYPES`` sample types, ``SHORTLIST_ASSAYS`` assays), then the entity agent over that shortlist. Its
+(``SHORTLIST_SAMPLETYPES`` sample types, which is ``None`` for every one of them, and ``SHORTLIST_ASSAYS`` assays),
+then the entity agent over that shortlist. Its
 input is always the user's own question. The NS turn calls it (``orchestrator._turn_vocabulary``); so does the
 pre-run that starts it as the question arrives, beside the router (``NessieAI/cc/prerun.py``), and the first
 Container-CC op of a turn that finds the turn's vocabulary empty (``NessieAI/ns/granular.py``).
@@ -21,7 +22,11 @@ from .schemas import EntityAgentOutput
 
 __all__ = ["SHORTLIST_SAMPLETYPES", "SHORTLIST_ASSAYS", "resolve_vocabulary", "NS_WAIT_S", "VocabularySource", "take"]
 
-SHORTLIST_SAMPLETYPES = 50
+#: No cut on the sample types (None slices nothing): the catalog is ~111 rows, and the lexical score divides token
+#: overlap by the whole question's length, so a long question flattens the ranking and drops the right type off the
+#: end. An RNA-seq question ranked A.GEX 70th of 109 and the entity agent never saw it, leaving the extracted-RNA
+#: type as the only thing it could reach. The assays, at 138 rows, keep their cut.
+SHORTLIST_SAMPLETYPES = None
 SHORTLIST_ASSAYS = 75
 
 

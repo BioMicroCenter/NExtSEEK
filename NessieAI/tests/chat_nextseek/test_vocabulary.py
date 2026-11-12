@@ -56,7 +56,8 @@ def test_it_shortlists_the_catalogs_then_asks_the_entity_agent_over_the_shortlis
     assert order == ["shortlist", "shortlisted", "entity"]
     query, st, a, kw = seen["shortlist"]
     assert (query, st, a) == ("how many mice", CATALOG_ST, CATALOG_A)
-    assert kw["k_st"] == vocabulary.SHORTLIST_SAMPLETYPES == 50
+    # None, not a number: the sample types are passed whole, so no question can lose the type it names.
+    assert kw["k_st"] == vocabulary.SHORTLIST_SAMPLETYPES is None
     assert kw["k_a"] == vocabulary.SHORTLIST_ASSAYS == 75
     assert seen["entity"] == ("how many mice", [{"code": "MUS"}], [{"code": "D.SEQ"}])
     assert diagnostics == {"sampletype_codes": ["MUS"], "assay_codes": ["D.SEQ"]}
