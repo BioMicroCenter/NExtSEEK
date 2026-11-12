@@ -497,6 +497,34 @@ def test_router_baml_sends_analyses_of_the_users_sequencing_data_to_nextseek_que
         < baml.index("Catalog counts stay `nextseek_query`.")
 
 
+def test_router_baml_sends_cell_population_comparisons_of_single_cell_samples_to_nextseek_query():
+    """2026-11-12 draft: which cell types, populations or states the user's single-cell samples hold,
+    and how those differ between groups of samples, is the same paragraph's case. Paid run at
+    6021a03f2, story sha-granuloma-4v10wk: the router read a cell-population comparison between two
+    groups of Seq-Well samples as a Container-CC group comparison. Comparing stored metadata values
+    stays out of the paragraph."""
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    rule = "Analyses of the user's own sequencing data go to `nextseek_query`."
+    para = baml[baml.index(rule):baml.index("Catalog counts stay `nextseek_query`.")]
+    flat = " ".join(para.split())
+    assert "which cell types, populations or states their single-cell samples hold" in flat
+    assert "how those differ between groups of samples" in flat
+    assert "how does the cell composition of these single-cell samples differ between the two groups" in flat
+    assert "comparing values already stored in the metadata, is not this." in flat
+    assert "Explaining how a method works" in flat and "analysing files the user supplies" in flat
+
+
+@pytest.mark.parametrize("query", [
+    "How do the cell populations in these samples differ between the two groups?",
+    "which cell types differ between those animals?",
+])
+def test_a_cell_population_comparison_over_earlier_samples_is_not_cc_shaped(query):
+    """The policy's follow-up guard does not move such a turn to CC when the router sends it to
+    NExtSEEK: "differ" is not a CC-shaped word. Only a chat with a completed CC turn (sticky) does."""
+    assert followup.followup_cue(query) is not None
+    assert followup.followup_shape(query) == "ns"
+
+
 def test_router_baml_keeps_choosing_or_launching_a_pipeline_on_nextseek_query():
     """The older paragraph that sends choosing, building or launching an nf-core pipeline to
     nextseek_query was never pinned."""

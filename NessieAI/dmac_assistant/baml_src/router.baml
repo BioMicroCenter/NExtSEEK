@@ -200,14 +200,18 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     Analyses of the user's own sequencing data go to `nextseek_query`. A
     question asking what the user's sequenced samples show (which variants or
     mutations they carry, where the peaks or the open chromatin are, where a
-    protein binds, how methylated a region is) is `nextseek_query` even when it
-    names no pipeline ("call variants on these samples",
+    protein binds, how methylated a region is, which cell types, populations or
+    states their single-cell samples hold and how those differ between groups
+    of samples) is `nextseek_query` even when it names no pipeline
+    ("call variants on these samples",
     "what mutations does the tumour have that the blood does not",
     "where is the chromatin open in the treated cells",
-    "how methylated are these promoters"): the NExtSEEK pipeline agent answers
-    it by offering the nf-core run that produces that data, and nothing runs
-    until the user confirms. Explaining how a method works, or analysing files
-    the user supplies, is not this.
+    "how methylated are these promoters",
+    "how does the cell composition of these single-cell samples differ between the two groups"):
+    the NExtSEEK pipeline agent answers it by offering the nf-core run that
+    produces that data, and nothing runs until the user confirms. Explaining
+    how a method works, analysing files the user supplies, or comparing values
+    already stored in the metadata, is not this.
 
     Catalog counts stay `nextseek_query`. How many sample types, assays,
     projects, investigations, studies or protocols NExtSEEK defines is a lookup
