@@ -150,7 +150,7 @@ Your final message is the text of `$D/LAUNCH-REPORT.md`. Examples of each form a
 
 ### The Slack note (optional, never blocks)
 
-Two short messages tell the team a box is being rebuilt. Config: the top-level `slack_note` key of
+Two short messages tell the team a box is being rebuilt. Setting a machine up, and the gates: [`references/slack-note-setup.md`](references/slack-note-setup.md). Config: the top-level `slack_note` key of
 `boxes.json` (`references/boxes.md`), off by default; with no config (a machine that never set it up) every step below
 skips by itself. Run `uv run $K/launch.py slack-note --instance <i> --event start|up|rollback --sha <sha>`
 at the three points below. It prints `SLACK_SKIP: ...; post by hand: <message>` (print that line in the chat and
