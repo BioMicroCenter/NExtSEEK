@@ -51,7 +51,8 @@ def _owner_dir(user_id) -> str:
 def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
           open_warnings, row_count, project_id, project_note, answers_digest,
           user_id, test_only, chat_turn=None, answers=None, assays_to_create=(),
-          parent_assays=(), rebuilt_from=None, notes_uids=(), run_failed_processes=0) -> dict:
+          parent_assays=(), rebuilt_from=None, notes_uids=(), run_failed_processes=0,
+          origin=None) -> dict:
     record = {
         "build_id": sha256_of(path), "artifact_key": artifact_key,
         "sample_type": sample_type, "mode": mode, "manifest_id": manifest_id,
@@ -59,6 +60,9 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
         "row_count": row_count, "project_id": project_id, "project_note": project_note,
         "answers_digest": answers_digest, "built_by_user_id": user_id,
         "test_only": bool(test_only),
+        # How the manifest was made: "launched" (a launch record), "foreign" (a
+        # run launched elsewhere, harvested by an admin, #139) or "test".
+        "origin": origin or ("test" if test_only else "launched"),
         "shown_in": ({key: chat_turn.get(key) for key in _TURN_KEYS}
                      if isinstance(chat_turn, dict) else None),
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),

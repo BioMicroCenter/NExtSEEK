@@ -491,6 +491,9 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         candidate_rows = parsers.parse_samplesheet(text)
         if candidate_rows:
             sources["samples"], rows = candidate_rel, candidate_rows
+            # Only a samplesheet names the reads a parent is matched by;
+            # run-harvest requires one for a run with no launch record.
+            sources["samplesheet"] = candidate_rel
         else:
             # Found and named right (it passed _find_samplesheet's header
             # check), but parsed to zero data rows. A "successful" read of an

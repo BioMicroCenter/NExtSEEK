@@ -215,7 +215,7 @@ def _sample_record(nfcore_sample: str, d_seq_uid: str, *, metrics=None) -> manif
 
 
 def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksums=None,
-                   launch_record_id=1, version="3.18.0"):
+                   launch_record_id=1, version="3.18.0", foreign_run=None):
     # store._ROOT is resolved once at module-import time from an env var; a
     # module already imported by an earlier test would ignore a later
     # monkeypatch.setenv, so patch the module attribute directly instead
@@ -228,6 +228,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
         launch_record_id=launch_record_id,
+        foreign_run=foreign_run,
         pipeline=manifest_mod.PipelineInfo(
             name="nf-core/rnaseq", version=version, run_name="test_run_1"),
         params={"genome": "GRCh38", "aligner": "star_salmon"},
@@ -942,7 +943,41 @@ def test_a_launched_manifest_builds_are_not_test_only(rows, tmp_path, monkeypatc
     out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
                     session=_admin_session(False), outputs_dir=str(tmp_path))
     assert all(b["test_only"] is False for b in out["builds"])
-    assert not out["reply"].startswith("TEST ONLY:")
+    assert all(b["origin"] == "launched" for b in out["builds"])
+    assert not out["reply"].startswith(("TEST ONLY:", "NOT LAUNCHED BY NESSIE"))
+
+
+def _foreign():
+    return manifest_mod.ForeignRun(
+        harvested_by_user_id=7, harvested_at="2026-11-12T00:00:00+00:00",
+        pipeline_source="pipeline_info/nf_core_rnaseq_software_mqc_versions.yml",
+        samplesheet_source="samplesheet.csv")
+
+
+def test_a_non_admin_cannot_build_a_foreign_run_manifest(tmp_path, monkeypatch):
+    """#139: only an admin harvests a run Nessie did not launch, and only an
+    admin builds it, even holding its manifest id."""
+    manifest_id = _save_manifest(tmp_path, monkeypatch, launch_record_id=None,
+                                 foreign_run=_foreign())
+    with pytest.raises(g.OpValidationError, match="only an admin can build it") as err:
+        _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                  session=_admin_session(False), outputs_dir=str(tmp_path))
+    assert err.value.error_type == "foreign_run_needs_an_admin"
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_an_admin_builds_a_foreign_run_that_is_uploadable_and_says_how_it_matched(
+        rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch, launch_record_id=None,
+                                 foreign_run=_foreign())
+    out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                    session=_admin_session(True), outputs_dir=str(tmp_path))
+    assert out["builds"]
+    assert all(b["test_only"] is False for b in out["builds"])
+    assert all(b["origin"] == "foreign" for b in out["builds"])
+    assert out["reply"].startswith("NOT LAUNCHED BY NESSIE: nf-core/rnaseq 3.18.0")
+    assert "- SAMPLE_1: D.SEQ-EXAMPLE-1" in out["reply"]
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")

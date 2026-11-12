@@ -167,7 +167,7 @@ Settled once for every pipeline in the design "Reingest general rulings and a da
 map engine". Map rules follow them; a pipeline-specific exception is a new ruling, not
 a quiet departure.
 
-- **G-1 Scope.** Only Nessie-launched runs are uploaded; an admin (`is_superuser`) may build workbooks from local copies for testing, and those are test-only and refused at upload.
+- **G-1 Scope.** A run Nessie launched is uploaded on its launch record. A run launched elsewhere may be uploaded too (owner's ruling, 2026-10-23; design #139, 2026-11-12): an admin (`is_superuser`) harvests it from the runs root, and Nessie reads its identity from the run itself, refusing it unless its `pipeline_info` names the pipeline and release, a committed map exists for that pipeline, and the run folder holds the samplesheet the run used (the only source of the samples' parents). Its build reply opens with NOT LAUNCHED BY NESSIE and says how each sample was matched. An admin may also build workbooks from local copies for testing; those are test-only and refused at upload.
 - **G-2 Versions.** A release outside `applies_to_versions` still maps, with a warning; release differences go in `versions` overrides.
 - **G-3 Companions.** A file derived from a registered output is a companion of that row, never its own row: named slot, then `File_SecondaryData`, then `Notes`.
 - **G-4 Variants.** One row per sample per kind of output; `candidates` are listed most-processed first and the first present wins, the rest become companions.

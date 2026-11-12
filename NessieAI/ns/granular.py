@@ -1382,6 +1382,75 @@ def _pick_waiting_run(user, held=None):
         for run in waiting]}
 
 
+def _foreign_run_evidence(run_manifest, user):
+    """The ForeignRun a run with no launch record is taken on, or a refusal.
+
+    With no launch record, Nessie reads the run's identity from the run itself:
+    the pipeline's name and release from its own ``pipeline_info`` files, a
+    committed map for that pipeline, and a samplesheet whose reads match each
+    sample to its parent. Without any one of them the run cannot be told apart
+    from an arbitrary folder, so it is refused rather than guessed (#139).
+    """
+    import datetime
+
+    from NessieAI.ns.reingest import manifest as manifest_mod
+    from NessieAI.ns.reingest import maps
+
+    pipeline = run_manifest.pipeline
+    pipeline_source = (run_manifest.sources.get("software_versions")
+                       or run_manifest.sources.get("params") or "")
+    if not (pipeline.name and pipeline.version and pipeline_source):
+        raise OpValidationError(
+            "this run wasn't launched by Nessie and its pipeline_info names no pipeline and "
+            "release, so it can't be reingested", field="run_dir",
+            error_type="foreign_run_names_no_pipeline")
+    try:
+        maps.load(pipeline.name)
+    except maps.UnknownPipelineMap:
+        raise OpValidationError(
+            f"this run wasn't launched by Nessie and reingest has no map for {pipeline.name}",
+            field="run_dir", error_type="foreign_run_has_no_map") from None
+    samplesheet = run_manifest.sources.get("samplesheet") or ""
+    if not samplesheet:
+        raise OpValidationError(
+            "this run wasn't launched by Nessie and its folder holds no samplesheet, so its "
+            "samples can't be matched to their parents; put the samplesheet the run used in the "
+            "run folder as samplesheet.csv", field="run_dir",
+            error_type="foreign_run_has_no_samplesheet")
+    return manifest_mod.ForeignRun(
+        harvested_by_user_id=int(getattr(user, "pk", 0) or 0),
+        harvested_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        pipeline_source=pipeline_source, samplesheet_source=samplesheet)
+
+
+_HOW_MATCHED = {
+    "fastq_path_exact": "by the full read path",
+    "fastq_basename": "by the read file name only",
+}
+
+
+def _foreign_run_header(run_manifest) -> str:
+    """The build reply's opening for a run Nessie did not launch: what the run was
+    identified by, and how each sample was matched to its parent, so the curator
+    checks the lineage before confirming an upload. A name-only match is said as
+    such: it is the weakest match the resolver accepts."""
+    evidence = run_manifest.foreign_run
+    lines = [f"NOT LAUNCHED BY NESSIE: {run_manifest.pipeline.name} "
+             f"{run_manifest.pipeline.version}, read from {evidence.pipeline_source}; samples "
+             f"matched to their parents through {evidence.samplesheet_source}. Check each "
+             "parent before you confirm an upload:"]
+    for sample in run_manifest.samples:
+        if sample.d_seq_uid:
+            how = _HOW_MATCHED.get(sample.uid_resolution, sample.uid_resolution)
+            lines.append(f"- {sample.nfcore_sample}: {sample.d_seq_uid} ({how})")
+        elif sample.d_seq_uid_multirun:
+            lines.append(f"- {sample.nfcore_sample}: {', '.join(sample.d_seq_uid_multirun)} "
+                         "(several runs of one sample)")
+        else:
+            lines.append(f"- {sample.nfcore_sample}: no parent found ({sample.uid_resolution})")
+    return "\n".join(lines) + "\n\n"
+
+
 def _remove_key_copy(key_path: str, source_key: str) -> None:
     """Remove the temp key copy ``prepare_key`` made, and nothing else (never the source key or a device)."""
     if (key_path != source_key and os.path.basename(key_path).startswith("luria_key_")
@@ -1412,11 +1481,16 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
         args = {**args, "run_dir": picked}
     run_dir, luria_env, runs_root = _validate_run_dir(args, config)
     launch = _launch_record_for(run_dir)
-    if launch is None:
-        raise OpValidationError(
-            "reingest covers Nessie-launched runs; this run has no launch record", field="run_dir", error_type="no_launch_record_for_this_run")
     user = getattr(session, "user", None)
-    if not getattr(user, "is_superuser", False) and (
+    is_admin = bool(getattr(user, "is_superuser", False))
+    if launch is None:
+        # A run launched elsewhere has no owner on record, and the runs root is
+        # shared, so only an admin may take one (#139, ruling G-1).
+        if not is_admin:
+            raise OpValidationError(
+                "this run wasn't launched by Nessie; only an admin can reingest a run launched "
+                "elsewhere", field="run_dir", error_type="foreign_run_needs_an_admin")
+    elif not is_admin and (
             launch.launched_by_id is None or launch.launched_by_id != getattr(user, "pk", None)):
         raise OpValidationError("this run was launched by someone else", field="run_dir", error_type="not_your_run")
     from chat_nextseek.luria.ssh import prepare_key
@@ -1438,11 +1512,14 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     finally:
         _remove_key_copy(key_path, luria_env["key"])
 
-    run_manifest.launch_record_id = launch.pk
-    if not run_manifest.pipeline.name and launch.pipeline:
-        run_manifest.pipeline.name = launch.pipeline
-    if not run_manifest.pipeline.version and launch.revision:
-        run_manifest.pipeline.version = launch.revision
+    if launch is not None:
+        run_manifest.launch_record_id = launch.pk
+        if not run_manifest.pipeline.name and launch.pipeline:
+            run_manifest.pipeline.name = launch.pipeline
+        if not run_manifest.pipeline.version and launch.revision:
+            run_manifest.pipeline.version = launch.revision
+    else:
+        run_manifest.foreign_run = _foreign_run_evidence(run_manifest, user)
 
     # Files the remote stage skipped (a symlink escaping run_dir, or a
     # size/count cap hit) must stay visible, not vanish quietly -- surfaced
@@ -1972,11 +2049,16 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     except FileNotFoundError:
         raise OpValidationError(f"no manifest {manifest_id!r}", field="manifest_id", error_type="no_such_manifest")
     user = getattr(session, "user", None)
-    test_only = run_manifest.launch_record_id is None
+    test_only = run_manifest.test_only
+    foreign = run_manifest.foreign_run is not None
     if test_only and not bool(getattr(user, "is_superuser", False)):
         raise OpValidationError(
             "this manifest is from a run Nessie didn't launch; only an admin can build it, "
             "for testing", field="manifest_id", error_type="test_only_manifest_needs_an_admin")
+    if foreign and not bool(getattr(user, "is_superuser", False)):
+        raise OpValidationError(
+            "this manifest is from a run Nessie didn't launch; only an admin can build it",
+            field="manifest_id", error_type="foreign_run_needs_an_admin")
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
     # A run taken with --allow-failed-run says so in the reply and in every build's open
@@ -2434,6 +2516,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
             project_id=project_id, project_note=project_note,
             answers_digest=answers.digest(), user_id=user_id,
             test_only=test_only, chat_turn=chat_turn,
+            origin=("test" if test_only else "foreign" if foreign else "launched"),
             answers=answers.model_dump(),
             assays_to_create=assay_plan_mod.merge_to_create(
                 [e for p in final.assay_plans_by_type.get(sample_type, []) for e in p.to_create]),
@@ -2499,6 +2582,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     if test_only:
         reply = ("TEST ONLY: this run wasn't launched by Nessie. "
                  "These workbooks can't be uploaded.\n\n" + reply)
+    elif foreign:
+        reply = _foreign_run_header(run_manifest) + reply
 
     # A key the curator placed is still proposed: the placement covers this
     # run only, and making it a standing map rule is an admin's call.
@@ -2608,7 +2693,10 @@ def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
         except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
             logger.exception("upload-reingest: could not mark manifest %s reingested", manifest_id)
             continue
-        _write_saved_label(config, manifest)
+        # saved.txt starts the weekly cleanup clock of a folder Nessie launched;
+        # a run launched elsewhere is not Nessie's to label (#139).
+        if getattr(manifest, "launch_record_id", None) is not None:
+            _write_saved_label(config, manifest)
 
 
 def _settle_late_uploads(session, config=None) -> None:
