@@ -526,6 +526,6 @@ Record the run, the build ids and the result in the table below; prod's sitting 
 
 | Box | 4.1 read | 4.3–4.4 house assays | 4.6 A.HLA | 4.7 attributes | 4.8 catalog | §6 upload | By | Date |
 |---|---|---|---|---|---|---|---|---|
-| local | | | | | | n/a | | |
-| dev | | | | | | | | |
+| local | skipped: the full stack does not fit the workstation; dev was the rehearsal, after its 4.2 backup | | | | | n/a | | |
+| dev | app 6021a03f2; gaps: A.ALN catalog x3, A.CHRM checksum in catalog and SEEK | none needed (all names resolve) | present (SEEK 111, catalog 152) | A.CHRM `Checksum_PrimaryData`, Text | A.ALN x3, A.CHRM x2; 4.10 clean | blocked: no `PipelineRun` on the box, and a Nessie launch needs Luria | Juanita | 2026-11-12 |
 | prod | | | | | | n/a | | |
