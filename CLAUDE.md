@@ -134,6 +134,7 @@ Live state comes from GitHub and git, never from spec headers or plan checkboxes
 - Importing `dmac.settings` creates directories, so read-only mounts need them made first (`ci/CLAUDE.md`).
 - `seek/views/` is a package; patch the owning module, not `seek.views` (`seek/README.md`).
 - Paid lanes (`RUN_REALSTACK=1`, `--tier full`, `--bayesian`) need the owner's approval per run (`DEPLOYMENT.md` §1, §7).
+- "The owner" and "the operator" in these docs (approval of paid lanes, deploys, seeding writes) mean the person running this session: their own word is the approval. A handoff from a teammate hands over the decisions it covers; do not route them back to its author.
 
 ## Editing these docs
 
