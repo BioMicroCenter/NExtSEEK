@@ -757,7 +757,9 @@ def _launch(run_dir="/net/cluster/runs/a", revision="3.18.0"):
                                       pipeline="nf-core/rnaseq", revision=revision)
 
 
-def test_run_harvest_refuses_a_run_with_no_launch_record(monkeypatch, tmp_path):
+def test_run_harvest_refuses_a_run_with_no_launch_record_for_a_non_admin(monkeypatch, tmp_path):
+    """A run Nessie did not launch is an admin's to reingest (#139); the rest of
+    that path is in test_foreign_runs.py."""
     seen = _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
 
     def _no_staging(*a, **k):
@@ -765,9 +767,10 @@ def test_run_harvest_refuses_a_run_with_no_launch_record(monkeypatch, tmp_path):
 
     monkeypatch.setattr(g, "_stage_run_dir", _no_staging)
     with pytest.raises(g.OpValidationError,
-                       match="reingest covers Nessie-launched runs; this run has no launch record"):
+                       match="only an admin can reingest a run launched elsewhere"):
         _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
-                  _Cfg(), None, None, None, None)
+                  _Cfg(), SimpleNamespace(user=SimpleNamespace(is_superuser=False, pk=7)),
+                  None, None, None)
     assert seen == {}
 
 

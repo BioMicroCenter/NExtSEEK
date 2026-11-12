@@ -498,8 +498,9 @@ confirm the box's Nessie answers "what does an A.HLA sample hold" from the new r
 Nothing has yet run `upload-reingest` through a confirmed upload that creates a study assay and
 registers parents. On dev, after §4:
 
-1. **Pick the run (owner fills).** A Nessie-launched run (it has a `PipelineRun`; `run-harvest`
-   refuses any other) whose parents sit in a study of a project the uploading superuser belongs to,
+1. **Pick the run (owner fills).** A Nessie-launched run (it has a `PipelineRun`), or, since #139,
+   a run launched elsewhere that the uploading superuser harvests from the runs root with its
+   samplesheet in the folder, whose parents sit in a study of a project the uploading superuser belongs to,
    and whose study has no assay of the house type yet, so the create path runs. An rnaseq run covers
    Genome Alignment, Gene Expression Analysis and the D.SEQ update in one go; an hlatyping run is the
    only one that exercises A.HLA.

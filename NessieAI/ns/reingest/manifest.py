@@ -102,15 +102,35 @@ class CapsInfo(BaseModel):
     truncated: list[str] = Field(default_factory=list)
 
 
+class ForeignRun(BaseModel):
+    """What a run with no launch record was taken on (#139, ruling G-1).
+
+    Set only by run-harvest, for a run folder under the runs root that has no
+    PipelineRun, harvested by a superuser. The pipeline's identity and its
+    samples come from the run's own files, named here so a reviewer can check
+    what the upload rests on.
+    """
+    model_config = ConfigDict(extra="forbid")
+    harvested_by_user_id: int
+    harvested_at: str
+    # The run file the pipeline's name and release were read from.
+    pipeline_source: str
+    # The run's own samplesheet, the only source of the samples' parents.
+    samplesheet_source: str
+
+
 class RunManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     manifest_version: int = MANIFEST_VERSION
     run_dir: str
     # The PipelineRun run-harvest found for this run_dir. Set only by the
-    # run-harvest op; None means the manifest was built some other way (local
-    # copies, fixtures, admin tests) and is test-only: buildable by a
-    # superuser, never uploadable (spec §6.1).
+    # run-harvest op.
     launch_record_id: int | None = None
+    # Set only by the run-harvest op, for a run with no PipelineRun that a
+    # superuser harvested (#139). A manifest with neither this nor
+    # `launch_record_id` was built some other way (local copies, fixtures, admin
+    # tests) and is test-only: buildable by a superuser, never uploadable.
+    foreign_run: ForeignRun | None = None
     run_status: str = RUN_INCOMPLETE
     pipeline: PipelineInfo = Field(default_factory=PipelineInfo)
     params: dict = Field(default_factory=dict)
@@ -195,3 +215,9 @@ class RunManifest(BaseModel):
     sources: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     caps: CapsInfo = Field(default_factory=CapsInfo)
+
+    @property
+    def test_only(self) -> bool:
+        """True unless run-harvest made this manifest: from a launch record, or
+        as a foreign run. Never derived from `run_dir`."""
+        return self.launch_record_id is None and self.foreign_run is None
