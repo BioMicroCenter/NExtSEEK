@@ -2206,3 +2206,38 @@ def test_the_runner_names_its_instance_to_the_harness_for_requires_env(tmp_path,
     for inst, want in (("dev", "NESSIE_ON_DEV"), ("prod", "NESSIE_ON_PROD")):
         script = f"INSTANCE={inst}\n{lines[1]}\nprintf %s \"$NESSIE_ON\""
         assert subprocess.run(["bash", "-c", script], capture_output=True, text=True).stdout == want
+
+
+# --------------------------------------------------------------------------- slack note
+def _slack(tmp_path, monkeypatch, cfg, inst="prod", event="start"):
+    f = tmp_path / "boxes.json"
+    if cfg is not None:
+        f.write_text(json.dumps({"slack_note": cfg} if cfg != "none" else {}))
+    monkeypatch.setenv("NEXTSEEK_BOXES", str(f))
+    return rules.slack_note(inst, event, "ad46e8781abc")
+
+
+ON = {"enabled": True, "channel_url": "https://x.slack.com/archives/C1"}
+
+
+@pytest.mark.parametrize("cfg,why", [
+    (None, "no slack_note"), ("none", "no slack_note"),
+    ({**ON, "enabled": False}, "off"), ({"enabled": True}, "channel_url"),
+    ({**ON, "instances": ["dev"]}, "not on for prod"),
+])
+def test_slack_note_skips_and_never_raises(tmp_path, monkeypatch, cfg, why):
+    url, msg, reason = _slack(tmp_path, monkeypatch, cfg)
+    assert url is None and why in reason and "`ad46e878`" in msg
+
+
+def test_slack_note_posts_on_prod_only_by_default_and_dev_when_listed(tmp_path, monkeypatch, capsys):
+    url, msg, _ = _slack(tmp_path, monkeypatch, ON)
+    assert url == ON["channel_url"] and msg.startswith("Rebuilding prod")
+    assert _slack(tmp_path, monkeypatch, ON, inst="dev")[0] is None
+    assert _slack(tmp_path, monkeypatch, {**ON, "instances": ["prod", "dev"]}, inst="dev", event="up")[1].startswith("Dev is back up")
+
+
+def test_slack_note_command_always_exits_0(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("NEXTSEEK_BOXES", str(tmp_path / "missing.json"))
+    code, out = run(["slack-note", "--instance", "prod", "--event", "up", "--sha", "ad46e87"], capsys)
+    assert code == 0 and out.out.startswith("SLACK_SKIP: Slack note skipped:") and "post by hand: Prod is back up" in out.out

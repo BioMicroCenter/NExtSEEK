@@ -79,6 +79,12 @@ Box facts as of 2026-09-24:
 | Clocks | the app side is UTC, the host shell is US Eastern: `docker logs --since 2026-09-23T18:34:00Z` |
 | Last launches | all 2026-09-23: app + cc-agent on c9336c82, again on b2352f55, then app only on b3d064f6. The sidecar was last rebuilt on 2026-09-22 |
 
+### Slack note on a prod launch
+
+If `slack_note` is on in the box config, post the `start` note right before `start` and the `up` note after
+`finish` is green; steps and skip rules: SKILL.md "The Slack note". A rollback is the operator's call: when he says
+it is done, post the `rollback` note. Skipped notes print the message so the operator can post it by hand.
+
 ## 1. Transport
 
 Only through `launch.py ssh`. On prod it builds `ssh -o BatchMode=yes <ssh_host> "echo <b64> |

@@ -36,6 +36,9 @@ the script decides the default, not you.
 | `tag` | no | UTC now | `YYYYMMDD-HHMM`; names the launch folder, the tmux session and the files on the box |
 | `start_utc` | no | now | a planned start, for the window check (`2026-09-26T13:00:00Z`) |
 
+The Slack note has no brief field: it follows the box config (`slack_note`, `references/boxes.md`) and
+SKILL.md "The Slack note". The operator's deploy go covers it unless the brief puts it in `ruled_out`.
+
 ## What a refusal writes
 
 The script prints every problem at once, the stop rules and the window together (exit 5 when any

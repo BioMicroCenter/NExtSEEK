@@ -1,6 +1,13 @@
 {
   "reports_dir": "~/nextseek-launch-reports",
   "workstation_repo": "~/src/NExtSEEK",
+  "slack_note": {
+    "enabled": false,
+    "channel_url": "https://example.slack.com/archives/CXXXXXXXXXX",
+    "instances": [
+      "prod"
+    ]
+  },
   "instances": {
     "local": {
       "box": "this workstation",
@@ -16,7 +23,10 @@
       "in_dir": "/tmp",
       "repo": "/home/stack-owner/NExtSEEK",
       "url": "https://dev.example.org",
-      "test_logins": ["smoke-user", "write-user"]
+      "test_logins": [
+        "smoke-user",
+        "write-user"
+      ]
     },
     "prod": {
       "box": "prod box",
@@ -27,7 +37,9 @@
       "in_dir": "/home/stack-owner",
       "repo": "/home/stack-owner/NExtSEEK",
       "url": "https://prod.example.org",
-      "test_logins": ["smoke-user"]
+      "test_logins": [
+        "smoke-user"
+      ]
     }
   }
 }
