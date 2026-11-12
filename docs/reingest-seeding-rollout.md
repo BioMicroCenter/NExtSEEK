@@ -77,6 +77,7 @@ lacks today:
 | D.SEQ | `qc_attributes` of every map | 18: DuplicationPercent, Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent, GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent, ValidBarcodesPercent | the same 18 |
 | A.VCF | rnavar `vcf` (an output attribute, not a QC entry) | TsTvRatio | TsTvRatio |
 | A.ALN | rnaseq `aln` writes `Software` | Software | to be read; without it every rnaseq A.ALN row fails at upload |
+| A.CHRM | atacseq and chipseq peaks and bigWigs (`primary_data: true`, so every hashed file writes `Checksum_PrimaryData`) | Checksum_PrimaryData | Checksum_PrimaryData (absent on dev); without it every hashed A.CHRM row fails at upload |
 | A.GEX | differentialabundance | none (Contrast, ContrastVariable, ContrastReference, ContrastTarget, Paramset, MethodSettings are in the file) | the six; [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) |
 
 `NessieAI/tests/ns/fixtures/sampletype_attributes.json`, the snapshot CI checks the maps against,
@@ -103,7 +104,8 @@ source does not carry is undone by the next `--emit update`, which deletes every
 (the 18 D.SEQ attributes). So before the first box write, a reviewed change must:
 
 1. add the A.HLA row (all 39 attributes) and the 20 attributes above (18 D.SEQ, TsTvRatio, A.ALN
-   Software) to `context/sample_types.json`; #152 is this change;
+   Software) to `context/sample_types.json`; #152 is this change. A.CHRM `Checksum_PrimaryData`
+   (in `required_metadata`, and the GEO `file checksum` mapping, as on A.GEX) is a separate change;
 2. run `python scripts/context_gen.py --emit exports --table all` and `--emit seed --table all` in the
    same change, and the test lanes `context/README.md` names;
 3. after merge, rebuild the app and the cc-agent on each box as `DEPLOYMENT.md` §3.2 says for the
@@ -159,7 +161,7 @@ SELECT id, assay_name, Alternative_Assay_Names, internal_assay_id FROM assay_con
   'miRNA Discovery Analysis') ORDER BY assay_name;
 SELECT MAX(id) AS max_internal_assay FROM internal_assays;
 SELECT MAX(id) AS max_assay_context FROM assay_context;
-SELECT sample_type, sampletype_id FROM sample_types_context WHERE sample_type IN ('A.HLA','D.SEQ','A.VCF','A.ALN','A.GEX','A.SCXP');
+SELECT sample_type, sampletype_id FROM sample_types_context WHERE sample_type IN ('A.HLA','D.SEQ','A.VCF','A.ALN','A.GEX','A.SCXP','A.CHRM');
 SQL
 ```
 
@@ -210,7 +212,7 @@ SELECT st.title AS type, sa.title AS attribute, sat.title AS value_type, sa.requ
   FROM sample_attributes sa JOIN sample_types st ON st.id = sa.sample_type_id
   JOIN sample_attribute_types sat ON sat.id = sa.sample_attribute_type_id
  WHERE (st.title = 'D.SEQ' AND sa.title IN ('MappedPercent','Genome'))
-    OR (st.title IN ('A.VCF','A.HLA','A.ALN') AND sa.title IN ('Software','Pipeline','FilterMethod'))
+    OR (st.title IN ('A.VCF','A.HLA','A.ALN') AND sa.title IN ('Software','Pipeline','FilterMethod','Checksum_PrimaryData'))
  ORDER BY st.title, sa.pos;
 SQL
 ```
@@ -343,21 +345,24 @@ curl -sS -X POST "$BASE_URL/nextseek_api/sample_types/" -H "Authorization: Token
 
 ### 4.7 SEEK attributes (gated)
 
-The 18 D.SEQ attributes, TsTvRatio on A.VCF and `Software` on A.ALN (the rnaseq `aln` rule writes
-it; #152 keeps it in the catalog), minus what 4.1 showed present; the A.GEX six per
+The 18 D.SEQ attributes, TsTvRatio on A.VCF, `Software` on A.ALN (the rnaseq `aln` rule writes
+it; #152 keeps it in the catalog) and `Checksum_PrimaryData` on A.CHRM (the atacseq and chipseq
+primary-data rules write it), minus what 4.1 showed present; the A.GEX six per
 [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) §1. Use the Attribute API,
 `dry_run` first. Build the body from the committed meanings, with the value types 4.1's last query
 showed (the maps' `datatype` is `number` for all but `Strandedness`, which is `string`; A.ALN
-`Software` holds a tool version, so it takes the text type):
+`Software` holds a tool version, so it takes the text type; A.CHRM `Checksum_PrimaryData` takes the
+type `Checksum_PrimaryData` has on A.ALN):
 
 ```bash
-NUM='<value type of MappedPercent on this box>' TEXT='<value type of Genome on this box>' python3 - > /tmp/reingest-attrs.json <<'PY'
+NUM='<value type of MappedPercent on this box>' TEXT='<value type of Genome on this box>' \
+  CHK='<value type of Checksum_PrimaryData on A.ALN on this box>' python3 - > /tmp/reingest-attrs.json <<'PY'
 import json, os, re
 seed = open("startup/seed/sql/sample_attributes_unique_data.sql", encoding="utf-8").read()
 def meaning(name):
     m = re.search(r"^ \('%s','','((?:[^']|'')*)'\)" % re.escape(name), seed, re.M)
     return m.group(1).replace("''", "'")
-num, text = os.environ["NUM"], os.environ["TEXT"]
+num, text, chk = os.environ["NUM"], os.environ["TEXT"], os.environ["CHK"]
 dseq = ["DuplicationPercent", "Strandedness", "MultimappedPercent", "DupRadarIntercept", "MismatchPercent",
         "GCPercent", "Q30Percent", "AdapterPercent", "PassedFilterPercent", "AssignedPercent", "MRNAPercent",
         "PseudoalignedPercent", "IsomiRPercent", "UMIUniquePercent", "EstimatedCells", "MeanReadsPerCell",
@@ -367,7 +372,8 @@ def attr(name, kind):
 body = {"dry_run": True, "targets": [
     {"sample_type": "D.SEQ", "attributes": [attr(n, text if n == "Strandedness" else num) for n in dseq]},
     {"sample_type": "A.VCF", "attributes": [attr("TsTvRatio", num)]},
-    {"sample_type": "A.ALN", "attributes": [attr("Software", text)]}]}
+    {"sample_type": "A.ALN", "attributes": [attr("Software", text)]},
+    {"sample_type": "A.CHRM", "attributes": [attr("Checksum_PrimaryData", chk)]}]}
 print(json.dumps(body, indent=1))
 PY
 ```
@@ -379,8 +385,8 @@ curl -sS -X POST "$BASE_URL/nextseek_api/attributes/batch-create/" -H "Authoriza
   -H "Content-Type: application/json" --data @/tmp/reingest-attrs.json
 ```
 
-- **Check the preview:** one `created` per attribute sent, on D.SEQ, A.VCF and A.ALN only;
-  `affected_samples` is the box's D.SEQ, A.VCF and A.ALN sample counts. Then send the same body with
+- **Check the preview:** one `created` per attribute sent, on D.SEQ, A.VCF, A.ALN and A.CHRM only;
+  `affected_samples` is the box's D.SEQ, A.VCF, A.ALN and A.CHRM sample counts. Then send the same body with
   `"dry_run": false`. Above 5000 affected samples the answer is 202 and a job to poll at its `status_url`.
 - **Verify:** the `app_shell` check's "not in SEEK" lists are empty.
 - **Roll back:** `POST /nextseek_api/attributes/batch-delete/` with the same titles, `dry_run` first,
@@ -404,6 +410,23 @@ add() { printf "UPDATE sample_types_context SET possible_metadata_fields = CONCA
   add A.VCF TsTvRatio
   add A.ALN Software
 } | dmac_sql
+```
+
+A.CHRM carries `Checksum_PrimaryData` in `required_metadata`, as `context/sample_types.json` does, and
+maps it as GEO's `file checksum`, as A.GEX does. Both statements are no-ops once applied, and the first
+changes nothing on a box whose row differs from the one it expects:
+
+```bash
+dmac_sql <<'SQL'
+UPDATE sample_types_context
+   SET required_metadata = 'UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent'
+ WHERE sample_type = 'A.CHRM' AND required_metadata = 'UID, File_PrimaryData, Link_PrimaryData, Scientist, Parent';
+UPDATE sample_types_context
+   SET repository_attributes = JSON_SET(repository_attributes, '$.GEO."file checksum"', 'A.CHRM::Checksum_PrimaryData')
+ WHERE sample_type = 'A.CHRM' AND JSON_EXTRACT(repository_attributes, '$.GEO') IS NOT NULL
+   AND JSON_EXTRACT(repository_attributes, '$.GEO."file checksum"') IS NULL;
+SELECT required_metadata, repository_attributes FROM sample_types_context WHERE sample_type = 'A.CHRM';
+SQL
 ```
 
 Insert the A.HLA row if 4.1 showed none. Do not write it by hand: take the guarded INSERT that

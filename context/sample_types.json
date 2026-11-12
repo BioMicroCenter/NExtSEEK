@@ -166,7 +166,7 @@
     "clade": "Analyzed",
     "description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv",
     "Tags": "chromatin sequencing analysis, ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ATACseq analysis, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2",
-    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, Parent",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
     "standard_metadata": "Protocol, Type, Repository, RepositoryID, RepositoryLink, DataType, Assembly, Pipeline",
     "possible_metadata_fields": "DOI, PMID, FRiPPercent, PeakCount, Name, Antibody, File_SecondaryData, Link_SecondaryData, Notes",
     "parent_sampletypes": "D.SEQ",
@@ -178,7 +178,8 @@
         "processed data file": "A.CHRM::File_PrimaryData",
         "data processing step": "A.CHRM::Pipeline",
         "genome build/assembly": "A.CHRM::Assembly",
-        "processed data files format and content": "A.CHRM::DataType"
+        "processed data files format and content": "A.CHRM::DataType",
+        "file checksum": "A.CHRM::Checksum_PrimaryData"
       }
     },
     "sampletype_file_link": null
