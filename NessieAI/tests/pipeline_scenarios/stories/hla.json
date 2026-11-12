@@ -13,26 +13,23 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "accepted",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
+        "state": "changed",
+        "date": "2026-11-12",
+        "note": "Owner's ruling (2026-11-12): 241219BRY is pooled 3' prime-seq (owner's ruling 2026-10-27, see expression-two-groups). 3' reads do not cover the HLA class I exons, so refusing to build hlatyping is correct. The 2026-10-26 migrated ruling, which expected an hlatyping build, predates the pool ruling. The story now expects a reasoned refusal and no launch."
       },
       "id": "hla-alleles",
       "question": "Which HLA alleles does this donor carry?",
       "cohort": "241219BRY::A.GEX",
-      "acceptable": [
-        [
-          "hlatyping"
-        ]
-      ],
+      "acceptable": [],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
-      }
+        "pipelines": "241219BRY is pooled 3' prime-seq (SOP 65): barcoded oligo(dT) libraries read from the 3' end, one read only barcode and UMI. These reads do not cover the HLA class I exons, so hlatyping cannot resolve the donor's alleles from them. The right reply refuses with that reason, may say which reads would work (WES, WGS or full-length RNA-seq), and builds nothing."
+      },
+      "expect": "refuse"
     },
     {
       "route": "nextseek_query",
@@ -63,6 +60,100 @@
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "rnavar"
+      ],
+      "phrasing": "plain",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-12",
+        "note": "Proposed to keep hlatyping at the four-story floor after the pooled prime-seq HLA stories became refusals; awaits the owner's ruling"
+      },
+      "id": "hla-wgs-class-one-types",
+      "question": "What are the HLA-A, HLA-B and HLA-C types of the donors in these genome samples?",
+      "cohort": "test::human_wgs_germline",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Human whole-genome germline DNA: the reads cover the HLA class I exons, so hlatyping (seq_type dna) calls each donor's HLA-A, -B and -C alleles. sarek calls variants, not HLA alleles; rnavar needs RNA."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "rnavar"
+      ],
+      "phrasing": "plain",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-12",
+        "note": "Proposed to keep hlatyping at the four-story floor after the pooled prime-seq HLA stories became refusals; awaits the owner's ruling"
+      },
+      "id": "hla-exome-genotype",
+      "question": "Can you get each donor's HLA class I genotype from my exome samples?",
+      "cohort": "test::human_exome",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Human whole-exome with a named capture kit (Agilent SureSelect Human All Exon V7): the capture covers the HLA class I exons, so hlatyping (seq_type dna) calls the alleles. sarek calls variants, not HLA alleles; rnavar needs RNA."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "rnavar",
+        "rnafusion"
+      ],
+      "phrasing": "plain",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-12",
+        "note": "Proposed to keep hlatyping at the four-story floor after the pooled prime-seq HLA stories became refusals; awaits the owner's ruling"
+      },
+      "id": "hla-kam-rna-alleles",
+      "question": "Which HLA class I alleles does this breast cancer line carry, going by my RNA-seq samples?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Human bulk paired-end full-length RNA-seq of MDA-MB-231 cells, with raw reads on SRA: the expressed HLA class I transcripts are covered end to end, so hlatyping (seq_type rna) calls the alleles. Contrast with the 241219BRY HLA stories, whose pooled 3' prime-seq reads do not cover those exons. rnaseq counts genes, rnavar calls variants and rnafusion calls fusions; none types HLA."
       }
     }
   ]

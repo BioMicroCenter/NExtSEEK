@@ -42,7 +42,7 @@
     },
     {
       "id": "smrna-plain",
-      "question": "Which microRNAs change when Dicer is inhibited?",
+      "question": "In these samples, which microRNAs change when Dicer is inhibited?",
       "cohort": "test::smallrna",
       "route": "nextseek_query",
       "acceptable": [
@@ -68,13 +68,13 @@
       ],
       "phrasing": "plain",
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "route": "The question asks about the user's own sequenced samples ('these samples'); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run. It was reworded on 2026-11-12: without 'these samples' it pointed at no samples and read as a general science question.",
         "pipelines": "QIAseq miRNA libraries (size-selected, UMI adapter) from untreated and Dicer-inhibited HeLa cells: smrnaseq quantifies the mature miRNAs in each. One library per condition, so the reply should say counts can be compared but not tested. rnaseq would discard the short RNAs; riboseq is for ribosome footprints. rnasplice/smrnaseq-style required values: smrnaseq's mirtrace_species is a required user param that configure_run refuses without, so the story scripts the user's answer (hsa); the launch must carry hsa and the QIAseq 3' adapter AACTGTAGGCACCATCAAT, which the ExpressionKit field determines (the Illumina default would trim nothing)."
       },
       "ruling": {
         "state": "changed",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Same launch requirements as small-rna: scripted hsa reply, and the launch must carry mirtrace_species hsa and the QIAseq 3' adapter."
+        "date": "2026-11-12",
+        "note": "Owner's ruling (2026-11-12): the old question, 'Which microRNAs change when Dicer is inhibited?', pointed at no samples, and the router fairly read it as a general science question (unrelated). Reworded so it plainly asks about the user's own sequenced samples, as the sibling smrnaseq stories do; route, pipelines and launch requirements unchanged (scripted hsa reply; the launch must carry mirtrace_species hsa and the QIAseq 3' adapter)."
       }
     },
     {
