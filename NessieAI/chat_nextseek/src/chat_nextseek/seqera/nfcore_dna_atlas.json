@@ -71,13 +71,17 @@
         },
         "rnaseq": {
           "differs_by": "rnaseq measures transcripts; atacseq measures which DNA is accessible. ATAC libraries are genomic DNA."
+        },
+        "cutandrun": {
+          "differs_by": "cutandrun maps where an antibody's target binds (CUT&RUN, CUT&Tag); atacseq maps open chromatin with Tn5 and no antibody. CUT&Tag also uses Tn5, but tethered by an antibody.",
+          "ask_user": "Was an antibody used to direct the enzyme (CUT&RUN / CUT&Tag), or is this untargeted transposase accessibility (ATAC)?"
         }
       }
     },
     "chipseq": {
       "revision": "2.1.0",
       "answers": "Where does a protein or histone mark bind across the genome in each sample, compared with its input control where one exists, and how consistent are the peaks between replicates?",
-      "assumes_prep": "ChIP-seq: chromatin immunoprecipitation with an antibody, short-read Illumina, single- or paired-end. An input (or IgG) control library for each IP is usual but optional. CUT&RUN and CUT&Tag tether an enzyme to the antibody, start from far fewer cells and usually have no input control; they are not ChIP-seq and NExtSEEK cannot launch them yet. When the metadata does not say which assay it is, ask the user: ChIP-seq with an input control, or CUT&RUN / CUT&Tag?",
+      "assumes_prep": "ChIP-seq: chromatin immunoprecipitation with an antibody, short-read Illumina, single- or paired-end. An input (or IgG) control library for each IP is usual but optional. CUT&RUN and CUT&Tag tether an enzyme to the antibody, start from far fewer cells and usually have no input control; they are not ChIP-seq, and cutandrun is their pipeline. When the metadata does not say which assay it is, ask the user: ChIP-seq with an input control, or CUT&RUN / CUT&Tag?",
       "input_you_must_have": "Gzipped FASTQ per sample, with replicates numbered from 1 within each experimental group. The antibody name for each IP sample (required for any sample that has a control) and, where a control exists, which sample is its control and which replicate of it. A reference genome with an annotation.",
       "data_signals": {
         "library_strategy": [
@@ -101,6 +105,48 @@
         "atacseq": {
           "differs_by": "atacseq maps open chromatin by transposase; chipseq maps antibody-bound sites, against an input control where one exists.",
           "ask_user": "Was an antibody used (ChIP), or is this transposase accessibility (ATAC)?"
+        },
+        "cutandrun": {
+          "differs_by": "cutandrun is for CUT&RUN and CUT&Tag, where the antibody tethers MNase or Tn5 to its target in intact nuclei, usually with an IgG control and E. coli spike-in reads; chipseq is for immunoprecipitated, sonicated chromatin, usually against an input control.",
+          "ask_user": "Was this chromatin immunoprecipitation (ChIP-seq), or CUT&RUN / CUT&Tag?"
+        }
+      }
+    },
+    "cutandrun": {
+      "revision": "3.2.2",
+      "answers": "Where does a protein or histone mark bind across the genome in each sample, profiled by CUT&RUN or CUT&Tag, normalised to spike-in DNA and to an IgG control where one exists, and how consistent are the peaks between replicates?",
+      "assumes_prep": "CUT&RUN (pA- or pAG-MNase) or CUT&Tag (pA- or pAG-Tn5): an antibody tethers the enzyme to its target in intact cells or nuclei, short-read Illumina, paired-end only (3.2.2 refuses single-end reads). An IgG control group is usual but optional, and E. coli DNA carried over from the enzyme prep (or an added yeast or fly spike-in) is used for normalisation. Not for ChIP-seq, whose chromatin is immunoprecipitated after sonication: that is chipseq.",
+      "input_you_must_have": "Paired-end gzipped FASTQ per library. Each library's group (its target, named after the antibody's target, as the samplesheet has no antibody column) and replicate number from 1 within the group. Which group is the IgG control, where one exists; without one the run sets use_control false. A reference genome with an annotation; the spike-in genome defaults to E. coli K12.",
+      "data_signals": {
+        "library_strategy": [
+          "OTHER",
+          "ChIP-Seq"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "CUT&RUN",
+          "CUT&Tag",
+          "CUTANA",
+          "pA-MNase",
+          "pAG-MNase",
+          "pA-Tn5",
+          "pAG-Tn5",
+          "IgG",
+          "spike-in",
+          "E. coli"
+        ]
+      },
+      "species_constraint": "No CUT&RUN references are staged on Luria yet: the launch is built with the iGenomes reference for the species (and the E. coli K12 spike-in) and the reply must say references need staging before it can run.",
+      "versus": {
+        "chipseq": {
+          "differs_by": "chipseq is for immunoprecipitated, sonicated chromatin, usually against an input control; cutandrun is for CUT&RUN and CUT&Tag, where the antibody tethers MNase or Tn5 to its target, usually with an IgG control and spike-in reads.",
+          "ask_user": "Was this chromatin immunoprecipitation (ChIP-seq), or CUT&RUN / CUT&Tag?"
+        },
+        "atacseq": {
+          "differs_by": "atacseq maps open chromatin with untargeted Tn5 and no antibody; cutandrun maps an antibody's target. CUT&Tag uses Tn5 too, but tethered by the antibody.",
+          "ask_user": "Was an antibody used to direct the enzyme (CUT&RUN / CUT&Tag), or is this untargeted transposase accessibility (ATAC)?"
         }
       }
     },

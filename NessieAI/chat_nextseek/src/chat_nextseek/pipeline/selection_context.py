@@ -37,7 +37,7 @@ SECTION_NAMES: tuple[str, ...] = ("atlas", "digest", "docs", "schemas")
 #: rule it out rather than defaulting to whichever entry carries more text.
 RICH_PIPELINES: tuple[str, ...] = (
     "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
-    "atacseq", "chipseq", "methylseq",
+    "atacseq", "chipseq", "methylseq", "cutandrun",
 )
 
 #: The payload (atlas + digest + docs + schemas of every RICH_PIPELINES entry) grows with each

@@ -199,7 +199,7 @@ def test_the_prompt_does_not_call_the_atlas_rna_only():
 
 def test_the_prompt_no_longer_calls_chromatin_or_methylation_outside_the_atlas():
     assert "chromatin, methylation or metagenomics, for now" not in SYSTEM_PROMPT
-    assert "metagenomics, Hi-C or CUT&RUN, for now" in SYSTEM_PROMPT
+    assert "metagenomics or Hi-C, for now" in SYSTEM_PROMPT
 
 
 # --- the atlas miss: a pipeline outside every curated atlas is flagged, not silent ---
