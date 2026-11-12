@@ -256,8 +256,9 @@ SELECT id, internal_assay_title FROM internal_assays WHERE id > @before;
 SQL
 ```
 
-A box that lacks `Gene Expression Analysis`, `Genome Alignment` or `Single Cell Expression Analysis`
-is a box whose assay catalog differs from production's; stop and bring the operator the 4.1 output
+A box whose 4.1 line for `Gene Expression Analysis`, `Genome Alignment` or
+`Single Cell Expression Matrix Analysis` ends in `None` (a title missing but reached through an
+alternative name is fine) is a box whose assay catalog differs from production's; stop and bring the operator the 4.1 output
 rather than adding them here.
 
 If 4.1 showed an ambiguity (`AMBIGUOUS` for `Gene Expression Analysis`), stop: the fix is either the
@@ -412,6 +413,7 @@ add() { printf "UPDATE sample_types_context SET possible_metadata_fields = CONCA
     add D.SEQ "$a"; done
   add A.VCF TsTvRatio
   add A.ALN Software
+  for a in MedianCoverage Coverage10xPercent Coverage30xPercent; do add A.ALN "$a"; done
 } | dmac_sql
 ```
 
