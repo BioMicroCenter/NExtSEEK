@@ -1,0 +1,1630 @@
+[
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R1_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R1_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R1_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R1_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R2_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R2_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R2_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k27me3_R2_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R1_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R1_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R1_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R1_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R2_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R2_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R2_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/h3k4me3_R2_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R1_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R1_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R1_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R1_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R2_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R2_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R2_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/pretrim_fastqc/igg_ctrl_R2_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R1_1.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R1_1.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R1_2.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R1_2.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R2_1.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R2_1.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R2_2.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k27me3_R2_2.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R1_1.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R1_1.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R1_2.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R1_2.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R2_1.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R2_1.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R2_2.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/h3k4me3_R2_2.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R1_1.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R1_1.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R1_2.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R1_2.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R2_1.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R2_1.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R2_2.trimmed_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/fastqc/igg_ctrl_R2_2.trimmed_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k27me3_R1_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k27me3_R1_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k27me3_R2_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k27me3_R2_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k4me3_R1_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k4me3_R1_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k4me3_R2_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k4me3_R2_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/igg_ctrl_R1_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/igg_ctrl_R1_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/igg_ctrl_R2_1.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/igg_ctrl_R2_2.fastq.gz_trimming_report.txt",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/log/h3k27me3_R1.spikein.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/log/h3k27me3_R2.spikein.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/log/h3k4me3_R1.spikein.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/log/h3k4me3_R2.spikein.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/log/igg_ctrl_R1.spikein.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/log/igg_ctrl_R2.spikein.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.target.dedup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.target.dedup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R2.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R2.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R2.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R2.target.dedup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R2.target.dedup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/log/h3k27me3_R1.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/log/h3k27me3_R2.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/log/h3k4me3_R1.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/log/h3k4me3_R2.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/log/igg_ctrl_R1.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/log/igg_ctrl_R2.bowtie2.log",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R2.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R2.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R2.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R2.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R2.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R1.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R1.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R1.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R1.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R2.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R2.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R2.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R2.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k4me3_R2.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R2.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R2.idxstats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R2.stats",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R2.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R2.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/h3k27me3_R1.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/h3k27me3_R2.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/h3k4me3_R1.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/h3k4me3_R2.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/igg_ctrl_R1.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/igg_ctrl_R2.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/h3k27me3_R1.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/h3k27me3_R2.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/h3k4me3_R1.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/h3k4me3_R2.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/igg_ctrl_R1.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/igg_ctrl_R2.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/h3k27me3_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/h3k27me3_R2.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/h3k4me3_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/h3k4me3_R2.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/igg_ctrl_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/igg_ctrl_R2.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R1.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R1.macs2_peaks.narrowPeak",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R1.macs2_peaks.xls",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R1.macs2_summits.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R2.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R2.macs2_peaks.narrowPeak",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R2.macs2_peaks.xls",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R2.macs2_summits.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R1.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R1.macs2_peaks.narrowPeak",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R1.macs2_peaks.xls",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R1.macs2_summits.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R2.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R2.macs2_peaks.narrowPeak",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R2.macs2_peaks.xls",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k4me3_R2.macs2_summits.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k27me3_R1.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k27me3_R2.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k4me3_R1.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k4me3_R2.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k27me3.consensus.peak_counts.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k27me3.consensus.peaks.awk.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k4me3.consensus.peak_counts.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k4me3.consensus.peaks.awk.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k27me3_R1.frags.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k27me3_R1.frags.len.txt",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k27me3_R2.frags.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k27me3_R2.frags.len.txt",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k4me3_R1.frags.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k4me3_R1.frags.len.txt",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k4me3_R2.frags.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/06_fragments_from_bams/h3k4me3_R2.frags.len.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R1.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R1.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R1.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R1.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R2.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R2.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R2.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R2.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R1.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R1.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R1.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R1.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R2.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R2.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R2.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k4me3_R2.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene_all/all_genes.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene_all/all_genes.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene_all/all_genes.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene_all/all_genes.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R1.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R1.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R1.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R1.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R2.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R2.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R2.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R2.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R1.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R1.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R1.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R1.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R2.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R2.computeMatrix.vals.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R2.plotHeatmap.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k4me3_R2.plotHeatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_bam.bamSummary.npz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_target_bams.plotCorrelation.mat.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_target_bams.plotCorrelation.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_target_bams.plotPCA.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_target_bams.plotPCA.tab",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k27me3_R1.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k27me3_R1.plotFingerprint.raw.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k27me3_R2.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k27me3_R2.plotFingerprint.raw.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k4me3_R1.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k4me3_R1.plotFingerprint.raw.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k4me3_R2.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k4me3_R2.plotFingerprint.raw.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/igg_ctrl_R1.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/igg_ctrl_R1.plotFingerprint.raw.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/igg_ctrl_R2.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/igg_ctrl_R2.plotFingerprint.raw.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/exp_files.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/genes.bed.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/genes.bed.bed.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/genome.fa",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/genome.fa.fai",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/gff.igv.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/gtf.igv.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k27me3_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k27me3_R1.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k27me3_R1.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k27me3_R2.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k27me3_R2.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k27me3_R2.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k4me3_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k4me3_R1.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k4me3_R1.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k4me3_R2.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k4me3_R2.macs2.peaks.cut.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/h3k4me3_R2.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/igg_ctrl_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/igg_ctrl_R2.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/igv_files.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/igv_session.xml",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/deeptools_plot_PCA.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/deeptools_plot_fingerprint_counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_bowtie2_pe_plot-2_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_bowtie2_pe_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_cutadapt_filtered_reads_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_cutadapt_trimmed_sequences_plot_3_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_cutadapt_trimmed_sequences_plot_3_Obs_Exp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_deeptools_fingerprint_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_base_n_content_plot-2_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_base_n_content_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_base_sequence_quality_plot-2_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_base_sequence_quality_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_sequence_gc_content_plot-2_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_sequence_gc_content_plot-2_Percentages.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_sequence_gc_content_plot_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_sequence_gc_content_plot_Percentages.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_sequence_quality_scores_plot-2_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_per_sequence_quality_scores_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_sequence_counts_plot-2_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_sequence_counts_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_sequence_duplication_levels_plot-2_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_sequence_duplication_levels_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_fastqc_sequence_length_distribution_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_picard_deduplication_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_samtools-idxstats-mapped-reads-plot_Normalised_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_samtools-idxstats-mapped-reads-plot_Observed_over_Expected_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_samtools-idxstats-mapped-reads-plot_Raw_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_samtools-idxstats-xy-plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/mqc_samtools_alignment_plot_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/picard_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/picard_histogram_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/picard_histogram_2.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_bowtie2_pe_plot-2_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_bowtie2_pe_plot-2_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_bowtie2_pe_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_bowtie2_pe_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_consensus_peakcounts_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_consensus_peakcounts_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_cutadapt_filtered_reads_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_cutadapt_filtered_reads_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_cutadapt_trimmed_sequences_plot_3_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_cutadapt_trimmed_sequences_plot_3_Obs_Exp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_deeptools_fingerprint_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_base_n_content_plot-2_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_base_n_content_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_base_sequence_quality_plot-2_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_base_sequence_quality_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_sequence_gc_content_plot-2_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_sequence_gc_content_plot-2_Percentages.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_sequence_gc_content_plot_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_sequence_gc_content_plot_Percentages.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_sequence_quality_scores_plot-2_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_per_sequence_quality_scores_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_counts_plot-2_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_counts_plot-2_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_counts_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_counts_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_duplication_levels_plot-2_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_duplication_levels_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fastqc_sequence_length_distribution_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_fragment_lengths-plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_picard_deduplication_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_picard_deduplication_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_primary_peakcounts_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_primary_peakcounts_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_primary_peakrepro_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_primary_peakrepro_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools-idxstats-mapped-reads-plot_Normalised_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools-idxstats-mapped-reads-plot_Observed_over_Expected_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools-idxstats-mapped-reads-plot_Raw_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools-idxstats-xy-plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools-idxstats-xy-plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools_alignment_plot_1.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/pdf/mqc_samtools_alignment_plot_1_pc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_bowtie2_pe_plot-2_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_bowtie2_pe_plot-2_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_bowtie2_pe_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_bowtie2_pe_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_consensus_peakcounts_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_consensus_peakcounts_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_cutadapt_filtered_reads_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_cutadapt_filtered_reads_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_cutadapt_trimmed_sequences_plot_3_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_cutadapt_trimmed_sequences_plot_3_Obs_Exp.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_deeptools_fingerprint_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_base_n_content_plot-2_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_base_n_content_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_base_sequence_quality_plot-2_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_base_sequence_quality_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_sequence_gc_content_plot-2_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_sequence_gc_content_plot-2_Percentages.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_sequence_gc_content_plot_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_sequence_gc_content_plot_Percentages.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_sequence_quality_scores_plot-2_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_per_sequence_quality_scores_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_counts_plot-2_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_counts_plot-2_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_counts_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_counts_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_duplication_levels_plot-2_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_duplication_levels_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fastqc_sequence_length_distribution_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_fragment_lengths-plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_picard_deduplication_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_picard_deduplication_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_primary_peakcounts_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_primary_peakcounts_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_primary_peakrepro_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_primary_peakrepro_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools-idxstats-mapped-reads-plot_Normalised_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools-idxstats-mapped-reads-plot_Observed_over_Expected_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools-idxstats-mapped-reads-plot_Raw_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools-idxstats-xy-plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools-idxstats-xy-plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools_alignment_plot_1.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/png/mqc_samtools_alignment_plot_1_pc.png",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_bowtie2_pe_plot-2_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_bowtie2_pe_plot-2_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_bowtie2_pe_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_bowtie2_pe_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_consensus_peakcounts_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_consensus_peakcounts_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_cutadapt_filtered_reads_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_cutadapt_filtered_reads_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_cutadapt_trimmed_sequences_plot_3_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_cutadapt_trimmed_sequences_plot_3_Obs_Exp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_deeptools_fingerprint_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_base_n_content_plot-2_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_base_n_content_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_base_sequence_quality_plot-2_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_base_sequence_quality_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_sequence_gc_content_plot-2_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_sequence_gc_content_plot-2_Percentages.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_sequence_gc_content_plot_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_sequence_gc_content_plot_Percentages.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_sequence_quality_scores_plot-2_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_per_sequence_quality_scores_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_counts_plot-2_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_counts_plot-2_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_counts_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_counts_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_duplication_levels_plot-2_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_duplication_levels_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fastqc_sequence_length_distribution_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_fragment_lengths-plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_picard_deduplication_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_picard_deduplication_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_primary_peakcounts_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_primary_peakcounts_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_primary_peakrepro_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_primary_peakrepro_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools-idxstats-mapped-reads-plot_Normalised_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools-idxstats-mapped-reads-plot_Observed_over_Expected_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools-idxstats-mapped-reads-plot_Raw_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools-idxstats-xy-plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools-idxstats-xy-plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools_alignment_plot_1.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_plots/svg/mqc_samtools_alignment_plot_1_pc.svg",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/execution_report_2023-03-10_11-27-18.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/execution_trace_2023-03-10_11-27-18.txt",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/local_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/pipeline_dag_2023-03-10_11-27-18.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/samplesheet.valid.csv",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/software_versions.yml",
+  "bytes": 0
+ }
+]

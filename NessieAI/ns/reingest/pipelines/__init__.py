@@ -19,6 +19,7 @@ PIPELINE_TOKENS: dict[str, tuple[str, ...]] = {
         "contrast", "contrast_variable", "contrast_reference", "contrast_target",
         "paramset", "method_settings", "report_link", "model_object", "study_type_note"),
     "methylseq": ("conversion_method", "methylation_protocol"),
+    "cutandrun": ("seacr_frip_pct", "seacr_peak_count", "macs2_frip_pct", "macs2_peak_count"),
 }
 
 

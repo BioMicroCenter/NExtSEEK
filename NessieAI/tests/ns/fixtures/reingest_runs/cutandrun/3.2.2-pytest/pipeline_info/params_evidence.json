@@ -1,0 +1,12 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "input": "/RUN/samplesheet.csv",
+ "max_cpus": 2,
+ "max_memory": "6.GB",
+ "max_time": "6.h",
+ "mito_name": "chrM",
+ "outdir": "/RUN",
+ "remove_linear_duplicates": true,
+ "remove_mitochondrial_reads": true
+}

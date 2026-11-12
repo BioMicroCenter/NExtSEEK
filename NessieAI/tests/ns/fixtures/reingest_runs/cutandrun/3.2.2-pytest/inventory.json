@@ -1,0 +1,286 @@
+[
+ {
+  "path": "00_genome/e_coli_U00096_3.fa.sizes",
+  "bytes": 0
+ },
+ {
+  "path": "00_genome/hg38-chr20.fa.fai",
+  "bytes": 0
+ },
+ {
+  "path": "00_genome/hg38-chr20.fa.sizes",
+  "bytes": 0
+ },
+ {
+  "path": "00_genome/index/e_coli_U00096_3/e_coli_U00096_3.1.bt2",
+  "bytes": 0
+ },
+ {
+  "path": "00_genome/index/hg38-chr20-bowtie2/hg38-chr20.1.bt2",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/merged_fastq/h3k27me3_R1_1.merged.fastq.gz",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/merged_fastq/h3k27me3_R1_2.merged.fastq.gz",
+  "bytes": 0
+ },
+ {
+  "path": "01_prealign/trimgalore/h3k27me3_R1_1.trimmed.fastq.gz",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/h3k27me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/h3k27me3_R1.spikein.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/h3k27me3_R1.spikein.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/igg_ctrl_R1.spikein.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/spikein/igg_ctrl_R1.spikein.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/h3k27me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/h3k27me3_R1.target.dedup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/h3k27me3_R1.target.dedup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.target.dedup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/dedup/igg_ctrl_R1.target.dedup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/h3k27me3_R1.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/h3k27me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/h3k27me3_R1.target.filtered.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/h3k27me3_R1.target.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/h3k27me3_R1.target.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/igg_ctrl_R1.target.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/igg_ctrl_R1.target.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/h3k27me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/h3k27me3_R1.target.linear_dedup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/h3k27me3_R1.target.linear_dedup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/h3k27me3_R1.target.linear_dedup_metrics.txt",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/igg_ctrl_R1.target.linear_dedup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/igg_ctrl_R1.target.linear_dedup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/linear_dedup/igg_ctrl_R1.target.linear_dedup_metrics.txt",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/h3k27me3_R1.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.target.markdup.sorted.bam",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/markdup/igg_ctrl_R1.target.markdup.sorted.bam.bai",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/unmapped/h3k27me3_R1.unmapped_1.fastq.gz",
+  "bytes": 0
+ },
+ {
+  "path": "02_alignment/bowtie2/target/unmapped/igg_ctrl_R1.unmapped_2.fastq.gz",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/h3k27me3_R1.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/01_bam_to_bedgraph/igg_ctrl_R1.sorted.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/h3k27me3_R1.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/02_clip_bed/igg_ctrl_R1.clipped.bedGraph",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/h3k27me3_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/03_bed_to_bigwig/igg_ctrl_R1.bigWig",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R1.macs2_peaks.broadPeak",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/macs2/h3k27me3_R1.macs2_peaks.narrowPeak",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k27me3_R1.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k27me3_R2.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k4me3_R1.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/04_called_peaks/seacr/h3k4me3_R2.seacr.peaks.stringent.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/all_samples.seacr.consensus.peak_counts.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/all_samples.seacr.consensus.peaks.awk.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k27me3.seacr.consensus.peak_counts.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k27me3.seacr.consensus.peaks.awk.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k4me3.seacr.consensus.peak_counts.bed",
+  "bytes": 0
+ },
+ {
+  "path": "03_peak_calling/05_consensus_peaks/h3k4me3.seacr.consensus.peaks.awk.bed",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/gene/h3k27me3_R1.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_heatmaps/peaks/h3k27me3_R1.computeMatrix.mat.gz",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_target_bams.plotCorrelation.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/all_target_bams.plotPCA.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/deeptools_qc/h3k4me3_R1.plotFingerprint.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/igv/igv_session.xml",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_data/multiqc_primary_peakcounts_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "04_reporting/multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/samplesheet.valid.csv",
+  "bytes": 0
+ }
+]

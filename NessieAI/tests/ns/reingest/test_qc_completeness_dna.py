@@ -1,4 +1,4 @@
-"""QC completeness for the atacseq, chipseq and methylseq maps, against a real run.
+"""QC completeness for the atacseq, chipseq, methylseq and cutandrun maps, against a real run.
 
 Their QC was first mapped without a real run of the pinned releases (README "Maps
 written from the docs, then checked on a test run"; methylseq's snapshot fixtures hold no
@@ -19,7 +19,7 @@ from NessieAI.ns.reingest import harvest, mapper, maps
 
 pytestmark = pytest.mark.django_db
 
-PIPELINES = ("atacseq", "chipseq", "methylseq")
+PIPELINES = ("atacseq", "chipseq", "methylseq", "cutandrun")
 ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "reingest_runs"
 ATTRS = json.loads((Path(__file__).resolve().parents[1] / "fixtures"
                     / "sampletype_attributes.json").read_text())["sample_types"]
@@ -30,9 +30,11 @@ def real_runs(pipeline: str) -> list[Path]:
     """Fixture folders of `pipeline` that hold MultiQC data: a -profile test run (Nessie's,
     or one made with make_fixture.sh --local), or AWS results that have it. A snapshot
     import has none. Any data file counts, not only multiqc_* tables: chipseq 2.1.0's
-    MultiQC writes no table files, and a run whose QC a map cannot find must still fail."""
+    MultiQC writes no table files, and a run whose QC a map cannot find must still fail.
+    A map's own `multiqc_data_dirs` count too (cutandrun's 04_reporting/multiqc/)."""
     folders = sorted(p for p in (ROOT / pipeline).glob("*") if (p / "inventory.json").is_file())
-    return [f for f in folders if any(p.is_file() for p in f.glob("multiqc*/**/*_data/*"))]
+    return [f for f in folders if any(p.is_file() for p in f.glob("multiqc*/**/*_data/*"))
+            or any(p.is_file() for d in maps.load(pipeline).multiqc_data_dirs for p in f.glob(d + "*"))]
 
 
 def _real_run_or_skip(pipeline: str) -> list[Path]:

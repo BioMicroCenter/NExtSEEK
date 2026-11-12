@@ -1,0 +1,19 @@
+Sample	FastQC (raw)_mqc-generalstats-fastqc_raw-percent_duplicates	FastQC (raw)_mqc-generalstats-fastqc_raw-percent_gc	FastQC (raw)_mqc-generalstats-fastqc_raw-avg_sequence_length	FastQC (raw)_mqc-generalstats-fastqc_raw-median_sequence_length	FastQC (raw)_mqc-generalstats-fastqc_raw-percent_fails	FastQC (raw)_mqc-generalstats-fastqc_raw-total_sequences	Cutadapt_mqc-generalstats-cutadapt-percent_trimmed	Bowtie2 (target)_mqc-generalstats-bowtie2_target-overall_alignment_rate	Bowtie2 (spike-in)_mqc-generalstats-bowtie2_spike_in-overall_alignment_rate	Picard duplication stats_mqc-generalstats-picard_duplication_stats-PERCENT_DUPLICATION	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-error_rate	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-non_primary_alignments	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_mapped	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_mapped_percent	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_properly_paired_percent	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_MQ0_percent	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-raw_total_sequences	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-flagstat_total	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-mapped_passed	Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-mapped_passed_pct	FastQC (trimmed)_mqc-generalstats-fastqc_trimmed-percent_duplicates	FastQC (trimmed)_mqc-generalstats-fastqc_trimmed-percent_gc	FastQC (trimmed)_mqc-generalstats-fastqc_trimmed-avg_sequence_length	FastQC (trimmed)_mqc-generalstats-fastqc_trimmed-median_sequence_length	FastQC (trimmed)_mqc-generalstats-fastqc_trimmed-percent_fails	FastQC (trimmed)_mqc-generalstats-fastqc_trimmed-total_sequences
+h3k27me3_R1	14.02283647811771	54.0	25.0	25	10.0	2984630.0	4.624583951779618	88.14	0.01	0.049697																
+h3k27me3_R1_1																					13.747888761569413	53.0	24.44103545615829	25	10.0	2860575.0
+h3k27me3_R1_2																					13.719194892987545	53.0	24.41858297719864	25	10.0	2860575.0
+h3k27me3_R2	7.86482047574782	51.0	25.0	25	10.0	2702260.0	5.5291541154441095	88.17	0.01	0.010403																
+h3k27me3_R2_1																					7.625854106873163	51.0	24.445365514292995	25	10.0	2535578.0
+h3k27me3_R2_2																					7.756529480042602	51.0	24.416287726112152	25	10.0	2535578.0
+h3k4me3_R1	28.20036402952114	63.0	25.0	25	10.0	1581710.0	4.8917917949560925	88.92	0.02	0.064927																
+h3k4me3_R1_1																					28.249640436767223	63.0	24.42924096270727	25	10.0	1511072.0
+h3k4me3_R1_2																					27.62579314185733	63.0	24.39766735139027	25	10.0	1511072.0
+h3k4me3_R2	16.30969641607804	58.0	25.0	25	10.0	1885056.0	7.213309312826781	86.15	0.2	0.026044																
+h3k4me3_R2_1																					16.58482628765296	57.0	24.429939682383257	25	10.0	1725035.0
+h3k4me3_R2_2																					15.893001471949503	57.0	24.381065311718313	25	10.0	1725035.0
+igg_ctrl_R1	80.83226715101306	49.0	25.0	25	20.0	2127635.0	5.636773224730746	75.73	3.0	0.85644	9.721187e-05	0.0	389248.0	100.0	100.0	0.0	389248.0	389248	389248	100.0						
+igg_ctrl_R1_1																					83.33132404489558	49.0	24.5019855158906	25	20.0	2008546.0
+igg_ctrl_R1_2																					81.99790197532465	49.0	24.465686621068176	25	20.0	2008546.0
+igg_ctrl_R2	40.946520417160016	47.0	25.0	25	10.0	2192908.0	5.650805232139241	82.65	3.06	0.352085	0.000231946	0.0	1987568.0	100.0	100.0	0.0	1987568.0	1987568	1987568	100.0						
+igg_ctrl_R2_1																					41.97130598825153	46.0	24.504411502974556	25	10.0	2056442.0
+igg_ctrl_R2_2																					41.2202864510793	46.0	24.474325558415945	25	10.0	2056442.0

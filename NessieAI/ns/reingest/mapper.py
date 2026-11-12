@@ -1200,7 +1200,9 @@ def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunMani
                            output: manifest.OutputRecord, warnings: list[str]) -> list | None:
     """The samples a per_file row with ``parents_by_samplesheet`` is parented by: those
     whose samplesheet column holds the row's @file_stem (chipseq's per-antibody consensus,
-    ``<antibody>.consensus_peaks.bed``).
+    ``<antibody>.consensus_peaks.bed``). A stem equal to the rule's ``every_sample_stem``
+    (cutandrun's ``all_samples``) names every sample, less any whose value another
+    sample's ``controls_by_samplesheet`` column names.
 
     None when no sample of this run's samplesheet has that value: the file is not this
     run's (a folder reused by a launch with another antibody), so the row is left out
@@ -1211,7 +1213,13 @@ def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunMani
     ``MapResult.parentless_rows``."""
     column = rule.parents_by_samplesheet
     stem = common.file_stem({"file_path": output.path, "file_glob": rule.candidates[0]})
-    named = [s for s in run_manifest.samples if stem and s.samplesheet.get(column) == stem]
+    if stem and rule.every_sample_stem and stem == rule.every_sample_stem:
+        # The whole run's file (cutandrun's all_samples consensus): every sample but the controls.
+        controls = {s.samplesheet.get(rule.controls_by_samplesheet) for s in run_manifest.samples
+                    if rule.controls_by_samplesheet and s.samplesheet.get(rule.controls_by_samplesheet)}
+        named = [s for s in run_manifest.samples if s.samplesheet.get(column) not in controls]
+    else:
+        named = [s for s in run_manifest.samples if stem and s.samplesheet.get(column) == stem]
     if not named:
         warnings.append(f"{output.path}: no sample in this run's samplesheet has {column} "
                         f"{stem!r}; left out as a file from an earlier launch")
