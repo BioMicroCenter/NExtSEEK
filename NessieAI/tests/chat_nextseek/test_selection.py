@@ -249,3 +249,65 @@ def test_keys_of_the_real_rna_and_dna_atlases_are_never_a_miss(key):
 def test_a_prefixed_or_cased_atlas_name_is_chosen_not_a_miss(name):
     verdict, _ = _decide('{"pipelines": ["%s"], "reason": "fits"}' % name)
     assert verdict.kind == "chosen" and verdict.pipelines == ["rnaseq"] and verdict.atlas_miss is False
+
+
+# --- a pooled, sample-barcoded library (prime-seq, BRB-seq) is never rnaseq ---
+# Owner's ruling, 2026-10-27: prime-seq barcodes each sample at reverse transcription and pools
+# 48 samples per library, so one FASTQ holds 48 samples. rnaseq on it mixes 48 conditions into one
+# count. A paid run on dev read such a cohort's readable protocol and still chose rnaseq.
+
+def test_the_prompt_judges_how_many_samples_a_library_holds():
+    low = SYSTEM_PROMPT.lower()
+    assert "reverse transcription" in low and "pool" in low
+    assert "never name rnaseq" in low
+    assert '"sample_pools"' in SYSTEM_PROMPT
+    # The ordinary 3' tag-counting library stays rnaseq, and single-cell barcodes are not pools.
+    assert "one sample per library" in low and "quantseq" in low
+    assert "cell barcodes of a single-cell library" in low
+
+
+def test_a_pooled_library_named_rnaseq_becomes_scrnaseq():
+    verdict, _ = _decide('{"pipelines": ["rnaseq"], "reason": "gene counts", "sample_pools": true}')
+    assert verdict.kind == "chosen"
+    assert verdict.pipelines == ["scrnaseq"]
+    assert verdict.sample_pools is True
+    assert "rnaseq is set aside" in verdict.reason
+
+
+def test_a_pooled_fork_of_rnaseq_and_scrnaseq_is_scrnaseq_alone():
+    verdict, _ = _decide(
+        '{"pipelines": ["rnaseq", "scrnaseq"], "reason": "either", "sample_pools": true}')
+    assert verdict.kind == "chosen" and verdict.pipelines == ["scrnaseq"]
+
+
+def test_a_pooled_library_keeps_the_comparison_as_dropped():
+    verdict, _ = _decide('{"pipelines": ["scrnaseq", "differentialabundance"], '
+                         '"reason": "split, then compare", "sample_pools": true}')
+    assert verdict.kind == "chosen" and verdict.pipelines == ["scrnaseq"]
+    assert verdict.dropped == ["differentialabundance"] and verdict.sample_pools is True
+
+
+def test_a_pooled_library_leaves_a_pipeline_other_than_rnaseq_alone():
+    # One donor per pool: HLA alleles are still the donor's, so hlatyping is not touched.
+    client = _StubClient('{"pipelines": ["hlatyping"], "reason": "alleles", "sample_pools": true}')
+    verdict = decide(client=client, model="m", budget=None, payload="P", question="Q",
+                     atlas_keys=ATLAS_KEYS | {"hlatyping"})
+    assert verdict.kind == "chosen" and verdict.pipelines == ["hlatyping"]
+
+
+def test_a_pooled_library_with_no_barcode_aware_pipeline_steps_aside():
+    client = _StubClient('{"pipelines": ["rnaseq"], "reason": "counts", "sample_pools": true}')
+    verdict = decide(client=client, model="m", budget=None, payload="P", question="Q",
+                     atlas_keys={"rnaseq"})
+    assert verdict.kind == "out_of_scope" and verdict.pipelines == []
+    assert "pool of barcoded samples" in verdict.reason
+
+
+@pytest.mark.parametrize("flag", ['', ', "sample_pools": false', ', "sample_pools": "true"',
+                                  ', "sample_pools": 1', ', "sample_pools": null'])
+def test_rnaseq_stands_unless_the_model_says_the_library_is_pooled(flag):
+    # The one-library-per-sample 3' tag-counting case (QuantSeq, UMI 3' RNA-Seq) keeps rnaseq:
+    # only a literal true moves it.
+    verdict, _ = _decide('{"pipelines": ["rnaseq"], "reason": "3\' tag counts with UMIs"%s}' % flag)
+    assert verdict.kind == "chosen" and verdict.pipelines == ["rnaseq"]
+    assert verdict.sample_pools is False

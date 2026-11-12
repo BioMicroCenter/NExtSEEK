@@ -16,7 +16,7 @@
     "rnaseq": {
       "revision": "3.18.0",
       "answers": "How much of each gene is expressed, per sample?",
-      "assumes_prep": "Bulk poly-A selected or ribo-depleted RNA library. One library per biological sample.",
+      "assumes_prep": "Bulk poly-A selected or ribo-depleted RNA library. One library per biological sample. Not a pool: when several samples were barcoded at reverse transcription and sequenced as one library (prime-seq, BRB-seq and similar), rnaseq counts the whole pool as one sample.",
       "input_you_must_have": "FASTQ, single- or paired-end.",
       "data_signals": {
         "library_strategy": [
@@ -36,7 +36,7 @@
       },
       "versus": {
         "scrnaseq": {
-          "differs_by": "scrnaseq if the library is per-cell rather than per-sample \u2014 10x, Seq-Well, Drop-seq, or a cell-barcode/UMI read described in the protocol. rnaseq treats a whole tissue as one measurement.",
+          "differs_by": "scrnaseq if the library is per-cell rather than per-sample \u2014 10x, Seq-Well, Drop-seq, or a cell-barcode/UMI read described in the protocol. rnaseq treats a whole tissue as one measurement. scrnaseq also when the protocol says several samples were pooled into one library after each got its own barcode at reverse transcription (prime-seq, BRB-seq and similar): each FASTQ then holds many samples, rnaseq would mix them all into one count, and scrnaseq's barcode-aware counting (kallisto/bustools) splits the pool into one count table per sample. A 3' tag-counting library made one sample per library (QuantSeq, a UMI 3' RNA-Seq kit) is not a pool and stays rnaseq.",
           "ask_user": "Do you want one measurement per sample, or one per individual cell?"
         },
         "smrnaseq": {
@@ -61,7 +61,7 @@
           "differs_by": "denovotranscript only when there is no usable reference genome or annotation for the organism. Where a reference exists, rnaseq is strictly better."
         },
         "differentialabundance": {
-          "differs_by": "differentialabundance starts from a count matrix that already exists. rnaseq starts from FASTQ and produces that matrix. If no pipeline has been run yet, it is rnaseq first.",
+          "differs_by": "differentialabundance starts from a count matrix that already exists. rnaseq starts from FASTQ and produces that matrix. If no pipeline has been run yet, it is rnaseq first, or scrnaseq first for a pooled, sample-barcoded library (see scrnaseq).",
           "ask_user": "Do you already have a table of gene counts from an earlier run, or should we produce one from the sequencing files first? If you have no counts yet, both are needed in sequence \u2014 rnaseq to make the table, then differentialabundance to compare the groups."
         },
         "hlatyping": {
@@ -78,7 +78,7 @@
     "scrnaseq": {
       "revision": "2.7.1",
       "answers": "How much of each gene is expressed, cell by cell?",
-      "assumes_prep": "Droplet or plate-based single-cell library with cell barcodes and usually UMIs.",
+      "assumes_prep": "Droplet or plate-based single-cell library with cell barcodes and usually UMIs. Also a pooled, sample-barcoded 3' library (prime-seq, BRB-seq and similar): each sample's barcode, carried on the oligo(dT) primer at reverse transcription, plays the cell barcode's part, so barcode-aware counting splits each FASTQ into one count table per sample. That needs the barcode layout and the list of sample barcodes from the user.",
       "input_you_must_have": "FASTQ pairs where one read carries the cell barcode.",
       "data_signals": {
         "library_strategy": [
@@ -100,7 +100,7 @@
       },
       "versus": {
         "rnaseq": {
-          "differs_by": "rnaseq if each library is one whole sample rather than a pool of barcoded cells. Running scrnaseq on bulk reads produces no usable cell matrix.",
+          "differs_by": "rnaseq if each library is one whole sample rather than a pool of barcoded cells or of barcoded samples. Running scrnaseq on bulk reads produces no usable cell matrix. A library that pooled many samples after barcoding each at reverse transcription is never rnaseq: rnaseq would count each pool as one sample and mix every condition in it.",
           "ask_user": "Do you want one measurement per sample, or one per individual cell?"
         },
         "smrnaseq": {
