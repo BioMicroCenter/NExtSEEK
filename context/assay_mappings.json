@@ -81,6 +81,10 @@
   },
   {
     "action": "create_internal",
+    "internal_assay_title": "ATAC-Seq"
+  },
+  {
+    "action": "create_internal",
     "internal_assay_title": "RNA-Seq"
   },
   {

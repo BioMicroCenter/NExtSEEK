@@ -49,6 +49,13 @@
     "Tags": "sequence alignment analysis, genome alignment, read mapping, BAM file analysis, SAM analysis, aligned reads, reference mapping, short read alignment, bowtie, BWA, STAR alignment, A.ALN, BAM, CRAM, HISAT2"
   },
   {
+    "SampleType": "A.ATAC",
+    "ID": null,
+    "Name": "ATAC-seq Analysis",
+    "Description": "An ATAC-seq file contains reads or results from an assay of open chromatin, in which a transposase inserts sequencing adapters into accessible DNA. It represents where the genome of one sample or library is accessible, for studying regulatory elements. Each file typically corresponds to a single sequencing library.\nTypical file types: .bam, .bigWig, .bed\nThe TCGA records link to controlled-access BAM files at GDC, with no FASTQ available.",
+    "Tags": "ATAC-seq, ATACseq, ATAC-seq analysis, assay for transposase-accessible chromatin, chromatin accessibility, open chromatin, accessible chromatin, Tn5, regulatory element analysis, peak calling, MACS2, nf-core/atacseq, A.ATAC"
+  },
+  {
     "SampleType": "A.CCE",
     "ID": 85,
     "Name": "Cancer Cell Extravasation Assay Analysis",

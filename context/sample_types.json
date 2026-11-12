@@ -126,6 +126,23 @@
     "sampletype_file_link": null
   },
   {
+    "sample_type": "A.ATAC",
+    "sampletype_id": null,
+    "name": "ATAC-seq Analysis",
+    "clade": "Analyzed",
+    "description": "An ATAC-seq file contains reads or results from an assay of open chromatin, in which a transposase inserts sequencing adapters into accessible DNA. It represents where the genome of one sample or library is accessible, for studying regulatory elements. Each file typically corresponds to a single sequencing library.\nTypical file types: .bam, .bigWig, .bed\nThe TCGA records link to controlled-access BAM files at GDC, with no FASTQ available.",
+    "Tags": "ATAC-seq, ATACseq, ATAC-seq analysis, assay for transposase-accessible chromatin, chromatin accessibility, open chromatin, accessible chromatin, Tn5, regulatory element analysis, peak calling, MACS2, nf-core/atacseq, A.ATAC",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Name, SampleCreationDate, Protocol, Type, DataType, Genome, Aligner, Software, Repository, RepositoryID, Publish_uri, Checksum_PrimaryType, Notes, Instrument, ReadLength, PairedEnd, LibraryName, LibrarySelection, SequencingCenter, ReadGroupCount, TotalReads, AverageReadLength, AverageInsertSize, AverageBaseQuality, ProportionReadsMapped, ProportionReadsDuplicated",
+    "possible_metadata_fields": "File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Pipeline, FRiPPercent, PeakCount, TSSEnrichment, DOI, PMID",
+    "parent_sampletypes": "DNA",
+    "child_sampletypes": null,
+    "associated_assay_parents": "ATAC-Seq",
+    "associated_assay_children": null,
+    "repository_attributes": null,
+    "sampletype_file_link": null
+  },
+  {
     "sample_type": "A.CCE",
     "sampletype_id": 85,
     "name": "Cancer Cell Extravasation Assay Analysis",
@@ -1778,9 +1795,9 @@
     "standard_metadata": "Protocol, LibraryType, Volume, Barcode, BarcodeType, Barcode2, Barcode2Type, NumPrepCycles",
     "possible_metadata_fields": "Protocol2, SampleCreationDate, Type, VolumeUnits, PrepDate, PoolDate, PeakFragmentSize, PeakConcentration, PeakConcUnits, Concentration, ConcUnits, ConcType, InsertionSize, Notes, Publish_uri, Lab, TubeNumber, WellID, AntibodyParent, BacteriaParent, Size, QC_Instrument, Link_QC, InputMassRNA, ShipDestination, DOI, PMID",
     "parent_sampletypes": "CEL, RNA, DNA, TIS, BAC, ABP",
-    "child_sampletypes": "D.SEQ, DNA, D.GPT, D.SPC, A.SCXP, D.PCR",
+    "child_sampletypes": "D.SEQ, DNA, D.GPT, D.SPC, A.SCXP, D.PCR, A.ATAC",
     "associated_assay_parents": "Library Creation, DNA Extraction, cDNA Synthesis",
-    "associated_assay_children": "Short Read Sequencing, Single Cell Sequencing, Library Creation, Bulk DNA Sequencing, GPT Assay, Mass Spectrometry, DNA Extraction, Long-Read Sequencing, Single Cell Expression Analysis, Polymerase Chain Reaction (PCR), WGS, WXS",
+    "associated_assay_children": "Short Read Sequencing, Single Cell Sequencing, Library Creation, Bulk DNA Sequencing, GPT Assay, Mass Spectrometry, DNA Extraction, Long-Read Sequencing, Single Cell Expression Analysis, Polymerase Chain Reaction (PCR), WGS, WXS, ATAC-Seq",
     "repository_attributes": null,
     "sampletype_file_link": null
   },

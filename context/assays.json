@@ -2448,6 +2448,23 @@
     "Protocols_Phrases": null
   },
   {
+    "assay_name": "ATAC-Seq",
+    "internal_assay_id": null,
+    "Description": "ATAC-seq (assay for transposase-accessible chromatin), named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. ATAC-seq from any other source is under Chromatin Sequencing Analysis.",
+    "Tags": "GDC ATAC-Seq, GDC experimental strategy, controlled-access BAM",
+    "Alternative_Assay_Names": null,
+    "Parent_Clade_Type": "Processed",
+    "Child_Clade_Type": "Analyzed",
+    "Required_Parent_Sample_Types": "DNA",
+    "Optional_Parent_Sample_Types": null,
+    "Children_Sample_Types": "A.ATAC",
+    "Critical_Attributes": null,
+    "AssociatedRepository": "GDC",
+    "AssaySheet_Link": null,
+    "Protocols_UIDs": null,
+    "Protocols_Phrases": null
+  },
+  {
     "assay_name": "RNA-Seq",
     "internal_assay_id": null,
     "Description": "RNA sequencing, named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. RNA sequencing from any other source is under another sequencing assay, such as Short Read Sequencing.",

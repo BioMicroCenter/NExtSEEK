@@ -720,6 +720,11 @@
     "Tags": "microRNA, miRNA discovery, novel miRNA, small RNA sequencing, miRDeep2, miRBase, nf-core/smrnaseq"
   },
   {
+    "Name": "ATAC-Seq",
+    "Description": "ATAC-seq (assay for transposase-accessible chromatin), named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. ATAC-seq from any other source is under Chromatin Sequencing Analysis.",
+    "Tags": "GDC ATAC-Seq, GDC experimental strategy, controlled-access BAM"
+  },
+  {
     "Name": "RNA-Seq",
     "Description": "RNA sequencing, named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. RNA sequencing from any other source is under another sequencing assay, such as Short Read Sequencing.",
     "Tags": "GDC RNA-Seq, GDC experimental strategy, controlled-access BAM"
