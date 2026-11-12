@@ -563,7 +563,7 @@
     "SampleType": "D.SEQ",
     "ID": 33,
     "Name": "Sequencing Data",
-    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz",
+    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz\nSome records link to a controlled-access BAM at the data source instead, with no FASTQ available.",
     "Tags": "sequencing data, FASTQ, raw reads, NGS data, next-generation sequencing, short-read sequencing, Illumina data, RNA-seq raw, WGS, whole genome sequencing, WES, whole exome sequencing, long-read sequencing, Oxford Nanopore, D.SEQ"
   },
   {

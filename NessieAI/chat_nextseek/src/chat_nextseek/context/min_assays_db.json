@@ -720,6 +720,26 @@
     "Tags": "microRNA, miRNA discovery, novel miRNA, small RNA sequencing, miRDeep2, miRBase, nf-core/smrnaseq"
   },
   {
+    "Name": "RNA-Seq",
+    "Description": "RNA sequencing, named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. RNA sequencing from any other source is under another sequencing assay, such as Short Read Sequencing.",
+    "Tags": "GDC RNA-Seq, GDC experimental strategy, controlled-access BAM"
+  },
+  {
+    "Name": "WGS",
+    "Description": "Whole genome sequencing, named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. Whole genome sequencing from any other source is under another sequencing assay, such as Bulk DNA Sequencing.",
+    "Tags": "GDC WGS, GDC experimental strategy, controlled-access BAM"
+  },
+  {
+    "Name": "WXS",
+    "Description": "Whole exome sequencing, named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. Whole exome sequencing from any other source is under another sequencing assay, such as Bulk DNA Sequencing.",
+    "Tags": "GDC WXS, GDC experimental strategy, controlled-access BAM"
+  },
+  {
+    "Name": "miRNA-Seq",
+    "Description": "MicroRNA sequencing, named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. Small RNA sequencing from any other source is under another sequencing assay, such as Short Read Sequencing.",
+    "Tags": "GDC miRNA-Seq, GDC experimental strategy, controlled-access BAM"
+  },
+  {
     "Name": "Methylation Calling",
     "Description": "Methylation calling measures cytosine methylation from bisulfite, enzymatic (EM-seq) or TAPS sequencing. Reads are aligned to a converted reference (Bismark, bwa-meth or bwa-mem), duplicates are removed or marked, and the methylation state of each covered cytosine is read from the conversions in the reads (Bismark methylation extractor, MethylDackel), giving per-CpG methylation levels with their read counts. One result is produced per sequencing sample.",
     "Tags": "DNA methylation, methylation calling, bisulfite sequencing, WGBS, RRBS, EM-seq, TAPS, CpG methylation, Bismark, MethylDackel, nf-core/methylseq"
