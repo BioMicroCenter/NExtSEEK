@@ -97,7 +97,7 @@ def test_atlas_keys_are_passed_so_invented_keys_can_be_caught(patched):
     assert patched["decide_kwargs"]["launchable_keys"] == {"rnaseq"}
 
 
-def _call_real_decide(monkeypatch, content, state=None):
+def _call_real_decide(monkeypatch, content, state=None, extra_pipelines=None):
     """Drive tool_select_pipeline through the REAL selection.decide, with only the
     digest, the payload and the model stubbed, over an atlas holding one
     launchable key (rnaseq) and one atlas-only key (differentialabundance)."""
@@ -121,6 +121,7 @@ def _call_real_decide(monkeypatch, content, state=None):
                 "answers": "Which features differ significantly between two groups?",
                 "assumes_prep": "The input is a matrix produced by an earlier run.",
             },
+            **(extra_pipelines or {}),
         },
     })
 
@@ -224,6 +225,47 @@ def test_an_unlaunchable_answer_is_explained_not_replaced(monkeypatch):
     assert state["selection"]["dropped"] == ["differentialabundance"]
     assert "conclude(outcome='rejected')" in out["message"]
     assert "exactly as you would if this tool did not exist" not in out["message"]
+
+
+def test_a_pooled_library_is_offered_with_a_question_and_nothing_built(monkeypatch):
+    """Owner's ruling, 2026-10-27: each FASTQ of a prime-seq cohort is a pool of 48 samples
+    barcoded at reverse transcription. rnaseq is never offered; scrnaseq is, the barcode layout
+    and barcode list are asked for before anything is built, and the comparison is named as
+    differentialabundance, which cannot be launched here."""
+    state = {}
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["rnaseq", "differentialabundance"], '
+                     '"reason": "counts, then DE", "sample_pools": true}',
+        state=state, extra_pipelines={"scrnaseq": {"revision": "2.7.1"}})
+    assert out["verdict"] == "chosen" and out["pipelines"] == ["scrnaseq"]
+    assert out["sample_pools"] is True and state["selection"]["sample_pools"] is True
+    assert state["selection"]["pipelines"] == ["scrnaseq"]
+    message = out["message"]
+    assert message == agent_tools._SAMPLE_POOL_NEXT_STEP
+    assert "Do NOT call resolve_samples" in message and "STOP" in message
+    assert "barcode layout" in message and "list of sample barcodes" in message
+    assert "differentialabundance" in message and "cannot launch" in message
+    assert "rnaseq would count each pool as one sample" in message
+    # The dropped step still rides along as data.
+    assert [d["pipeline"] for d in out["dropped"]] == ["differentialabundance"]
+
+
+def test_an_unpooled_library_gets_no_pool_message(monkeypatch):
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["rnaseq"], "reason": "3\' tag counts with UMIs", '
+                     '"sample_pools": false}', extra_pipelines={"scrnaseq": {"revision": "2.7.1"}})
+    assert out["verdict"] == "chosen" and out["pipelines"] == ["rnaseq"]
+    assert "sample_pools" not in out
+    assert out["message"] == agent_tools._SELECTION_NEXT_STEP["chosen"]
+
+
+def test_a_pooled_flag_on_another_pipeline_leaves_the_message_alone(monkeypatch):
+    # One donor per pool: HLA typing reads the donor's alleles whatever the pooling.
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["hlatyping"], "reason": "alleles", "sample_pools": true}',
+        extra_pipelines={"hlatyping": {"revision": "2.1.0"}})
+    assert out["verdict"] == "chosen" and out["pipelines"] == ["hlatyping"]
+    assert "sample_pools" not in out
 
 
 def test_missing_question_is_a_tool_error_not_a_verdict():
@@ -468,6 +510,8 @@ def test_the_prompt_teaches_every_verdict():
     assert "named a pipeline" in text.lower()
     # The agent must not tell the user about the machinery.
     assert "Do not mention select_pipeline" in text
+    # A pooled library is offered with a question, never built straight away.
+    assert "sample_pools" in text and "STOP before resolve_samples" in text
 
 
 def test_agent_loop_threads_send_event_into_the_tool(monkeypatch):

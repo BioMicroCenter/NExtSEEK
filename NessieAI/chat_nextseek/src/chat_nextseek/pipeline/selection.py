@@ -52,6 +52,20 @@ isoforms; a library with no size selection cannot answer a question about
 small RNAs; a species with no reference bundle cannot be run at all. The
 protocol text is often the only place the preparation is described.
 
+Judge, too, how many samples one library holds. Some plate-based 3' methods
+(prime-seq, BRB-seq and similar) give each sample its own barcode on the
+oligo(dT) primer at reverse transcription and then pool many samples into one
+library, so each FASTQ holds many samples, often under different conditions.
+The metadata records such a library exactly like ordinary polyA RNA-Seq; only
+the protocol text says it was pooled. Treat it as a barcode-aware,
+single-cell-style library: never name rnaseq for it, because rnaseq would count
+each pool as one sample and mix every condition in it; scrnaseq's barcode-aware
+counting (kallisto/bustools) splits the pools into one count table per sample.
+Set "sample_pools" to true when the protocol says this. A 3' tag-counting
+library made one sample per library (QuantSeq, a UMI 3' RNA-Seq kit) is not a
+pool, and neither are the cell barcodes of a single-cell library: for those,
+"sample_pools" is false.
+
 Return an empty pipelines list when nothing fits, and say which of two
 different things is true in "basis":
 
@@ -70,9 +84,11 @@ downstream analysis; that is true of almost every correct answer.
 
 Respond with ONLY a single JSON object, no markdown fence, no text around it:
 
-{"pipelines": ["<atlas key>", ...], "reason": "<one sentence>", "basis": "data" | "atlas"}
+{"pipelines": ["<atlas key>", ...], "reason": "<one sentence>", "basis": "data" | "atlas", "sample_pools": true | false}
 
-"basis" is required when "pipelines" is empty and ignored otherwise."""
+"basis" is required when "pipelines" is empty and ignored otherwise.
+"sample_pools" is true only when the protocol says several samples were
+barcoded and pooled into one library."""
 
 USER_TEMPLATE = """{payload}
 
@@ -98,6 +114,9 @@ class Verdict:
     #: curated atlas (RNA + DNA); `asked` holds the pipeline names the model named, if any.
     atlas_miss: bool = False
     asked: list[str] = field(default_factory=list)
+    #: True when the model judged each FASTQ a pool of samples barcoded at reverse
+    #: transcription (prime-seq, BRB-seq). rnaseq is then never kept: see decide().
+    sample_pools: bool = False
 
 
 def out_of_scope(reason: str, raw: str = "", *, atlas_miss: bool = False,
@@ -192,6 +211,18 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
             f"the selection model named {len(set(chosen))} pipelines, which is not a choice", raw)
 
     named = list(dict.fromkeys(chosen))
+    # A pooled, sample-barcoded library is never rnaseq (owner's ruling, 2026-10-27): rnaseq
+    # would count each pool as one sample. When the model judged the library pooled and still
+    # named rnaseq, scrnaseq, which splits the pools by their barcodes, takes its place.
+    sample_pools = parsed.get("sample_pools") is True
+    if sample_pools and "rnaseq" in named:
+        swap = ["scrnaseq"] if "scrnaseq" in atlas_keys else []
+        named = list(dict.fromkeys(s for k in named for s in (swap if k == "rnaseq" else [k])))
+        reason = (reason + " rnaseq is set aside: each FASTQ is a pool of barcoded samples, "
+                  "so it would count a pool as one sample.").strip()
+        if not named:
+            return out_of_scope(f"the library is a pool of barcoded samples, which rnaseq cannot "
+                                f"split, and no barcode-aware pipeline is in the atlas: {reason}", raw)
     kept = [k for k in named if k in launchable_keys]
     dropped = [k for k in named if k not in launchable_keys]
     if not kept:
@@ -202,4 +233,5 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
                               "in the atlas but cannot be launched here")
 
     kind = "chosen" if len(kept) == 1 else "fork"
-    return Verdict(kind=kind, pipelines=kept, reason=reason, raw=raw, dropped=dropped)
+    return Verdict(kind=kind, pipelines=kept, reason=reason, raw=raw, dropped=dropped,
+                   sample_pools=sample_pools)

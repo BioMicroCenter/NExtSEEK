@@ -288,3 +288,29 @@ def test_rnavar_prep_kit_hints_name_only_library_preps():
     hints = [h.lower() for h in load_atlas()["pipelines"]["rnavar"]["data_signals"]["prep_kit_hints"]]
     for word in ("tumour", "tumor", "cancer", "mutation"):
         assert not any(word in hint for hint in hints), word
+
+
+# ---------------------------------------------------------------------------
+# Pooled, sample-barcoded 3' libraries
+#
+# Owner's ruling, 2026-10-27: a prime-seq cohort (barcoded oligo(dT) at reverse
+# transcription, 48 samples per pool) was offered rnaseq because the atlas framed
+# rnaseq against scrnaseq only as "per sample or per cell": a pool of barcoded
+# samples matched neither reading, and the bulk default won.
+# ---------------------------------------------------------------------------
+
+def test_rnaseq_and_scrnaseq_say_a_sample_barcoded_pool_is_scrnaseq():
+    pipelines = load_atlas()["pipelines"]
+    for text in (pipelines["rnaseq"]["assumes_prep"],
+                 pipelines["rnaseq"]["versus"]["scrnaseq"]["differs_by"],
+                 pipelines["scrnaseq"]["assumes_prep"],
+                 pipelines["scrnaseq"]["versus"]["rnaseq"]["differs_by"]):
+        low = text.lower()
+        assert "reverse transcription" in low and "pool" in low, text
+    assert "kallisto/bustools" in pipelines["rnaseq"]["versus"]["scrnaseq"]["differs_by"]
+    assert "never rnaseq" in pipelines["scrnaseq"]["versus"]["rnaseq"]["differs_by"]
+
+
+def test_a_one_sample_per_library_3prime_tag_library_stays_rnaseq():
+    differs = load_atlas()["pipelines"]["rnaseq"]["versus"]["scrnaseq"]["differs_by"]
+    assert "one sample per library" in differs and "stays rnaseq" in differs

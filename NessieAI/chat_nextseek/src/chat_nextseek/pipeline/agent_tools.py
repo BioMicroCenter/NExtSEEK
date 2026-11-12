@@ -1445,6 +1445,22 @@ _ONLY_DROPPED_NEXT_STEP = (
     "Otherwise call conclude(outcome='rejected') with that explanation. Do not mention "
     "the selection tool to the user.")
 
+# Replaces the chosen/fork message when selection judged each FASTQ a pool of samples barcoded at
+# reverse transcription (prime-seq, BRB-seq) and named scrnaseq to split them. Nothing can be built
+# before the user gives the barcode layout and the barcode list (owner's ruling, 2026-10-27).
+_SAMPLE_POOL_NEXT_STEP = (
+    "Each FASTQ here is a pool of samples, each tagged with its own barcode at reverse "
+    "transcription. Do NOT call resolve_samples, write_samplesheet or configure_run yet. Write the "
+    "offer in plain text, then STOP: (1) these files are pools of barcoded samples, so "
+    "nf-core/rnaseq would count each pool as one sample and mix every condition in it; "
+    "(2) nf-core/scrnaseq, with barcode-aware counting (kallisto/bustools), can split the pools "
+    "into one count table per sample; (3) before building it you need the barcode layout (which "
+    "read carries the sample barcode and the UMI, and their lengths) and the list of sample "
+    "barcodes with the sample each one belongs to: ask the user for both; (4) if the user asked "
+    "to compare groups, say that the comparison itself is nf-core/differentialabundance, run on "
+    "those per-sample counts, and that NExtSEEK cannot launch it yet. Do not mention the "
+    "selection tool to the user.")
+
 # Appended to the configure/resolve result when the pipeline actually built is not in the curated atlas
 # (operator-approved wording, 11-09), so the user hears the choice came from the full catalog.
 _ATLAS_MISS_NEXT_STEP = (
@@ -1529,6 +1545,11 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
                 message += _DROPPED_NEXT_STEP.format(names=names)
             else:
                 message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        if getattr(verdict, "sample_pools", False) and "scrnaseq" in verdict.pipelines:
+            # Replaces the chosen/fork and dropped messages: it names differentialabundance itself.
+            state["selection"]["sample_pools"] = True
+            result["sample_pools"] = True
+            message = _SAMPLE_POOL_NEXT_STEP
         if verdict.atlas_miss:
             # data only: the user sentence is added where the built pipeline is known (_flag_atlas_miss)
             state["selection"]["atlas_miss"] = {"pipelines": verdict.asked}
