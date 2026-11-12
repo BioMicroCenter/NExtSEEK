@@ -2,31 +2,6 @@
   "family": "not_yet",
   "stories": [
     {
-      "id": "cutandrun-not-yet",
-      "question": "These libraries are CUT&Tag, not ChIP; the metadata is wrong. Run CUT&Tag peak calling on them.",
-      "cohort": "test::chip",
-      "route": "nextseek_query",
-      "acceptable": [],
-      "must_not": [],
-      "expect": "not_yet",
-      "launch": {
-        "built": false,
-        "must_match": {}
-      },
-      "history": [],
-      "replies": [],
-      "phrasing": "plain",
-      "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "CUT&Tag and CUT&RUN need nf-core/cutandrun, which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. The user overrides the ChIP metadata of the test cohort (there is no CUT&Tag cohort), so offering chipseq against the user's statement is wrong: the atlas's own chipseq entry says CUT&Tag is not ChIP-seq and cannot be launched."
-      },
-      "ruling": {
-        "state": "changed",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). On a ChIP cohort an accurate reply could point out the libraries are ChIP and offer chipseq, which this story would fail. The user now states the libraries are CUT&Tag and the metadata is wrong, so chipseq is no longer a defensible offer and 'not yet' is the only right answer."
-      }
-    },
-    {
       "id": "raredisease-not-yet",
       "question": "We already have the germline VCFs for these two genomes. Rank their variants by how likely each is to cause a rare disease.",
       "cohort": "test::human_wgs_germline",
