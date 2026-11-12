@@ -3,6 +3,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -222,6 +223,89 @@ def test_from_aws_names_the_folder_and_keeps_the_inventory_honest(tmp_path):
     assert listed == ["multiqc/multiqc_data/multiqc_sources.txt",
                       "preprocessing/recalibrated/S1/S1.recal.cram"]
     assert "://" not in (dest / "EVIDENCE.txt").read_text()
+    sanitize_ok(dest)
+
+
+def flat_aws_fetch():
+    """A release published with no <profile>/ folder and no software_mqc_versions.yml
+    (nf-core/cutandrun 3.x)."""
+    keys = ["04_reporting/multiqc/multiqc_data/multiqc_general_stats.txt",
+            "pipeline_info/software_versions.yml",
+            "03_peak_calling/03_bed_to_bigwig/A_R1.bigWig"]
+
+    def fetch(url):
+        if url == f"{ie.API}/cutandrun/commits/3.1":
+            return json.dumps({"sha": "abc"}).encode()
+        if "list-type=2" in url:
+            prefix = urllib.parse.unquote(url.split("prefix=", 1)[1].split("&", 1)[0])
+            body = "".join(f"<Contents><Key>{prefix}{k}</Key><Size>10</Size></Contents>"
+                           for k in keys)
+            return ('<?xml version="1.0"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                    + body + "</ListBucketResult>").encode()
+        if url == f"{RAW}/cutandrun/3.1/conf/test_full.config":
+            return TEST_CONFIG.encode()
+        if url == f"{RAW}/cutandrun/3.1/tests/sheet.csv":
+            return SHEET.encode()
+        return {"multiqc_general_stats.txt": b"Sample\tx\n"}[url.rsplit("/", 1)[-1]]
+    return fetch
+
+
+def test_from_aws_flat_reads_the_results_root_and_takes_the_version_from_the_tag(tmp_path):
+    built = ie.from_aws("cutandrun", "3.1", "test_full", None, flat_aws_fetch(), flat=True)
+    assert built["folder"] == "3.1-aws-test_full"
+    assert list(built["files"]) == ["04_reporting/multiqc/multiqc_data/multiqc_general_stats.txt"]
+    assert built["versions_yml"] == "Workflow:\n  nf-core/cutandrun: v3.1\n"
+    assert "release tag 3.1" in built["evidence"]
+    dest = tmp_path / "f"
+    ie.write_fixture(dest, pipeline="cutandrun", version="3.1",
+                     **{k: v for k, v in built.items() if k != "folder"})
+    sanitize_ok(dest)
+
+
+def test_from_aws_without_flat_still_requires_the_versions_file():
+    with pytest.raises(SystemExit, match="software_mqc_versions"):
+        ie.from_aws("cutandrun", "3.1", "test_full", None, flat_aws_fetch())
+
+
+PYTEST_YML = """
+- name: ok
+  command: nextflow run main.nf -profile docker,test
+  files:
+    - path: results/03_peak_calling/04_called_peaks/seacr/A_R1.seacr.peaks.stringent.bed
+    - path: results/04_reporting/multiqc/multiqc_report.html
+- name: refused
+  command: nextflow run main.nf --peakcaller nope
+  exit_code: 1
+  files:
+    - path: results/never/written.txt
+- name: other
+  files:
+    - path: results/02_alignment/bowtie2/target/markdup/A_R1.target.markdup.sorted.bam
+    - path: work/not_results.txt
+    - path: results/01_prealign/trimgalore/A_R1_1.trimmed.fq.gz
+      should_exist: false
+"""
+
+
+def test_pytest_paths_merges_passing_tests_under_results():
+    import yaml
+    assert ie.pytest_paths(yaml.safe_load(PYTEST_YML)) == [
+        "02_alignment/bowtie2/target/markdup/A_R1.target.markdup.sorted.bam",
+        "03_peak_calling/04_called_peaks/seacr/A_R1.seacr.peaks.stringent.bed",
+        "04_reporting/multiqc/multiqc_report.html"]
+
+
+def test_from_pytest_builds_a_sanitizer_clean_fixture(tmp_path):
+    urls = {f"{RAW}/cutandrun/3.2.2/tests/t1.yml": PYTEST_YML.encode(),
+            f"{RAW}/cutandrun/3.2.2/conf/test.config": TEST_CONFIG.encode(),
+            f"{RAW}/cutandrun/3.2.2/tests/sheet.csv": SHEET.encode()}
+    built = ie.from_pytest("cutandrun", "3.2.2", ["t1"], lambda url: urls[url])
+    assert built["folder"] == "3.2.2-pytest"
+    assert len(built["inventory"]) == 3 and all(e["bytes"] == 0 for e in built["inventory"])
+    assert built["versions_yml"] == "Workflow:\n  nf-core/cutandrun: v3.2.2\n"
+    dest = tmp_path / "f"
+    ie.write_fixture(dest, pipeline="cutandrun", version="3.2.2",
+                     **{k: v for k, v in built.items() if k != "folder"})
     sanitize_ok(dest)
 
 
