@@ -8,7 +8,9 @@ uploaded; it never makes a PipelineRun, and its folder gets no saved.txt.
 """
 from __future__ import annotations
 
+import json
 import types
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -207,3 +209,32 @@ def test_the_build_header_says_how_each_sample_was_matched():
     assert "- NA12878: D.SEQ-X-1 (by the full read path)" in header
     assert "- NA12891: D.SEQ-X-2 (by the read file name only)" in header
     assert "- NA12892: no parent found (ambiguous)" in header
+
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "reingest_runs"
+
+
+def test_nf_cores_own_aws_results_are_taken_on_their_own_files():
+    """nf-core's published AWS results of sarek 3.10.0, a run Nessie never launched: its
+    pipeline_info names the pipeline and release, and its samplesheet names the reads."""
+    folder = FIXTURES / "sarek" / "3.10.0-aws-test_full_germline_ncbench_agilent"
+    run = harvest.harvest_local(str(folder), run_dir="/RUN",
+                                inventory=json.loads((folder / "inventory.json").read_text()))
+    evidence = g._foreign_run_evidence(run, ADMIN.user)
+    assert run.pipeline.name == "nf-core/sarek"
+    assert evidence.pipeline_source.startswith("pipeline_info/")
+    assert evidence.samplesheet_source == "samplesheet.csv"
+
+
+def test_a_folder_with_only_execution_traces_is_refused(tmp_path):
+    """nf-core/atacseq 2.1.2's AWS results keep only execution traces and reports: nothing
+    in them names the pipeline, so the run cannot be told from an arbitrary folder."""
+    (tmp_path / "pipeline_info").mkdir()
+    (tmp_path / "pipeline_info" / "execution_trace_2023-08-07_22-04-16.txt").write_text(
+        "task_id\thash\tnative_id\tname\tstatus\texit\n1\tab/cd\t1\tFASTQC (1)\tCOMPLETED\t0\n")
+    (tmp_path / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,replicate\nS,/r/S_1.fq.gz,/r/S_2.fq.gz,1\n")
+    run = harvest.harvest_local(str(tmp_path), run_dir="/RUN")
+    with pytest.raises(g.OpValidationError) as err:
+        g._foreign_run_evidence(run, ADMIN.user)
+    assert err.value.error_type == "foreign_run_names_no_pipeline"
