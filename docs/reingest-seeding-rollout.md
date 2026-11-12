@@ -202,7 +202,7 @@ for t in sorted(want):
 PY
 ```
 
-Ready means: five `assay` lines each ending in a title (none `None`, none `AMBIGUOUS`), and for
+Ready means: every `assay` line ending in a title (none `None`, none `AMBIGUOUS`), and for
 every type a catalog row, a SEEK id and two empty lists. Anything else is a row of the workbook to
 write. Also read the SEEK value type of a sibling attribute, to give the new ones the same type:
 
@@ -232,7 +232,10 @@ through it, not from this dump.
 
 ### 4.3 House assays in `internal_assays` (gated)
 
-Only the titles 4.1 showed absent. `HLA Typing` and `Variant Call Filtering` are what the maps need;
+Only the titles 4.1 showed absent, meaning its line ends in `None`. A title whose line already ends in
+another title resolves through an alternative name (on dev, `Variant Call Filtering` resolves to
+`Variant Calling`): leave it out, because inserting it makes that name `AMBIGUOUS`. The guard below
+matches the literal title only, so it does not catch this. `HLA Typing` and `Variant Call Filtering` are what the maps need;
 the five others only if the operator ruled `A-OPT` in. The guard compares exactly, as the code does,
 so a second run inserts nothing.
 
@@ -352,11 +355,11 @@ primary-data rules write it), minus what 4.1 showed present; the A.GEX six per
 `dry_run` first. Build the body from the committed meanings, with the value types 4.1's last query
 showed (the maps' `datatype` is `number` for all but `Strandedness`, which is `string`; A.ALN
 `Software` holds a tool version, so it takes the text type; A.CHRM `Checksum_PrimaryData` takes the
-type `Checksum_PrimaryData` has on A.ALN):
+type `Checksum_PrimaryData` has on most types of the box, which on dev is not A.ALN's):
 
 ```bash
 NUM='<value type of MappedPercent on this box>' TEXT='<value type of Genome on this box>' \
-  CHK='<value type of Checksum_PrimaryData on A.ALN on this box>' python3 - > /tmp/reingest-attrs.json <<'PY'
+  CHK='<most common value type of Checksum_PrimaryData on this box>' python3 - > /tmp/reingest-attrs.json <<'PY'
 import json, os, re
 seed = open("startup/seed/sql/sample_attributes_unique_data.sql", encoding="utf-8").read()
 def meaning(name):
@@ -477,7 +480,7 @@ NAMES='DuplicationPercent|Strandedness|MultimappedPercent|DupRadarIntercept|Mism
 
 ### 4.10 Verify the box
 
-Rerun 4.1's `app_shell` check: five resolved assays, every type with a catalog row and a SEEK id, all
+Rerun 4.1's `app_shell` check: every assay resolved, every type with a catalog row and a SEEK id, all
 lists empty. Then, as for any catalog change, wait for (or trigger) the app's daily context refresh and
 confirm the box's Nessie answers "what does an A.HLA sample hold" from the new row.
 
