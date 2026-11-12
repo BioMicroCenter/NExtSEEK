@@ -514,7 +514,7 @@ def _losing_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifest
 
 
 def _pick_primary(candidates: list[manifest.OutputRecord],
-                  checksums: dict[str, str]) -> manifest.OutputRecord | None:
+                  checksums: dict[str, str], aligner: str = "") -> manifest.OutputRecord | None:
     """The one tie-break rule behind both ``_primary_output`` and
     ``_attach_checksum``, kept in exactly one place so the two can never
     drift on which candidate wins: prefer whichever candidate ``checksums``
@@ -525,9 +525,9 @@ def _pick_primary(candidates: list[manifest.OutputRecord],
     same-named gene-counts matrix under two directories), the one it paid to
     SSH-hash is the one this must return -- picking sorted-first regardless
     would silently discard a real, already-computed checksum whenever the
-    alphabetically first candidate happens not to be it. Among candidates
-    that are equally checksummed (including "none of them"), sorted-first is
-    still the deterministic tie-break ``harvest.py``'s own
+    alphabetically first candidate happens not to be it. With no checksum to
+    decide, a candidate under the folder named by the run's ``aligner`` param
+    wins next. Otherwise sorted-first is still the deterministic tie-break ``harvest.py``'s own
     ``_resolve_named_outputs`` uses -- not a claim that it is the "right"
     one. ``candidates`` is assumed already sorted by path (as
     ``_primary_candidates`` returns it). ``None`` on an empty candidate list,
@@ -536,7 +536,23 @@ def _pick_primary(candidates: list[manifest.OutputRecord],
     if not candidates:
         return None
     checksummed = [o for o in candidates if o.path in checksums]
-    return checksummed[0] if checksummed else candidates[0]
+    if checksummed:
+        return checksummed[0]
+    # A run folder reused by launches with different --aligner values holds one
+    # same-named file per aligner folder (nf-core/chipseq's AWS results: bowtie2/,
+    # bwa/, chromap/ and star/ under one outdir). The row's Aligner is read from the
+    # newest params, so its file must come from that aligner's folder, never from
+    # whichever folder sorts first. The pick is still reported as one to confirm.
+    if aligner:
+        own = [o for o in candidates if o.path.split("/", 1)[0] == aligner]
+        if own:
+            return own[0]
+    return candidates[0]
+
+
+def _run_aligner(run_manifest: manifest.RunManifest) -> str:
+    """The newest params' ``aligner``, the folder nf-core names an aligner's outputs by."""
+    return str((run_manifest.params or {}).get("aligner") or "")
 
 
 def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
@@ -555,7 +571,7 @@ def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
     ordinary miss (see ``_primary_candidates``) -- never an error.
     """
     candidates = _primary_candidates(rule, run_manifest, sample_name)
-    return _pick_primary(candidates, run_manifest.checksums)
+    return _pick_primary(candidates, run_manifest.checksums, _run_aligner(run_manifest))
 
 
 def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
@@ -634,7 +650,7 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     checksummed = [o for o in candidates if o.path in run_manifest.checksums]
     # Same tie-break _primary_output uses, shared via _pick_primary rather
     # than re-derived here, so the two can never pick different winners.
-    primary = _pick_primary(candidates, run_manifest.checksums)
+    primary = _pick_primary(candidates, run_manifest.checksums, _run_aligner(run_manifest))
     if "File_PrimaryData" not in row.attributes:
         ambiguous = len(candidates) > 1 and len(checksummed) != 1
         row.attributes["File_PrimaryData"] = MappedAttribute(

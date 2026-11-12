@@ -1037,7 +1037,39 @@ def test_ambiguous_primary_candidates_are_reported_but_still_set_a_value():
     # `value`, which cannot show the difference).
     assert set(attr.candidates) == {
         "star_salmon/all.merged.gene_counts.tsv", "star_rsem/all.merged.gene_counts.tsv"}
-    assert attr.source_file == "star_rsem/all.merged.gene_counts.tsv"
+    # The run's own aligner (params: star_salmon) wins the unchecksummed pick,
+    # not the folder that sorts first (star_rsem).
+    assert attr.source_file == "star_salmon/all.merged.gene_counts.tsv"
+
+
+def _reused_folder_run(aligner):
+    """nf-core/chipseq 2.1.0's AWS results: four launches, one per --aligner, wrote
+    one outdir; the newest params name the aligner the harvest reads."""
+    run = manifest.RunManifest(
+        run_dir="/RUN", params={"aligner": aligner, "genome": "hg19"},
+        pipeline=manifest.PipelineInfo(name="nf-core/chipseq", version="2.1.0"),
+        samples=[manifest.SampleRecord(nfcore_sample="EZH2_IP_NTKO_REP1", d_seq_uid="D.SEQ-1",
+                                       uid_resolution=manifest.RESOLUTION_FASTQ_EXACT)],
+        outputs=[manifest.OutputRecord(path=f"{a}/merged_library/EZH2_IP_NTKO_REP1.mLb.clN.sorted.bam",
+                                       sample="EZH2_IP_NTKO_REP1", bytes=50)
+                 for a in ("bowtie2", "bwa", "chromap", "star")])
+    aln = next(r for r in mapper.apply(run, maps.load("chipseq")).rows if r.rule_id == "aln")
+    return aln.attributes
+
+
+@pytest.mark.parametrize("aligner", ["bwa", "star", "bowtie2"])
+def test_a_reused_folder_takes_the_file_of_the_aligner_its_row_names(aligner):
+    attrs = _reused_folder_run(aligner)
+    assert attrs["Aligner"].value == aligner
+    assert attrs["File_PrimaryData"].source_file.startswith(f"{aligner}/merged_library/")
+    assert attrs["Link_PrimaryData"].value.endswith(
+        f"{aligner}/merged_library/EZH2_IP_NTKO_REP1.mLb.clN.sorted.bam")
+    assert len(attrs["File_PrimaryData"].candidates) == 4   # still a pick to confirm
+
+
+def test_with_no_aligner_folder_the_pick_stays_sorted_first():
+    attrs = _reused_folder_run("not_a_folder")
+    assert attrs["File_PrimaryData"].source_file.startswith("bowtie2/")
 
 
 def test_a_single_checksummed_candidate_is_not_reported_as_ambiguous():
