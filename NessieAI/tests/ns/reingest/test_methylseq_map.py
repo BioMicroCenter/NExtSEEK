@@ -193,3 +193,17 @@ def test_a_reused_folder_also_names_the_alignment_rows_pick():
 
 def test_one_launch_carries_no_alternative_rows():
     assert _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph"]).alternative_rows == []
+
+
+@pytest.mark.django_db
+def test_a_real_runs_paired_bismark_row_is_folded_and_its_cpg_methylation_lands():
+    """The two items the map's notes once left "unverified until a real run", settled on
+    4.2.0-local-test, a real -profile test run (MultiQC 1.32). Bismark's MultiQC row for the
+    paired-end sample is named after Trim Galore's read-1 file, `Ecoli_10K_methylated_1_val_1`;
+    `qc_row_suffixes` folds it onto the sample, so `bismark-percent_cpg_meth` (57.5 in that
+    run's general stats) reaches the sample's A.MSEQ row as MeanCpGMethylationPercent. The
+    single-end samples' rows are named after the sample itself."""
+    result, rows = _fixture_rows("4.2.0-local-test")
+    assert _value(rows[("mseq_bismark", "Ecoli_10K_methylated")], "MeanCpGMethylationPercent") == 57.5
+    for single_end in ("SRR389222_sub1", "SRR389222_sub2", "SRR389222_sub3"):
+        assert _value(rows[("mseq_bismark", single_end)], "MeanCpGMethylationPercent") is not None
