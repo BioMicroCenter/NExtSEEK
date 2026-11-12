@@ -118,6 +118,35 @@ def load_boxes() -> dict:
     return data
 
 
+SLACK_MESSAGES = {
+    "start": "Rebuilding {inst} (NExtSEEK) to `{sha}`. Expect a short downtime.",
+    "up": "{Inst} is back up on `{sha}`.",
+    "rollback": "{Inst} was rolled back to `{sha}`.",
+}
+
+
+def slack_note(instance: str, event: str, sha: str) -> tuple[str | None, str, str]:
+    """(channel_url or None, message, skip reason). Never raises: the Slack note must not touch a deploy.
+
+    Reads the optional top-level `slack_note` of boxes.json: {"enabled": bool, "channel_url": str,
+    "instances": [..., default ["prod"]]}. The Chrome and Slack-login checks are the session's (SKILL.md)."""
+    msg = SLACK_MESSAGES[event].format(inst=instance, Inst=instance.capitalize(), sha=sha[:8])
+    try:
+        cfg = json.loads(boxes_path().read_text(encoding="utf-8")).get("slack_note")
+    except (OSError, ValueError, AttributeError):
+        cfg = None
+    if not isinstance(cfg, dict):
+        return None, msg, "no slack_note in the box config"
+    if cfg.get("enabled") is not True:
+        return None, msg, "slack_note is off in the box config"
+    if instance not in (cfg.get("instances") or ["prod"]):
+        return None, msg, f"slack_note is not on for {instance}"
+    url = cfg.get("channel_url")
+    if not (isinstance(url, str) and url.startswith("https://")):
+        return None, msg, "slack_note has no https channel_url"
+    return url, msg, ""
+
+
 def reports_root() -> Path:
     return Path(load_boxes()["reports_dir"]).expanduser()
 

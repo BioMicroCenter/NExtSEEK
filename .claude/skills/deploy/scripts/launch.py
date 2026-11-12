@@ -2138,6 +2138,16 @@ def _ssh_kw(a, brief: str, purpose: str, script=None, out=None) -> dict:
             "after_failure": a.after_failure, "dry_run": False, "now": getattr(a, "now", None)}
 
 
+def cmd_slack_note(a) -> int:
+    """Print SLACK_POST (config says go) or SLACK_SKIP. Always exit 0: never stops a deploy."""
+    url, msg, why = rules.slack_note(a.instance, a.event, a.sha)
+    if url:
+        print(f"SLACK_POST channel={url} message={msg}")
+    else:
+        print(f"SLACK_SKIP: Slack note skipped: {why}; post by hand: {msg}")
+    return 0
+
+
 def cmd_prepare(a) -> int:
     """brief, preflight script, ssh preflight, preflight, git fetch, commits. Ends where the agent fills
     the commit review form."""
@@ -2254,6 +2264,8 @@ def main(argv=None) -> int:
     s.add_argument("--status"); s.add_argument("--force", action="store_true")
     s = sub.add_parser("report"); s.add_argument("--brief", required=True); s.add_argument("--form")
     s.add_argument("--no-facts", action="store_true"); s.add_argument("--force", action="store_true")
+    s = sub.add_parser("slack-note"); s.add_argument("--instance", required=True)
+    s.add_argument("--event", required=True, choices=["start", "up", "rollback"]); s.add_argument("--sha", required=True)
     s = sub.add_parser("prepare"); s.add_argument("--form", required=True); s.add_argument("--out-dir")
     s.add_argument("--repo"); s.add_argument("--now"); s.add_argument("--after-failure")
     s.add_argument("--force", action="store_true")
@@ -2264,7 +2276,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     handlers = {"brief": cmd_brief, "preflight-script": cmd_preflight_script, "preflight": cmd_preflight,
                 "commits": cmd_commits, "review": cmd_review, "runner": cmd_runner, "ssh": cmd_ssh,
-                "judge": cmd_judge, "report": cmd_report,
+                "judge": cmd_judge, "report": cmd_report, "slack-note": cmd_slack_note,
                 "prepare": cmd_prepare, "start": cmd_start, "finish": cmd_finish}
     try:
         return handlers[a.cmd](a)

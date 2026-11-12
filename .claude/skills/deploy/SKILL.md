@@ -148,6 +148,30 @@ A rerun after a stop needs `--force` (exit 3: the brief or the review exists). `
 
 Your final message is the text of `$D/LAUNCH-REPORT.md`. Examples of each form are in `examples/`.
 
+### The Slack note (optional, never blocks)
+
+Two short messages tell the team a box is being rebuilt. Config: the top-level `slack_note` key of
+`boxes.json` (`references/boxes.md`), off by default; with no config (a machine that never set it up) every step below
+skips by itself. Run `uv run $K/launch.py slack-note --instance <i> --event start|up|rollback --sha <sha>`
+at the three points below. It prints `SLACK_SKIP: ...; post by hand: <message>` (print that line in the chat and
+carry on) or `SLACK_POST channel=<url> message=<text>`. On `SLACK_POST`, post through Claude in Chrome:
+
+1. Claude in Chrome tools connected (`tabs_context_mcp` answers) and the channel page, opened in a NEW tab, shows a
+   message box and not a sign-in page. Either fails: print the skip line (reason named) and go on.
+2. Type the message into the box, read the box back, and send only if it holds exactly the message. Any doubt: clear
+   the box, skip, print the message.
+3. After sending, read the channel once and confirm the message is there. The `up` note replies in the thread of the
+   `start` note when that is easy, else it is a second message.
+4. No retry of a send, ever (it could double-post). A failure at any point is one printed line, never a stop.
+
+| Event | When |
+|---|---|
+| `start` | after the deploy go and a clean preflight, right before `start` (the rebuild) |
+| `up` | after the post-deploy checks pass (`finish` ends green) |
+| `rollback` | one line when prod was rolled back |
+
+`--sha` is the brief's `expected_sha`. The Slack step never delays, fails or reorders a deploy.
+
 ### Exit codes (every subcommand)
 
 | Code | Means | Do |

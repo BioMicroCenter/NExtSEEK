@@ -15,6 +15,7 @@ values into a committed file, a commit message or an issue.
 |---|---|
 | `reports_dir` | Where launch folders `<instance>-launch-<TAG>/` are written. `~` is expanded. |
 | `workstation_repo` | The checkout used for `git fetch`, the commit review and the Nessie case files. |
+| `slack_note` | Optional. `{"enabled": false, "channel_url": "https://<workspace>.slack.com/archives/<id>", "instances": ["prod"]}`. Off unless `enabled` is `true`; `instances` defaults to prod only. Read by `launch.py slack-note` (SKILL.md "The Slack note"); a missing or bad value only skips the note. |
 | `instances` | One object per instance: `local`, `dev`, `prod`. Only the instance a command uses is required. |
 
 ## Per instance
