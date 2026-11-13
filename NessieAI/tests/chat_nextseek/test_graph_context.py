@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from chat_nextseek import graph_context as gc
+from chat_nextseek import tcga_studies
 
 
 
@@ -88,17 +89,22 @@ def test_constants():
     assert gc.STRUCTURE_PATH.is_file()
 
 
-def test_module_is_pure():
-    """No Neo4j, no config, no Django: only the standard library, and the graph contract (standard library only too,
-    nextseek_graph/schema.py), whose version rule decides which structure a graph gets."""
-    tree = ast.parse(Path(gc.__file__).read_text(encoding="utf-8"))
+# The package modules a pure module may import, each standard library only itself: the graph contract
+# (nextseek_graph/schema.py), whose version rule decides which structure a graph gets, and the TCGA study map.
+_PURE_PACKAGE_MODULES = {"chat_nextseek.graph_contract", "chat_nextseek.tcga_studies"}
+
+
+@pytest.mark.parametrize("module", [gc, tcga_studies], ids=["graph_context", "tcga_studies"])
+def test_module_is_pure(module):
+    """No Neo4j, no config, no Django: only the standard library, and the package modules above."""
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             assert node.level == 0, "relative import in a pure module"
-            if node.module != "chat_nextseek.graph_contract":
+            if node.module not in _PURE_PACKAGE_MODULES:
                 imported.add(node.module.split(".")[0])
     assert imported <= {"__future__", "json", "re", "pathlib", "typing", "collections"}, imported
 

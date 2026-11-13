@@ -29,6 +29,7 @@ import re
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from chat_nextseek.tcga_studies import TCGA_NAMED_RE, studies_named
 from chat_nextseek.graph_contract import schema
 
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
@@ -749,9 +750,28 @@ def _connections_block(connections) -> VocabularyBlock | None:
                            "a sample type sits on):\n", tuple(lines), "\n")
 
 
+TCGA_STUDIES_HEADING = ("TCGA STUDIES NAMED IN THIS QUESTION (the cancer the question names, as the Study.title TCGA "
+                        "stores it under, in the Investigation 'TCGA'; scope TCGA's samples on this title, STEP 5)")
+
+
+def tcga_studies_block(study_titles, question: str) -> VocabularyBlock | None:
+    """The TCGA study each cancer word of ``question`` names, when the question names TCGA and this box holds that
+    study (``study_titles``); None otherwise. "esophageal" names no title, and 'ESCA' is the title it means."""
+    if not TCGA_NAMED_RE.search(question or ""):
+        return None
+    held = {str(t) for t in study_titles or () if t not in (None, "")}
+    hits = studies_named(question, held)
+    if not hits:
+        return None
+    entries = tuple(f"- {_quote(hit.word)} is the study titled {_quote(hit.code)} ({hit.name})" for hit in hits)
+    return VocabularyBlock(f"{TCGA_STUDIES_HEADING}:\n", entries, "\n", "",
+                           tuple(f"{hit.word} {hit.code}" for hit in hits))
+
+
 def render_vocabulary(vocab, question: str, *, budget: int = VOCAB_BUDGET_BYTES) -> str:
     """The keyword-gated vocabulary blocks, blank-line separated ("" when there is nothing to send).
 
+    First, when the question names TCGA and a cancer, the TCGA study each cancer word means (``tcga_studies_block``).
     Investigation and project titles always; study titles and published studies when the question names a
     study, paper, publication, DOI or PMID; assay titles and assay connections on ``ASSAY_WORDS``; protocol
     titles on ``PROTOCOL_WORDS`` (both matched as whole words by ``mentions``). The text is held within
@@ -760,6 +780,8 @@ def render_vocabulary(vocab, question: str, *, budget: int = VOCAB_BUDGET_BYTES)
     """
     q = question or ""
     blocks = [
+        # First, so the budget's last resort (whole blocks go, the last first) never reaches it.
+        tcga_studies_block(_get(vocab, "study_titles"), q),
         _title_block("INVESTIGATION TITLES (Investigation.title)", _get(vocab, "investigation_titles")),
         _title_block("PROJECT TITLES (Project.title)", _get(vocab, "project_titles")),
     ]

@@ -158,6 +158,59 @@ TAUGHT: list[Case] = [
          "WHERE toLower($doi) IN [d IN split(toLower(s.DOI), ';') | trim(d)]\n"
          "RETURN s.uuid AS uuid, collect(DISTINCT st.title) AS studies LIMIT 5000",
          {"doi": "10.1000/one"}, S, ST_JOINED),
+    # A cancer as its TCGA study, a TCGA patient's histology, a gene's copy number through its gene-level files, and
+    # the asker's own patients beside TCGA's in one query told apart by a cohort column (STEP 5 and STEP 6).
+    Case("default.tcga_study_scope",
+         "MATCH (p:T_PAT)-[:IN_STUDY]->(st:Study) WHERE st.title = $study RETURN count(DISTINCT p) AS n",
+         {"study": "ESCA"}, ("p: sample clause",), ("st (Study): joined to p",)),
+    Case("default.tcga_histology",
+         "MATCH (p:T_PAT)-[:IN_STUDY]->(st:Study) WHERE st.title = $study\n"
+         "MATCH (pv:T_PAV)-[:DERIVED_FROM]->(p) WHERE pv.Type = 'Diagnosis' "
+         "AND toLower(toString(pv.DiagnosisIsPrimaryDisease)) = 'true'\n"
+         "RETURN toLower(trim(toString(pv.PrimaryDiagnosis))) AS primary_diagnosis, count(DISTINCT p) AS n "
+         "ORDER BY n DESC",
+         {"study": "ESCA"}, ("p: sample clause", "pv: sample clause"), ("st (Study): joined to p",)),
+    Case("default.gene_level_copy_number",
+         "MATCH (p:T_PAT)-[:IN_STUDY]->(st:Study) WHERE st.title = $study\n"
+         "  AND EXISTS { (c:T_A_CNV)-[:DERIVED_FROM*1..12]->(p) WHERE c.Type = $cnv_type }\n"
+         "RETURN count(DISTINCT p) AS n",
+         {"study": "ESCA", "cnv_type": "Gene Level Copy Number"},
+         ("p: sample clause", "__scope_path1: every node (c, p)"), ("st (Study): joined to p",)),
+    Case("default.own_samples_beside_tcga",
+         "MATCH (p:T_PAT)\n"
+         "WHERE (EXISTS { (p)-[:IN_STUDY]->(st:Study) WHERE st.title = $study }\n"
+         "       AND EXISTS { (c:T_A_CNV)-[:DERIVED_FROM*1..12]->(p) WHERE c.Type = $cnv_type })\n"
+         "   OR (NOT EXISTS { (p)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation {title: 'TCGA'}) }\n"
+         "       AND toLower(p.search_text) CONTAINS $cancer AND toLower(p.search_text) CONTAINS $gene)\n"
+         "OPTIONAL MATCH (pv:T_PAV)-[:DERIVED_FROM]->(p)\n"
+         "WHERE pv.Type = 'Diagnosis' AND toLower(toString(pv.DiagnosisIsPrimaryDisease)) = 'true'\n"
+         "RETURN p.id AS id, p.uuid AS uuid, p.type AS type,\n"
+         "       CASE WHEN EXISTS { (p)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation {title: 'TCGA'}) }\n"
+         "            THEN 'TCGA' ELSE 'yours' END AS cohort,\n"
+         "       collect(DISTINCT pv.PrimaryDiagnosis) AS primary_diagnosis, p.Notes AS notes\n"
+         "ORDER BY id LIMIT 5000",
+         {"study": "ESCA", "cnv_type": "Gene Level Copy Number", "cancer": "esophag", "gene": "ccnd1"},
+         ("p: sample clause", "__scope_path1: every node (c, p)", "pv: sample clause"),
+         ("st (Study): joined to p", "(:Study): joined to p", "(:Investigation): joined to (:Study)",
+          "(:Study): joined to p", "(:Investigation): joined to (:Study)")),
+    # RNA-seq as the whole RNA-Seq strategy, with the patients whose only RNA data is miRNA-Seq carried as a count.
+    Case("default.rnaseq_with_mirna_only_count",
+         "MATCH (p:T_PAT) WHERE EXISTS { (sl:T_SLD)-[:DERIVED_FROM*1..12]->(p) "
+         "WHERE toFloat(toString(sl.PercentLymphocyteInfiltration)) >= $minpct }\n"
+         "  AND NOT EXISTS { (d:T_D_SEQ)-[:DERIVED_FROM*1..12]->(p) "
+         "WHERE toLower(toString(d.LibraryStrategy)) IN $rnaseq }\n"
+         "  AND EXISTS { (m:T_D_SEQ)-[:DERIVED_FROM*1..12]->(p) "
+         "WHERE toLower(toString(m.LibraryStrategy)) = 'mirna-seq' }\n"
+         "WITH count(DISTINCT p) AS mirna_seq_only\n"
+         "MATCH (p:T_PAT) WHERE EXISTS { (sl:T_SLD)-[:DERIVED_FROM*1..12]->(p) "
+         "WHERE toFloat(toString(sl.PercentLymphocyteInfiltration)) >= $minpct }\n"
+         "  AND EXISTS { (d:T_D_SEQ)-[:DERIVED_FROM*1..12]->(p) "
+         "WHERE toLower(toString(d.LibraryStrategy)) IN $rnaseq }\n"
+         "RETURN p.id AS id, p.uuid AS uuid, p.type AS type, mirna_seq_only ORDER BY id LIMIT 5000",
+         {"minpct": 40, "rnaseq": ["rna-seq", "rnaseq", "rna seq", "bulk rna-seq"]},
+         ("p: sample clause", "__scope_path1: every node (sl, p)", "__scope_path2: every node (d, p)",
+          "__scope_path3: every node (m, p)", "p: sample clause", "__scope_path4: every node (sl, p)",
+          "__scope_path5: every node (d, p)")),
     # ------------------------------------------------------------------ the v2 prompt (variants/v2/graph_agent.txt)
     Case("v2.type_label_count",
          "MATCH (s:T_SLD) RETURN count(*) AS n",
