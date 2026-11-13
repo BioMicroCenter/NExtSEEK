@@ -17,7 +17,7 @@
   ],
   "source_hashes": {
     "NessieAI/dmac_assistant/build_context/route_capabilities.json": "7400931cf611e30778478f5307733e8f3789a1637d45890955daa9b5cc46e1e0",
-    "NessieAI/dmac_assistant/baml_src/router.baml": "1ed7b3a15dcf903c83550b894cc899d3464397cf122ebd5ef048eaab7329339e"
+    "NessieAI/dmac_assistant/baml_src/router.baml": "60e9595a35dc71d97beb069d778f97682ff34b485c60b21afcc6db3fd3e41fdf"
   },
   "options_hash": "261dac7df06d4d635f249a2c0aa5e8eebc8fe4f0b51a7c09744f5d4c1abfec04"
 }

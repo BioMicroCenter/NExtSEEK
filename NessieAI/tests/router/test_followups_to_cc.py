@@ -482,6 +482,24 @@ def test_router_baml_keeps_expression_comparisons_on_nextseek_query():
         "Catalog counts stay `nextseek_query`.")
 
 
+def test_router_baml_keeps_comparisons_of_existing_counts_and_unnamed_measurements_on_nextseek_query():
+    """2026-11-13 ruling: a group comparison of the user's samples stays nextseek_query when the user
+    says the counts already exist, and when it names no measurement. Paid run on dev at 444bf6da,
+    stories already-have-counts, kam-chip-matrix, qout-normalised-from-matrix and lau-compare-vague:
+    the router sent all four to container_cc, 12 of 12 tries, and 11 of 12 before PR 163. A
+    significance test on metadata and a file the user attaches stay out of the paragraph."""
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    rule = "Expression comparisons over the user's samples go to `nextseek_query`."
+    para = baml[baml.index(rule):baml.index("Analyses of the user's own sequencing data go to `nextseek_query`.")]
+    flat = " ".join(para.split())
+    assert "counts already exist from an earlier run" in flat
+    assert "we have the gene counts for these samples already, just give me the differential table" in flat
+    assert "says so when it cannot be launched yet" in flat
+    assert "compare the treated and the control mice" in flat and "the pipeline agent asks which one" in flat
+    assert "A significance test on stored metadata values" in flat
+    assert "a file the user attaches or pastes into the chat, is not this." in flat
+
+
 def test_router_baml_sends_analyses_of_the_users_sequencing_data_to_nextseek_query():
     """2026-10-26 ruling: variants, peaks, accessibility, binding and methylation questions about the
     user's own sequenced samples go to nextseek_query, where the pipeline agent offers the nf-core
