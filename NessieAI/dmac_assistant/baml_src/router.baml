@@ -194,8 +194,16 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     described ("which genes change between these two samples?", "compare gene
     expression between two groups of samples"), is `nextseek_query` even though it names no pipeline: the NExtSEEK
     pipeline agent answers it by offering the nf-core run that produces that data,
-    and nothing runs until the user confirms. A significance test on stored
-    metadata values, or an analysis of files the user supplies, is not this.
+    and nothing runs until the user confirms. This holds when the user says the
+    counts already exist from an earlier run and asks only for the group
+    comparison, normalised values or a differential table ("we have the gene
+    counts for these samples already, just give me the differential table"):
+    the pipeline agent names the nf-core pipeline that compares stored counts,
+    and says so when it cannot be launched yet. It also holds when a comparison
+    between two groups of the user's samples names no measurement ("compare the
+    treated and the control mice"): the pipeline agent asks which one. A
+    significance test on stored metadata values, or an analysis of a file the
+    user attaches or pastes into the chat, is not this.
 
     Analyses of the user's own sequencing data go to `nextseek_query`. A
     question asking what the user's sequenced samples show (which variants or
