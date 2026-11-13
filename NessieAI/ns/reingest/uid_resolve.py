@@ -63,12 +63,15 @@ _PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "spring_1", "spring_2", 
 SAMPLESHEET_SAMPLE = "_samplesheet_sample"
 
 
-def key_by_replicate(rows: list[dict]) -> tuple[list[dict], dict[str, list[str]]]:
+def key_by_replicate(rows: list[dict], name_format: str = "{sample}_REP{replicate}",
+                     ) -> tuple[list[dict], dict[str, list[str]]]:
     """Rows renamed to one sample per biological replicate, and the replicate groups.
 
     nf-core/atacseq and nf-core/chipseq repeat `sample` across replicates and name each
     replicate's files `<sample>_REP<replicate>` (their bin/check_samplesheet.py: spaces in
-    `sample` become "_", `replicate` must be an integer). Rows sharing both `sample` and
+    `sample` become "_", `replicate` must be an integer); nf-core/cutandrun names them
+    `<group>_R<replicate>` (`name_format`, the map's `replicate_name`, with `{sample}` the
+    group the harvest copied into `sample`). Rows sharing both `sample` and
     `replicate` are lanes of one library and keep one shared name, so `resolve` still
     treats them as one multi-run sample. Returns ``(rows, {})`` unchanged when any row
     lacks an integer `replicate`: nothing is renamed on a guess.
@@ -79,7 +82,8 @@ def key_by_replicate(rows: list[dict]) -> tuple[list[dict], dict[str, list[str]]
     groups: dict[str, list[str]] = {}
     for row in rows:
         group = str(row.get("sample") or "")
-        name = f"{group.replace(' ', '_')}_REP{int(str(row['replicate']).strip())}"
+        name = name_format.format(sample=group.replace(" ", "_"),
+                                  replicate=int(str(row["replicate"]).strip()))
         keyed.append({**row, "sample": name, SAMPLESHEET_SAMPLE: group})
         members = groups.setdefault(group.replace(" ", "_"), [])
         if name not in members:

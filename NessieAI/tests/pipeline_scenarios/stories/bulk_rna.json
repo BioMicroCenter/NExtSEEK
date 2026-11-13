@@ -1143,9 +1143,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-03",
-        "note": "Proposed during the 2026-11-03 merge of dev into feat/nfcore-dna-integration: dev added this case to NessieAI/chat_nextseek/evals/rna_selection_cases.json, which this branch replaced with the story list. Cohort 240709KAM (a human tumour line) is a proposal; it awaits the owner's ruling."
+        "state": "accepted",
+        "date": "2026-11-13",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-13). 240709KAM is four human MDA-MB-231 tumour-line libraries: total RNA, NEBNext Ultra II Directional, paired-end 2x50, LibrarySource Transcriptomic, raw reads on SRA. The rnavar atlas entry says outright that a question about which variants samples \"express\" is a variant question, not an expression one, so rnavar with a built launch is right, as in qout-vcf on the same cohort. No must_not entry types variants from these reads. The story keeps dev's regression test for the word \"express\" pulling toward rnaseq."
       },
       "id": "variants-cells-express",
       "question": "Which genetic variants do these tumour cells express?",
@@ -1172,15 +1172,15 @@
         "scrnaseq",
         "riboseq",
         "hlatyping",
-        "rnafusion"
+        "sarek"
       ],
       "phrasing": "migrated",
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-03",
-        "note": "Proposed during the 2026-11-03 merge of dev into feat/nfcore-dna-integration: dev added this case to NessieAI/chat_nextseek/evals/rna_selection_cases.json, which this branch replaced with the story list. Cohort 240709KAM (a human tumour line) is a proposal; it awaits the owner's ruling."
+        "state": "changed",
+        "date": "2026-11-13",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-13). rnavar is right: its atlas 'answers' line names \"mutations\" that samples \"carry\", and 240709KAM is human bulk paired-end RNA-seq of a tumour line. rnafusion is not really wrong for a tumour 'which mutations' question, since a gene fusion is a somatic mutation. A careful reply that offers rnavar and also names rnafusion should not FAIL, so rnafusion leaves must_not. It stays out of the acceptable sets, so a fork or rnafusion alone still scores PARTIAL. sarek joins must_not. The DNA atlas note says a cohort whose lineage holds only RNA-seq libraries cannot run sarek even for a variant question. Here 'mutations' and 'tumour' pull toward sarek's somatic answer, and the lineage holds library nodes typed 'DNA', which makes that a real trap. The why now gives the cohort and the caveats."
       },
       "id": "mutations-tumour-carry",
       "question": "Which mutations do these tumour samples carry?",
@@ -1196,7 +1196,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from dev's RNA selection case (fix(atlas) 4965404c): a which-mutations question on tumour RNA-seq picks rnavar."
+        "pipelines": "From dev's RNA selection case (fix(atlas) 4965404c), placed on 240709KAM: four MDA-MB-231 (triple-negative breast cancer line) libraries, total RNA, NEBNext Ultra II Directional, paired-end 2x50, LibrarySource Transcriptomic, raw reads on SRA. rnavar's atlas entry answers 'which mutations do these samples carry', so rnavar is the choice. A careful reply says it sees only expressed genes, and that with no matched normal it cannot separate somatic from germline changes. sarek needs DNA libraries and this lineage has only RNA-seq (its 'DNA' nodes are the Illumina libraries made from the RNA), so naming it fails. rnafusion is not must_not: fusions are mutations too, so naming it beside rnavar is a hedge (PARTIAL), not an error."
       }
     },
     {
@@ -1212,12 +1212,12 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-03",
-        "note": "Proposed during the 2026-11-03 merge of dev into feat/nfcore-dna-integration: dev added this case to NessieAI/chat_nextseek/evals/rna_selection_cases.json, which this branch replaced with the story list. Cohort 240709KAM (a human tumour line) is a proposal; it awaits the owner's ruling."
+        "state": "changed",
+        "date": "2026-11-13",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-13). The question came from a cohort-free dev selection case and asks about 'the normal cells'. 240709KAM has no normal cells: all four libraries are MDA-MB-231 (CEL Type 'Representative Mesenchymal Subtype'), sorted EGFP-positive (2) and EGFP-negative (2). A careful agent would have to correct the premise, so scoring a build against it would punish care. As with gene-fusion, the question is reworded to the contrast the metadata does hold. It keeps 'tumour' and 'expressed differently', so it still tests dev's point: rnaseq, never rnavar. Acceptable sets, must_not and launch are unchanged and match kam-tnbc-subtype. The rnavar must_not is what this story adds over that one."
       },
       "id": "expression-tumour-vs-normal",
-      "question": "Which genes are expressed differently in these tumour cells than in the normal cells?",
+      "question": "Which genes are expressed differently in the EGFP-positive tumour cells than in the EGFP-negative ones?",
       "cohort": "240709KAM::A.GEX",
       "acceptable": [
         [
@@ -1234,7 +1234,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from dev's RNA selection case (fix(atlas) 4965404c): a tumour-vs-normal expression question picks rnaseq and never rnavar, now that rnavar's prep-kit hints name only library preps."
+        "pipelines": "From dev's RNA selection case (fix(atlas) 4965404c), reworded for 240709KAM: four MDA-MB-231 tumour-line libraries (total RNA, NEBNext Ultra II Directional, paired-end 2x50), sorted EGFP-positive (positive-1, positive-2) and EGFP-negative (negative-1, negative-2). The original 'than in the normal cells' named a group this cohort does not have. A gene-level two-group contrast from FASTQ is rnaseq. Naming differentialabundance beside it follows the atlas's rnaseq-vs-differentialabundance entry ('both are needed in sequence'), as in gri-organoid-il1b and kam-tnbc-subtype. 'Tumour' plus 'expressed' must not pull toward rnavar, which calls variants and makes no expression table."
       }
     }
   ]

@@ -9,9 +9,18 @@
       --param adds a param the test sets in its own .nf.test params block, which this
       script does not read (aligner=bwameth, rrbs=true). --variant names the folder
       <version>-<variant>, so a flag-dependent fixture sits beside the release's own.
-  import_evidence.py aws <pipeline> <version> <profile> [--samplesheet-url URL]
+  import_evidence.py pytest <pipeline> <version> <test-file> [<test-file> ...]
+      For a release with pytest-workflow tests instead of nf-test (cutandrun 3.2.2): the
+      `files: - path: results/...` every passing test in tests/<test-file>.yml asserts at the
+      release tag, merged, as a snapshot import merges its tests. Folder <version>-pytest.
+      The samplesheet and params come from conf/test.config; no sizes, no MultiQC values.
+  import_evidence.py aws <pipeline> <version> <profile> [--samplesheet-url URL] [--flat]
       Inventory, MultiQC tables and run params from nf-core's AWS results,
       s3://nf-core-awsmegatests/<pipeline>/results-<release commit>/<profile>/.
+      --flat: the release published straight under results-<release commit>/ (cutandrun
+      3.x), with <profile> naming only the fixture folder and the test config. A release
+      that writes no software_mqc_versions.yml gets its version from the tag, and one that
+      writes no params JSON gets the test config's params.
 
 Writes NessieAI/tests/ns/fixtures/reingest_runs/<pipeline>/<folder>/ in the layout
 make_fixture.sh writes, plus EVIDENCE.txt naming the source; <folder> is <version>,
@@ -281,9 +290,50 @@ def from_snapshot(pipeline: str, version: str, snap_name: str, fetch,
                             "because the snapshot lists none."))}
 
 
-def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | None, fetch) -> dict:
+def pytest_paths(docs: list) -> list[str]:
+    """Output paths a pytest-workflow YAML asserts, `results/` stripped: every test that is
+    expected to succeed (no `exit_code`, or 0), merged. A `should_exist: false` entry asserts
+    a file is absent and is skipped."""
+    paths: set[str] = set()
+    for test in docs or []:
+        if not isinstance(test, dict) or (test.get("exit_code") or 0) != 0:
+            continue
+        for entry in test.get("files") or []:
+            path = str((entry or {}).get("path") or "")
+            if (entry or {}).get("should_exist") is False:
+                continue  # an assertion that the file is absent
+            if path.startswith("results/") and not path.endswith("/"):
+                paths.add(path[len("results/"):])
+    return sorted(paths)
+
+
+def from_pytest(pipeline: str, version: str, test_files: list[str], fetch,
+                samplesheet_url: str | None = None) -> dict:
+    import yaml
+    paths: set[str] = set()
+    for name in test_files:
+        paths.update(pytest_paths(yaml.safe_load(fetch(f"{RAW}/{pipeline}/{version}/tests/{name}.yml"))))
+    if not paths:
+        raise SystemExit("the named pytest-workflow files assert no results/ paths")
+    config = _test_config(pipeline, version, "test", fetch)
+    return {"folder": f"{version}-pytest",
+            "inventory": [{"path": p, "bytes": 0} for p in sorted(paths)],
+            "samplesheet": _samplesheet(pipeline, version, config, samplesheet_url, fetch),
+            "params": evidence_params(config_params(config)),
+            "versions_yml": f"Workflow:\n  nf-core/{pipeline}: v{version.removeprefix('v')}\n",
+            "files": {},
+            "evidence": (f"Evidence: GitHub nf-core/{pipeline} tag {version}, the output paths asserted "
+                         "by the pytest-workflow tests in " + ", ".join(f"tests/{n}.yml" for n in test_files)
+                         + f", merged, and conf/test.config, read {date.today().isoformat()}. The tests "
+                         "run with different flags, so the inventory is their union, not one run. "
+                         "Sizes are 0 and there are no MultiQC values. The workflow version comes from "
+                         "the release tag.")}
+
+
+def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | None, fetch,
+             *, flat: bool = False) -> dict:
     sha = json.loads(fetch(f"{API}/{pipeline}/commits/{version}"))["sha"]
-    prefix = f"{pipeline}/results-{sha}/{profile}/"
+    prefix = f"{pipeline}/results-{sha}/" + ("" if flat else f"{profile}/")
     inventory = aws_inventory(list_prefix(prefix, fetch), prefix)
     if not inventory:
         raise SystemExit(f"nothing published under s3://nf-core-awsmegatests/{prefix}")
@@ -291,17 +341,19 @@ def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | N
     files = {p: fetch(f"{BUCKET}/{urllib.parse.quote(prefix + p)}") for p in wanted}
     params_paths = sorted(p for p in wanted if p.startswith("pipeline_info/params_"))
     versions_paths = sorted(p for p in wanted if p.endswith("software_mqc_versions.yml"))
-    if not versions_paths:
+    if not versions_paths and not flat:
         raise SystemExit("no software_mqc_versions.yml in the published run")
     # Every run-info file is rewritten under a fixed name, so none stays in files or inventory;
     # the newest params file (by name, which carries the timestamp) is the one kept.
     params_blobs = [files.pop(p) for p in params_paths]
-    params = json.loads(params_blobs[-1]) if params_blobs else {}
-    versions_yml = files.pop(versions_paths[0]).decode()
+    config = _test_config(pipeline, version, profile.removesuffix("_aws"), fetch) if not samplesheet_url else ""
+    # A release that writes no params JSON (cutandrun 3.1): its test config's own params stand in.
+    params = json.loads(params_blobs[-1]) if params_blobs else config_params(config)
+    versions_yml = (files.pop(versions_paths[0]).decode() if versions_paths
+                    else f"Workflow:\n  nf-core/{pipeline}: v{version.removeprefix('v')}\n")
     for extra in versions_paths[1:]:
         files.pop(extra)
     renamed = set(params_paths) | set(versions_paths)
-    config = _test_config(pipeline, version, profile.removesuffix("_aws"), fetch) if not samplesheet_url else ""
     return {"folder": f"{version}-aws-{profile}",
             "inventory": [{"path": e["path"], "bytes": 0} for e in inventory
                           if e["path"] not in renamed],
@@ -310,7 +362,12 @@ def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | N
             "evidence": (f"Evidence: nf-core/{pipeline} {version} AWS results, S3 bucket "
                          f"nf-core-awsmegatests, prefix {prefix}, listed {date.today().isoformat()}. "
                          f"MultiQC tables downloaded: {len(files)}; other files are inventory only, "
-                         "and every inventory size is recorded as 0, as make_fixture.sh does.")}
+                         "and every inventory size is recorded as 0, as make_fixture.sh does."
+                         + ("" if params_blobs else
+                            f" The run wrote no params JSON; params come from conf/{profile}.config.")
+                         + ("" if versions_paths else
+                            f" The run wrote no software_mqc_versions.yml; the workflow version "
+                            f"comes from the release tag {version}."))}
 
 
 def install_fixture(dest: Path, *, pipeline: str, version: str, built: dict) -> int:
@@ -339,10 +396,12 @@ def install_fixture(dest: Path, *, pipeline: str, version: str, built: dict) -> 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("source", choices=["snapshot", "aws"])
+    parser.add_argument("source", choices=["snapshot", "aws", "pytest"])
     parser.add_argument("pipeline")
     parser.add_argument("version")
-    parser.add_argument("name", help="snapshot file name (tests/<name>.nf.test.snap), or AWS profile folder")
+    parser.add_argument("name", help="snapshot file name (tests/<name>.nf.test.snap), AWS profile folder, "
+                        "or the first pytest-workflow file (tests/<name>.yml)")
+    parser.add_argument("more", nargs="*", help="pytest only: further tests/<name>.yml files")
     parser.add_argument("--samplesheet-url", default=None)
     parser.add_argument("--test", default=None,
                         help="snapshot only: import this one nf-test test of the snap file")
@@ -350,13 +409,25 @@ def main() -> int:
                         help="snapshot only: write the fixture to <version>-<variant>")
     parser.add_argument("--param", action="append", default=[], metavar="KEY=VALUE",
                         help="snapshot only: a param the test sets in its .nf.test (repeatable)")
+    parser.add_argument("--flat", action="store_true",
+                        help="aws only: results published with no <profile>/ folder")
     args = parser.parse_args()
     if args.source == "aws" and (args.test or args.variant or args.param):
+        parser.error("--test, --variant and --param are for snapshot fixtures")
+    if args.source != "aws" and args.flat:
+        parser.error("--flat is for aws fixtures")
+    if args.source != "pytest" and args.more:
+        parser.error("only pytest takes more than one name")
+    if args.source == "pytest" and (args.test or args.variant or args.param):
         parser.error("--test, --variant and --param are for snapshot fixtures")
     built = (from_snapshot(args.pipeline, args.version, args.name, _fetch, args.samplesheet_url,
                            test=args.test, variant=args.variant, params=param_pairs(args.param))
              if args.source == "snapshot"
-             else from_aws(args.pipeline, args.version, args.name, args.samplesheet_url, _fetch))
+             else from_pytest(args.pipeline, args.version, [args.name, *args.more], _fetch,
+                              args.samplesheet_url)
+             if args.source == "pytest"
+             else from_aws(args.pipeline, args.version, args.name, args.samplesheet_url, _fetch,
+                           flat=args.flat))
     dest = (Path(__file__).resolve().parents[2] / "NessieAI/tests/ns/fixtures/reingest_runs"
             / args.pipeline / built["folder"])
     status = install_fixture(dest, pipeline=args.pipeline, version=args.version, built=built)

@@ -1408,6 +1408,12 @@ _OLD_INVENTORY = {
     "**/methylation_calls/methylation_coverage/*.bismark.cov.gz",
     "**/methylation_calls/bedGraph/*.bedGraph.gz", "**/methyldackel/*_CpG.bedGraph",
     "**/methyldackel/*_CpG.methylKit",
+    # cutandrun.outputs.json (brace-expanded)
+    "**/04_reporting/multiqc/*multiqc_report.html", "**/03_bed_to_bigwig/*.bigWig",
+    "**/*.seacr.peaks.stringent.bed", "**/*.seacr.peaks.relaxed.bed",
+    "**/*.macs2_peaks.narrowPeak", "**/*.macs2_peaks.broadPeak",
+    "**/05_consensus_peaks/*.consensus.peaks.awk.bed",
+    "**/05_consensus_peaks/*.consensus.peak_counts.bed",
 }
 
 

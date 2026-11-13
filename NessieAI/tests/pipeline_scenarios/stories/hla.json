@@ -68,16 +68,16 @@
         "sarek",
         "rnavar"
       ],
-      "phrasing": "plain",
+      "phrasing": "outcome",
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Proposed to keep hlatyping at the four-story floor after the pooled prime-seq HLA stories became refusals; awaits the owner's ruling"
+        "state": "changed",
+        "date": "2026-11-13",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-13). As proposed, it repeated dna-hla-from-wgs almost word for word in meaning: same cohort, same acceptable, must_not and launch, with 'HLA-A, -B and -C types' for 'class I alleles'. It added little beyond keeping hlatyping at the four-story floor (test_every_choosable_pipeline_has_at_least_four_stories), and it is needed for that. The answer stays hlatyping, built, with sarek and rnavar as must_not; that is right for the human PCR-free WGS cohort, since OptiType types class I from genomic reads. The question becomes an outcome phrasing that asks for the deliverable qout-allele-calls asks for (two-field calls of the A*02:01 kind). The pair now tests one request with opposite verdicts: refused on pooled 3' prime-seq, built on WGS."
       },
       "id": "hla-wgs-class-one-types",
-      "question": "What are the HLA-A, HLA-B and HLA-C types of the donors in these genome samples?",
+      "question": "I need two-field HLA-A, -B and -C allele calls, the A*02:01 kind, for each donor in these genome samples.",
       "cohort": "test::human_wgs_germline",
       "acceptable": [
         [
@@ -90,7 +90,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Human whole-genome germline DNA: the reads cover the HLA class I exons, so hlatyping (seq_type dna) calls each donor's HLA-A, -B and -C alleles. sarek calls variants, not HLA alleles; rnavar needs RNA."
+        "pipelines": "Human whole-genome germline DNA: two PBMC donors, Illumina DNA PCR-Free libraries, LibraryStrategy WGS, LibrarySource GENOMIC, paired 2x150. Genomic reads cover the HLA class I exons, so hlatyping (OptiType, seq_type dna) returns two-field HLA-A, -B and -C calls per donor, the deliverable named. This is the counterpart of qout-allele-calls, where the same request on pooled 3' prime-seq is refused. sarek reports variants genome-wide and does not type HLA (atlas sarek-vs-hlatyping); rnavar needs RNA."
       }
     },
     {
@@ -103,9 +103,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Proposed to keep hlatyping at the four-story floor after the pooled prime-seq HLA stories became refusals; awaits the owner's ruling"
+        "state": "accepted",
+        "date": "2026-11-13",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-13). test::human_exome is two human lymphoblastoid lines, Agilent SureSelect Human All Exon V7 hybrid capture, LibraryStrategy WXS / Targeted Capture, GENOMIC. The hlatyping atlas entry lists WXS and targeted capture, and the capture covers the class I exons, so hlatyping (seq_type dna) built is right. sarek (does not type HLA) and rnavar (RNA only) are correctly must_not. No existing story covers HLA typing from exome."
       },
       "id": "hla-exome-genotype",
       "question": "Can you get each donor's HLA class I genotype from my exome samples?",
@@ -135,9 +135,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Proposed to keep hlatyping at the four-story floor after the pooled prime-seq HLA stories became refusals; awaits the owner's ruling"
+        "state": "accepted",
+        "date": "2026-11-13",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-13). 240709KAM is human (CEL Species Homo sapiens) MDA-MB-231, total RNA with NEBNext Ultra II Directional, paired-end 2x50, LibrarySource Transcriptomic, raw reads on SRA. This is a whole-transcript library, not a 3' or pooled prep, so hlatyping (seq_type rna) can type the expressed class I alleles. hlatyping passes its human-only constraint, and a build is right. rnaseq, rnavar and rnafusion none type HLA (atlas versus entries). It is a useful positive contrast to the three 241219BRY refusals."
       },
       "id": "hla-kam-rna-alleles",
       "question": "Which HLA class I alleles does this breast cancer line carry, going by my RNA-seq samples?",

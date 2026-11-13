@@ -18,6 +18,12 @@ There are three ways to make one, and each is evidence for a rule (G-7 in
   `Params: bwameth with rrbs`) is imported alone with `--test`, given the params its
   `.nf.test` sets with `--param`, into `<version>-<variant>` with `--variant`. A snapshot gives no file sizes and no MultiQC
   values, so QC attributes are mapped from AWS results or a Nessie run, never a snapshot.
+  A release that predates nf-test (cutandrun 3.2.2) has pytest-workflow tests instead: `pytest` merges the
+  `results/` paths its named `tests/<name>.yml` files assert (skipping `should_exist: false` and failing
+  tests) into `<version>-pytest`, the snapshot's role. The tests run with different flags, so the inventory is
+  a union, not one run. `aws --flat` reads results published with no `<profile>/` folder (cutandrun); a
+  release that wrote no `software_mqc_versions.yml` or params JSON takes its version from the tag and its
+  params from the test config.
 - **From a `-profile test` run launched through Nessie**, with
   `scripts/reingest/make_fixture.sh`. Only the run's owner starts it: it reaches the
   cluster. `launch_record.json` is a stub (empty cohort) to complete by hand from the

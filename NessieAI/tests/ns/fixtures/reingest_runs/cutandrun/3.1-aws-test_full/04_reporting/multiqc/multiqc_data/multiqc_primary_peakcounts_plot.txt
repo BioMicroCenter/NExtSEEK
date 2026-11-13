@@ -1,0 +1,5 @@
+Sample	Peak Count
+h3k27me3_R1	200144.0
+h3k27me3_R2	219674.0
+h3k4me3_R1	3999.0
+h3k4me3_R2	9812.0

@@ -205,7 +205,7 @@ def test_a_single_file_load_fails_loudly_on_a_malformed_sibling(tmp_path, monkey
         load_atlas(lone)
 
 
-NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq")
+NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun")
 
 
 @pytest.mark.parametrize("key", NEW_CHOOSABLE)
@@ -226,6 +226,14 @@ def test_bisulfite_reads_are_kept_away_from_sarek_both_ways():
 def test_atac_and_chip_point_at_each_other():
     pipelines = load_atlas()["pipelines"]
     assert "chipseq" in pipelines["atacseq"]["versus"] and "atacseq" in pipelines["chipseq"]["versus"]
+
+
+def test_cutandrun_points_at_chipseq_and_atacseq_both_ways():
+    pipelines = load_atlas()["pipelines"]
+    for other in ("chipseq", "atacseq"):
+        assert pipelines["cutandrun"]["versus"][other]["ask_user"]
+        assert pipelines[other]["versus"]["cutandrun"]["ask_user"]
+    assert "cannot launch" not in pipelines["chipseq"]["assumes_prep"]
 
 
 def test_differentialabundance_is_choosable_but_not_launchable():

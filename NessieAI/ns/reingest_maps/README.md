@@ -7,9 +7,10 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 **Where the maps are checked.** `test_map_contract.py` (the schema and catalog contract), `test_fixture_runs.py`
 (each map against its run fixture), `test_doc_only_maps.py` (maps written from the docs alone), and
 `test_replicate_samples.py` (replicate handling), `test_methylseq_map.py` (methylseq's tiers against its variant
-fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables) and `test_qc_completeness_dna.py`
-(the QC-completeness check for atacseq, chipseq and methylseq against every fixture that holds a run's MultiQC
-data), all under `NessieAI/tests/ns/reingest/`; and the link test
+fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables), `test_cutandrun_map.py`
+(cutandrun's group samplesheet, MultiQC folder, primary-caller QC and consensus parents) and
+`test_qc_completeness_dna.py` (the QC-completeness check for atacseq, chipseq, methylseq and cutandrun against every
+fixture that holds a run's MultiQC data), all under `NessieAI/tests/ns/reingest/`; and the link test
 `NessieAI/tests/chat_nextseek/test_choosable_pipelines_have_maps.py` (a choosable pipeline has a map for its pinned release).
 
 ## What a map may contain
@@ -50,6 +51,10 @@ data), all under `NessieAI/tests/ns/reingest/`; and the link test
     `antibody`). A file whose value no sample of this run's samplesheet has is not this
     run's (a folder reused by a launch with another antibody): it gets no row, and the
     reply lists it under FILES LEFT OUT: NOT FROM THIS RUN (`MapResult.stale_files`). A
+    per_file rule may also name an `every_sample_stem`, the stem of a file made from the whole run
+    (cutandrun's `all_samples` consensus, `--consensus_peak_mode all`): that row is parented by every
+    sample, less the controls when `controls_by_samplesheet` names the column each sample's control is
+    given in (cutandrun's `control`: a sample whose group another sample names there is a control). A
     named sample that resolved to no D.SEQ is left out of `Parent` with a warning; when
     none resolved, the row ships with no `Parent` and the reply lists it, by the owner's
     ruling on parentless group rows (`NessieAI/ns/reingest/README.md` "Invariants").
@@ -122,6 +127,9 @@ data), all under `NessieAI/tests/ns/reingest/`; and the link test
 - `qc_row_suffixes` — MultiQC rows named `<sample><suffix>` (sarek: `.recal`, `.md`) whose columns join that sample's metrics, best first; a column already held is kept. Folded columns no rule or `qc_attributes` entry claims go to the QC review queue unless a `deliberately_unmapped` ruling rules them out.
   methylseq folds `_1_val_1`: MultiQC 1.32's default name cleaning cuts a Bismark report's name at `_bismark`, so a paired-end sample's Bismark rows are named after Trim Galore's read-1 file, `<sample>_1_val_1` (single-end rows are `<sample>`). With `--skip_trimming` they are named after the input FASTQ instead (for example `<sample>_R1`), which no fixed suffix catches, so those rows are not folded. Checked on a real run: `4.2.0-local-test` names the paired sample's Bismark row `Ecoli_10K_methylated_1_val_1`, and its single-end rows `<sample>` (`test_methylseq_map.py`); the full-size AWS run of 4.2.0 names its Bismark files the same way (`<sample>_1_val_1_bismark_bt2_pe.*`).
 - `replicate_samples` — when true, a samplesheet `replicate` column splits each `sample` into one sample per biological replicate, `<sample>_REP<replicate>`, the id nf-core/atacseq and nf-core/chipseq give each replicate's files, each with its own D.SEQ parent (and its own QC backfill). Rows sharing both `sample` and `replicate` are lanes of one library and stay one multi-run sample. The samplesheet's `sample` becomes the replicate group (`RunManifest.replicate_groups`): a file named after the group (atacseq's merged replicates, `<sample>.mRp.*`) gets one row for the group, parented by every replicate, when its candidate comes no later than any replicate's, and the replicates' files for that rule become its losing candidates. Off by default: a `replicate` column in another pipeline's samplesheet is sample metadata. The launch record is matched per replicate by the samplesheet `sample` and `fastq_1`.
+- `samplesheet_sample_column` — the samplesheet column that names a sample, `sample` by default. nf-core/cutandrun calls it `group`; the harvest copies it into `sample` on every row and keeps the original column for `$samplesheet` refs and `parents_by_samplesheet`. It also decides which top-level CSV is the samplesheet.
+- `replicate_name` — with `replicate_samples`, how a replicate's files are named: `{sample}_REP{replicate}` by default (atacseq, chipseq), `{sample}_R{replicate}` for cutandrun. It must use exactly those two fields.
+- `multiqc_data_dirs` — MultiQC data folders below the run root, as run-relative globs ending in `/`, for a release that does not publish MultiQC in a top-level `multiqc*/` folder (cutandrun: `04_reporting/multiqc/multiqc_data/`). Their `multiqc_*.txt` tables are staged, and general stats and `module_tables` are looked for there as well as in the generic folder.
 - `claims_every_file` — when true, the fixture contract test requires every file of a run to be a rule's candidate or companion, or to match `unmapped_files`.
 - `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`. `except_globs` names files the glob also matches that the ruling leaves to the rules (methylseq rules out bwa-meth's unsorted `alignments/<sample>.bam` but not the `<sample>.sorted.bam` its aln rule reads); `maps.UnmappedFiles.rules_out` is the one matcher.
 
@@ -374,6 +382,37 @@ them. A
 merged-replicate group's row names its replicates' own peaks or bigWigs in `Notes` (or the
 build report), never in `File_SecondaryData`: one replicate's output is not the group's
 secondary data (G-4).
+
+### cutandrun
+
+The 3.x map (`applies_to_versions` `>=3.1,<3.3`, pinned release 3.2.2) is checked against two fixtures:
+`3.2.2-pytest`, the output paths 3.2.2's pytest-workflow tests assert, merged (the release has no nf-test
+snapshot, and its AWS `test_full` run published only `pipeline_info/`); and `3.1-aws-test_full`, the last
+complete AWS run, for the MultiQC keys and the plotFingerprint metrics. 3.1 differs from 3.2 in its file names
+only in the consensus peaks, which gained the caller's name (`<group>.seacr.consensus.peaks.awk.bed`), and in
+3.2's `--remove_linear_duplicates` BAM: the `<3.2` override keeps 3.1's consensus name.
+
+Samples are replicates, `<group>_R<n>` (`samplesheet_sample_column` `group`, `replicate_name`). The aln rule takes
+the most processed BAM of `linear_dedup/`, `dedup/` (IgG controls by default; targets with
+`--dedup_target_reads`) and `markdup/`. Every replicate gets a bigWig row; peak rows (SEACR, MACS2 narrow or
+broad) skip the controls, which have no peaks. Each group's consensus is one `per_file` row parented by its
+replicates, and `all_samples` (`--consensus_peak_mode all`) one row parented by every target.
+
+| Attribute | Row | Source |
+|---|---|---|
+| `MappedPercent` | D.SEQ | general stats, `Bowtie2 (target)` overall alignment rate |
+| `DuplicationPercent` | D.SEQ | `multiqc_picard_dups.txt`, x100 by `$derived.duplication_pct` |
+| `GCPercent` | D.SEQ | general stats, `FastQC (raw)`: the folded row holds read 2's report |
+| `FingerprintJSD` | D.SEQ | `04_reporting/deeptools_qc/<sample>.plotFingerprint.qcmetrics.txt`, IgG controls too |
+| `FRiPPercent`, `PeakCount` | A.CHRM peak row of the primary caller | MultiQC bar graphs `multiqc_primary_fripscore_plot.txt`, `multiqc_primary_peakcounts_plot.txt` |
+
+FRiP and the peak count are computed for the primary caller's peaks only, the first of `--peakcaller`, so the
+`@seacr_*` and `@macs2_*` tokens (`NessieAI/ns/reingest/pipelines/cutandrun.py`) put them on that caller's rows
+and leave the other caller's blank. The FRiP table's name is read off the release's custom-content header
+(`assets/multiqc/frip_score_header.txt`, plot id `primary_fripscore_plot`) and has not been seen in a run: 3.1's
+AWS run wrote no FRiP table. A.CHRM has no attribute for the peak caller, so with `--peakcaller seacr,macs2` a
+replicate's two peak rows differ only by `DataType` and file. The spike-in alignment rate has no D.SEQ attribute
+and is ruled out. Antibody stays blank: the samplesheet has no antibody column.
 
 ### methylseq's variant fixtures
 

@@ -1,0 +1,281 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/cutandrun",
+  "applies_to_versions": ">=3.1,<3.3",
+  "accepts_parent_types": ["D.SEQ"],
+  "replicate_samples": true,
+  "samplesheet_sample_column": "group",
+  "replicate_name": "{sample}_R{replicate}",
+  "multiqc_data_dirs": ["04_reporting/multiqc/multiqc_data/"],
+  "inventory_globs": [
+    "**/04_reporting/multiqc/*multiqc_report.html",
+    "**/03_bed_to_bigwig/*.bigWig",
+    "**/*.seacr.peaks.stringent.bed",
+    "**/*.seacr.peaks.relaxed.bed",
+    "**/*.macs2_peaks.narrowPeak",
+    "**/*.macs2_peaks.broadPeak",
+    "**/05_consensus_peaks/*.consensus.peaks.awk.bed",
+    "**/05_consensus_peaks/*.consensus.peak_counts.bed"
+  ],
+  "harvest_globs": [],
+  "derived_metrics": ["duplication_pct"],
+  "row_defaults": {
+    "Name": "@row_name"
+  },
+  "module_tables": {
+    "multiqc_picard_dups.txt": {"namespace": "picard_dups"},
+    "multiqc_primary_peakcounts_plot.txt": {"namespace": "peak_count", "shape": "bargraph"},
+    "multiqc_primary_fripscore_plot.txt": {"namespace": "frip", "shape": "bargraph"}
+  },
+  "sample_files": {
+    "fingerprint": {"glob": "04_reporting/deeptools_qc/<sample>.plotFingerprint.qcmetrics.txt",
+                    "reader": "table", "columns": ["Synthetic JS Distance"]}
+  },
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["02_alignment/*/target/linear_dedup/*.target.linear_dedup.sorted.bam",
+                     "02_alignment/*/target/dedup/*.target.dedup.sorted.bam",
+                     "02_alignment/*/target/markdup/*.target.markdup.sorted.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "02_alignment/*/target/linear_dedup/*.target.linear_dedup.sorted.bam.bai"},
+                     {"glob": "02_alignment/*/target/dedup/*.target.dedup.sorted.bam.bai"},
+                     {"glob": "02_alignment/*/target/markdup/*.target.markdup.sorted.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@row_name",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "bowtie2",
+        "Genome": "$params.genome",
+        "Software": "nf-core/cutandrun"
+      }
+    },
+    {
+      "id": "bigwig",
+      "candidates": ["03_peak_calling/03_bed_to_bigwig/*.bigWig"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "attributes": {
+        "DataType": "bigWig",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/cutandrun"
+      }
+    },
+    {
+      "id": "peaks_seacr",
+      "candidates": ["03_peak_calling/04_called_peaks/seacr/*.seacr.peaks.{stringent,relaxed}.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/cutandrun",
+        "FRiPPercent": "@seacr_frip_pct",
+        "PeakCount": "@seacr_peak_count"
+      }
+    },
+    {
+      "id": "peaks_macs2_narrow",
+      "alternative_group": "macs2_peaks",
+      "candidates": ["03_peak_calling/04_called_peaks/macs2/*.macs2_peaks.narrowPeak"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "attributes": {
+        "DataType": "narrowPeak",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/cutandrun",
+        "FRiPPercent": "@macs2_frip_pct",
+        "PeakCount": "@macs2_peak_count"
+      }
+    },
+    {
+      "id": "peaks_macs2_broad",
+      "alternative_group": "macs2_peaks",
+      "candidates": ["03_peak_calling/04_called_peaks/macs2/*.macs2_peaks.broadPeak"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "attributes": {
+        "DataType": "broadPeak",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/cutandrun",
+        "FRiPPercent": "@macs2_frip_pct",
+        "PeakCount": "@macs2_peak_count"
+      }
+    },
+    {
+      "id": "consensus_seacr",
+      "alternative_group": "consensus",
+      "candidates": ["03_peak_calling/05_consensus_peaks/*.seacr.consensus.peaks.awk.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "parents_by_samplesheet": "group",
+      "every_sample_stem": "all_samples",
+      "controls_by_samplesheet": "control",
+      "companions": [{"glob": "03_peak_calling/05_consensus_peaks/*.seacr.consensus.peak_counts.bed"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/cutandrun"
+      }
+    },
+    {
+      "id": "consensus_macs2",
+      "alternative_group": "consensus",
+      "candidates": ["03_peak_calling/05_consensus_peaks/*.macs2.consensus.peaks.awk.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "parents_by_samplesheet": "group",
+      "every_sample_stem": "all_samples",
+      "controls_by_samplesheet": "control",
+      "companions": [{"glob": "03_peak_calling/05_consensus_peaks/*.macs2.consensus.peak_counts.bed"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/cutandrun"
+      }
+    }
+  ],
+  "versions": [
+    {
+      "range": "<3.2",
+      "outputs": [
+        {
+          "id": "consensus_seacr",
+          "candidates": ["03_peak_calling/05_consensus_peaks/*.consensus.peaks.awk.bed"],
+          "sample_type": "A.CHRM",
+          "assay": "Chromatin Sequencing Analysis",
+          "cardinality": "per_file",
+          "primary_data": true,
+          "optional": true,
+          "parents_by_samplesheet": "group",
+      "every_sample_stem": "all_samples",
+      "controls_by_samplesheet": "control",
+          "companions": [{"glob": "03_peak_calling/05_consensus_peaks/*.consensus.peak_counts.bed"}],
+          "attributes": {
+            "DataType": "BED",
+            "Scientist": "@nextseek_user",
+            "Assembly": "$params.genome",
+            "Pipeline": "nf-core/cutandrun"
+          }
+        }
+      ],
+      "drop": ["consensus_macs2"]
+    }
+  ],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "MappedPercent": {
+      "from": "Bowtie2 (target)_mqc-generalstats-bowtie2_target-overall_alignment_rate", "target": "D.SEQ", "datatype": "number",
+      "note": "Bowtie2's overall alignment rate against the target genome, before filtering and deduplication (MultiQC section 'Bowtie2 (target)', path filter ./bowtie2/*.bowtie2.log in assets/multiqc_config.yml). Already a percentage. Checked against the 3.1 AWS test_full run (fixture 3.1-aws-test_full). A replicate sequenced over several runs is a multi-run sample and gets no backfill.",
+      "provenance": "seed"
+    },
+    "FingerprintJSD": {
+      "from": "fingerprint-Synthetic JS Distance", "target": "D.SEQ", "datatype": "number",
+      "note": "deepTools plotFingerprint's Synthetic JS Distance (--skipZeros), 0 to 1, higher meaning more enrichment, from 04_reporting/deeptools_qc/<sample>.plotFingerprint.qcmetrics.txt. cutandrun fingerprints every library, IgG controls too, one BAM per file; checked against the 3.1 AWS test_full run. Multi-run samples get no backfill.",
+      "provenance": "seed"
+    },
+    "GCPercent": {
+      "from": "FastQC (raw)_mqc-generalstats-fastqc_raw-percent_gc", "target": "D.SEQ", "datatype": "number",
+      "note": "FastQC on the raw reads (section 'FastQC (raw)'). The release's extra_fn_clean_trim drops _1 and _2, so both mates' reports fold into one row named after the replicate, and multiqc_sources.txt shows that row holds read 2's report; GC content differs little between mates. Checked against the 3.1 AWS test_full run. Multi-run samples get no backfill.",
+      "provenance": "seed"
+    },
+    "DuplicationPercent": {
+      "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
+      "note": "Picard MarkDuplicates on each replicate's filtered target alignment (multiqc_picard_dups.txt, PERCENT_DUPLICATION, a 0-1 fraction x100 by $derived.duplication_pct). Checked against the 3.1 AWS test_full run. Multi-run samples get no backfill.",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": [
+    {"key": "frip-value", "why": "The primary caller's FRiP score, a 0-1 fraction; that caller's peak rows read it as FRiPPercent through @seacr_frip_pct or @macs2_frip_pct."},
+    {"key": "peak_count-value", "why": "The primary caller's peak count; that caller's peak rows read it as PeakCount through @seacr_peak_count or @macs2_peak_count."},
+    {"key": "picard_dups-PERCENT_DUPLICATION", "why": "Picard's 0-1 fraction; DuplicationPercent reads it as a percentage through $derived.duplication_pct."},
+    {"key": "Picard duplication stats_mqc-generalstats-picard_duplication_stats-PERCENT_DUPLICATION", "why": "The same Picard fraction in general stats; DuplicationPercent reads it from the module table through $derived.duplication_pct."},
+    {"key": "picard_dups-LIBRARY", "why": "Picard's library name, not a measurement."},
+    {"key": "picard_dups-UNPAIRED_READS_EXAMINED", "why": "A read count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
+    {"key": "picard_dups-READ_PAIRS_EXAMINED", "why": "A read-pair count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
+    {"key": "picard_dups-SECONDARY_OR_SUPPLEMENTARY_RDS", "why": "A count of secondary and supplementary records: no D.SEQ attribute means it."},
+    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads after filtering; MappedPercent comes from Bowtie2's own rate."},
+    {"key": "picard_dups-UNPAIRED_READ_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
+    {"key": "picard_dups-READ_PAIR_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
+    {"key": "picard_dups-READ_PAIR_OPTICAL_DUPLICATES", "why": "Optical duplicates, a subset of the duplicates DuplicationPercent counts: no D.SEQ attribute means it."},
+    {"key": "picard_dups-ESTIMATED_LIBRARY_SIZE", "why": "Picard's estimate of unique molecules in the library: a library-complexity measure no D.SEQ attribute means."},
+    {"key": "Bowtie2 (spike-in)_mqc-generalstats-bowtie2_spike_in-overall_alignment_rate", "why": "The share of reads aligning to the spike-in genome (E. coli by default), which drives Spikein normalisation. D.SEQ has no spike-in attribute; a SpikeInPercent attribute is an open schema question for the owner."},
+    {"key": "FastQC (raw)_mqc-generalstats-fastqc_raw-percent_duplicates", "why": "FastQC's sequence duplication on read 2 (the folded row), hidden in the release's report; DuplicationPercent comes from Picard on the alignment."},
+    {"key": "FastQC (raw)_mqc-generalstats-fastqc_raw-avg_sequence_length", "why": "Read length, a property of the sequencing run that D.SEQ's F_bp and R_bp already record."},
+    {"key": "FastQC (raw)_mqc-generalstats-fastqc_raw-median_sequence_length", "why": "Read length, a property of the sequencing run that D.SEQ's F_bp and R_bp already record."},
+    {"key": "FastQC (raw)_mqc-generalstats-fastqc_raw-percent_fails", "why": "The share of FastQC modules that failed: a summary of the report, not a measurement of the library."},
+    {"key": "FastQC (raw)_mqc-generalstats-fastqc_raw-total_sequences", "why": "Read 2's read count (the folded row): D.SEQ's read counts come from the sequencing, not from one FastQC report."},
+    {"key": "Cutadapt_mqc-generalstats-cutadapt-percent_trimmed", "why": "The share of bases Trim Galore trimmed, not the share of reads with adapter that AdapterPercent means."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-error_rate", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-non_primary_alignments", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_mapped", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_mapped_percent", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_properly_paired_percent", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-reads_MQ0_percent", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-raw_total_sequences", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-flagstat_total", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-mapped_passed", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."},
+    {"key": "Samtools alignment scores_mqc-generalstats-samtools_alignment_scores-mapped_passed_pct", "why": "samtools on the deduplicated alignment, which the release writes for IgG controls only (targets are duplicate-marked, not deduplicated, unless --dedup_target_reads): present on some libraries and not others, and after quality filtering, so mapped shares are 100% by construction. MappedPercent comes from Bowtie2."}
+  ],
+  "unmapped_files": [
+    {"glob": "00_genome/*", "why": "Reference FASTA, sizes, annotation and Bowtie2 indexes (with --save_reference): reference files, not sample data."},
+    {"glob": "01_prealign/*", "why": "FastQC reports, Trim Galore logs and trimmed reads (with --save_trimmed), merged technical-replicate FASTQ (with --save_merged_fastq): QC and intermediates of the registered alignment."},
+    {"glob": "02_alignment/*/spikein/*", "why": "Spike-in alignments (with --save_spikein_aligned) and their logs: used only to compute the normalisation factor."},
+    {"glob": "02_alignment/*/target/log/*", "why": "Bowtie2 logs: summarised in MultiQC, where MappedPercent comes from."},
+    {"glob": "02_alignment/*/target/unmapped/*", "why": "Reads Bowtie2 could not align (with --save_unaligned): not a result of the analysis."},
+    {"glob": "02_alignment/*/target/*.{bam,bam.bai}", "except_globs": ["02_alignment/*/target/{linear_dedup,dedup,markdup}/*"], "why": "The raw, sorted and quality-filtered alignments and their indexes (with --save_align_intermed): earlier states of the deduplicated or duplicate-marked BAM the aln rule registers."},
+    {"glob": "02_alignment/*/target/*.{flagstat,idxstats,stats}", "why": "samtools QC of the intermediate and the registered alignments: summarised in MultiQC."},
+    {"glob": "02_alignment/*/target/linear_dedup/*_metrics.txt", "why": "The linear-duplicate removal metrics (with --remove_linear_duplicates): QC, shown in MultiQC."},
+    {"glob": "02_alignment/*/target/markdup/picard_metrics/*", "why": "Picard MarkDuplicates metrics: DuplicationPercent reads the same numbers from MultiQC."},
+    {"glob": "03_peak_calling/01_bam_to_bedgraph/*", "why": "Per-replicate coverage bedGraphs: the input of SEACR and of the bigWig the bigwig rule registers."},
+    {"glob": "03_peak_calling/02_clip_bed/*", "why": "The bedGraphs clipped to chromosome ends: the step between the bedGraph and the registered bigWig."},
+    {"glob": "03_peak_calling/04_called_peaks/macs2/*.macs2_peaks.xls", "why": "MACS2's peak table: the same calls as the narrowPeak or broadPeak file a peaks rule registers."},
+    {"glob": "03_peak_calling/04_called_peaks/macs2/*.macs2_summits.bed", "why": "MACS2 summits (narrow mode): one point per registered peak."},
+    {"glob": "03_peak_calling/04_called_peaks/macs2/*.macs2.peaks*.bed", "why": "The first six columns of MACS2's peaks as BED, cut for consensus and IGV: the same calls as the registered peak file."},
+    {"glob": "03_peak_calling/06_fragments_from_bams/*", "why": "Fragment BED and fragment-length tables: the input of the FRiP score and of MultiQC's fragment-length plot."},
+    {"glob": "04_reporting/consensus_upset_plots/*", "why": "UpSet plots of the consensus peaks: figures."},
+    {"glob": "04_reporting/deeptools_heatmaps/*", "why": "deepTools matrices and heatmaps around genes and peaks: figures and their data, rebuilt from the registered bigWigs."},
+    {"glob": "04_reporting/deeptools_qc/*", "why": "deepTools PCA, correlation and fingerprint QC: figures. FingerprintJSD is read from each qcmetrics file (sample_files) onto the D.SEQ."},
+    {"glob": "04_reporting/preseq/*", "why": "Preseq library-complexity curves: a curve, not a value any attribute holds."},
+    {"glob": "04_reporting/igv/*", "why": "IGV session and copies of the registered bigWigs and peaks for it: no data of its own."},
+    {"glob": "04_reporting/multiqc/multiqc_data/*", "why": "MultiQC's data tables: the harvest reads them itself (multiqc_data_dirs)."}
+  ]
+}

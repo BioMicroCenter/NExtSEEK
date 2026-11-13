@@ -1,0 +1,75 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Software"
+   ],
+   "rows": 6,
+   "sample_type": "A.ALN"
+  },
+  "bigwig": {
+   "attributes": [
+    "Assembly",
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "Pipeline"
+   ],
+   "rows": 6,
+   "sample_type": "A.CHRM"
+  },
+  "consensus_seacr": {
+   "attributes": [
+    "Assembly",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Pipeline"
+   ],
+   "rows": 2,
+   "sample_type": "A.CHRM"
+  },
+  "peaks_macs2_narrow": {
+   "attributes": [
+    "Assembly",
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "Pipeline"
+   ],
+   "rows": 4,
+   "sample_type": "A.CHRM"
+  },
+  "peaks_seacr": {
+   "attributes": [
+    "Assembly",
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "PeakCount",
+    "Pipeline"
+   ],
+   "rows": 4,
+   "sample_type": "A.CHRM"
+  }
+ },
+ "warnings": [
+  "03_peak_calling/05_consensus_peaks/h3k27me3.consensus.peaks.awk.bed: no sample with group 'h3k27me3' (h3k27me3_R1, h3k27me3_R2) resolved to a D.SEQ; the consensus_seacr row has no Parent",
+  "03_peak_calling/05_consensus_peaks/h3k4me3.consensus.peaks.awk.bed: no sample with group 'h3k4me3' (h3k4me3_R1, h3k4me3_R2) resolved to a D.SEQ; the consensus_seacr row has no Parent",
+  "igg_ctrl_R1: no Notes on A.ALN; also in run: 02_alignment/bowtie2/target/markdup/igg_ctrl_R1.target.markdup.sorted.bam.bai, 02_alignment/bowtie2/target/markdup/igg_ctrl_R1.target.markdup.sorted.bam",
+  "igg_ctrl_R1: no file for optional rule peaks_macs2_narrow; no row written",
+  "igg_ctrl_R1: no file for optional rule peaks_seacr; no row written",
+  "igg_ctrl_R2: no Notes on A.ALN; also in run: 02_alignment/bowtie2/target/markdup/igg_ctrl_R2.target.markdup.sorted.bam.bai, 02_alignment/bowtie2/target/markdup/igg_ctrl_R2.target.markdup.sorted.bam",
+  "igg_ctrl_R2: no file for optional rule peaks_macs2_narrow; no row written",
+  "igg_ctrl_R2: no file for optional rule peaks_seacr; no row written"
+ ]
+}

@@ -24,7 +24,7 @@ EXPECTS = ("not_yet", "ask", "refuse")
 PHRASINGS = ("plain", "named", "outcome", "ambiguous", "lookalike", "migrated", "off_topic")
 RULING_STATES = ("proposed", "accepted", "changed")
 #: Data kinds with no choosable pipeline yet: stories about them expect "not_yet".
-NOT_YET_PIPELINES = ("cutandrun", "raredisease")
+NOT_YET_PIPELINES = ("raredisease",)
 #: Phrasings that must not name the pipeline they are about.
 UNNAMED = ("plain", "outcome", "ambiguous", "lookalike")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

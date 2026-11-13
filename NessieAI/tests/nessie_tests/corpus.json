@@ -16590,9 +16590,9 @@
           "_why": "Generated from NessieAI/tests/pipeline_scenarios story methyl-plain; edit the story, then re-run build_e2e."
         },
         {
-          "id": "pipeline_scenarios.cutandrun-not-yet",
+          "id": "pipeline_scenarios.raredisease-not-yet",
           "family": "pipeline_launch",
-          "name": "pipeline scenario cutandrun-not-yet",
+          "name": "pipeline scenario raredisease-not-yet",
           "tags": [
             "pipeline_scenarios",
             "multi-turn"
@@ -16603,7 +16603,7 @@
           "turns": [
             {
               "label": "setup_search",
-              "query": "Find D.SEQ-261028BMC-11, D.SEQ-261028BMC-12, D.SEQ-261028BMC-13, D.SEQ-261028BMC-14.",
+              "query": "Find D.SEQ-261028BMC-1, D.SEQ-261028BMC-2.",
               "pass_criteria": [
                 {
                   "field": "neo4j_ok",
@@ -16614,7 +16614,7 @@
             },
             {
               "label": "question",
-              "query": "These libraries are CUT&Tag, not ChIP; the metadata is wrong. Run CUT&Tag peak calling on them.",
+              "query": "We already have the germline VCFs for these two genomes. Rank their variants by how likely each is to cause a rare disease.",
               "pass_criteria": [
                 {
                   "field": "route",
@@ -16663,7 +16663,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Generated from NessieAI/tests/pipeline_scenarios story cutandrun-not-yet; edit the story, then re-run build_e2e."
+          "_why": "Generated from NessieAI/tests/pipeline_scenarios story raredisease-not-yet; edit the story, then re-run build_e2e."
         }
       ]
     },

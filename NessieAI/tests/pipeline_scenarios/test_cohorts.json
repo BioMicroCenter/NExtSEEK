@@ -9,6 +9,7 @@
     "chip": {"description": "ChIP-seq with an antibody and an input control", "uids": ["D.SEQ-261028BMC-11", "D.SEQ-261028BMC-12", "D.SEQ-261028BMC-13", "D.SEQ-261028BMC-14"]},
     "smallrna": {"description": "Small-RNA libraries", "uids": ["D.SEQ-261026NA-19", "D.SEQ-261026NA-20"]},
     "riboseq": {"description": "Ribosome profiling", "uids": ["D.SEQ-261026NA-17", "D.SEQ-261026NA-18"]},
-    "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": ["D.SEQ-261026NA-15", "D.SEQ-261026NA-16"]}
+    "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": ["D.SEQ-261026NA-15", "D.SEQ-261026NA-16"]},
+    "cutandrun": {"description": "CUT&Tag for two histone marks with an IgG control, paired-end", "uids": []}
   }
 }

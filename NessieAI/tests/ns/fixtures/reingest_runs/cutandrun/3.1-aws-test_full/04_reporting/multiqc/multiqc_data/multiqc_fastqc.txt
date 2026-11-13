@@ -1,0 +1,7 @@
+Sample	Filename	File type	Encoding	Total Sequences	Sequences flagged as poor quality	Sequence length	%GC	total_deduplicated_percentage	avg_sequence_length	median_sequence_length	basic_statistics	per_base_sequence_quality	per_sequence_quality_scores	per_base_sequence_content	per_sequence_gc_content	per_base_n_content	sequence_length_distribution	sequence_duplication_levels	overrepresented_sequences	adapter_content
+h3k27me3_R1	h3k27me3_R1_2.gz	Conventional base calls	Sanger / Illumina 1.9	2984630.0	0.0	25.0	54.0	85.97716352188229	25.0	25	pass	pass	pass	fail	pass	pass	pass	pass	warn	pass
+h3k27me3_R2	h3k27me3_R2_2.gz	Conventional base calls	Sanger / Illumina 1.9	2702260.0	0.0	25.0	51.0	92.13517952425218	25.0	25	pass	pass	pass	fail	pass	pass	pass	pass	pass	pass
+h3k4me3_R1	h3k4me3_R1_2.gz	Conventional base calls	Sanger / Illumina 1.9	1581710.0	0.0	25.0	63.0	71.79963597047886	25.0	25	pass	pass	pass	fail	pass	pass	pass	pass	warn	pass
+h3k4me3_R2	h3k4me3_R2_2.gz	Conventional base calls	Sanger / Illumina 1.9	1885056.0	0.0	25.0	58.0	83.69030358392196	25.0	25	pass	pass	pass	fail	pass	pass	pass	pass	pass	pass
+igg_ctrl_R1	igg_ctrl_R1_2.gz	Conventional base calls	Sanger / Illumina 1.9	2127635.0	0.0	25.0	49.0	19.167732848986944	25.0	25	pass	pass	pass	fail	pass	pass	pass	fail	warn	pass
+igg_ctrl_R2	igg_ctrl_R2_2.gz	Conventional base calls	Sanger / Illumina 1.9	2192908.0	0.0	25.0	47.0	59.053479582839984	25.0	25	pass	pass	pass	fail	pass	pass	pass	warn	pass	pass

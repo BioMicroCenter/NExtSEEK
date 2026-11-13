@@ -32,7 +32,7 @@ def test_scrnaseq_has_curated_params_and_reference_resources():
     assert doc["reference_resources"] == ["fasta", "gtf", "salmon_index", "star_index", "txp2gene"]
 
 
-ALL_PIPELINES = ["rnaseq", "scrnaseq", "atacseq", "chipseq", "sarek", "methylseq", "ampliseq", "fetchngs"]
+ALL_PIPELINES = ["rnaseq", "scrnaseq", "atacseq", "chipseq", "cutandrun", "sarek", "methylseq", "ampliseq", "fetchngs"]
 
 
 @pytest.mark.parametrize("key", ALL_PIPELINES)

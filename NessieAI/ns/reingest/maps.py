@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import string
 from pathlib import Path
 from typing import Literal
 
@@ -172,6 +173,14 @@ class OutputRule(BaseModel):
     # peak set per `antibody`, which its controls and the other antibodies' samples
     # did not make.
     parents_by_samplesheet: str | None = None
+    # With parents_by_samplesheet: the @file_stem that names no single value but the
+    # whole run (nf-core/cutandrun's `all_samples` consensus, `--consensus_peak_mode all`).
+    # That file's row is parented by every sample of the run except its controls.
+    every_sample_stem: str | None = None
+    # With every_sample_stem: a samplesheet column naming each sample's control by its
+    # parents_by_samplesheet value (cutandrun's `control`). A sample whose value some
+    # sample names there is a control, and is not a parent of the whole-run row.
+    controls_by_samplesheet: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -204,6 +213,11 @@ class OutputRule(BaseModel):
                              "guard reads the primary file)")
         if self.parents_by_samplesheet and self.cardinality != "per_file":
             raise ValueError(f"rule {self.id!r}: parents_by_samplesheet is for per_file rules")
+        if self.every_sample_stem is not None and not (self.parents_by_samplesheet and self.every_sample_stem):
+            raise ValueError(f"rule {self.id!r}: every_sample_stem is a non-empty stem, with "
+                             "parents_by_samplesheet")
+        if self.controls_by_samplesheet and not self.every_sample_stem:
+            raise ValueError(f"rule {self.id!r}: controls_by_samplesheet is for every_sample_stem")
         if self.alternative_group is not None and not (
                 self.alternative_group and self.optional
                 and self.cardinality in ("per_sample", "per_file") and self.primary_data):
@@ -323,6 +337,11 @@ class PipelineMap(BaseModel):
     pipeline: str
     applies_to_versions: str = ""
     harvest_globs: list[str] = Field(default_factory=list)
+    #: MultiQC data folders below the run root, as run-relative globs ending in "/", for a
+    #: release that does not publish MultiQC in a top-level `multiqc*/` folder (cutandrun:
+    #: `04_reporting/multiqc/multiqc_data/`). Their `multiqc_*.txt` tables are staged and read
+    #: like the generic ones: general stats and module tables are looked for in both.
+    multiqc_data_dirs: list[str] = Field(default_factory=list)
     derived_metrics: list[str] = Field(default_factory=list)
     outputs: list[OutputRule] = Field(default_factory=list)
     # This map's own inventory patterns (listed by name and size, never copied).
@@ -380,11 +399,35 @@ class PipelineMap(BaseModel):
     #: a `replicate` column there is sample metadata, and rows sharing a `sample` stay
     #: one multi-run sample.
     replicate_samples: bool = False
+    #: The samplesheet column that names a sample (or, with `replicate_samples`, a
+    #: replicate group). nf-core/cutandrun calls it `group`; the harvest copies it into
+    #: `sample` on every row, keeping the original column for `$samplesheet` refs.
+    samplesheet_sample_column: str = Field(default="sample", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    #: With `replicate_samples`, how nf-core names a replicate's files: `{sample}` is the
+    #: group (spaces made "_"), `{replicate}` the integer. cutandrun: `{sample}_R{replicate}`.
+    replicate_name: str = "{sample}_REP{replicate}"
+
+    @model_validator(mode="after")
+    def multiqc_data_dirs_are_relative_folders(self):
+        """A MultiQC data folder is a run-relative glob that names a folder."""
+        for folder in self.multiqc_data_dirs:
+            if not folder.endswith("/") or folder.startswith("/") or ".." in folder.split("/"):
+                raise ValueError(f"multiqc_data_dirs entry {folder!r} must be a relative folder ending in '/'")
+        return self
+
+    @model_validator(mode="after")
+    def replicate_name_has_both_fields(self):
+        """A replicate name must hold the group and the replicate, and nothing else."""
+        fields = {f for _, f, _, _ in string.Formatter().parse(self.replicate_name) if f is not None}
+        if fields != {"sample", "replicate"}:
+            raise ValueError("replicate_name must use exactly {sample} and {replicate}")
+        return self
 
     def samplesheet_columns(self) -> set[str]:
         """The samplesheet columns this map reads: every `$samplesheet.<column>` in a
         rule's attributes, a version override's, `row_defaults` or
-        `provenance_attributes`, and every rule's `parents_by_samplesheet`. The harvest
+        `provenance_attributes`, and every rule's `parents_by_samplesheet` and
+        `controls_by_samplesheet`. The harvest
         keeps only these cells (`SampleRecord.samplesheet`), so a column no map reads
         (sarek's sex or status) never reaches the stored manifest."""
         rules = list(self.outputs) + [r for o in self.versions for r in o.outputs]
@@ -393,7 +436,8 @@ class PipelineMap(BaseModel):
         prefix = f"${_SAMPLESHEET_SECTION}."
         columns = {v[len(prefix):] for v in values
                    if isinstance(v, str) and v.startswith(prefix) and len(v) > len(prefix)}
-        return columns | {r.parents_by_samplesheet for r in rules if r.parents_by_samplesheet}
+        return (columns | {r.parents_by_samplesheet for r in rules if r.parents_by_samplesheet}
+                | {r.controls_by_samplesheet for r in rules if r.controls_by_samplesheet})
 
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""
@@ -562,8 +606,8 @@ def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, lis
 
 
 def all_harvest_globs() -> tuple[str, ...]:
-    """Every committed map's ``harvest_globs`` and ``sample_files`` (each with ``*`` for
-    ``<sample>``), deduplicated, in a stable order.
+    """Every committed map's ``harvest_globs``, ``multiqc_data_dirs`` (their ``multiqc_*.txt``)
+    and ``sample_files`` (each with ``*`` for ``<sample>``), deduplicated, in a stable order.
 
     The UNION across pipelines, not one map's list, because staging happens
     before the pipeline is known: `run-harvest` copies files off the cluster and
@@ -588,6 +632,8 @@ def all_harvest_globs() -> tuple[str, ...]:
             continue
         for pattern in pipeline_map.harvest_globs:
             seen.setdefault(pattern, None)
+        for folder in pipeline_map.multiqc_data_dirs:
+            seen.setdefault(f"{folder}multiqc_*.txt", None)
         for sample_file in pipeline_map.sample_files.values():
             seen.setdefault(sample_file.staged_glob(), None)
     return tuple(seen)

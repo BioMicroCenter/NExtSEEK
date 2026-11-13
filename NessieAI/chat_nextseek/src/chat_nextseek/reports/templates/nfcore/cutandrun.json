@@ -1,0 +1,62 @@
+{
+  "report_type": "NFCORE_CUTANDRUN_SAMPLESHEET",
+  "description": "nf-core/cutandrun samplesheet context. One row per paired-end library: its group (the target), replicate number and the IgG control group it is normalised against.",
+  "params": {
+    "peakcaller":          {"type": "enum", "allowed": ["seacr", "macs2", "seacr,macs2", "macs2,seacr"], "default": "seacr", "steerable": true, "help": "Peak caller(s). SEACR is the default and suits CUT&RUN/CUT&Tag's low background; with two, the first is the primary caller: only its peaks get the consensus, the FRiP score and the peak count."},
+    "normalisation_mode":  {"type": "enum", "allowed": ["Spikein", "RPKM", "CPM", "BPM", "None"], "default": "Spikein", "steerable": true, "help": "Signal normalisation. Spikein scales each library by its reads on the spike-in genome (E. coli carry-over DNA by default); use CPM when the libraries have no spike-in or too few spike-in reads."},
+    "spikein_genome":      {"type": "string", "default": "K12-MG1655", "steerable": true, "help": "iGenomes key of the spike-in genome: K12-MG1655 (E. coli, the carry-over of pA-MNase/pAG-Tn5 preps), R64-1-1 (yeast) or BDGP6 (fruit fly). Read only with normalisation_mode Spikein."},
+    "use_control":         {"type": "bool", "default": true, "steerable": true, "help": "Normalise peak calls against an IgG control group named in the control column. Set false when the samplesheet names no control."},
+    "igg_scale_factor":    {"type": "number", "default": 0.5, "steerable": true, "help": "Scale applied to the IgG control before it is used to normalise peaks."},
+    "seacr_peak_threshold": {"type": "number", "default": 0.05, "steerable": true, "help": "SEACR returns the top fraction (0 to 1) of peaks by total signal when no control is used."},
+    "seacr_norm":          {"type": "enum", "allowed": ["non", "norm"], "default": "non", "steerable": true, "help": "SEACR normalisation: 'non' when the signal is already spike-in normalised, 'norm' otherwise."},
+    "seacr_stringent":     {"type": "enum", "allowed": ["stringent", "relaxed"], "default": "stringent", "steerable": true, "help": "SEACR stringency."},
+    "macs2_narrow_peak":   {"type": "bool", "default": true, "steerable": true, "help": "MACS2 narrow-peak mode; false calls broad peaks (histone marks such as H3K27me3). Read only when macs2 is a peak caller."},
+    "macs2_qvalue":        {"type": "number", "default": 0.01, "steerable": true, "help": "Q-value threshold for MACS2."},
+    "dedup_target_reads":  {"type": "bool", "default": false, "steerable": true, "help": "Remove duplicates from target libraries too (controls are always deduplicated). Usually left off for CUT&RUN, where identical fragments are expected at strong sites."},
+    "remove_linear_duplicates": {"type": "bool", "default": false, "steerable": true, "help": "Remove linear-amplification duplicates (TIP-seq, nano-CUT&Tag preps)."},
+    "remove_mitochondrial_reads": {"type": "bool", "default": false, "steerable": true, "help": "Drop mitochondrial reads before peak calling."},
+    "end_to_end":          {"type": "bool", "default": true, "steerable": true, "help": "Bowtie2 end-to-end mode; false uses local mode."},
+    "minimum_alignment_q_score": {"type": "int", "default": 20, "steerable": true, "help": "Drop alignments below this mapping quality."},
+    "consensus_peak_mode": {"type": "enum", "allowed": ["group", "all"], "default": "group", "steerable": true, "help": "Consensus peaks per group (default) or one set over every target sample."},
+    "replicate_threshold": {"type": "number", "default": 1, "steerable": true, "help": "Minimum number of replicates a consensus peak must appear in."},
+    "multiqc_title":       {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": ["fasta", "gtf", "bowtie2"],
+  "pipeline": {
+    "name": "nf-core/cutandrun",
+    "repository": "https://github.com/nf-core/cutandrun",
+    "documentation_url": "https://nf-co.re/cutandrun/3.2.2/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Required columns, in this order and no others: group, replicate, fastq_1, fastq_2, control. Paired-end only. Rows of one target share a group and number their replicates from 1; the IgG control libraries are their own group, with an empty control, and every target row names that group in control.",
+    "required_columns": [
+      "group",
+      "replicate",
+      "fastq_1",
+      "fastq_2",
+      "control"
+    ],
+    "optional_columns": []
+  },
+  "samplesheet_template": [
+    {
+      "group": null,
+      "replicate": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "control": null
+    }
+  ],
+  "validation_rules": [
+    "group is identical for the replicates of one target (no spaces); replicate is an integer from 1 within each group. A library sequenced over several runs keeps the same group and replicate, and the pipeline merges its runs.",
+    "Paired-end only: every row needs both fastq_1 and fastq_2, gzipped FASTQ ending in .fastq.gz or .fq.gz. A single-end cohort cannot run cutandrun.",
+    "control names the group of the IgG (or other background) control libraries, never the row's own group; a control row's own control is empty. Controls with as many replicates as a target are paired replicate by replicate, otherwise replicate 1 of the control serves every replicate.",
+    "With use_control true (the default) at least one row must name a control; with no control libraries set use_control false.",
+    "The samplesheet has no antibody column: name each group after its target (h3k27me3, ctcf), as the antibody is recorded nowhere else in the run."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "Group the libraries by target from NExtSEEK metadata (antibody, target, condition); IgG or no-antibody libraries form the control group.",
+      "Use accession_rows for fastq columns; ask the user which group is the control when the metadata does not say."
+    ]
+  }
+}

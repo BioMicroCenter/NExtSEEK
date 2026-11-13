@@ -1,0 +1,7 @@
+group,replicate,fastq_1,fastq_2,control
+h3k27me3,1,/RUN/inputs/h3k27me3_rep1_r1.fastq.gz,/RUN/inputs/h3k27me3_rep1_r2.fastq.gz,igg_ctrl
+h3k27me3,2,/RUN/inputs/h3k27me3_rep2_r1.fastq.gz,/RUN/inputs/h3k27me3_rep2_r2.fastq.gz,igg_ctrl
+h3k4me3,1,/RUN/inputs/h3k4me3_rep1_r1.fastq.gz,/RUN/inputs/h3k4me3_rep1_r2.fastq.gz,igg_ctrl
+h3k4me3,2,/RUN/inputs/h3k4me3_rep2_r1.fastq.gz,/RUN/inputs/h3k4me3_rep2_r2.fastq.gz,igg_ctrl
+igg_ctrl,1,/RUN/inputs/igg_rep1_r1.fastq.gz,/RUN/inputs/igg_rep1_r2.fastq.gz,
+igg_ctrl,2,/RUN/inputs/igg_rep2_r1.fastq.gz,/RUN/inputs/igg_rep2_r2.fastq.gz,

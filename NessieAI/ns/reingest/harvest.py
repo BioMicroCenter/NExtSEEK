@@ -417,6 +417,27 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             run_name=Path(resolved_run_dir).name,
         )
 
+    # Which sample types this run's own pipeline may point back to as a
+    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
+    # is only just now known (parsed from software_versions just above; it is ""
+    # when that file never arrived), so this is the first point in the
+    # harvest where the map CAN be resolved -- not at this function's own
+    # call site (the caller stages files and invokes harvest_local before
+    # any pipeline identity is known at all). An unrecognised or not-yet-
+    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
+    # to the same ("D.SEQ",) scope this lookup always used, rather than
+    # raising out of a read-only harvest step.
+    try:
+        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
+    except maps.UnknownPipelineMap:
+        pipeline_map = None
+    # A release that publishes MultiQC below the run root (cutandrun's 04_reporting/)
+    # names its data folders in the map; they are searched beside the generic ones.
+    multiqc_dirs = [_MULTIQC_DATA_DIR, *(pipeline_map.multiqc_data_dirs if pipeline_map is not None else ())]
+
+    def multiqc_named(filename: str) -> list[str]:
+        return sorted(dict.fromkeys(p for d in multiqc_dirs for p in all_named(d + filename, filename)))
+
     found = newest(_EXECUTION_TRACE_GLOB, "execution traces")
     has_execution = found is not None
     if found:
@@ -429,7 +450,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
 
     stats: dict[str, dict] = {}
     stats_source: str | None = None
-    candidates = all_named(_MULTIQC_TXT_GLOB, "multiqc_general_stats.txt")
+    candidates = multiqc_named("multiqc_general_stats.txt")
     picked = _pick_metrics_source(candidates, out.params, warnings)
     text = read(picked) if picked else None
     if text is not None:
@@ -445,20 +466,6 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
 
     from NessieAI.ns.reingest import uid_resolve
 
-    # Which sample types this run's own pipeline may point back to as a
-    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
-    # is only just now known (parsed from software_versions, above; it is ""
-    # when that file never arrived), so this is the first point in the
-    # harvest where the map CAN be resolved -- not at this function's own
-    # call site (the caller stages files and invokes harvest_local before
-    # any pipeline identity is known at all). An unrecognised or not-yet-
-    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
-    # to the same ("D.SEQ",) scope this lookup always used, rather than
-    # raising out of a read-only harvest step.
-    try:
-        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
-    except maps.UnknownPipelineMap:
-        pipeline_map = None
     accepts_parent_types = (
         tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
         else ("D.SEQ",))
@@ -471,7 +478,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     for filename, (namespace, suffix, shape, columns) in wanted_tables.items():
         if namespace in module_tables:
             continue  # the same table as .txt and as .yaml: the first one read wins
-        path = _pick_module_table(all_named(_MULTIQC_DATA_DIR + filename, filename), picked, warnings)
+        path = _pick_module_table(multiqc_named(filename), picked, warnings)
         text = read(path) if path else None
         if text is not None:
             sources[f"metrics_{namespace}"] = path
@@ -484,11 +491,17 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             module_tables[namespace] = (suffix, parsers.bargraph_values(table)
                                         if shape == "bargraph" else table)
 
-    sheet = _find_samplesheet(base, read)
+    sample_column = pipeline_map.samplesheet_sample_column if pipeline_map is not None else "sample"
+    sheet = _find_samplesheet(base, read, sample_column)
     rows: list[dict] = []
     if sheet:
         candidate_rel, text = sheet
         candidate_rows = parsers.parse_samplesheet(text)
+        if sample_column != "sample":
+            # cutandrun's `group`: every reader below names a row by `sample`. The
+            # original column stays for `$samplesheet.<column>` and parents_by_samplesheet.
+            candidate_rows = [{**row, "sample": row.get(sample_column) or ""}
+                              for row in candidate_rows]
         if candidate_rows:
             sources["samples"], rows = candidate_rel, candidate_rows
             # Only a samplesheet names the reads a parent is matched by;
@@ -551,7 +564,8 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     # other map keeps one sample per samplesheet `sample` -- see
     # maps.PipelineMap.replicate_samples.
     if pipeline_map is not None and pipeline_map.replicate_samples and rows:
-        rows, out.replicate_groups = uid_resolve.key_by_replicate(rows)
+        rows, out.replicate_groups = uid_resolve.key_by_replicate(
+            rows, pipeline_map.replicate_name)
         if not out.replicate_groups:
             warnings.append(
                 f"{out.pipeline.name} names its files per replicate, but the samplesheet "
@@ -751,7 +765,7 @@ def _read_contrasts(out: manifest.RunManifest, base: Path, read,
     sources["contrasts"] = name
 
 
-def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
+def _find_samplesheet(base: Path, read, sample_column: str = "sample") -> tuple[str, str] | None:
     """Pick the samplesheet among every `_SAMPLESHEET_GLOB` ("*.csv") match.
 
     `--outdir .` makes the results root the run dir itself, so an unrelated
@@ -761,8 +775,9 @@ def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
 
     1. Name preference: an exact `samplesheet.csv` first, then any
        `samplesheet*.csv`, and only then whatever else this glob matched.
-    2. Header validation: a candidate whose first row has no `sample` column
-       is rejected outright -- `ids.csv` (empty, or one bare SRA accession per
+    2. Header validation: a candidate whose first row has no `sample` column (the
+       map's `samplesheet_sample_column`: cutandrun's is `group`) is rejected
+       outright -- `ids.csv` (empty, or one bare SRA accession per
        line with no header at all) never has one, so even a pipeline variant
        that names its real samplesheet something else entirely does not get
        silently matched against a file that cannot be the samplesheet.
@@ -784,7 +799,7 @@ def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
         text = read(rel)
         if text is None:
             continue
-        if "sample" not in _samplesheet_header(text):
+        if sample_column not in _samplesheet_header(text):
             continue
         return rel, text
     return None
