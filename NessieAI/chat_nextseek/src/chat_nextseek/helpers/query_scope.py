@@ -63,6 +63,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .. import tcga_studies
 from ..graph_contract import schema
 from .lab_code import fold
 
@@ -750,6 +751,12 @@ def _glossed_by_applied(keyword: str, question: str | None, titles: list[str]) -
     return False
 
 
+def _names_a_compared_tcga_study(keyword: str, titles: list[str]) -> bool:
+    """The keyword is a cancer whose TCGA study the query scoped on: "esophageal" over st.title = 'ESCA'. Without this
+    the reply was told the cancer was never filtered on, though the study scope is exactly that filter."""
+    return any(tcga_studies.word_names_study(keyword, title) for title in titles)
+
+
 def _same_catalog_row(value: str, titles: list[str], aliases: list[set[str]] | None) -> bool:
     """The asked name and a Project, Study or Investigation title the query compared are two names of one row of the
     projects catalog: "IMPAcTB" and the Investigation 'Impact' (dev run 2026-09-29, tasks 1373 and 1390). ``aliases``
@@ -877,6 +884,8 @@ def describe_query_scope(
                 applied = _container_title_is_applied(value, titles, held)
             if not applied:
                 applied = _glossed_by_applied(value, user_query, titles)
+            if not applied:
+                applied = _names_a_compared_tcga_study(value, held)
             if not applied:
                 applied = _same_catalog_row(value, titles, container_aliases)
             if not applied:
