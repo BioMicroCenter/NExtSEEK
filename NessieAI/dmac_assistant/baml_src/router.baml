@@ -221,6 +221,21 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     how a method works, analysing files the user supplies, or comparing values
     already stored in the metadata, is not this.
 
+    Public cohorts held in NExtSEEK go to `nextseek_query`. TCGA (The Cancer
+    Genome Atlas) and any other public cohort loaded into NExtSEEK are records
+    in its graph, beside the lab's own samples: their patients, diagnoses,
+    slides, sequencing and copy-number files. They are not data outside
+    NExtSEEK. A question asking which of their patients or samples meet a
+    condition is a NExtSEEK search, also when it sets the user's own samples or
+    findings beside them
+    ("our esophageal tumors all show CCND1 amplification; what TCGA patients could I analyze to see if they also have it?",
+    "which TCGA patients have lymphocyte infiltration of 40% or more on their slides and RNA-seq?",
+    "which TCGA patients have RNA-seq from both a primary tumour and a metastasis?"):
+    "our", or a gene or result named as the user's own finding, does not make
+    it an analysis, because the search finds the patients the user would
+    analyse. Analysing those patients' files (calling the amplification in
+    them, testing a difference between groups) is not this.
+
     Catalog counts stay `nextseek_query`. How many sample types, assays,
     projects, investigations, studies or protocols NExtSEEK defines is a lookup
     NExtSEEK answers itself, and so is how many sample types or assay kinds
