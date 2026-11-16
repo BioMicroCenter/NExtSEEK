@@ -1435,8 +1435,12 @@ def _foreign_run_header(run_manifest) -> str:
     checks the lineage before confirming an upload. A name-only match is said as
     such: it is the weakest match the resolver accepts."""
     evidence = run_manifest.foreign_run
+    where = evidence.pipeline_source
+    if evidence.bundle is not None:
+        where += (f" in the chat bundle {evidence.bundle.name} (its file list says the files are at "
+                  f"{evidence.bundle.origin})")
     lines = [f"NOT LAUNCHED BY NESSIE: {run_manifest.pipeline.name} "
-             f"{run_manifest.pipeline.version}, read from {evidence.pipeline_source}; samples "
+             f"{run_manifest.pipeline.version}, read from {where}; samples "
              f"matched to their parents through {evidence.samplesheet_source}. Check each "
              "parent before you confirm an upload:"]
     for sample in run_manifest.samples:
@@ -1472,8 +1476,13 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     import tempfile
 
     from NessieAI.ns.reingest import harvest
-    from NessieAI.ns.reingest.store import save_manifest
 
+    if args.get("bundle"):
+        if args.get("run_dir"):
+            raise OpValidationError("name a bundle or a run folder, not both", field="bundle",
+                                    error_type="bundle_or_run_dir")
+        run_manifest, run_dir, skipped = _harvest_bundle(str(args["bundle"]), session)
+        return _finish_harvest(run_manifest, run_dir, skipped, args)
     if not args.get("run_dir"):
         picked = _pick_waiting_run(getattr(session, "user", None), _held_by_late_uploads(session))
         if isinstance(picked, dict):
@@ -1520,10 +1529,56 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
             run_manifest.pipeline.version = launch.revision
     else:
         run_manifest.foreign_run = _foreign_run_evidence(run_manifest, user)
+    return _finish_harvest(run_manifest, run_dir, skipped, args)
 
-    # Files the remote stage skipped (a symlink escaping run_dir, or a
-    # size/count cap hit) must stay visible, not vanish quietly -- surfaced
-    # both in the manifest's own warnings and in the op result below.
+
+def _harvest_bundle(name: str, session):
+    """run-harvest --bundle: the caller's chat-uploaded bundle, unpacked by
+    ``bundle.stage_bundle`` and parsed as a staged Luria folder is. A bundle has
+    no launch record (one is matched by its cluster folder), so it is always a
+    run Nessie did not launch: an admin only, checked before the file is opened,
+    with #165's evidence rules. The host opens the file (``session.open_bundle``,
+    the caller's own chat input folder only); this never sees a path."""
+    import tempfile
+
+    from NessieAI.ns.reingest import bundle, harvest
+    from NessieAI.ns.reingest.manifest import BundleSource
+
+    user = getattr(session, "user", None)
+    if not getattr(user, "is_superuser", False):
+        raise OpValidationError(
+            "a bundle is a run Nessie didn't launch; only an admin can reingest a run launched "
+            "elsewhere", field="bundle", error_type="foreign_run_needs_an_admin")
+    open_bundle = getattr(session, "open_bundle", None)
+    if open_bundle is None:
+        raise RuntimeError("run-harvest --bundle needs the host's open_bundle seam")
+    try:
+        fileobj = open_bundle(name)
+    except (OSError, ValueError) as exc:
+        raise OpValidationError(f"no bundle {name!r} in your chat uploads", field="bundle",
+                                error_type="bundle_not_found") from exc
+    with fileobj, tempfile.TemporaryDirectory() as staged:
+        try:
+            unpacked = bundle.stage_bundle(fileobj, staged)
+        except bundle.BundleRefused as exc:
+            raise OpValidationError(str(exc), field="bundle", error_type=exc.error_type) from exc
+        run_manifest = harvest.harvest_local(
+            staged, run_dir=unpacked.origin, lookup_by_fastq=_d_seq_by_fastq,
+            sample_type_lookup=_sample_types_for_uids, inventory=unpacked.inventory)
+    evidence = _foreign_run_evidence(run_manifest, user)
+    evidence.bundle = BundleSource(name=name, sha256=unpacked.sha256, origin=unpacked.origin)
+    run_manifest.foreign_run = evidence
+    return run_manifest, unpacked.origin, unpacked.skipped
+
+
+def _finish_harvest(run_manifest, run_dir: str, skipped, args):
+    """What every harvest does last, from a Luria folder or a bundle: report what
+    staging skipped, refuse a failed run unless allowed, save the manifest."""
+    from NessieAI.ns.reingest.store import save_manifest
+
+    # Files the stage skipped (a symlink escaping run_dir, or a size/count cap
+    # hit) must stay visible, not vanish quietly -- surfaced both in the
+    # manifest's own warnings and in the op result below.
     skipped = skipped or []
     run_manifest.warnings.extend(
         f"staging skipped {item['path']}: {item['reason']}" for item in skipped)
@@ -1758,6 +1813,12 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
         # whatever `_run_harvest` passed in (also `_validate_run_dir`'s
         # output, but from that separate call, not necessarily
         # byte-identical as a raw string).
+        if run_manifest.foreign_run is not None and run_manifest.foreign_run.bundle is not None:
+            # A bundle's file list is the uploader's word for where its files live;
+            # hashing a cluster folder against it would measure files nobody harvested.
+            raise OpValidationError(
+                f"manifest_id {manifest_id!r} was harvested from a chat bundle, which has no cluster "
+                "files to checksum", field="manifest_id", error_type="bundle_has_no_cluster_files")
         manifest_run_dir = os.path.normpath(str(run_manifest.run_dir))
         if manifest_run_dir != run_dir:
             raise OpValidationError(

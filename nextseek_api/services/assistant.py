@@ -460,6 +460,31 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
                     status=HTTP_STATUS["VALIDATION"])
 
 
+def _bundle_opener(request):
+    """run-harvest --bundle's one way in: open a file, by name, in the caller's own chat input
+    folder (where the chat's upload button saves files, ``cc-assistant/upload/``), and nothing
+    else. The name must be a single file name; the file is opened without following a link and
+    must be a regular file. Resolved only when called, so a harvest without a bundle never
+    looks the caller's project up."""
+    def open_bundle(name: str):
+        import stat
+
+        from NessieAI.cc.cc_config import CCPaths
+        from NessieAI.cc.cc_provision import build_user_dirs, resolve_user_project
+        from NessieAI.cc.cc_upload_validate import validate_upload_filename
+
+        safe = validate_upload_filename(name)  # ValueError for a path, "..", an empty name
+        api_user, api_pass = _request_login(request)
+        project = resolve_user_project(api_user, api_pass)
+        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+        fd = os.open(os.path.join(dirs.input_mnt, safe), os.O_RDONLY | os.O_NOFOLLOW)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            raise IsADirectoryError(safe)
+        return os.fdopen(fd, "rb")
+    return open_bundle
+
+
 def _artifact_content_type(path) -> str:
     ext = os.path.splitext(str(path))[1].lower()
     return _ARTIFACT_CONTENT_TYPES.get(ext, "application/octet-stream")
@@ -1468,7 +1493,8 @@ class AssistantViewSet(viewsets.ViewSet):
             # upload-reingest settles them (deferred: batch_upload.views pulls in Celery).
             from nextseek_api.batch_upload import views as batch_views
 
-            return SimpleNamespace(user=request.user, job_state=batch_views.job_outcome)
+            return SimpleNamespace(user=request.user, job_state=batch_views.job_outcome,
+                                   open_bundle=_bundle_opener(request))
         if op == "upload-reingest":
             # The identity lookup is handed over uncalled: the op resolves it
             # only after the write gate passes, so an unconfirmed call never
