@@ -267,8 +267,8 @@ What blocks each row:
 
 | Pipeline | Output | Type | Blocked by |
 |---|---|---|---|
-| atacseq | the per-replicate files of a sample whose replicates were merged: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ALN, A.CHRM | choice: whether to register replicate-level files beside the merged-replicate ones. Today the sample's merged-replicate file wins (G-4) and is registered once for the group, parented by every replicate; the replicates' files are its losing candidates, so they reach its companions or the build report. Rows of their own would need separate rules. A sample with one replicate, or a run with `--skip_merge_replicates`, registers each replicate's own files, parented by its own D.SEQ (`replicate_samples`) |
-| atacseq | `<ALIGNER>/merged_replicate/macs2/<PEAK_TYPE>/consensus/consensus_peaks.mRp.clN.bed` and its `featureCounts.txt` (the consensus over the merged-replicate peaks) | A.CHRM | inventory, choice: a second consensus set beside the merged-library one, which the map registers |
+| atacseq | the per-replicate files of a sample whose replicates were merged: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ATAC | choice: whether to register replicate-level files beside the merged-replicate ones. Today the sample's merged-replicate file wins (G-4) and is registered once for the group, parented by every replicate; the replicates' files are its losing candidates, so they reach its companions or the build report. Rows of their own would need separate rules. A sample with one replicate, or a run with `--skip_merge_replicates`, registers each replicate's own files, parented by its own D.SEQ (`replicate_samples`) |
+| atacseq | `<ALIGNER>/merged_replicate/macs2/<PEAK_TYPE>/consensus/consensus_peaks.mRp.clN.bed` and its `featureCounts.txt` (the consensus over the merged-replicate peaks) | A.ATAC | inventory, choice: a second consensus set beside the merged-library one, which the map registers |
 | denovotranscript | `evigene/okayset/all_assembled.okay.mrna` (the final assembly, FASTA) | none | type, inventory |
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice: whether to register pre-reduction assemblies at all |
@@ -343,6 +343,18 @@ narrow-peak `-profile test` runs (`<version>-local-test` and `<version>-local-na
 with `scripts/reingest/make_fixture.sh --local`) match every pattern of every rule, so
 `DOC_ONLY` is empty and no map is listed here.
 
+### atacseq: every output is A.ATAC
+
+By the owner's ruling of 2026-11-16, ATAC-seq from every source is the sample type A.ATAC under
+the house assay ATAC-Seq, whatever its parent (DNA for imported BAMs, D.SEQ for an nf-core/atacseq
+run). So all five atacseq rules, the BAM as well as the peaks, bigWig and consensus peaks, write
+A.ATAC rows; A.ALN and A.CHRM (ChIP-seq, CUT&RUN and the like) hold no atacseq output. Each row
+carries `DataType`, `Scientist`, `SampleCreationDate`, `Aligner`, `Genome` (`$params.genome`; A.CHRM
+calls it `Assembly`) and `Pipeline`, and `Name` from `row_defaults`. A.ATAC has `Notes`, so a merged
+group's BAM row names its replicates' own BAMs there rather than in the build report. Where the type
+and assay exist on each instance: `docs/reingest-seeding-rollout.md`; on an instance without A.ATAC
+the build stops at `UNKNOWN_SAMPLETYPE`.
+
 ### atacseq and chipseq: QC without general stats
 
 Both releases' `assets/multiqc_config.yml` set `exclude_modules: general_stats`, so no
@@ -352,13 +364,13 @@ table files at all, only plot data and `multiqc_data.json`, which the harvest do
 Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill; only
 lanes of one replicate, a multi-run sample, get none (`mapper._NO_BACKFILL`), as in every
 pipeline. Where each value comes from (owner's ruling of 2026-10-30 on the peak-quality
-metrics: a peak set's own on its A.CHRM row, a library's on its D.SEQ):
+metrics: a peak set's own on its peak row, A.ATAC for atacseq and A.CHRM for chipseq, a library's on its D.SEQ):
 
 | Attribute | Row | atacseq 2.1.2 | chipseq 2.1.0 |
 |---|---|---|---|
 | `DuplicationPercent` | D.SEQ | `multiqc_picard_dups` (module table; Picard's 0-1 fraction, x100 by `$derived.duplication_pct`) | `picard_deduplication.yaml`, the bar plot's read counts: duplicates over duplicates plus unique, Picard's own rate |
 | `MappedPercent` | D.SEQ | `multiqc_samtools_flagstat.txt`, the first of four flagstat sections (each run's own alignment, rows `<sample>_REP<n>_T<run>`; checked against `multiqc_sources.txt`), column `mapped_passed_pct` only | none: the release publishes flagstat only for the filtered alignment (100% mapped by construction); the per-library one is only in `multiqc_data.json` |
-| `FRiPPercent`, `PeakCount` | A.CHRM peak row | MultiQC's custom-content bar graphs (`shape: bargraph`): `mlib_*` for a replicate's peaks, `mrep_*` for a merged replicate's, through `RunManifest.group_metrics` | the per-sample `<sample>.FRiP_mqc.tsv` and `.peak_count_mqc.tsv` (`sample_files`) |
+| `FRiPPercent`, `PeakCount` | peak row (A.ATAC, A.CHRM) | MultiQC's custom-content bar graphs (`shape: bargraph`): `mlib_*` for a replicate's peaks, `mrep_*` for a merged replicate's, through `RunManifest.group_metrics` | the per-sample `<sample>.FRiP_mqc.tsv` and `.peak_count_mqc.tsv` (`sample_files`) |
 | `NSC`, `RSC` | D.SEQ | (no phantompeakqualtools) | `<sample>.spp_nsc_mqc.tsv`, `.spp_rsc_mqc.tsv`; inputs get them too |
 | `FingerprintJSD` | D.SEQ | `<sample>.mLb.clN.plotFingerprint.qcmetrics.txt`, `Synthetic JS Distance` | the same file, the IP's own row; inputs get none |
 | `TSSEnrichment` | D.SEQ | `<sample>.ataqv.json`, `metrics.tss_enrichment`; null, so absent, for single-end libraries | (no ataqv) |
@@ -371,13 +383,13 @@ those samples then have no TSS enrichment (recorded as truncated). Consensus pea
 no FRiP or peak count: no table holds one for them. Library complexity (Preseq is a curve;
 Picard's `ESTIMATED_LIBRARY_SIZE` is ruled out) has no attribute.
 
-A.CHRM rows carry a `Name` (`@row_name`) and, for chipseq, the `Antibody` their
+atacseq's A.ATAC and chipseq's A.CHRM rows carry a `Name` (`@row_name`) and, for chipseq, the `Antibody` their
 replicate's samplesheet names (`$samplesheet.antibody`; blank for the input controls),
 both as `row_defaults`. chipseq's per-antibody consensus peaks are one `per_file` row
 each (`consensus_narrow` or `consensus_broad`, one `alternative_group`), parented only by
 that antibody's samples (`parents_by_samplesheet`), with its `featureCounts.txt` as
-companion. A companion of an A.CHRM row (atacseq's consensus `featureCounts.txt`) goes to
-`File_SecondaryData`, then `Notes`, or to the build report on an instance whose A.CHRM lacks
+companion. A companion of a peak row (atacseq's consensus `featureCounts.txt` on its A.ATAC row)
+goes to `File_SecondaryData`, then `Notes`, or to the build report on an instance whose type lacks
 them. A
 merged-replicate group's row names its replicates' own peaks or bigWigs in `Notes` (or the
 build report), never in `File_SecondaryData`: one replicate's output is not the group's

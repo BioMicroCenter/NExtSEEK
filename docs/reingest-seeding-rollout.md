@@ -77,7 +77,8 @@ lacks today:
 | D.SEQ | `qc_attributes` of every map | 18: DuplicationPercent, Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent, GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent, ValidBarcodesPercent | the same 18 |
 | A.VCF | rnavar `vcf` (an output attribute, not a QC entry) | TsTvRatio | TsTvRatio |
 | A.ALN | rnaseq `aln` writes `Software` | Software | to be read; without it every rnaseq A.ALN row fails at upload |
-| A.CHRM | atacseq and chipseq peaks and bigWigs (`primary_data: true`, so every hashed file writes `Checksum_PrimaryData`) | Checksum_PrimaryData | Checksum_PrimaryData (absent on dev); without it every hashed A.CHRM row fails at upload |
+| A.ATAC | every atacseq rule: the BAM, peaks, bigWigs and consensus peaks, under the house assay ATAC-Seq (owner's ruling, 2026-11-16) | the whole row | exists on dev only; local and prod lack the type, so an atacseq build stops at `UNKNOWN_SAMPLETYPE` there |
+| A.CHRM | chipseq and cutandrun peaks and bigWigs (`primary_data: true`, so every hashed file writes `Checksum_PrimaryData`) | Checksum_PrimaryData | Checksum_PrimaryData (absent on dev); without it every hashed A.CHRM row fails at upload |
 | A.GEX | differentialabundance | none (Contrast, ContrastVariable, ContrastReference, ContrastTarget, Paramset, MethodSettings are in the file) | the six; [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) |
 
 `NessieAI/tests/ns/fixtures/sampletype_attributes.json`, the snapshot CI checks the maps against,
@@ -350,7 +351,7 @@ curl -sS -X POST "$BASE_URL/nextseek_api/sample_types/" -H "Authorization: Token
 ### 4.7 SEEK attributes (gated)
 
 The 18 D.SEQ attributes, TsTvRatio on A.VCF, `Software` on A.ALN (the rnaseq `aln` rule writes
-it; #152 keeps it in the catalog) and `Checksum_PrimaryData` on A.CHRM (the atacseq and chipseq
+it; #152 keeps it in the catalog) and `Checksum_PrimaryData` on A.CHRM (the chipseq and cutandrun
 primary-data rules write it), minus what 4.1 showed present; the A.GEX six per
 [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) §1. Use the Attribute API,
 `dry_run` first. Build the body from the committed meanings, with the value types 4.1's last query
