@@ -576,3 +576,27 @@ def test_an_expression_comparison_over_earlier_samples_stays_with_the_pipeline_a
 ])
 def test_other_comparisons_and_artifacts_over_earlier_results_stay_cc_shaped(query):
     assert followup.followup_shape(query) == "cc"
+
+
+def test_router_baml_keeps_questions_about_public_cohorts_held_in_nextseek_on_nextseek_query():
+    """2026-11-16 ruling: TCGA's patients are records in NExtSEEK's graph, so asking which of them meet a
+    condition is a NExtSEEK search, also beside the user's own samples. On dev the figure question "Our
+    esophageal tumors all show CCND1 amplification. What TCGA patients could I analyze to see if they also
+    have this amplification?" went to nextseek_query on 11-13 and to container_cc on 11-16, the router
+    reasoning that comparing the lab's data with TCGA needs data outside NExtSEEK's graph. Container-CC then
+    asked two counts in place of the question, and the reply lost the gene, the histology split and the
+    lab's own patients. Analysing the patients' files stays out of the paragraph."""
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    rule = "Public cohorts held in NExtSEEK go to `nextseek_query`."
+    assert rule in baml
+    para = baml[baml.index(rule):baml.index("Catalog counts stay `nextseek_query`.")]
+    flat = " ".join(para.split())
+    assert "They are not data outside NExtSEEK." in flat
+    assert "also when it sets the user's own samples or findings beside them" in flat
+    for example in ("our esophageal tumors all show CCND1 amplification",
+                    "lymphocyte infiltration of 40% or more on their slides and RNA-seq",
+                    "RNA-seq from both a primary tumour and a metastasis"):
+        assert example in flat, example
+    assert "Analysing those patients' files" in flat and "is not this." in flat
+    assert baml.index("Analyses of the user's own sequencing data go to `nextseek_query`.") < baml.index(rule) \
+        < baml.index("Catalog counts stay `nextseek_query`.")

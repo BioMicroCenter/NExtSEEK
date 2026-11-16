@@ -126,6 +126,13 @@ nextseek-graph --query "List the TIS samples in the MetNet project whose Organ i
   `nextseek-graph` with the one change, then `nextseek-sample-search --uid` for named samples;
   `nextseek-aggregate` only when the stored result was capped. Never restate the earlier question
   from plain words: change the stored Cypher, and keep every MATCH and WHERE.
+- **Keep the whole question.** Send the user's question to `nextseek-graph` in their own words, with
+  every condition in it: a gene or finding ("CCND1 amplification"), a diagnosis or histology, a
+  public cohort (TCGA), and the user's own samples when they set them beside it ("our esophageal
+  tumors"). The op knows how TCGA is stored (one study per cancer, the primary diagnosis, the
+  gene-level copy-number files) and answers those conditions itself; a condition you leave out is
+  one it can never answer. "Which" or "what patients could I analyze" asks for the patients: it
+  goes to `nextseek-graph`, never reworded into "how many" parts for `nextseek-aggregate`.
 - **Never search samples through `nextseek-parse` + `nextseek-api-read`.** The sample-search and
   lineage endpoints (advanced_search, parents_by_child_types, entity_tree/lineage, the sample list)
   are not on the read-safe list, so `api-read` refuses them.
@@ -429,6 +436,17 @@ Compose the user-facing answer from each op's JSON output.
   words. Say each thing once. No headings, and no table for fewer than four rows. Aim for ten lines or fewer. Do not
   describe which calls you made, which failed or which you retried, unless the answer is incomplete because of it;
   then say in one sentence what is missing.
+- **Count what the user asked about.** A question about patients is answered in patients. A count of
+  files or analysis samples is not a number of patients: never give it as the answer, and never
+  write what you did not check.
+- **Name record types in words.** Write "patients" and "copy-number files", not a sample-type code
+  alone (`PAT`, `A.CNV`); a code may follow its plain name once, in parentheses.
+- **A gene's values are in the files.** A gene's copy number, expression or mutation is not a field
+  of the sample record; it is in the sample's files (TCGA's gene-level copy-number files hold every
+  gene). Never say the records lack a gene-level field or that the answer needs "values in the
+  records": say which patients have the files that hold the gene, and offer to read its values.
+- **The user's samples beside a public cohort.** When the question sets the user's own samples
+  beside TCGA, report theirs first and TCGA's on their own, never as one total.
 - When the reply lists the stored values of one attribute, `context/ONTOLOGIES.json` covers that attribute, and some listed values are not house `TERM`s, end with one line offering to harmonize them to the house terms. No table and no workbook until the user asks (harmonizing is a `nextseek-batch-upload` task).
 - Do not fabricate counts, UIDs, or fields, or fill in numbers from prior knowledge — report only
   what the op returned. State an empty result plainly.
