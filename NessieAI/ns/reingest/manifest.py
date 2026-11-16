@@ -102,13 +102,25 @@ class CapsInfo(BaseModel):
     truncated: list[str] = Field(default_factory=list)
 
 
+class BundleSource(BaseModel):
+    """The chat-uploaded bundle a run was harvested from (run-harvest --bundle).
+
+    ``origin`` is where the bundle's file list says the run's files live: the
+    uploader's statement, used for the data files' links, never read.
+    """
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    sha256: str
+    origin: str
+
+
 class ForeignRun(BaseModel):
     """What a run with no launch record was taken on (#139, ruling G-1).
 
-    Set only by run-harvest, for a run folder under the runs root that has no
-    PipelineRun, harvested by a superuser. The pipeline's identity and its
-    samples come from the run's own files, named here so a reviewer can check
-    what the upload rests on.
+    Set only by run-harvest, harvested by a superuser: for a run folder under the
+    runs root that has no PipelineRun, or for a bundle uploaded in the chat
+    (``bundle``). The pipeline's identity and its samples come from the run's own
+    files, named here so a reviewer can check what the upload rests on.
     """
     model_config = ConfigDict(extra="forbid")
     harvested_by_user_id: int
@@ -117,6 +129,8 @@ class ForeignRun(BaseModel):
     pipeline_source: str
     # The run's own samplesheet, the only source of the samples' parents.
     samplesheet_source: str
+    # Set when the run came as a bundle uploaded in the chat, not a cluster folder.
+    bundle: BundleSource | None = None
 
 
 class RunManifest(BaseModel):

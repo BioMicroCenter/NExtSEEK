@@ -2129,3 +2129,12 @@ def test_a_per_run_file_name_is_unique_to_its_run():
         gex = next(r for r in result.rows if r.sample_type == "A.GEX")
         values.append(gex.attributes["File_PrimaryData"].value)
     assert values == ["run_a/all.merged.gene_counts.tsv", "run_b/all.merged.gene_counts.tsv"]
+
+
+def test_a_url_run_dir_keeps_its_scheme_in_the_data_file_links():
+    """A chat bundle's run_dir is the URL its file list names; normpath would fold s3:// to s3:/."""
+    run = manifest.RunManifest(run_dir="s3://bucket/sarek/results-1/test_full", pipeline=manifest.PipelineInfo(),
+                               execution=manifest.ExecutionInfo(), samples=[])
+    assert mapper.run_file_path(run, "preprocessing/S1.cram") == "s3://bucket/sarek/results-1/test_full/preprocessing/S1.cram"
+    run.run_dir = "/net/cluster/runs/r/"
+    assert mapper.run_file_path(run, "./x/../y.bam") == "/net/cluster/runs/r/y.bam"

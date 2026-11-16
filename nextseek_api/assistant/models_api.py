@@ -455,6 +455,9 @@ class RunHarvestRequest(BaseModel):
                           "caller's one launched run not yet reingested, else the candidates.")
     allow_failed_run: bool = Field(
         False, description="Reingest a run even though a process failed (default: refuse).")
+    bundle: str | None = Field(
+        None, description="Instead of run_dir: the file name of a results bundle (.tar.gz) the "
+                          "caller uploaded in the chat. Superusers only.")
     use_prod: bool = False
     model_config = ConfigDict(extra="forbid")
 

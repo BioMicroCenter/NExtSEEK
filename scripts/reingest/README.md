@@ -8,7 +8,9 @@ every script is started by hand, by the owner of the run.
 
 A manifest built from a local copy has no launch record, so it is test-only: only a
 superuser can build workbooks from it, and `upload-reingest` refuses them
-(`NessieAI/ns/CLAUDE.md`).
+(`NessieAI/ns/CLAUDE.md`). A bundle from `make_bundle.py`, uploaded in the chat and
+harvested with `run-harvest --bundle`, is a run Nessie did not launch instead: a superuser
+only, and uploadable like any foreign run (#139).
 
 | File | Does |
 |---|---|
@@ -16,6 +18,7 @@ superuser can build workbooks from it, and `upload-reingest` refuses them
 | `folder_to_manifest.sh` | turns a local results folder into a test-only manifest in the running stack, through the same stage script and harvest code a real run uses, and prints its `manifest_id` |
 | `make_fixture.sh` | builds a committed fixture under `NessieAI/tests/ns/fixtures/reingest_runs/` from a `-profile test` run launched through Nessie, by way of `fetch_run.sh` and `sanitize_fixture.py`. `--local` takes a `-profile test,docker` outdir on this machine instead (the run's samplesheet copied into it as `samplesheet.csv`; the launch folder and the Nextflow home passed as extra prefixes) and writes `EVIDENCE.txt` naming it. It drops the `#` header lines of `*_mqc.tsv` files and the per-peak series of ataqv JSONs, and lists each trim in `EVIDENCE.txt` |
 | `import_evidence.py` | builds a fixture folder from nf-core's own published evidence (a release's nf-test snapshot, the output paths its pytest-workflow tests assert for a release that predates nf-test (`pytest`, folder `<version>-pytest`), or its public AWS test results, `--flat` when they sit straight under `results-<commit>/`) instead of a cluster run; reads public URLs only and touches no cluster, so an agent may run it. `--test` imports one test of a snap file that holds several, `--param` adds the params that test sets in its `.nf.test`, and `--variant` writes `<version>-<variant>` beside the release's own folder. It runs `sanitize_fixture.py` itself and writes the fixture only if that passes. Tested by `NessieAI/tests/ns/reingest/test_import_evidence.py` |
+| `make_bundle.py` | writes a results bundle for `run-harvest --bundle` (one `.tar.gz` an admin uploads in the chat) from a results folder on this machine: the files the Luria harvest would copy, the newest execution report, the samplesheet, and `nessie_files.tsv` naming the big files left out and where they live (`--origin`; `--listing` takes the sizes from a listing made where the files are). Reads only the folder and the files named; touches no cluster, so an agent may run it. Tested by `NessieAI/tests/ns/reingest/test_chat_bundle.py` |
 | `sanitize_fixture.py` | rewrites cluster prefixes to `/RUN` and refuses a fixture that still holds an absolute path, an email address, a URL or a file that is not UTF-8 text. It refuses rather than edits, so a refusal writes nothing |
 
 ## Rules
@@ -27,6 +30,7 @@ superuser can build workbooks from it, and `upload-reingest` refuses them
 - A fixture goes into a public repository. Follow the review steps in
   [`NessieAI/tests/ns/fixtures/reingest_runs/README.md`](../../NessieAI/tests/ns/fixtures/reingest_runs/README.md)
   before committing one.
-- `sanitize_fixture.py` and `import_evidence.py` are tested by
-  `NessieAI/tests/ns/reingest/test_sanitize_fixture.py` and `test_import_evidence.py`;
+- `sanitize_fixture.py`, `import_evidence.py` and `make_bundle.py` are tested by
+  `NessieAI/tests/ns/reingest/test_sanitize_fixture.py`, `test_import_evidence.py` and
+  `test_chat_bundle.py`;
   the shell scripts have no tests.

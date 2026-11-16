@@ -145,7 +145,7 @@ def _granular_args(op: str, req) -> dict:
         return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids,
                 "manifest_id": req.manifest_id, "mode": req.mode, "answers": req.answers}
     if op == "run-harvest":
-        return {"run_dir": req.run_dir, "allow_failed_run": req.allow_failed_run}
+        return {"run_dir": req.run_dir, "allow_failed_run": req.allow_failed_run, "bundle": req.bundle}
     if op == "run-checksum":
         return {"run_dir": req.run_dir, "paths": req.paths, "manifest_id": req.manifest_id}
     if op == "upload-reingest":

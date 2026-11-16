@@ -529,6 +529,8 @@ def _dispatch_run_harvest(args):
     # No --run-dir: the server picks the caller's one waiting launched run, or
     # returns the candidates for the agent to ask about.
     body = {"run_dir": args.run_dir} if args.run_dir else {}  # pragma: no cover
+    if getattr(args, "bundle", None):  # a results bundle the user uploaded in this chat
+        body["bundle"] = args.bundle
     if getattr(args, "allow_failed_run", False):  # pragma: no cover
         body["allow_failed_run"] = True  # pragma: no cover
     return _call_op("run-harvest", body)  # pragma: no cover
@@ -630,6 +632,7 @@ def main() -> None:
     p.add_argument("--message")  # for pipeline (CC-composed summary)
     p.add_argument("--run-dir")  # for run-ls / run-harvest / run-checksum (finished Luria run dir)
     p.add_argument("--allow-failed-run", action="store_true")  # for run-harvest
+    p.add_argument("--bundle")  # for run-harvest (file name of a results bundle in /data/input/)
     p.add_argument("--paths")  # for run-checksum (comma-separated relative paths)
     p.add_argument("--rows")  # for build-upload-xlsx (legacy: JSON rows)
     p.add_argument("--answers")  # for build-upload-xlsx (curator answers JSON; needs --manifest-id)

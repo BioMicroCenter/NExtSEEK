@@ -706,7 +706,12 @@ LINK_FOR = {"File_PrimaryData": "Link_PrimaryData", "File_SecondaryData": "Link_
 
 
 def run_file_path(run_manifest: manifest.RunManifest, rel_path: str) -> str:
-    """Where a run-relative output path sits on the cluster: under ``run_dir``."""
+    """Where a run-relative output path sits: under ``run_dir``, a cluster folder, or,
+    for a chat bundle, the URL its file list names (whose ``scheme://`` normpath would
+    fold to ``scheme:/``)."""
+    scheme, sep, rest = run_manifest.run_dir.partition("://")
+    if sep and scheme and "/" not in scheme:
+        return f"{scheme}://{posixpath.normpath(posixpath.join(rest, rel_path))}"
     return posixpath.normpath(posixpath.join(run_manifest.run_dir, rel_path))
 
 

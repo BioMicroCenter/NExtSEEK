@@ -91,6 +91,7 @@ class RunHarvestRequest(BaseModel):
         None, description="Absolute path under <LURIA working_path>/runs. Omitted: the "
                           "caller's one launched run not yet reingested, else the candidates.")
     allow_failed_run: bool = False
+    bundle: str | None = None  # instead of run_dir: a chat-uploaded results bundle's file name
     use_prod: bool = False
     model_config = ConfigDict(extra="forbid")
 

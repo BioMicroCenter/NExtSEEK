@@ -215,6 +215,7 @@ class _RunHarvestArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_dir: str | None = None  # absent: the server picks the caller's waiting launched run
     allow_failed_run: bool = False
+    bundle: str | None = None  # instead of run_dir: a chat-uploaded results bundle's file name
 
 
 class _RunChecksumArgs(BaseModel):
