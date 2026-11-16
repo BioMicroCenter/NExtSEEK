@@ -40,8 +40,8 @@
       "id": "aln",
       "candidates": ["*/merged_replicate/*.mRp.clN.sorted.bam",
                      "*/merged_library/*.mLb.clN.sorted.bam"],
-      "sample_type": "A.ALN",
-      "assay": "Genome Alignment",
+      "sample_type": "A.ATAC",
+      "assay": "ATAC-Seq",
       "cardinality": "per_sample",
       "primary_data": true,
       "companions": [{"glob": "*/merged_replicate/*.mRp.clN.sorted.bam.bai"},
@@ -53,7 +53,7 @@
         "SampleCreationDate": "@run_date",
         "Aligner": "$params.aligner",
         "Genome": "$params.genome",
-        "Software": "nf-core/atacseq"
+        "Pipeline": "nf-core/atacseq"
       }
     },
     {
@@ -61,15 +61,17 @@
       "alternative_group": "peaks",
       "candidates": ["*/merged_replicate/macs2/narrow_peak/*.mRp.clN_peaks.narrowPeak",
                      "*/merged_library/macs2/narrow_peak/*.mLb.clN_peaks.narrowPeak"],
-      "sample_type": "A.CHRM",
-      "assay": "Chromatin Sequencing Analysis",
+      "sample_type": "A.ATAC",
+      "assay": "ATAC-Seq",
       "cardinality": "per_sample",
       "primary_data": true,
       "optional": true,
       "attributes": {
         "DataType": "narrowPeak",
         "Scientist": "@nextseek_user",
-        "Assembly": "$params.genome",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
         "Pipeline": "nf-core/atacseq",
         "FRiPPercent": "$derived.frip_pct",
         "PeakCount": "$derived.peak_count"
@@ -80,15 +82,17 @@
       "alternative_group": "peaks",
       "candidates": ["*/merged_replicate/macs2/broad_peak/*.mRp.clN_peaks.broadPeak",
                      "*/merged_library/macs2/broad_peak/*.mLb.clN_peaks.broadPeak"],
-      "sample_type": "A.CHRM",
-      "assay": "Chromatin Sequencing Analysis",
+      "sample_type": "A.ATAC",
+      "assay": "ATAC-Seq",
       "cardinality": "per_sample",
       "primary_data": true,
       "optional": true,
       "attributes": {
         "DataType": "broadPeak",
         "Scientist": "@nextseek_user",
-        "Assembly": "$params.genome",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
         "Pipeline": "nf-core/atacseq",
         "FRiPPercent": "$derived.frip_pct",
         "PeakCount": "$derived.peak_count"
@@ -98,22 +102,24 @@
       "id": "bigwig",
       "candidates": ["*/merged_replicate/bigwig/*.mRp.clN.bigWig",
                      "*/merged_library/bigwig/*.mLb.clN.bigWig"],
-      "sample_type": "A.CHRM",
-      "assay": "Chromatin Sequencing Analysis",
+      "sample_type": "A.ATAC",
+      "assay": "ATAC-Seq",
       "cardinality": "per_sample",
       "primary_data": true,
       "attributes": {
         "DataType": "bigWig",
         "Scientist": "@nextseek_user",
-        "Assembly": "$params.genome",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
         "Pipeline": "nf-core/atacseq"
       }
     },
     {
       "id": "consensus",
       "candidates": ["*/merged_library/macs2/{narrow_peak,broad_peak}/consensus/consensus_peaks.mLb.clN.bed"],
-      "sample_type": "A.CHRM",
-      "assay": "Chromatin Sequencing Analysis",
+      "sample_type": "A.ATAC",
+      "assay": "ATAC-Seq",
       "cardinality": "per_run",
       "primary_data": true,
       "optional": true,
@@ -121,7 +127,9 @@
       "attributes": {
         "DataType": "BED",
         "Scientist": "@nextseek_user",
-        "Assembly": "$params.genome",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
         "Pipeline": "nf-core/atacseq"
       }
     }
