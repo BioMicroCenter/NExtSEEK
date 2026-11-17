@@ -27,7 +27,9 @@ _VALID_CONFIRM_IN = {"pairing_table"}
 _VALUE_TYPES = {"string", "boolean", "integer"}
 #: How a numeric derive_from reads its signal (a whole number such as D.SEQ F_bp): "exact" takes
 #: the number itself (rnavar read_length: 2x151 reads -> 151), "floor" the largest allowed value
-#: not above it (atacseq read_length: 151 -> 150, a key of the precomputed MACS genome sizes).
+#: not above it (atacseq read_length: 151 -> 150, a key of the precomputed MACS genome sizes), or
+#: the smallest allowed value for reads shorter than all of them (38 -> 50, as nf-core's own
+#: atacseq 2.1.2 and chipseq 2.1.0 conf/test.config set read_length 50 for their 38 bp reads).
 _NUMBER_MODES = {"exact", "floor"}
 
 
@@ -343,7 +345,8 @@ def _number_vote(value: Any, spec: dict, mode: str) -> str:
     """One numeric signal's vote: the canonical value it reads as, or "" for silent.
 
     "exact" votes the number itself, inside `range` when the spec gives one; "floor" votes the
-    largest allowed value not above it. A value that is not a whole number is silent."""
+    largest allowed value not above it, or the smallest allowed value when the number is below
+    them all. A value that is not a whole number is silent."""
     n = _parse_int(value)
     if n is None:
         return ""
@@ -352,8 +355,9 @@ def _number_vote(value: Any, spec: dict, mode: str) -> str:
         if (low is not None and n < low) or (high is not None and n > high):
             return ""
         return str(n)
-    below = [a for a in sorted(_parse_int(x) for x in spec.get("allowed") or []) if a <= n]
-    return str(below[-1]) if below else ""
+    allowed = sorted(_parse_int(x) for x in spec.get("allowed") or [])
+    below = [a for a in allowed if a <= n]
+    return str(below[-1] if below else allowed[0])
 
 
 def _evaluate_detection(spec: dict, signals: dict) -> dict[str, Any]:

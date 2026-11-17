@@ -232,17 +232,63 @@
             "rnaseq"
           ],
           "derive_from": {
-            "signal": "LibraryStrategy",
+            "signal": "SequencingType",
             "map": {
               "riboseq": [
-                "Ribo-Seq"
+                "ribo-seq",
+                "riboseq",
+                "ribosome profiling",
+                "footprint"
+              ],
+              "tiseq": [
+                "ti-seq",
+                "tiseq",
+                "translation initiation"
               ],
               "rnaseq": [
-                "RNA-Seq"
+                "rna-seq",
+                "rnaseq",
+                "mrna-seq"
               ]
             }
           },
           "corroborate_with": [
+            {
+              "signal": "LibraryType",
+              "riboseq_markers": [
+                "ribo-seq",
+                "riboseq",
+                "ribosome profiling"
+              ],
+              "tiseq_markers": [
+                "ti-seq",
+                "tiseq"
+              ],
+              "rnaseq_markers": [
+                "rna-seq",
+                "rnaseq",
+                "mrna-seq"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "riboseq_markers": [
+                "footprint",
+                "ribosome profiling",
+                "ribosome-protected"
+              ],
+              "tiseq_markers": [
+                "harringtonine",
+                "lactimidomycin",
+                "translation initiation"
+              ]
+            },
+            {
+              "signal": "LibraryStrategy",
+              "riboseq_markers": [
+                "Ribo-Seq"
+              ]
+            },
             {
               "signal": "Name",
               "riboseq_markers": [
@@ -258,26 +304,11 @@
                 "rnaseq",
                 "rna-seq"
               ]
-            },
-            {
-              "signal": "Notes",
-              "riboseq_markers": [
-                "ribosome profiling",
-                "ribosome footprint",
-                "ribo-seq"
-              ],
-              "tiseq_markers": [
-                "ti-seq",
-                "translation initiation"
-              ],
-              "rnaseq_markers": [
-                "rna-seq"
-              ]
             }
           ],
           "ask": {
             "definition": "Whether each library is ribosome footprints (riboseq), translation-initiation footprints (tiseq) or ordinary RNA-seq of the same samples (rnaseq). It decides which libraries the footprint analyses read and which pair with them for translational efficiency.",
-            "on_conflict": "This library's strategy and its own name or notes disagree about whether it is Ribo-seq footprints or ordinary RNA-seq. Which is it?",
+            "on_conflict": "This library's sequencing type, library type, protocol and name disagree about whether it is Ribo-seq footprints, TI-seq or ordinary RNA-seq. Which is it?",
             "on_absent": "Nothing in this library's metadata says whether it is Ribo-seq footprints, TI-seq or ordinary RNA-seq. Which is it?"
           }
         },
@@ -433,6 +464,16 @@
           },
           "corroborate_with": [
             {
+              "signal": "Protocol",
+              "false_markers": [
+                "H3K",
+                "H4K",
+                "H2AK",
+                "H2BK",
+                "histone"
+              ]
+            },
+            {
               "signal": "Notes",
               "false_markers": [
                 "H3K",
@@ -455,8 +496,8 @@
           ],
           "ask": {
             "definition": "Whether MACS3 calls narrow peaks (a transcription factor's sharp sites) or its default broad peaks (a histone mark's domains).",
-            "on_conflict": "These libraries' names and notes read both ways about whether the target is a histone mark. Is it a histone mark (broad peaks) or a transcription factor (narrow peaks)?",
-            "on_absent": "Nothing in these libraries' names or notes names a histone mark. Is the antibody's target a transcription factor (narrow peaks) or a histone mark (broad peaks)? If the cohort holds both, they are best run separately."
+            "on_conflict": "These libraries' names, protocols and notes read both ways about whether the target is a histone mark. Is it a histone mark (broad peaks) or a transcription factor (narrow peaks)?",
+            "on_absent": "Nothing in these libraries' names, protocols or notes names a histone mark. Is the antibody's target a transcription factor (narrow peaks) or a histone mark (broad peaks)? If the cohort holds both, they are best run separately."
           }
         }
       }
@@ -492,6 +533,19 @@
             }
           },
           "corroborate_with": [
+            {
+              "signal": "Protocol",
+              "R64-1-1_markers": [
+                "yeast spike-in",
+                "yeast dna spike-in",
+                "s. cerevisiae spike-in"
+              ],
+              "BDGP6_markers": [
+                "drosophila spike-in",
+                "fly spike-in",
+                "drosophila dna spike-in"
+              ]
+            },
             {
               "signal": "Notes",
               "R64-1-1_markers": [
@@ -535,6 +589,21 @@
           },
           "corroborate_with": [
             {
+              "signal": "SequencingType",
+              "true_markers": [
+                "rrbs",
+                "reduced representation"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "true_markers": [
+                "rrbs",
+                "reduced representation",
+                "mspi"
+              ]
+            },
+            {
               "signal": "LibrarySelection",
               "true_markers": [
                 "reduced representation"
@@ -556,7 +625,7 @@
           ],
           "ask": {
             "definition": "Whether the libraries are RRBS (MspI-digested reduced representation). Turns on TrimGalore's RRBS trimming and skips deduplication.",
-            "on_conflict": "The kit, library and protocol fields read both ways about whether these are RRBS libraries. Which is right?",
+            "on_conflict": "The kit, sequencing type, library and protocol fields read both ways about whether these are RRBS libraries. Which is right?",
             "on_absent": "not used: nothing names this prep, so the preset stays off"
           }
         },
@@ -582,6 +651,21 @@
           },
           "corroborate_with": [
             {
+              "signal": "SequencingType",
+              "true_markers": [
+                "em-seq",
+                "emseq",
+                "enzymatic methyl"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "true_markers": [
+                "em-seq",
+                "enzymatic methyl"
+              ]
+            },
+            {
               "signal": "Name",
               "true_markers": [
                 "emseq",
@@ -597,7 +681,7 @@
           ],
           "ask": {
             "definition": "Whether the libraries are EM-seq (enzymatic conversion). Sets EM-seq's trimming preset and a longer maximum insert for Bismark.",
-            "on_conflict": "The kit, library and protocol fields read both ways about whether these are EM-seq libraries. Which is right?",
+            "on_conflict": "The kit, sequencing type, library and protocol fields read both ways about whether these are EM-seq libraries. Which is right?",
             "on_absent": "not used: nothing names this prep, so the preset stays off"
           }
         },
@@ -623,6 +707,21 @@
           },
           "corroborate_with": [
             {
+              "signal": "SequencingType",
+              "true_markers": [
+                "pbat",
+                "post-bisulfite adapter"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "true_markers": [
+                "pbat",
+                "post-bisulfite adapter",
+                "post bisulfite adapter"
+              ]
+            },
+            {
               "signal": "Name",
               "true_markers": [
                 "pbat"
@@ -638,7 +737,7 @@
           ],
           "ask": {
             "definition": "Whether the libraries are PBAT (post-bisulfite adapter tagging). Bismark then aligns the complementary strands, and PBAT's trimming preset applies.",
-            "on_conflict": "The kit, library and protocol fields read both ways about whether these are PBAT libraries. Which is right?",
+            "on_conflict": "The kit, sequencing type, library and protocol fields read both ways about whether these are PBAT libraries. Which is right?",
             "on_absent": "not used: nothing names this prep, so the preset stays off"
           }
         },
@@ -663,6 +762,19 @@
           },
           "corroborate_with": [
             {
+              "signal": "SequencingType",
+              "true_markers": [
+                "accel-ngs methyl"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "true_markers": [
+                "accel-ngs methyl",
+                "accel methyl"
+              ]
+            },
+            {
               "signal": "Name",
               "true_markers": [
                 "accel"
@@ -677,7 +789,7 @@
           ],
           "ask": {
             "definition": "Whether the libraries were made with the Accel-NGS Methyl-Seq kit. Sets its trimming preset.",
-            "on_conflict": "The kit, library and protocol fields read both ways about whether the Accel-NGS Methyl-Seq kit was used. Which is right?",
+            "on_conflict": "The kit, sequencing type, library and protocol fields read both ways about whether the Accel-NGS Methyl-Seq kit was used. Which is right?",
             "on_absent": "not used: nothing names this prep, so the preset stays off"
           }
         },
@@ -703,6 +815,19 @@
           },
           "corroborate_with": [
             {
+              "signal": "SequencingType",
+              "true_markers": [
+                "pico methyl-seq"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "true_markers": [
+                "pico methyl-seq",
+                "pico methyl seq"
+              ]
+            },
+            {
               "signal": "Name",
               "true_markers": [
                 "picomethyl"
@@ -717,7 +842,7 @@
           ],
           "ask": {
             "definition": "Whether the libraries were made with Zymo's Pico Methyl-Seq kit. Sets its trimming preset and non-directional alignment.",
-            "on_conflict": "The kit, library and protocol fields read both ways about whether Zymo's Pico Methyl-Seq kit was used. Which is right?",
+            "on_conflict": "The kit, sequencing type, library and protocol fields read both ways about whether Zymo's Pico Methyl-Seq kit was used. Which is right?",
             "on_absent": "not used: nothing names this prep, so the preset stays off"
           }
         }

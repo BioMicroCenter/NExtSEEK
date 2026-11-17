@@ -737,7 +737,7 @@ def test_malformed_typed_specs_raise(tmp_path, spec, match):
     ("151", "151", "150", "corroborated"),       # 2x151 Illumina reads look up the 150 gsize
     (76, 76, "75", "corroborated"),
     ("100", "", "100", "derived_uncorroborated"),  # single-end: no R_bp
-    ("49", "49", None, "absent"),                # shorter than every allowed value
+    ("38", "38", "50", "corroborated"),          # shorter than every allowed value: the smallest
     ("2x151", "", None, "absent"),               # not a whole number: silent, never guessed
     ("151", "101", None, "conflict"),            # mates disagree: ask
 ])

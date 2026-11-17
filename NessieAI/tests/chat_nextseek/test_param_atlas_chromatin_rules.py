@@ -34,14 +34,15 @@ def _spec(atlas, pipeline, param):
 @pytest.mark.parametrize("signals, value, verdict", [
     ({"F_bp": "151", "R_bp": "151"}, "150", "corroborated"),
     ({"F_bp": "76"}, "75", "derived_uncorroborated"),
-    ({"F_bp": "36"}, None, "absent"),
+    ({"F_bp": "38", "R_bp": "38"}, "50", "corroborated"),   # nf-core's own test.config: 38 bp -> 50
     ({}, None, "absent"),
 ])
 def test_read_length_rounds_down_to_a_genome_size_key(atlas, pipeline, signals, value, verdict):
     """atacseq 2.1.2 and chipseq 2.1.0 nextflow_schema.json: read_length is an integer enum of
     50, 75, 100, 150, 200, used with the genome to look up or compute the MACS effective genome
     size when macs_gsize is not given; chipseq stops with an error and atacseq skips peak calling
-    when neither is known (macs_gsize help_text). No read length on record is asked, not guessed."""
+    when neither is known (macs_gsize help_text). Reads shorter than 50 take 50, as both pipelines'
+    conf/test.config do for their 38 bp test reads. No read length on record is asked, not guessed."""
     out = evaluate_data_driven_param(_spec(atlas, pipeline, "read_length"), signals)
     assert (out["value"], out["verdict"]) == (value, verdict)
 

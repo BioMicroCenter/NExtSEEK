@@ -76,19 +76,23 @@ def test_riboseq_infers_strandedness_when_nothing_measured_it(atlas):
 # --- riboseq type ---------------------------------------------------------------------
 
 @pytest.mark.parametrize("signals, value, verdict", [
-    ({"LibraryStrategy": "Ribo-Seq", "Name": "HeLa_footprint_rep1"}, "riboseq", "corroborated"),
-    ({"LibraryStrategy": "RNA-Seq", "Name": "HeLa_totalRNA_rnaseq_rep1"}, "rnaseq", "corroborated"),
-    ({"LibraryStrategy": "OTHER", "Name": "HeLa_TI-seq_rep1"}, "tiseq", "derived_uncorroborated"),
-    ({"LibraryStrategy": "RNA-Seq", "Name": "HeLa_footprint_rep1"}, None, "conflict"),
+    ({"SequencingType": "Ribo-seq", "Name": "HeLa_footprint_rep1"}, "riboseq", "corroborated"),
+    ({"SequencingType": "RNA-seq", "Name": "HeLa_totalRNA_rnaseq_rep1"}, "rnaseq", "corroborated"),
+    ({"SequencingType": "TI-seq"}, "tiseq", "derived_uncorroborated"),
+    ({"SequencingType": "RNA-seq", "Name": "HeLa_footprint_rep1"}, None, "conflict"),
     ({"LibraryStrategy": "OTHER", "Name": "HeLa_rep1"}, None, "absent"),
+    # Footprint libraries are often deposited as LibraryStrategy RNA-Seq: that is no vote.
+    ({"LibraryStrategy": "RNA-Seq", "SequencingType": "ribosome profiling"}, "riboseq", "derived_uncorroborated"),
+    ({"LibraryStrategy": "RNA-Seq", "Protocol": "RNase I footprinting of polysomes"}, "riboseq", "derived_uncorroborated"),
     # A ribo-depleted RNA-seq library names "ribo" but is not a footprint library.
-    ({"LibraryStrategy": "RNA-Seq", "Name": "Ribo-Zero_depleted_rep1"}, "rnaseq", "derived_uncorroborated"),
+    ({"SequencingType": "RNA-Seq", "Name": "Ribo-Zero_depleted_rep1"}, "rnaseq", "derived_uncorroborated"),
 ])
 def test_riboseq_type_follows_each_libraries_own_metadata(atlas, signals, value, verdict):
     """riboseq 1.2.0 assets/schema_input.json: type is required, enum riboseq, rnaseq, tiseq;
     README.md and docs/usage.md: riboseq or tiseq for Ribo-seq / TI-seq rows, rnaseq for the
     matched RNA-seq that translational efficiency (anota2seq) pairs with them. The cohort's
-    protocol text covers both kinds of library, so only each library's own fields vote."""
+    protocol documents cover both kinds of library, so only each library's own fields vote
+    (its SequencingType, its lineage's LibraryType and Protocol, its Name)."""
     out = evaluate_data_driven_param(_spec(atlas, "riboseq", "type"), signals)
     assert out["verdict"] == verdict, out
     if verdict != "conflict":
