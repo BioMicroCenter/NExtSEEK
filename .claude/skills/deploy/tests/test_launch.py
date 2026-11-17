@@ -2313,16 +2313,17 @@ def test_note_dry_run_names_who_where_what_and_the_end_time(tmp_path, capsys, mo
     assert "PASSWORD" not in log
 
 
-def test_the_note_takes_the_running_container_env_over_the_file(tmp_path, capsys, monkeypatch):
-    # 11-17 prod: the file's raw password failed SMTP auth (535) while the container's env, as compose read
-    # the file, works: the note uses `docker inspect` of nextseek and the file only when there is no container
+def test_the_note_reads_the_env_as_compose_does_over_its_own_file_read(tmp_path, capsys, monkeypatch):
+    # 11-17 prod and dev: the note's own read of nextseek.env gave a password the server refused (535); compose's
+    # reading of the same file logs in. The note takes `docker compose config`, the file only when compose fails
     d, text = _note_runner(tmp_path, capsys, monkeypatch)
     h = _box(tmp_path, ["NEXTSEEK_SMTP_HOST=smtp.example.org", "NEXTSEEK_SMTP_FROM=file@example.org",
                         "NESSIE_DIGEST_TO=team@example.org"])
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "docker").write_text('#!/bin/sh\necho \'["NEXTSEEK_SMTP_HOST=smtp.example.org",'
-                                 '"NEXTSEEK_SMTP_FROM=container@example.org","NESSIE_DIGEST_TO=team@example.org"]\'\n')
+    (bin_ / "docker").write_text('#!/bin/sh\n[ "$1 $2" = "compose config" ] || exit 1\n'
+                                 'echo \'{"services": {"nextseek": {"environment": {"NEXTSEEK_SMTP_HOST": "smtp.example.org",'
+                                 ' "NEXTSEEK_SMTP_FROM": "container@example.org", "NESSIE_DIGEST_TO": "team@example.org"}}}}\'\n')
     (bin_ / "docker").chmod(0o755)
     r = _bash(tmp_path, text, h, "note start", f"NOTE_ON=1; NOTE_TO=''; export NOTE_DRY=1; PATH={bin_}:$PATH")
     assert r.returncode == 0, r.stderr

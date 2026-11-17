@@ -13,16 +13,17 @@ note(){ # $1 start|up|stopped, $2 the detail: one email to the team channel, sen
     stopped) subj="$inst rebuild to $sha stopped"; body="$2. $inst now runs ${now:-an unknown commit}. $WHO is looking.";;
   esac
   mkdir -p "$L"
-  # the env the running app was started with (compose already read nextseek.env: quotes, $$, escapes), the
-  # values the weekly digest proved; the raw file only when no nextseek container exists
-  NOTE_ENV_JSON=$(timeout -k 5 20 docker inspect -f '{{json .Config.Env}}' nextseek 2>/dev/null </dev/null) \
+  # nextseek.env as compose reads it for the app (its own rules for quotes, $ and escapes: a plain read of the
+  # file gave a password the server refused, 11-17); the plain file read only when compose cannot answer
+  NOTE_ENV_JSON=$(cd "$REPO" && timeout -k 5 60 docker compose config --format json 2>/dev/null </dev/null) \
   NOTE_SUBJ="$subj" NOTE_BODY="$body" NOTE_TO="${NOTE_TO:-}" timeout -k 5 90 python3 - "$REPO/docker/nextseek.env" >> "$L/note.log" 2>&1 <<'PY'
 import json, os, smtplib, ssl, sys
 from email.message import EmailMessage
 env = {}
 try:
-    env = dict(x.split("=", 1) for x in json.loads(os.environ.get("NOTE_ENV_JSON") or "null") if "=" in x)
-except (ValueError, TypeError):
+    env = {k: str(v) for k, v in json.loads(os.environ["NOTE_ENV_JSON"])["services"]["nextseek"]["environment"].items()
+           if v is not None}
+except (ValueError, TypeError, KeyError, AttributeError):
     env = {}
 try:
     for line in open(sys.argv[1], encoding="utf-8"):
