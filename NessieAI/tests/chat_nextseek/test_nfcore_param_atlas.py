@@ -210,7 +210,7 @@ def test_evaluate_leaf_uses_the_shipped_atlas():
     signals = {"SequencingType": "Single Cell RNAseq", "Name": "X-GEX", "File_PrimaryData": ""}
     out = evaluate_leaf("hlatyping", signals)
     assert out["seq_type"]["value"] == "rna"
-    assert evaluate_leaf("atacseq", signals) == {}   # no atlas entry -> no params
+    assert evaluate_leaf("ampliseq", signals) == {}   # no atlas entry -> no params
 
 
 def test_evaluate_leaf_rnaseq_defaults_to_length_correction_without_prep_text():

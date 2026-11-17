@@ -343,6 +343,385 @@
           }
         }
       }
+    },
+    "atacseq": {
+      "params": {
+        "read_length": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "integer",
+          "allowed": [
+            "50",
+            "75",
+            "100",
+            "150",
+            "200"
+          ],
+          "derive_from": {
+            "signal": "F_bp",
+            "number": "floor"
+          },
+          "corroborate_with": [
+            {
+              "signal": "R_bp",
+              "number": "floor"
+            }
+          ],
+          "ask": {
+            "definition": "The read length atacseq uses to look up the effective genome size for peak calling; the schema takes only 50, 75, 100, 150 or 200, so reads are rounded down (2x151 reads: 150).",
+            "on_conflict": "The forward and reverse read lengths recorded for these libraries differ, or differ between libraries. Which read length (50, 75, 100, 150 or 200) should peak calling use?",
+            "on_absent": "No read length is recorded for these libraries, and peak calling needs one to look up the genome size. Which is closest without going over: 50, 75, 100, 150 or 200?"
+          }
+        }
+      }
+    },
+    "chipseq": {
+      "params": {
+        "read_length": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "integer",
+          "allowed": [
+            "50",
+            "75",
+            "100",
+            "150",
+            "200"
+          ],
+          "derive_from": {
+            "signal": "F_bp",
+            "number": "floor"
+          },
+          "corroborate_with": [
+            {
+              "signal": "R_bp",
+              "number": "floor"
+            }
+          ],
+          "ask": {
+            "definition": "The read length chipseq uses to look up the effective genome size for peak calling; the schema takes only 50, 75, 100, 150 or 200, so reads are rounded down (2x151 reads: 150).",
+            "on_conflict": "The forward and reverse read lengths recorded for these libraries differ, or differ between libraries. Which read length (50, 75, 100, 150 or 200) should peak calling use?",
+            "on_absent": "No read length is recorded for these libraries, and peak calling needs one to look up the genome size. Which is closest without going over: 50, 75, 100, 150 or 200?"
+          }
+        },
+        "narrow_peak": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "abstain_when": {
+            "signal": "Name",
+            "markers": [
+              "input",
+              "igg"
+            ]
+          },
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "derive_from": {
+            "signal": "Name",
+            "map": {
+              "false": [
+                "H3K",
+                "H4K",
+                "H2AK",
+                "H2BK",
+                "histone"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Notes",
+              "false_markers": [
+                "H3K",
+                "H4K",
+                "H2AK",
+                "H2BK",
+                "histone"
+              ]
+            },
+            {
+              "signal": "AntibodyParent",
+              "false_markers": [
+                "H3K",
+                "H4K",
+                "H2AK",
+                "H2BK",
+                "histone"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether MACS3 calls narrow peaks (a transcription factor's sharp sites) or its default broad peaks (a histone mark's domains).",
+            "on_conflict": "These libraries' names and notes read both ways about whether the target is a histone mark. Is it a histone mark (broad peaks) or a transcription factor (narrow peaks)?",
+            "on_absent": "Nothing in these libraries' names or notes names a histone mark. Is the antibody's target a transcription factor (narrow peaks) or a histone mark (broad peaks)? If the cohort holds both, they are best run separately."
+          }
+        }
+      }
+    },
+    "cutandrun": {
+      "params": {
+        "spikein_genome": {
+          "target": "run_param",
+          "scope": "run",
+          "allowed": [
+            "K12-MG1655",
+            "R64-1-1",
+            "BDGP6"
+          ],
+          "on_absent": "use_default",
+          "default": "K12-MG1655",
+          "derive_from": {
+            "signal": "__protocol_text__",
+            "map": {
+              "R64-1-1": [
+                "yeast spike-in",
+                "yeast dna spike-in",
+                "s. cerevisiae spike-in",
+                "saccharomyces cerevisiae spike-in"
+              ],
+              "BDGP6": [
+                "drosophila spike-in",
+                "fly spike-in",
+                "drosophila dna spike-in",
+                "d. melanogaster spike-in",
+                "drosophila melanogaster spike-in"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Notes",
+              "R64-1-1_markers": [
+                "yeast spike-in",
+                "s. cerevisiae spike-in"
+              ],
+              "BDGP6_markers": [
+                "drosophila spike-in",
+                "fly spike-in"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "The genome of the spike-in DNA that spike-in normalisation counts: E. coli (K12-MG1655, carried over from the enzyme prep), yeast (R64-1-1) or fruit fly (BDGP6) when the protocol added its own.",
+            "on_conflict": "The protocol and the libraries' notes name different spike-in DNA. Which was added: yeast, fruit fly, or none (E. coli carry-over)?",
+            "on_absent": "not used: with no added spike-in named, normalisation counts the E. coli DNA carried over from the enzyme prep"
+          }
+        }
+      }
+    },
+    "methylseq": {
+      "params": {
+        "rrbs": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "on_absent": "use_default",
+          "default": "false",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "true": [
+                "rrbs",
+                "reduced representation"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "LibrarySelection",
+              "true_markers": [
+                "reduced representation"
+              ]
+            },
+            {
+              "signal": "Name",
+              "true_markers": [
+                "rrbs"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "true_markers": [
+                "reduced representation bisulfite",
+                "mspi digest"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the libraries are RRBS (MspI-digested reduced representation). Turns on TrimGalore's RRBS trimming and skips deduplication.",
+            "on_conflict": "The kit, library and protocol fields read both ways about whether these are RRBS libraries. Which is right?",
+            "on_absent": "not used: nothing names this prep, so the preset stays off"
+          }
+        },
+        "em_seq": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "on_absent": "use_default",
+          "default": "false",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "true": [
+                "enzymatic methyl",
+                "em-seq",
+                "emseq"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Name",
+              "true_markers": [
+                "emseq",
+                "em-seq"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "true_markers": [
+                "enzymatic methyl-seq"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the libraries are EM-seq (enzymatic conversion). Sets EM-seq's trimming preset and a longer maximum insert for Bismark.",
+            "on_conflict": "The kit, library and protocol fields read both ways about whether these are EM-seq libraries. Which is right?",
+            "on_absent": "not used: nothing names this prep, so the preset stays off"
+          }
+        },
+        "pbat": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "on_absent": "use_default",
+          "default": "false",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "true": [
+                "pbat",
+                "post-bisulfite adapter",
+                "post bisulfite adapter"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Name",
+              "true_markers": [
+                "pbat"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "true_markers": [
+                "post-bisulfite adapter tagging",
+                "post bisulfite adapter tagging"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the libraries are PBAT (post-bisulfite adapter tagging). Bismark then aligns the complementary strands, and PBAT's trimming preset applies.",
+            "on_conflict": "The kit, library and protocol fields read both ways about whether these are PBAT libraries. Which is right?",
+            "on_absent": "not used: nothing names this prep, so the preset stays off"
+          }
+        },
+        "accel": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "on_absent": "use_default",
+          "default": "false",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "true": [
+                "accel-ngs methyl",
+                "accel methyl"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Name",
+              "true_markers": [
+                "accel"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "true_markers": [
+                "accel-ngs methyl"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the libraries were made with the Accel-NGS Methyl-Seq kit. Sets its trimming preset.",
+            "on_conflict": "The kit, library and protocol fields read both ways about whether the Accel-NGS Methyl-Seq kit was used. Which is right?",
+            "on_absent": "not used: nothing names this prep, so the preset stays off"
+          }
+        },
+        "zymo": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "on_absent": "use_default",
+          "default": "false",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "true": [
+                "pico methyl-seq",
+                "pico methyl seq",
+                "zymo methyl"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Name",
+              "true_markers": [
+                "picomethyl"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "true_markers": [
+                "pico methyl-seq"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the libraries were made with Zymo's Pico Methyl-Seq kit. Sets its trimming preset and non-directional alignment.",
+            "on_conflict": "The kit, library and protocol fields read both ways about whether Zymo's Pico Methyl-Seq kit was used. Which is right?",
+            "on_absent": "not used: nothing names this prep, so the preset stays off"
+          }
+        }
+      }
     }
   }
 }
