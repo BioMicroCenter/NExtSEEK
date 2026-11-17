@@ -11,7 +11,11 @@ no state table, and re-running a past week gives the same email.
 Env (``docker/nextseek.env``): NEXTSEEK_SMTP_HOST (default outgoing.mit.edu), NEXTSEEK_SMTP_PORT
 (587, STARTTLS), NEXTSEEK_SMTP_USER, NEXTSEEK_SMTP_PASSWORD, NEXTSEEK_SMTP_FROM, NESSIE_DIGEST_TO
 (space-separated), NESSIE_DIGEST_INSTANCE (a label for the subject), NESSIE_DIGEST_EXCLUDE_USERS
-(space-separated logins left out, e.g. the harness login).
+(space-separated logins left out, e.g. a test login), NESSIE_DIGEST_TEAM_USERS (space-separated logins listed
+in their own section at the bottom).
+
+Scheduled by the app's Celery beat: ``batch_upload.weekly_nessie_digest`` runs hourly and calls ``send_if_due``,
+which sends once after Monday 9 AM Eastern and does nothing where the SMTP keys are unset.
 """
 import csv
 import io
@@ -67,38 +71,24 @@ def _when(d):
     return f"{_day(d)}, {d.hour % 12 or 12}:{d:%M} {'AM' if d.hour < 12 else 'PM'}"
 
 
-def render(rows, since, until, instance="", excluded=()):
-    """(subject, body). ``until`` is exclusive, so the last day shown is the day before it."""
-    last = until.astimezone(ET) - timedelta(days=1)
-    span = f"{_day(since.astimezone(ET))} to {_day(last)}"
-    where = f" on {instance}" if instance else ""
-    by_user = defaultdict(list)
-    for r in rows:
-        by_user[r.username].append(r)
-    if not rows:
-        subject = f"Nessie questions{where}, {span}: no questions"
-    else:
-        subject = (f"Nessie questions{where}, {span}: {len(rows)} question{'s' * (len(rows) != 1)} "
-                   f"from {len(by_user)} {'person' if len(by_user) == 1 else 'people'}")
-    lines = [f"Questions asked Nessie{where}, {span} (US Eastern)."]
-    if excluded:
-        lines.append(f"Not counted: {', '.join(sorted(excluded))}.")
-    lines.append("")
-    if not rows:
-        lines.append("No one asked Nessie anything this week.")
-        return subject, "\n".join(lines) + "\n"
-    chats = {r.session_id for r in rows}
-    lines += [f"{len(rows)} questions, {len(by_user)} people, {len(chats)} chats.", "", "People"]
+def _plural(n, word, many=None):
+    return f"{n} {word if n == 1 else (many or word + 's')}"
+
+
+def _people_lines(by_user):
     order = sorted(by_user, key=lambda u: (-len(by_user[u]), u))
     width = max(len(u) for u in order)
+    lines = []
     for u in order:
         us = by_user[u]
-        n_chats = len({r.session_id for r in us})
-        first, lastd = _day(us[0].asked), _day(us[-1].asked)
-        dates = first if first == lastd else f"{first} to {lastd}"
-        lines.append(f"  {u:<{width}}  {len(us)} question{'s' * (len(us) != 1)} in {n_chats} "
-                     f"chat{'s' * (n_chats != 1)}, {dates}")
-    lines += ["", "Questions"]
+        first, last = _day(us[0].asked), _day(us[-1].asked)
+        lines.append(f"  {u:<{width}}  {_plural(len(us), 'question')} in "
+                     f"{_plural(len({r.session_id for r in us}), 'chat')}, {first if first == last else f'{first} to {last}'}")
+    return order, lines
+
+
+def _question_lines(by_user, order):
+    lines = []
     for u in order:
         lines += ["", u]
         prev = None
@@ -107,24 +97,62 @@ def render(rows, since, until, instance="", excluded=()):
                 lines.append("    (new chat)")
             prev = r.session_id
             lines.append(f"  {_when(r.asked)}  {_one_line(r.question)}")
-    lines += ["", "Attached: one row per chat (username, session id, question count, first and last time, "
-              "first question), for pulling the full chats."]
+    return lines
+
+
+def render(rows, since, until, instance="", excluded=(), team=()):
+    """(subject, body). ``until`` is exclusive, so the last day shown is the day before it. Logins in ``team``
+    are listed in their own section at the bottom and are not in the headline counts."""
+    last = until.astimezone(ET) - timedelta(days=1)
+    span = f"{_day(since.astimezone(ET))} to {_day(last)}"
+    where = f" on {instance}" if instance else ""
+    users, staff = defaultdict(list), defaultdict(list)
+    for r in rows:
+        (staff if r.username in team else users)[r.username].append(r)
+    n_users, n_staff = sum(map(len, users.values())), sum(map(len, staff.values()))
+    if not rows:
+        subject = f"Nessie questions{where}, {span}: no questions"
+    else:
+        subject = (f"Nessie questions{where}, {span}: {_plural(n_users, 'question')} from "
+                   f"{_plural(len(users), 'person', 'people')}")
+        if n_staff:
+            subject += f", {n_staff} from the team"
+    lines = [f"Questions asked Nessie{where}, {span} (US Eastern)."]
+    if excluded:
+        lines.append(f"Not counted: {', '.join(sorted(excluded))}.")
+    lines.append("")
+    if not rows:
+        lines.append("No one asked Nessie anything this week.")
+        return subject, "\n".join(lines) + "\n"
+    if users:
+        chats = {r.session_id for us in users.values() for r in us}
+        order, people = _people_lines(users)
+        lines += [f"{_plural(n_users, 'question')}, {_plural(len(users), 'person', 'people')}, "
+                  f"{_plural(len(chats), 'chat')}.", "", "People", *people, "", "Questions", *_question_lines(users, order)]
+    else:
+        lines.append("No one outside the team asked Nessie anything this week.")
+    if staff:
+        order, people = _people_lines(staff)
+        lines += ["", "", f"Team ({_plural(n_staff, 'question')})", *people, *_question_lines(staff, order)]
+    lines += ["", "Attached: one row per chat (username, user or team, session id, question count, first and last "
+              "time, first question), for pulling the full chats."]
     return subject, "\n".join(lines) + "\n"
 
 
-def sessions_csv(rows):
+def sessions_csv(rows, team=()):
     chats = {}
     for r in rows:
-        c = chats.setdefault(r.session_id, {"username": r.username, "session_id": r.session_id, "questions": 0,
+        c = chats.setdefault(r.session_id, {"username": r.username, "group": "team" if r.username in team else "user",
+                                            "session_id": r.session_id, "questions": 0,
                                             "first_asked_et": r.asked, "last_asked_et": r.asked,
                                             "first_question": " ".join(r.question.split())})
         c["questions"] += 1
         c["last_asked_et"] = r.asked
     out = io.StringIO()
-    w = csv.DictWriter(out, ["username", "session_id", "questions", "first_asked_et", "last_asked_et", "first_question"],
+    w = csv.DictWriter(out, ["username", "group", "session_id", "questions", "first_asked_et", "last_asked_et", "first_question"],
                        lineterminator="\n")
     w.writeheader()
-    for c in sorted(chats.values(), key=lambda c: (c["username"], c["first_asked_et"])):
+    for c in sorted(chats.values(), key=lambda c: (c["group"] == "team", c["username"], c["first_asked_et"])):
         w.writerow({**c, "first_asked_et": f"{c['first_asked_et']:%Y-%m-%d %H:%M}",
                     "last_asked_et": f"{c['last_asked_et']:%Y-%m-%d %H:%M}"})
     return out.getvalue()
@@ -136,6 +164,51 @@ def _connection():
                           port=int(os.getenv("NEXTSEEK_SMTP_PORT") or 587),
                           username=os.environ["NEXTSEEK_SMTP_USER"], password=os.environ["NEXTSEEK_SMTP_PASSWORD"],
                           use_tls=True, timeout=60)
+
+
+def build(since, until):
+    """(subject, body, csv name, csv text) for [since, until), with the env's exclusions and team."""
+    excluded = set((os.getenv("NESSIE_DIGEST_EXCLUDE_USERS") or "").split())
+    team = set((os.getenv("NESSIE_DIGEST_TEAM_USERS") or "").split())
+    rows = collect(since, until, excluded)
+    subject, body = render(rows, since, until, os.getenv("NESSIE_DIGEST_INSTANCE", ""), excluded, team)
+    name = f"nessie-chats-{since.date()}-to-{(until - timedelta(days=1)).date()}.csv"
+    return subject, body, name, sessions_csv(rows, team)
+
+
+def send(since, until):
+    subject, body, name, table = build(since, until)
+    msg = EmailMessage(subject, body, os.environ["NEXTSEEK_SMTP_FROM"], os.environ["NESSIE_DIGEST_TO"].split(),
+                       connection=_connection())
+    msg.attach(name, table, "text/csv")
+    msg.send()
+    return subject
+
+
+SEND_AT_HOUR = 9  # Monday, US Eastern
+
+
+def send_if_due(now, state_dir):
+    """The hourly beat task's body: mail last week's digest once, at or after Monday 9 AM Eastern. A small marker
+    file under ``state_dir`` holds the last week sent, so a later hour (or a restart) never sends it twice and a
+    missed Monday is caught up later that week. Where mail is not set up (dev, a laptop) it does nothing."""
+    if any(not os.getenv(k) for k in SEND_ENV):
+        return "not configured"
+    since, until = last_week(now)
+    if now.astimezone(ET) < until + timedelta(hours=SEND_AT_HOUR):
+        return "not due"
+    marker = os.path.join(state_dir, "nessie_weekly_digest.last_sent")
+    try:
+        with open(marker) as f:
+            if f.read().strip() == since.date().isoformat():
+                return "already sent"
+    except FileNotFoundError:
+        pass
+    subject = send(since, until)
+    os.makedirs(state_dir, exist_ok=True)
+    with open(marker, "w") as f:
+        f.write(since.date().isoformat())
+    return f"sent {subject}"
 
 
 def _date(s):
@@ -163,17 +236,8 @@ class Command(BaseCommand):
         until = _date(o["until"]) if o["until"] else until
         if since >= until:
             raise CommandError("--since must be before --until")
-        excluded = set((os.getenv("NESSIE_DIGEST_EXCLUDE_USERS") or "").split())
-        rows = collect(since, until, excluded)
-        subject, body = render(rows, since, until, os.getenv("NESSIE_DIGEST_INSTANCE", ""), excluded)
-        table = sessions_csv(rows)
-        last = (until - timedelta(days=1)).date()
-        name = f"nessie-chats-{since.date()}-to-{last}.csv"
         if not o["send"]:
+            subject, body, name, table = build(since, until)
             self.stdout.write(f"Subject: {subject}\n\n{body}\n--- {name} ---\n{table}")
             return
-        msg = EmailMessage(subject, body, os.environ["NEXTSEEK_SMTP_FROM"], os.environ["NESSIE_DIGEST_TO"].split(),
-                           connection=_connection())
-        msg.attach(name, table, "text/csv")
-        msg.send()
-        self.stdout.write(f"sent '{subject}' to {os.environ['NESSIE_DIGEST_TO']}")
+        self.stdout.write(f"sent '{send(since, until)}' to {os.environ['NESSIE_DIGEST_TO']}")

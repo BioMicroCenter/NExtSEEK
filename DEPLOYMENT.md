@@ -1350,7 +1350,12 @@ The sweep runs on its own `cc_summaries` worker, so it never delays an upload. I
 `--since`/`--until` for any other) and prints who asked Nessie what: usernames, questions and dates, no grading, plus a
 CSV with one row per chat (username, session id, counts, first and last time). `--send` mails it through SMTP with the
 CSV attached; it refuses until `NEXTSEEK_SMTP_USER`, `NEXTSEEK_SMTP_PASSWORD`, `NEXTSEEK_SMTP_FROM` and
-`NESSIE_DIGEST_TO` are set in `docker/nextseek.env` (the other keys are in `docker/nextseek.env.example`). Dry run:
+`NESSIE_DIGEST_TO` are set in `docker/nextseek.env` (the other keys are in `docker/nextseek.env.example`).
+`NESSIE_DIGEST_TEAM_USERS` lists logins shown in their own section at the bottom; `NESSIE_DIGEST_EXCLUDE_USERS` leaves
+logins out. The beat entry `weekly-nessie-digest` checks hourly and sends once after Monday 9 AM Eastern (a marker under
+`/var/celery` records the week sent, so a missed Monday goes out later that week); with the SMTP keys unset it does
+nothing. Keys are read at container start: after editing `docker/nextseek.env`, recreate `nextseek` and `web` (§3.2, config-only row).
+Dry run:
 
 ```bash
 docker compose exec -T web uv run manage.py nessie_weekly_digest

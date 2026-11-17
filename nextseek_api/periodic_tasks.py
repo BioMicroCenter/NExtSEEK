@@ -170,6 +170,16 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
     return out
 
 
+@shared_task(name="batch_upload.weekly_nessie_digest")
+def weekly_nessie_digest():
+    """Hourly; mails last week's digest once after Monday 9 AM Eastern (a no-op where SMTP is not set up)."""
+    from datetime import datetime
+
+    from .batch_upload.job_index import state_dir
+    from .management.commands.nessie_weekly_digest import ET, send_if_due
+    logger.info("weekly Nessie digest: %s", send_if_due(datetime.now(ET), state_dir()))
+
+
 @shared_task(name="batch_upload.sweep_chat_spill")
 def sweep_chat_spill():
     from .assistant.spill import sweep

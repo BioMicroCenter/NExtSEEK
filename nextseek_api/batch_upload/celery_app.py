@@ -57,6 +57,7 @@ app.config_from_object(
             "batch_upload.clear_expired_sessions": {"ignore_result": True},
             "batch_upload.purge_durable_state": {"ignore_result": True},
             "batch_upload.sweep_chat_spill": {"ignore_result": True},
+            "batch_upload.weekly_nessie_digest": {"ignore_result": True},
         },
         "beat_schedule": {
             # Each entry expires at its own interval, so runs missed while its worker is busy are dropped, not
@@ -81,6 +82,12 @@ app.config_from_object(
                 "task": "batch_upload.sweep_chat_spill",
                 "schedule": 86400.0,
                 "options": {"expires": 86400.0},
+            },
+            # Hourly check; it sends once a week, after Monday 9 AM Eastern, and only where SMTP is set up.
+            "weekly-nessie-digest": {
+                "task": "batch_upload.weekly_nessie_digest",
+                "schedule": 3600.0,
+                "options": {"expires": 3600.0},
             },
             "clear-expired-sessions": {
                 "task": "batch_upload.clear_expired_sessions",
