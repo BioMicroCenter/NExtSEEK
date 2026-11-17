@@ -1344,6 +1344,18 @@ The sweep runs on its own `cc_summaries` worker, so it never delays an upload. I
 `NEXTSEEK_CC_SUMMARY_SWEEP=0` in `nextseek.env` and restart the app to stop it; the rest of the beat keeps running.
 `DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` (20) bounds one run's summaries.
 
+### Weekly Nessie digest
+
+`manage.py nessie_weekly_digest` reads `assistant_query_task` for the last full week (Monday to Monday, US Eastern;
+`--since`/`--until` for any other) and prints who asked Nessie what: usernames, questions and dates, no grading, plus a
+CSV with one row per chat (username, session id, counts, first and last time). `--send` mails it through SMTP with the
+CSV attached; it refuses until `NEXTSEEK_SMTP_USER`, `NEXTSEEK_SMTP_PASSWORD`, `NEXTSEEK_SMTP_FROM` and
+`NESSIE_DIGEST_TO` are set in `docker/nextseek.env` (the other keys are in `docker/nextseek.env.example`). Dry run:
+
+```bash
+docker compose exec -T web uv run manage.py nessie_weekly_digest
+```
+
 ### Durable upload queue
 
 `/var/celery` is the compose volume `batch_upload_state` (`rebuild` keeps it, `startup.sh reset` drops it; it is a queue volume, not a data volume). It holds the
