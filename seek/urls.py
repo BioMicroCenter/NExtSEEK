@@ -21,6 +21,7 @@ urlpatterns = [
     re_path(r'^admin/clades/$', views.adminClades, name="adminClades"),
     re_path(r'^admin/clades/syncSampleTypes/$', views.cladesSyncSampleTypes, name="cladesSyncSampleTypes"),
 
+    re_path(r'^admin/project_members/$', views.projectMembers, name="projectMembers"),
     re_path(r'^admin/internal_assays/$', views.internalAssays, name="internalAssays"),
     re_path(r'^admin/internal_assays/syncInternalAssays$', views.syncInternalAssays, name="syncInternalAssays"),
     re_path(r'^admin/internal_assays/suggestions$', views.internalAssaySuggestions, name="internalAssaySuggestions"),
