@@ -21,6 +21,16 @@ _VALID_TARGETS = {"row_column", "run_param"}
 #: Where a row_column spec's unclear verdicts (conflict, absent) are confirmed instead of being
 #: asked at write_samplesheet: "pairing_table" is sarek's tumour/normal table in configure_run.
 _VALID_CONFIRM_IN = {"pairing_table"}
+#: What a spec's values mean once written. The atlas spells every value as a string ("true",
+#: "150"); value_type says what to write to params.yml, because nf-schema refuses the string
+#: "true" for a boolean parameter and "150" for an integer one.
+_VALUE_TYPES = {"string", "boolean", "integer"}
+#: How a numeric derive_from reads its signal (a whole number such as D.SEQ F_bp): "exact" takes
+#: the number itself (rnavar read_length: 2x151 reads -> 151), "floor" the largest allowed value
+#: not above it (atacseq read_length: 151 -> 150, a key of the precomputed MACS genome sizes), or
+#: the smallest allowed value for reads shorter than all of them (38 -> 50, as nf-core's own
+#: atacseq 2.1.2 and chipseq 2.1.0 conf/test.config set read_length 50 for their 38 bp reads).
+_NUMBER_MODES = {"exact", "floor"}
 
 
 def _check_detect_only(where: str, spec: dict) -> None:
@@ -45,6 +55,98 @@ def _check_detect_only(where: str, spec: dict) -> None:
 
 class ParamAtlasError(Exception):
     """The parameter atlas file is structurally invalid."""
+
+
+def _check_value_type(where: str, spec: dict) -> None:
+    """value_type is one of _VALUE_TYPES, and every allowed value and the default read as that type."""
+    vt = spec.get("value_type", "string")
+    if vt not in _VALUE_TYPES:
+        raise ParamAtlasError(
+            f"Param spec {where} has value_type {vt!r}; must be one of {sorted(_VALUE_TYPES)}")
+    values = list(spec.get("allowed") or [])
+    if spec.get("default") is not None:
+        values.append(spec["default"])
+    for value in values:
+        if not isinstance(value, str):
+            raise ParamAtlasError(
+                f"Param spec {where}: allowed and default values are strings ({value!r}); "
+                "value_type says what they become")
+        if vt == "boolean" and value not in ("true", "false"):
+            raise ParamAtlasError(f"Param spec {where} is boolean, so {value!r} must be \"true\" or \"false\"")
+        if vt == "integer" and _parse_int(value) is None:
+            raise ParamAtlasError(f"Param spec {where} is integer, so {value!r} must be a whole number")
+
+
+def _check_number_spec(where: str, spec: dict) -> None:
+    """A numeric derive_from: an integer spec, a known mode, no marker map, and for "floor" the
+    allowed values it rounds down to. Each corroborator reads its own signal the same way."""
+    df = spec["derive_from"]
+    if spec.get("value_type") != "integer":
+        raise ParamAtlasError(f"Param spec {where} derives a number, so its value_type must be integer")
+    if df.get("number") not in _NUMBER_MODES:
+        raise ParamAtlasError(
+            f"Param spec {where} has derive_from.number {df.get('number')!r}; "
+            f"must be one of {sorted(_NUMBER_MODES)}")
+    if not df.get("signal") or "map" in df:
+        raise ParamAtlasError(f"Param spec {where} derives a number: it needs derive_from.signal and no map")
+    if df["number"] == "floor" and not spec.get("allowed"):
+        raise ParamAtlasError(f"Param spec {where} rounds down to an allowed value, so it needs 'allowed'")
+    rng = spec.get("range")
+    if rng is not None and not (isinstance(rng, list) and len(rng) == 2
+                                and all(isinstance(x, int) for x in rng) and rng[0] <= rng[1]):
+        raise ParamAtlasError(f"Param spec {where} range must be [low, high] whole numbers")
+    for corr in spec.get("corroborate_with") or []:
+        if not (isinstance(corr, dict) and corr.get("signal") and corr.get("number") in _NUMBER_MODES):
+            raise ParamAtlasError(
+                f"Param spec {where} derives a number; each corroborate_with entry needs a signal "
+                f"and a number mode ({sorted(_NUMBER_MODES)})")
+
+
+def _parse_int(value: Any) -> int | None:
+    """A whole number, or None. "151", 151 and 151.0 are 151; "2x151", True and "" are None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    text = str(value or "").strip()
+    head, _, frac = text.partition(".")
+    if head.isdigit() and (not frac or set(frac) == {"0"}):
+        return int(head)
+    return None
+
+
+def typed_value(spec: dict, value: Any) -> Any:
+    """`value` as the type the spec's value_type names: what is written to params.yml.
+
+    A value that does not read as that type is returned unchanged, so the schema check, not this
+    function, reports it."""
+    if value is None:
+        return None
+    vt = spec.get("value_type", "string")
+    if vt == "boolean":
+        if isinstance(value, bool):
+            return value
+        low = str(value).strip().lower()
+        return True if low == "true" else False if low == "false" else value
+    if vt == "integer":
+        n = _parse_int(value)
+        return value if n is None else n
+    return value
+
+
+def canonical_value(spec: dict, value: Any) -> str | None:
+    """The atlas spelling of `value` ("true", "150", "reverse"): two values are the same setting
+    exactly when their canonical values are equal, whichever side of JSON they came from."""
+    if value is None:
+        return None
+    typed = typed_value(spec, value)
+    return ("true" if typed else "false") if isinstance(typed, bool) else str(typed)
+
+
+def same_value(spec: dict, a: Any, b: Any) -> bool:
+    return canonical_value(spec, a) == canonical_value(spec, b)
 
 
 def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
@@ -89,11 +191,22 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
             if spec.get("detect_only"):
                 _check_detect_only(where, spec)
                 continue
-            if not (isinstance(spec.get("allowed"), list) and spec["allowed"]):
-                raise ParamAtlasError(f"Param spec {where} has no non-empty 'allowed' list")
+            _check_value_type(where, spec)
+            if "abstain_when" in spec:
+                ab = spec["abstain_when"]
+                if spec.get("target") != "run_param" or not (
+                        isinstance(ab, dict) and ab.get("signal")
+                        and isinstance(ab.get("markers"), list) and ab["markers"]):
+                    raise ParamAtlasError(
+                        f"Param spec {where} abstain_when needs a run_param, a signal and non-empty markers")
             df = spec.get("derive_from")
-            if not (isinstance(df, dict) and df.get("signal") and isinstance(df.get("map"), dict)):
-                raise ParamAtlasError(f"Param spec {where} needs derive_from.signal and derive_from.map")
+            if isinstance(df, dict) and df.get("number") is not None:
+                _check_number_spec(where, spec)
+            else:
+                if not (isinstance(spec.get("allowed"), list) and spec["allowed"]):
+                    raise ParamAtlasError(f"Param spec {where} has no non-empty 'allowed' list")
+                if not (isinstance(df, dict) and df.get("signal") and isinstance(df.get("map"), dict)):
+                    raise ParamAtlasError(f"Param spec {where} needs derive_from.signal and derive_from.map")
             if "ambiguous_markers" in spec:
                 am = spec["ambiguous_markers"]
                 if not (isinstance(am, list) and am and all(isinstance(m, str) and m for m in am)):
@@ -125,7 +238,7 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
                         stacklevel=2)
                 elif spec.get("on_absent") == "use_default":
                     menu_default = (menu.get(pname) or {}).get("default")
-                    if menu_default is not None and spec.get("default") != menu_default:
+                    if menu_default is not None and not same_value(spec, spec.get("default"), menu_default):
                         warnings.warn(
                             f"parameter atlas {where} has default {spec.get('default')!r}, but "
                             f"{key}'s curated params menu default for {pname!r} is {menu_default!r} "
@@ -201,6 +314,8 @@ def required_signals(pipeline_key: str, atlas: dict | None = None) -> set[str]:
     for spec in _params(pipeline_key, atlas).values():
         primary = spec["detect"] if spec.get("detect_only") else spec["derive_from"]
         out.add(primary["signal"])
+        if spec.get("abstain_when"):
+            out.add(spec["abstain_when"]["signal"])
         for corr in spec.get("corroborate_with") or []:
             if corr.get("signal"):
                 out.add(corr["signal"])
@@ -224,6 +339,25 @@ def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]
     if not voted:
         return ""
     return voted[0] if len(voted) == 1 else voted
+
+
+def _number_vote(value: Any, spec: dict, mode: str) -> str:
+    """One numeric signal's vote: the canonical value it reads as, or "" for silent.
+
+    "exact" votes the number itself, inside `range` when the spec gives one; "floor" votes the
+    largest allowed value not above it, or the smallest allowed value when the number is below
+    them all. A value that is not a whole number is silent."""
+    n = _parse_int(value)
+    if n is None:
+        return ""
+    if mode == "exact":
+        low, high = spec.get("range") or (None, None)
+        if (low is not None and n < low) or (high is not None and n > high):
+            return ""
+        return str(n)
+    allowed = sorted(_parse_int(x) for x in spec.get("allowed") or [])
+    below = [a for a in allowed if a <= n]
+    return str(below[-1] if below else allowed[0])
 
 
 def _evaluate_detection(spec: dict, signals: dict) -> dict[str, Any]:
@@ -252,6 +386,8 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
       conflict                two signals vote different values, or one signal is internally ambiguous
       absent                  no signal resolves any value
       defaulted               verdict would be absent, but the spec declares a safe default
+      not_applicable          the spec's abstain_when matched: this leaf (an input or IgG control
+                              library) has no say in a run-scope value, and is left out of it
       needs_value             detect_only: a signal detected the case; the user must supply the value
       not_detected            detect_only: no signal detected it; the param is not needed
 
@@ -262,14 +398,24 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
     """
     if spec.get("detect_only"):
         return _evaluate_detection(spec, signals)
-    allowed = spec["allowed"]
+    abstain = spec.get("abstain_when")
+    if abstain and _hits(signals.get(abstain["signal"]), abstain["markers"]):
+        return {"value": None, "verdict": "not_applicable",
+                "evidence": f"{abstain['signal']} marks a library this setting does not describe"}
+    allowed = spec.get("allowed") or []
     df = spec["derive_from"]
     primary_sig = df["signal"]
     amb = spec.get("ambiguous_markers")
-    primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"], amb)
+    if df.get("number"):
+        primary_vote: str | list = _number_vote(signals.get(primary_sig), spec, df["number"])
+    else:
+        primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"], amb)
 
     votes: list[tuple[str, Any]] = [(primary_sig, primary_vote)]
     for corr in spec.get("corroborate_with") or []:
+        if corr.get("number"):
+            votes.append((corr["signal"], _number_vote(signals.get(corr["signal"]), spec, corr["number"])))
+            continue
         marker_map = {a: corr.get(f"{a}_markers") for a in allowed}
         votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map, amb)))
 
@@ -282,7 +428,7 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
             return {"value": spec["default"], "verdict": "defaulted",
                     "evidence": f"no signal; used the safe default {spec['default']!r}"}
         return {"value": None, "verdict": "absent",
-                "evidence": f"no {'/'.join(allowed)} signal in {', '.join(s for s, _ in votes)}"}
+                "evidence": f"no {'/'.join(allowed) or 'whole-number'} signal in {', '.join(s for s, _ in votes)}"}
     if ambiguous or len(decided) > 1:
         ev = "; ".join(f"{s}={v}" for s, v in voters) or f"ambiguous in {', '.join(ambiguous)}"
         primary_val = primary_vote if isinstance(primary_vote, str) and primary_vote else None
@@ -342,7 +488,7 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
             if not verdict:
                 continue
             v = verdict.get("verdict")
-            disagrees = str(row.get(name)) != str(verdict.get("value"))
+            disagrees = not same_value(spec, row.get(name), verdict.get("value"))
             if v in _ASK_VERDICTS:
                 if spec.get("confirm_in"):
                     continue
@@ -370,7 +516,8 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
         if spec.get("target") != "run_param":
             continue
         per_leaf = {uid: (pv.get(name) or {}) for uid, pv in (evidence or {}).items()
-                    if (pv or {}).get(name)}
+                    if (pv or {}).get(name)
+                    and (pv.get(name) or {}).get("verdict") != "not_applicable"}
         if not per_leaf:
             continue
         if spec.get("detect_only"):
@@ -383,7 +530,7 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
             ask_by_param[name] = [u for u, v in per_leaf.items() if v.get("verdict") in _ASK_VERDICTS]
             ask_specs[name] = spec
             continue
-        values = {v.get("value") for v in per_leaf.values()}
+        values = {canonical_value(spec, v.get("value")) for v in per_leaf.values()}
         if len(values) > 1:
             # Every leaf individually decisive, but they disagree with each other —
             # a heterogeneous cohort for a run-scope param. Must ask, not silently
@@ -395,7 +542,7 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
                       for v in per_leaf.values())
         if len(values) == 1 and decided and (params or {}).get(name) is not None:
             derived = next(iter(values))
-            if str(params.get(name)) != str(derived):
+            if not same_value(spec, params.get(name), derived):
                 if any(v.get("verdict") == "user_confirmed" for v in per_leaf.values()):
                     ask_by_param[name] = list(per_leaf)
                     ask_specs[name] = spec
@@ -420,10 +567,20 @@ def confirm_user_answer(evidence: dict, name: str, uids: list[str], value: Any,
     allowed values; None once recorded. Deciding that the value IS the user's answer
     (it was asked, and the user has spoken since) is the caller's job.
     """
-    allowed = [str(a) for a in spec.get("allowed") or []]
-    if str(value) not in allowed:
-        return (f"{value!r} is not one of the allowed values ({', '.join(allowed)}): "
-                "ask the user which of these it is")
+    number = (spec.get("derive_from") or {}).get("number")
+    if number == "exact":
+        n = _parse_int(value)
+        low, high = spec.get("range") or (None, None)
+        if n is None or (low is not None and n < low) or (high is not None and n > high):
+            span = f" from {low} to {high}" if low is not None else ""
+            return f"{value!r} is not a whole number{span}: ask the user for the number"
+    else:
+        allowed = [str(a) for a in spec.get("allowed") or []]
+        if canonical_value(spec, value) not in allowed:
+            return (f"{value!r} is not one of the allowed values ({', '.join(allowed)}): "
+                    "ask the user which of these it is")
+    # Recorded in the atlas spelling, so a JSON true and the derived "true" are one value.
+    value = canonical_value(spec, value)
     for uid in uids:
         prior = (evidence.get(uid) or {}).get(name) or {}
         if prior.get("verdict") == "user_confirmed":
@@ -474,5 +631,9 @@ def render_param_elicitation(ask_specs: dict[str, dict], ask_uids: list[str], ev
             lines.append(f"    affected: {', '.join(sorted(uids))}")
         if spec.get("allowed"):
             lines.append(f"  - allowed: {', '.join(str(a) for a in spec['allowed'])}")
+        elif (spec.get("derive_from") or {}).get("number") == "exact":
+            low, high = spec.get("range") or (None, None)
+            span = f" from {low} to {high}" if low is not None else ""
+            lines.append(f"  - allowed: a whole number{span}")
     lines += ["", "I will not guess: a wrong value here produces a plausible-looking wrong result rather than an error."]
     return "\n".join(lines)

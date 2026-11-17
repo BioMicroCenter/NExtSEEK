@@ -463,6 +463,75 @@
         "date": "2026-11-16",
         "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-16). As drafted it repeated the accepted chip-plain almost word for word ('where H3K27ac binds in these samples against their controls' against 'compared with the input'), on the same cohort with the same answer, and nothing in it pointed toward CUT&RUN. Reworded to repeat cutandrun-outcome's question on the ChIP cohort, so the same words must give cutandrun on the CUT&Tag libraries and chipseq here, and only the metadata separates them; the premise holds (two anti-H3K27ac replicates, each with a sonicated-chromatin input)."
       }
+    },
+    {
+      "id": "atac-read-length",
+      "question": "Where is chromatin open in the control and JQ1-treated cells?",
+      "cohort": "test::atac",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "atacseq"
+        ]
+      ],
+      "must_not": [
+        "chipseq",
+        "cutandrun"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "read_length": 50
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Omni-ATAC (Tn5, no antibody), two conditions with two replicates: atacseq. The reads are 2x38 bp; atacseq 2.1.2 takes read_length only as 50, 75, 100, 150 or 200 to key the MACS2 genome size, and its own conf/test.config sets 50 for this same test data, so the launch carries 50 without asking."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-17",
+        "note": "Drafted with the param-atlas settings rules (2026-11-17); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "chip-read-length-broad",
+      "question": "Where does H3K27ac bind in these cells, compared with the input?",
+      "cohort": "test::chip",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "chipseq"
+        ]
+      ],
+      "must_not": [
+        "atacseq",
+        "cutandrun"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "read_length": 75,
+          "narrow_peak": false
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "ChIP with an anti-H3K27ac antibody against sonicated-chromatin inputs: chipseq. Reads are 2x75, so read_length 75. chipseq 2.1.0 calls broad peaks unless narrow_peak is set, and its docs/usage.md contrasts narrow transcription factors with broad histone marks; H3K27ac is a histone mark, so narrow_peak stays false and the inputs have no say. Many analysts call H3K27ac as narrow peaks: rule on whether the pinned docs' split should stand for this mark."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-17",
+        "note": "Drafted with the param-atlas settings rules (2026-11-17); awaits the owner's ruling and a paid run."
+      }
     }
   ]
 }

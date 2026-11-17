@@ -51,7 +51,7 @@ def test_resolve_omits_data_driven_params_key_for_non_atlas_pipeline(monkeypatch
     state = {}
     out = json.loads(at.tool_resolve_samples(_Cfg(), session={}, state=state,
                                              tool_input={"kind": "explicit_uids", "uids": ["D.SEQ-1"]},
-                                             pipeline_key="atacseq"))
+                                             pipeline_key="ampliseq"))
     assert "data_driven_params" not in out
 
 

@@ -2,12 +2,6 @@
   "report_type": "NFCORE_DENOVOTRANSCRIPT_SAMPLESHEET",
   "description": "nf-core/denovotranscript samplesheet context, aligned to the pinned 1.2.1 schemas. Reference-free transcriptome assembly from paired-end bulk RNA-seq.",
   "params": {
-    "transcript_length": {
-      "type": "number",
-      "default": 200,
-      "steerable": true,
-      "help": "Minimum assembled transcript length to keep."
-    },
     "assemblers": {
       "type": "string",
       "default": "trinity",
@@ -18,12 +12,7 @@
       "type": "string",
       "default": null,
       "steerable": true,
-      "help": "BUSCO lineage for assembly completeness. Downloads on demand; leave unset to skip."
-    },
-    "skip_assembly_qc": {
-      "type": "bool",
-      "default": false,
-      "steerable": true
+      "help": "BUSCO lineage for assembly completeness. BUSCO always runs on the final assembly; left unset, the pipeline's default 'auto' chooses a lineage and downloads its dataset."
     },
     "multiqc_title": {
       "type": "string",
@@ -58,7 +47,7 @@
     "This pipeline is for PAIRED-end bulk RNA-seq. A single-end cohort assembles poorly and will not error.",
     "Use rnaseq instead when the organism has a good reference genome \u2014 a de novo assembly is strictly worse when a reference exists.",
     "Trinity is memory-hungry. Do not add assemblers casually on a shared cluster.",
-    "busco_lineage triggers a download; leave it unset unless completeness scoring is wanted."
+    "BUSCO always runs on the final assembly and downloads its lineage dataset: with busco_lineage unset the pipeline's default 'auto' picks the lineage. Name a lineage to control which dataset is downloaded."
   ],
   "notes": "Suited to non-model organisms with no reference genome. NExtSEEK holds 507 RNA-seq D.SEQ records, all from organisms that DO have references (human, mouse, NHP), so this would rarely be the right choice for today's data \u2014 it is catalogued for users whose organisms lack one.",
   "sources": [

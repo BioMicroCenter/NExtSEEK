@@ -65,6 +65,7 @@ from ..seqera.contrasts import (
 )
 from ..seqera.param_atlas import (
     FILL_VERDICTS,
+    canonical_value,
     check_row_column_params,
     check_run_params,
     confirm_user_answer,
@@ -72,6 +73,7 @@ from ..seqera.param_atlas import (
     evaluate_leaf,
     render_param_elicitation,
     required_signals,
+    typed_value,
 )
 from ..luria.submitter import submit_luria
 from ..luria.run_script import LURIA_GENOME_RESOURCES, local_luria_ref_files, luria_run_genome
@@ -789,12 +791,14 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     for _name, _spec in data_driven_params(pipeline_key).items():
         if _spec.get("target") != "run_param":
             continue
-        _vals = {(pv.get(_name) or {}).get("value")
+        _vals = {canonical_value(_spec, (pv.get(_name) or {}).get("value"))
                  for pv in _evidence.values()
                  if (pv.get(_name) or {}).get("verdict") in FILL_VERDICTS}
         _vals.discard(None)
         if len(_vals) == 1:
-            agent_params.setdefault(_name, next(iter(_vals)))
+            # Written as its value_type (a boolean or integer spec's "true"/"150" would fail
+            # nf-schema as a string).
+            agent_params.setdefault(_name, typed_value(_spec, next(iter(_vals))))
 
     # Run-scope data-driven params (scrnaseq protocol). The user's answer to an ask
     # arrives as the value the model sends in params; one this tool filled in itself

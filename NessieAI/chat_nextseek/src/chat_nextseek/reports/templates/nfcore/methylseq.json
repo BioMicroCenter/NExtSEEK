@@ -6,6 +6,8 @@
     "rrbs":             {"type": "bool", "default": false, "steerable": true, "help": "Turn on if dealing with MspI digested material. Also makes the pipeline skip the deduplication step."},
     "em_seq":           {"type": "bool", "default": false, "steerable": true, "help": "Preset for EM-seq libraries."},
     "pbat":             {"type": "bool", "default": false, "steerable": true, "help": "Preset for working with PBAT libraries."},
+    "accel":            {"type": "bool", "default": false, "steerable": true, "help": "Trimming preset for the Accel-NGS Methyl-Seq kit (clip_r1 10, clip_r2 15, three_prime_clip_r1 10, three_prime_clip_r2 10)."},
+    "zymo":             {"type": "bool", "default": false, "steerable": true, "help": "Trimming preset for Zymo's Pico Methyl-Seq kit (10 bp off each end); also sets non_directional alignment."},
     "cytosine_report":  {"type": "bool", "default": false, "steerable": true, "help": "Output stranded cytosine report, following Bismark's bismark_methylation_extractor step."},
     "save_reference":   {"type": "bool", "default": true, "steerable": true, "help": "Save reference(s) to results directory"},
     "multiqc_title":    {"type": "string", "default": null, "steerable": true}

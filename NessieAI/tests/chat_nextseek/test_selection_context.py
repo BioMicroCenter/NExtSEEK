@@ -18,8 +18,8 @@ ATLAS = {
                       "versus": {"rnaseq": {"differs_by": "totals vs isoforms"}}},
         # A non-rich stub pipeline: present in the atlas but not in
         # RICH_PIPELINES, so it must never get a schema fetched for it.
-        "rnavar": {"revision": "1.0.0", "answers": "variants",
-                   "versus": {"rnaseq": {"differs_by": "variants vs expression"}}},
+        "differentialabundance": {"revision": "2.0.0", "answers": "counts in, contrasts out",
+                                  "versus": {"rnaseq": {"differs_by": "matrix vs FASTQ"}}},
     },
 }
 
@@ -63,16 +63,16 @@ def _build(**kwargs):
 def test_the_rich_pipelines_are_the_ones_that_get_schemas():
     assert RICH_PIPELINES == (
         "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
-        "atacseq", "chipseq", "methylseq", "cutandrun",
+        "atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript",
     )
 
 
 def test_fetches_schemas_only_for_rich_pipelines_present_in_the_atlas():
     ctx = _build()
     assert set(ctx.schemas) == {"rnaseq", "rnasplice"}
-    # rnavar is in the atlas but is not one of RICH_PIPELINES: exclusion must
+    # differentialabundance is in the atlas but is not one of RICH_PIPELINES: exclusion must
     # hold because it's filtered, not merely because no test asked for it.
-    assert "rnavar" not in ctx.schemas
+    assert "differentialabundance" not in ctx.schemas
 
 
 def test_a_failed_schema_fetch_is_recorded_not_swallowed():
@@ -131,7 +131,7 @@ def test_size_report_breaks_the_payload_down_by_section():
 def test_fetches_docs_only_for_rich_pipelines_present_in_the_atlas():
     ctx = _build()
     assert set(ctx.docs) == {"rnaseq", "rnasplice"}
-    assert "rnavar" not in ctx.docs
+    assert "differentialabundance" not in ctx.docs
 
 
 def test_a_failed_docs_fetch_is_recorded_not_swallowed():

@@ -210,7 +210,7 @@ def test_evaluate_leaf_uses_the_shipped_atlas():
     signals = {"SequencingType": "Single Cell RNAseq", "Name": "X-GEX", "File_PrimaryData": ""}
     out = evaluate_leaf("hlatyping", signals)
     assert out["seq_type"]["value"] == "rna"
-    assert evaluate_leaf("atacseq", signals) == {}   # no atlas entry -> no params
+    assert evaluate_leaf("ampliseq", signals) == {}   # no atlas entry -> no params
 
 
 def test_evaluate_leaf_rnaseq_defaults_to_length_correction_without_prep_text():
@@ -665,3 +665,149 @@ def test_a_sarek_conflict_does_not_block_the_samplesheet():
     rows = [{"patient": "P1", "sample": "N1", "status": "0"}]
     evidence = {"N1": {"status": {"value": None, "verdict": "conflict", "evidence": "ambiguous in Type"}}}
     assert check_row_column_params("sarek", rows, evidence)["ask_uids"] == []
+
+
+# --- typed values and numeric derivation (boolean flags, read lengths) ---------------
+
+from chat_nextseek.seqera.param_atlas import (  # noqa: E402
+    canonical_value,
+    check_run_params,
+    confirm_user_answer,
+    same_value,
+    typed_value,
+)
+
+
+def _bool_spec(**over):
+    spec = {
+        "target": "run_param", "scope": "run", "value_type": "boolean",
+        "allowed": ["true", "false"],
+        "derive_from": {"signal": "LibrarySelection", "map": {"true": ["Reduced Representation"]}},
+        "ask": {"definition": "d", "on_conflict": "c", "on_absent": "a"},
+    }
+    spec.update(over)
+    return spec
+
+
+def _read_length_spec(mode="floor", **over):
+    spec = {
+        "target": "run_param", "scope": "run", "value_type": "integer",
+        "derive_from": {"signal": "F_bp", "number": mode},
+        "corroborate_with": [{"signal": "R_bp", "number": mode}],
+        "ask": {"definition": "d", "on_conflict": "c", "on_absent": "a"},
+    }
+    if mode == "floor":
+        spec["allowed"] = ["50", "75", "100", "150", "200"]
+    spec.update(over)
+    return spec
+
+
+def _load_one(tmp_path, spec, monkeypatch=None):
+    return load_param_atlas(_write(tmp_path, {"guidance": {"notes": ["x"]},
+                                              "pipelines": {"hlatyping": {"params": {"p": spec}}}}))
+
+
+def test_a_boolean_and_a_numeric_spec_load(tmp_path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _load_one(tmp_path, _bool_spec())
+        _load_one(tmp_path, _read_length_spec("floor"))
+        _load_one(tmp_path, _read_length_spec("exact", range=[20, 1000]))
+
+
+@pytest.mark.parametrize("spec, match", [
+    (_bool_spec(value_type="flag"), "value_type"),
+    (_bool_spec(allowed=["yes", "no"]), "true"),
+    (_bool_spec(allowed=[True, False]), "strings"),
+    (_read_length_spec("floor", allowed=["50", "long"]), "whole number"),
+    (_read_length_spec("floor", value_type="string"), "integer"),
+    (_read_length_spec("round"), "number"),
+    (_read_length_spec("floor", allowed=None), "allowed"),
+    (_read_length_spec("exact", range=[100]), "range"),
+    (_read_length_spec("exact", corroborate_with=[{"signal": "R_bp", "markers": ["150"]}]), "number mode"),
+])
+def test_malformed_typed_specs_raise(tmp_path, spec, match):
+    if spec.get("allowed") is None:
+        spec.pop("allowed", None)
+    with pytest.raises(ParamAtlasError, match=match):
+        _load_one(tmp_path, spec)
+
+
+@pytest.mark.parametrize("f_bp, r_bp, value, verdict", [
+    ("151", "151", "150", "corroborated"),       # 2x151 Illumina reads look up the 150 gsize
+    (76, 76, "75", "corroborated"),
+    ("100", "", "100", "derived_uncorroborated"),  # single-end: no R_bp
+    ("38", "38", "50", "corroborated"),          # shorter than every allowed value: the smallest
+    ("2x151", "", None, "absent"),               # not a whole number: silent, never guessed
+    ("151", "101", None, "conflict"),            # mates disagree: ask
+])
+def test_floor_reads_the_largest_allowed_value_not_above_the_read_length(f_bp, r_bp, value, verdict):
+    out = evaluate_data_driven_param(_read_length_spec("floor"), {"F_bp": f_bp, "R_bp": r_bp})
+    assert out["verdict"] == verdict, out
+    if verdict != "conflict":
+        assert out["value"] == value
+
+
+def test_exact_takes_the_read_length_itself_inside_the_range():
+    spec = _read_length_spec("exact", range=[20, 1000])
+    assert evaluate_data_driven_param(spec, {"F_bp": "151", "R_bp": "151"})["value"] == "151"
+    assert evaluate_data_driven_param(spec, {"F_bp": "5"})["verdict"] == "absent"
+
+
+def test_typed_and_canonical_values_cross_the_json_boundary():
+    b, n = _bool_spec(), _read_length_spec("exact")
+    assert typed_value(b, "true") is True and typed_value(b, "false") is False
+    assert typed_value(n, "151") == 151 and typed_value(n, "x") == "x"
+    assert typed_value(_spec(), "rna") == "rna"
+    assert canonical_value(b, True) == "true" and canonical_value(n, 151.0) == "151"
+    assert same_value(b, True, "true") and not same_value(b, False, "true")
+    assert same_value(n, 150, "150") and not same_value(n, 151, "150")
+
+
+def test_check_run_params_accepts_a_real_boolean_for_a_derived_true():
+    spec = _bool_spec()
+    atlas = {"pipelines": {"methylseq": {"params": {"rrbs": spec}}}}
+    evidence = {"D.SEQ-1": {"rrbs": {"value": "true", "verdict": "corroborated", "evidence": "e"}}}
+    assert check_run_params("methylseq", {"rrbs": True}, evidence, atlas)["corrections"] == []
+    wrong = check_run_params("methylseq", {"rrbs": False}, evidence, atlas)
+    assert wrong["corrections"] == [("*", "rrbs", "true")]
+
+
+def test_check_run_params_treats_true_and_the_string_true_as_one_value_across_leaves():
+    spec = _bool_spec()
+    atlas = {"pipelines": {"methylseq": {"params": {"rrbs": spec}}}}
+    evidence = {"A": {"rrbs": {"value": "true", "verdict": "corroborated", "evidence": "e"}},
+                "B": {"rrbs": {"value": True, "verdict": "user_confirmed", "evidence": "e"}}}
+    assert check_run_params("methylseq", {"rrbs": True}, evidence, atlas)["ask_uids"] == []
+
+
+def test_confirm_user_answer_records_the_atlas_spelling():
+    evidence: dict = {}
+    assert confirm_user_answer(evidence, "rrbs", ["A"], True, _bool_spec()) is None
+    assert evidence["A"]["rrbs"]["value"] == "true"
+    assert confirm_user_answer(evidence, "rrbs", ["A"], "maybe", _bool_spec())
+    exact = _read_length_spec("exact", range=[20, 1000])
+    assert confirm_user_answer(evidence, "read_length", ["A"], 151, exact) is None
+    assert evidence["A"]["read_length"]["value"] == "151"
+    assert "whole number" in confirm_user_answer(evidence, "read_length", ["A"], "long", exact)
+    assert "whole number" in confirm_user_answer(evidence, "read_length", ["A"], 5000, exact)
+
+
+def test_an_abstaining_control_leaf_is_left_out_of_a_run_scope_value():
+    spec = _bool_spec(abstain_when={"signal": "Name", "markers": ["input", "igg"]},
+                      derive_from={"signal": "Name", "map": {"false": ["H3K"]}})
+    control = evaluate_data_driven_param(spec, {"Name": "Input_rep1"})
+    assert control["verdict"] == "not_applicable"
+    ip = evaluate_data_driven_param(spec, {"Name": "H3K27me3_rep1"})
+    atlas = {"pipelines": {"chipseq": {"params": {"narrow_peak": spec}}}}
+    out = check_run_params("chipseq", {}, {"IP": {"narrow_peak": ip}, "IN": {"narrow_peak": control}}, atlas)
+    assert out["ask_uids"] == []
+    # with only the control, there is nothing to decide and nothing to ask
+    assert check_run_params("chipseq", {}, {"IN": {"narrow_peak": control}}, atlas)["ask_uids"] == []
+
+
+def test_abstain_when_is_only_for_a_run_param_with_markers(tmp_path):
+    with pytest.raises(ParamAtlasError, match="abstain_when"):
+        _load_one(tmp_path, _bool_spec(abstain_when={"signal": "Name", "markers": []}))
+    with pytest.raises(ParamAtlasError, match="abstain_when"):
+        _load_one(tmp_path, _spec(abstain_when={"signal": "Name", "markers": ["input"]}))
