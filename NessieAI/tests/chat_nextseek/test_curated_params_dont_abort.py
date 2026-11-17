@@ -716,3 +716,12 @@ def test_atacseq_control_must_name_a_sample_and_replicate_in_the_sheet(tmp_path,
     """The checker exits 1 on a control/control_replicate pair that is not a row of the sheet."""
     out, _ = _configure_atac(tmp_path, [IN_ROW, {**ATAC_ROW, **bad}], {"with_control": True})
     assert out["ok"] is False and any("control" in e for e in out["errors"]), out
+
+
+# --- the pipelines made choosable with their pinned schemas send only real params ---
+
+@pytest.mark.parametrize("key", ["rnavar", "riboseq", "denovotranscript"])
+def test_the_curated_menu_validates_against_the_pinned_schema(key):
+    """denovotranscript's menu offered transcript_length and skip_assembly_qc, which 1.2.1's
+    nextflow_schema.json does not declare, so check_params refused every curated build."""
+    curated(key)

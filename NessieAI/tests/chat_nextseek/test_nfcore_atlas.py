@@ -205,7 +205,7 @@ def test_a_single_file_load_fails_loudly_on_a_malformed_sibling(tmp_path, monkey
         load_atlas(lone)
 
 
-NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun")
+NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript")
 
 
 @pytest.mark.parametrize("key", NEW_CHOOSABLE)
@@ -234,6 +234,21 @@ def test_cutandrun_points_at_chipseq_and_atacseq_both_ways():
         assert pipelines["cutandrun"]["versus"][other]["ask_user"]
         assert pipelines[other]["versus"]["cutandrun"]["ask_user"]
     assert "cannot launch" not in pipelines["chipseq"]["assumes_prep"]
+
+
+def test_riboseq_asks_before_taking_rna_libraries_for_footprints():
+    """riboseq 1.2.0 types each row riboseq, tiseq or rnaseq (assets/schema_input.json); a cohort of
+    ordinary RNA-seq alone is rnaseq, so the pair asks when the protocol does not say."""
+    pipelines = load_atlas()["pipelines"]
+    assert pipelines["riboseq"]["versus"]["rnaseq"]["ask_user"]
+    assert "tiseq" in pipelines["riboseq"]["input_you_must_have"]
+
+
+def test_denovotranscript_is_paired_end_only_and_points_at_rnaseq_with_a_question():
+    """README.md and docs/usage.md at 1.2.1: paired-end short reads only, no reference needed."""
+    entry = load_atlas()["pipelines"]["denovotranscript"]
+    assert "paired-end" in entry["assumes_prep"].lower()
+    assert entry["versus"]["rnaseq"]["ask_user"]
 
 
 def test_differentialabundance_is_choosable_but_not_launchable():

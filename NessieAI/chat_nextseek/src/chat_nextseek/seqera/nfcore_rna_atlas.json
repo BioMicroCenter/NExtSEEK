@@ -269,6 +269,7 @@
           "rRNA depletion"
         ]
       },
+      "species_constraint": "Needs a reference FASTA and GTF for the species: the NExtSEEK reference bundles (human, mouse, rhesus and cynomolgus macaque) supply them, and the first run per genome builds the STAR index, FASTA index and sequence dictionary. Another species needs its reference staged first. The known-variant sets that base recalibration needs, and the annotation caches, exist for none of them here.",
       "versus": {
         "rnaseq": {
           "differs_by": "Choose rnaseq unless the question names variants, mutations, SNPs, or allele-specific expression. A question about which variants or mutations samples express or carry is rnavar: \"express\" there does not make it an expression question. rnavar does not produce a normal expression table.",
@@ -289,11 +290,31 @@
     },
     "riboseq": {
       "revision": "1.2.0",
-      "answers": "Which transcripts are actively being translated, and where do the ribosomes sit?",
-      "assumes_prep": "Ribosome profiling \u2014 polysomes nuclease-digested to leave protected footprints of roughly 28nt.",
+      "answers": "Which transcripts and open reading frames are actively being translated, where do the ribosomes sit on them (P-site offset and reading frame), and, when matched RNA-seq libraries are included, how translational efficiency changes between two treatment groups?",
+      "assumes_prep": "Ribosome profiling (Ribo-seq): polysomes nuclease-digested to leave ribosome-protected footprints of roughly 28nt, short-read Illumina, single- or paired-end. TI-seq (translation initiation sites) is accepted as its own library type. Ordinary RNA-seq libraries from the same samples may be run alongside as type rnaseq; a cohort holding only RNA-seq libraries is an rnaseq question.",
+      "input_you_must_have": "Gzipped FASTQ per library, each with a type (riboseq, tiseq or rnaseq) and a strandedness (forward, reverse, unstranded, or auto to infer it). Translational efficiency (anota2seq) needs matched Ribo-seq and RNA-seq libraries of the same samples, a samplesheet column naming the two treatment groups, and a contrasts file. A reference genome FASTA and GTF; the STAR and Salmon indices are built from them when absent.",
+      "data_signals": {
+        "library_strategy": [
+          "Ribo-Seq",
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "Ribo-seq",
+          "ribosome profiling",
+          "ribosome footprint",
+          "polysome",
+          "TI-seq",
+          "translation initiation"
+        ]
+      },
+      "species_constraint": "Needs a reference FASTA and GTF for the species: the NExtSEEK reference bundles (human, mouse, rhesus and cynomolgus macaque) supply them, and the first run per genome builds the STAR and Salmon indices. Another species needs its reference staged first.",
       "versus": {
         "rnaseq": {
-          "differs_by": "Choose rnaseq unless the protocol explicitly describes ribosome profiling, ribosome footprinting, or polysome digestion. riboseq measures translation, not transcript abundance."
+          "differs_by": "Choose rnaseq unless the protocol explicitly describes ribosome profiling, ribosome footprinting, or polysome digestion. riboseq measures translation, not transcript abundance. A cohort with matched Ribo-seq and RNA-seq libraries of the same samples is riboseq, which takes the RNA-seq libraries as type rnaseq for translational efficiency.",
+          "ask_user": "Were any of these libraries made by digesting polysomes to capture ribosome footprints (Ribo-seq), or are they all ordinary RNA-seq?"
         },
         "smrnaseq": {
           "differs_by": "Both produce very short reads and nothing else in common. riboseq reads are ribosome footprints; smrnaseq reads are size-selected endogenous small RNAs.",
@@ -303,11 +324,27 @@
     },
     "denovotranscript": {
       "revision": "1.2.1",
-      "answers": "What transcripts exist in an organism with no reference genome, and at what level?",
-      "assumes_prep": "Paired-end bulk RNA library from a non-model organism.",
+      "answers": "What transcripts exist in an organism with no reference genome, assembled from the reads alone, at what level is each expressed per sample, and how complete is the assembly?",
+      "assumes_prep": "Paired-end bulk RNA-seq, short-read Illumina, from an organism without a usable reference genome and annotation. The pipeline is for paired-end reads only: a single-end cohort assembles poorly and does not error.",
+      "input_you_must_have": "Paired-end gzipped FASTQ per sample. No reference genome is needed. Optional: a related species' proteins or transcripts to judge the assembly against, and a genome FASTA and GTF for assembly metrics. Trinity, the default assembler with rnaSPAdes, needs a lot of memory.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "non-model organism",
+          "de novo assembly",
+          "no reference genome"
+        ]
+      },
+      "species_constraint": "None: no reference is used, so no species is excluded. It exists for organisms without a reference; every species NExtSEEK has a reference bundle for (human, mouse, rhesus and cynomolgus macaque) is an rnaseq cohort instead, unless the question itself asks for a de novo assembly.",
       "versus": {
         "rnaseq": {
-          "differs_by": "Choose rnaseq whenever a usable reference genome and annotation exist for the organism. denovotranscript is for when they do not \u2014 it assembles the transcriptome from scratch, which is slower and noisier."
+          "differs_by": "Choose rnaseq whenever a usable reference genome and annotation exist for the organism. denovotranscript is for when they do not \u2014 it assembles the transcriptome from scratch, which is slower and noisier.",
+          "ask_user": "Should the reads be mapped to this organism's reference genome, or does the transcriptome need to be assembled from scratch because no usable reference exists?"
         }
       }
     },
