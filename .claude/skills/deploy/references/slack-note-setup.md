@@ -1,61 +1,47 @@
-# Setting up the Slack note
+# Setting up the team note
 
-The deploy skill can post two short notes to a Slack channel when it rebuilds a box ("Rebuilding prod
-(NExtSEEK) to `<sha>`. Expect a short downtime." then "Prod is back up on `<sha>`."), and one line on a
-rollback. It posts through the **Claude in Chrome** extension, as you, in the Slack you are already signed in to.
-It needs no Slack app, bot, webhook or admin rights. The steps the session follows are in
-[SKILL.md "The Slack note"](../SKILL.md); this page is how to set a machine up.
+The runner on the box emails three short notes to the team channel's email address: when it starts ("Rebuilding
+Prod (NExtSEEK) to `<sha>`", with who, from which machine, what is rebuilt and the expected end in ET), when it ends
+("Prod is back up on `<sha>`", with CI's result line), and when it stops or dies ("Prod rebuild to `<sha>`
+stopped", with the reason and the sha the box now runs). It sends them with the box's own SMTP keys, the ones the
+weekly Nessie digest uses, so the notes go out even when the laptop sleeps or no browser is open. What the session
+does: [SKILL.md "The team note"](../SKILL.md).
 
-It is optional and safe to leave off. With any piece missing the deploy prints one line,
-`Slack note skipped: <reason>; post by hand: <the message>`, and carries on. The note never stops, delays or
-fails a deploy.
+It is optional and safe to leave off. With any piece missing the runner writes one status line, `NOTE skipped
+<event>: ...`, and carries on. The note never stops, delays or fails a deploy.
 
-## One-time setup (about 5 minutes)
+## One-time setup
 
-1. **Claude in Chrome.** Install the Claude in Chrome extension in the Chrome you use and connect it to Claude Code
-   (`/chrome` in Claude Code shows whether it is connected). The session must be able to open a tab in that Chrome.
-2. **Slack on the web, signed in, in that same Chrome.** Open `https://app.slack.com`, sign in to the workspace,
-   then open the channel link once and check that you see a message box and not a sign-in page. A signed-out
-   Slack makes the note skip.
-3. **The channel link.** In Slack: right-click the channel, "Copy link". It looks like
-   `https://app.slack.com/client/<workspace id>/<channel id>`.
-4. **The box config** `~/.config/nextseek/boxes.json` (the file `references/boxes.md` describes, outside git). Add next to
-   `instances`:
+1. **The box's SMTP keys** in `docker/nextseek.env` on each box that should send (outside git, never copied off the
+   box): `NEXTSEEK_SMTP_HOST`, `NEXTSEEK_SMTP_PORT` (587, STARTTLS), `NEXTSEEK_SMTP_USER`, `NEXTSEEK_SMTP_PASSWORD`,
+   `NEXTSEEK_SMTP_FROM`, and the recipient `NESSIE_DIGEST_TO` (the team channel's email address). The note reads
+   the file directly, so no restart is needed. A box without them skips the note.
+2. **The box config** `~/.config/nextseek/boxes.json` on the machine that launches (`references/boxes.md`). Add next
+   to `instances`:
 
    ```json
    "slack_note": {
      "enabled": true,
-     "channel_url": "https://app.slack.com/client/<workspace id>/<channel id>",
-     "instances": ["prod", "dev"]
+     "instances": ["prod", "dev"],
+     "who": "<your first name>"
    }
    ```
 
-   `instances` lists where the note posts (default `["prod"]`; `"local"` never posts). `enabled` is false
-   unless you set it true. The shape is in [`boxes.example.json`](../boxes.example.json). Never commit the file.
-5. **Check it, free, touching no box and no Slack:**
+   `instances` lists where the runner sends notes (default `["prod"]`; `"local"` never sends). `enabled` is false
+   unless you set it true. `who` names you in the notes (default: your login name). `email_to` (optional) sends to
+   another address than the box's `NESSIE_DIGEST_TO`. Never commit the file.
+3. **Check it**, free, touching no box:
 
    ```bash
    uv run .claude/skills/deploy/scripts/launch.py slack-note --instance prod --event start --sha <8 hex chars>
    ```
 
-   `SLACK_POST channel=... message=...` means the config is right. `SLACK_SKIP: ...` names what is missing.
-
-## The gates (what a session checks before it posts)
-
-| Gate | Fails when | Result |
-|---|---|---|
-| Config | no `slack_note`, `enabled` not true, the instance not in `instances`, no `https` `channel_url` | skip, message printed |
-| Claude in Chrome | the tools are not connected | skip, message printed |
-| Slack signed in | the channel page shows a sign-in page and no message box | skip, message printed |
-| Message box | the text read back from the box is not exactly the message | clear the box, skip, message printed |
-| Send | any doubt after sending | no retry (it could double-post); read the channel once, then report |
-
-Your deploy go covers the posts. Run the step in a NEW Chrome tab and close it after. Posting is a write to a
-shared channel, so a rehearsal that posts the real wording (with no real rebuild) should be announced to the team first.
+   `NOTE_BY_BOX: ...` means the next runner rendered for that instance will send. `NOTE_OFF: ...` names what is off.
 
 ## Troubleshooting
 
-- **Always skipping with "no slack_note in the box config".** The script reads `NEXTSEEK_BOXES` if set, else
+- **`NOTE skipped`** in the status: the box's `docker/nextseek.env` lacks `NEXTSEEK_SMTP_HOST` or a recipient.
+- **`NOTE failed`**: the reason is in `<home>/launch-<tag>/note.log` on the box (pulled with the launch evidence).
+  It is never retried, so a note cannot go out twice.
+- **Always `NOTE_OFF: no slack_note in the box config`**: the script reads `NEXTSEEK_BOXES` if set, else
   `~/.config/nextseek/boxes.json`: check you edited the file it names.
-- **Message box not found.** Slack redirects to a sign-in or workspace chooser: sign in in that Chrome, then rerun.
-- **Wrong channel.** The link's last path part is the channel id; copy it from the channel you mean.

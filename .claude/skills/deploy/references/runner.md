@@ -33,6 +33,7 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 
 | Step | What | Stops the run when |
 |---|---|---|
+| lock | takes `~/launch.lock` for the runner's whole life (`flock`; SKILL.md "One launch per box") and writes who, from where, the tag, sha, what and the expected end into it; traps HUP, TERM and INT | another launch holds it: `STOPPED: box busy: ...` |
 | window | checks the UTC clock against the stop windows | inside one |
 | busy | `pgrep` inside `nextseek` for a graph sync, drift or harness run | anything found |
 | pull | `git fetch`; discards only the app's context refresh; `git merge --ff-only <expected>` | origin/dev is not the sha, or the fast-forward is refused |
@@ -60,7 +61,9 @@ classify the same log identically and stop on the same lines.
 Every line ends in a UTC `HH:MM:SS`; the last is `ALL_DONE`. `launch.py judge` parses them:
 
 ```
+STOPPED: box busy: another launch holds it: tag=... who=... from=... sha=... what=... start=... expected_end=...
 START tag=... instance=dev components=app cc-agent
+NOTE sent start | NOTE skipped start: no SMTP keys or recipient on this box | NOTE failed start, see <launch>/note.log
 HEAD 1c070c08 Merge ...
 REBUILD app exit=1               # exit 1 is often drift or GHCR; the success line decides
 ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>; a component's first ROLLBACK line wins
@@ -81,6 +84,10 @@ PINNED <file> measured={...} dropped=<ids>   # a cases file's non-empty _measure
 FINDING PIN_FAILED <file> see <launch>/pin-<file>.log; this file's run was skipped
 NESSIE_START run=... utc=... login=admin|member  /  NESSIE_EXIT run=... exit=1 utc=...
 STOPPED: <why>
+STOPPED: runner killed by SIGHUP after: <last line>      # its tmux died, or it was killed
+STOPPED: runner gone without finishing (its tmux or process died) after: <last line>   # written by the watcher
+FINDING BOX_MOVED HEAD is <sha>, not <sha> (another pull ran on this box mid-launch)   # written by the watcher
+NOTE sent up | NOTE sent stopped
 ALL_DONE
 ```
 
@@ -98,8 +105,9 @@ uv run $K/launch.py ssh --brief $D/brief.json --purpose watch --script $D/runner
 Run it with Bash `run_in_background: true` and wait for the completion notice. It is one connection
 that loops ON the box (300 minutes at most) and prints the status, the rebuild lines, the checks, the
 CI result and the harness lines when `ALL_DONE` appears. While it runs, `launch.py ssh --purpose
-status` allows ONE short status read (the script counts it). If the status has not moved for 30
-minutes, report it; do not kill anything.
+status` allows ONE short status read (the script counts it). Each minute it also checks that the runner still holds the box lock: when it does not and there is no `ALL_DONE`, it
+prints `RUNNER_GONE`, writes the stopped lines and sends the stopped note, so a dead runner is never watched for
+hours. If the status has not moved for 30 minutes, report it; do not kill anything.
 
 ## Pull
 

@@ -148,29 +148,37 @@ A rerun after a stop needs `--force` (exit 3: the brief or the review exists). `
 
 Your final message is the text of `$D/LAUNCH-REPORT.md`. Examples of each form are in `examples/`.
 
-### The Slack note (optional, never blocks)
+### The team note (optional, never blocks)
 
-Two short messages tell the team a box is being rebuilt. Setting a machine up, and the gates: [`references/slack-note-setup.md`](references/slack-note-setup.md). Config: the top-level `slack_note` key of
-`boxes.json` (`references/boxes.md`), off by default; with no config (a machine that never set it up) every step below
-skips by itself. Run `uv run $K/launch.py slack-note --instance <i> --event start|up|rollback --sha <sha>`
-at the three points below. It prints `SLACK_SKIP: ...; post by hand: <message>` (print that line in the chat and
-carry on) or `SLACK_POST channel=<url> message=<text>`. On `SLACK_POST`, post through Claude in Chrome:
+The box tells the team itself, by email to the team channel's address: the runner sends the `start` note right
+before its pull (who, from which machine, what is rebuilt, the expected end time in ET), the `up` note at the end
+(the sha and CI's result line), and a `stopped` note when the launch stops, when its runner is killed (its tmux
+died: HUP) or when the watcher finds the runner gone. It uses the box's own `NEXTSEEK_SMTP_*` keys in
+`docker/nextseek.env`, which never leave the box; the session does nothing and needs no browser. Each note is one
+try, never retried, and writes one status line: `NOTE sent <event>`, `NOTE skipped <event>: no SMTP keys or
+recipient on this box`, or `NOTE failed <event>, see <launch>/note.log`. Report those lines; a skipped or failed
+note is never a stop.
 
-1. Claude in Chrome tools connected (`tabs_context_mcp` answers) and the channel page, opened in a NEW tab, shows a
-   message box and not a sign-in page. Either fails: print the skip line (reason named) and go on.
-2. Type the message into the box, read the box back, and send only if it holds exactly the message. Any doubt: clear
-   the box, skip, print the message.
-3. After sending, read the channel once and confirm the message is there. The `up` note replies in the thread of the
-   `start` note when that is easy, else it is a second message.
-4. No retry of a send, ever (it could double-post). A failure at any point is one printed line, never a stop.
+Config: the top-level `slack_note` key of `boxes.json` (`references/boxes.md`), off by default; setup and checks:
+[`references/slack-note-setup.md`](references/slack-note-setup.md). `uv run $K/launch.py slack-note --instance <i>
+--event start --sha <sha>` says whether the runner will send (`NOTE_BY_BOX`) or not (`NOTE_OFF: <why>`). A
+rollback is the operator's call: after it, `--event rollback` prints the line to send by hand. A launch that rebuilds
+nothing (CI only, a Nessie test set) sends none, and a brief that puts the note in `ruled_out` renders a runner that
+sends none.
 
-| Event | When |
-|---|---|
-| `start` | after the deploy go and a clean preflight, right before `start` (the rebuild) |
-| `up` | after the post-deploy checks pass (`finish` ends green) |
-| `rollback` | one line when prod was rolled back |
+### One launch per box
 
-`--sha` is the brief's `expected_sha`. The Slack step never delays, fails or reorders a deploy.
+The runner holds `~/launch.lock` on the box (`flock`) for its whole life and writes into it who, from which machine,
+the tag, the sha, what it rebuilds, the start and the expected end. The kernel frees the lock the moment the runner
+ends or dies, so it never goes stale. The preflight's `box_lock` row stops (it cannot be waived) while another
+launch holds it, and names that launch; the runner checks again when it starts and writes
+`STOPPED: box busy: another launch holds it: <its line>`. Then wait for its expected end or ask whoever runs it;
+**never stop another launch's tmux session or runner**. The `unfinished` row warns about a launch of the last 24 h
+whose status has no `ALL_DONE` and no lock: it died mid-run; tell whoever ran it before you start.
+
+The watcher checks the lock every minute: when the runner is gone with no `ALL_DONE` it prints `RUNNER_GONE`,
+writes `STOPPED: runner gone without finishing ...` and `ALL_DONE`, sends the stopped note, and `finish` goes on to
+pull and judge. When the box's HEAD moves off the launch's sha mid-run it prints `BOX_MOVED` and writes a `FINDING`.
 
 ### Exit codes (every subcommand)
 
@@ -198,7 +206,7 @@ For every instance: `references/ci.md` (reading CI), `references/nessie-question
 - **Run exactly the brief's steps.** Anything else is a `proposals` row in the report, and runs
   only if `allowed_extras` names it.
 - **Only `launch.py ssh` touches a box.** It builds the transport, holds one lock per launch, and
-  shuts the door after a failed connection.
+  shuts the door after a failed connection. On the box, one launch at a time ("One launch per box").
 - **No secrets** anywhere you write or print: name `CI_WRITE_PASS`, `NEO4J_AUTH`,
   `MYSQL_ROOT_PASSWORD`, never their values.
 - **Never, on any box:** `./startup.sh reset` (with or without `--drop-data`), `docker compose pull`, `docker compose up` without
