@@ -182,10 +182,48 @@
             }
           },
           "ask": {
-            "definition": "Each library's strand-specificity, a required samplesheet column. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field).",
-            "on_conflict": "This sample's recorded strandedness reads more than one way. Which is it: forward, reverse or unstranded?",
-            "on_absent": "No earlier run measured these libraries' strandedness. Which is it: forward, reverse, unstranded, or unknown if you cannot tell?"
-          }
+            "definition": "Each library's strand-specificity, a required samplesheet column. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field), or from a kit whose strand is fixed (dUTP kits such as TruSeq Stranded or NEBNext Ultra II Directional are reverse).",
+            "on_conflict": "This sample's measured strandedness and its library kit disagree. Which is it: forward, reverse or unstranded?",
+            "on_absent": "No earlier run measured these libraries' strandedness and their kit does not fix it. Which is it: forward, reverse, unstranded, or unknown if you cannot tell?"
+          },
+          "corroborate_with": [
+            {
+              "signal": "ExpressionKit",
+              "reverse_markers": [
+                "truseq stranded",
+                "illumina stranded",
+                "nebnext ultra ii directional",
+                "nebnext ultra directional",
+                "kapa stranded",
+                "dutp"
+              ],
+              "forward_markers": [
+                "quantseq fwd"
+              ],
+              "unstranded_markers": [
+                "truseq rna library prep",
+                "smart-seq"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "reverse_markers": [
+                "truseq stranded",
+                "illumina stranded",
+                "nebnext ultra ii directional",
+                "nebnext ultra directional",
+                "kapa stranded",
+                "dutp"
+              ],
+              "forward_markers": [
+                "quantseq fwd"
+              ],
+              "unstranded_markers": [
+                "truseq rna library prep",
+                "smart-seq"
+              ]
+            }
+          ]
         }
       }
     },
@@ -214,10 +252,48 @@
             }
           },
           "ask": {
-            "definition": "Each library's strand-specificity, a required samplesheet column. rnasplice 1.0.4 accepts only forward, reverse or unstranded (no auto), and rMATS needs every sample to share one. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field).",
-            "on_conflict": "This sample's recorded strandedness reads more than one way. Which is it: forward, reverse or unstranded?",
-            "on_absent": "No earlier run measured these libraries' strandedness, and rnasplice cannot infer it. Which is it: forward, reverse or unstranded?"
-          }
+            "definition": "Each library's strand-specificity, a required samplesheet column. rnasplice 1.0.4 accepts only forward, reverse or unstranded (no auto), and rMATS needs every sample to share one. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field), or from a kit whose strand is fixed (dUTP kits such as TruSeq Stranded or NEBNext Ultra II Directional are reverse).",
+            "on_conflict": "This sample's measured strandedness and its library kit disagree. Which is it: forward, reverse or unstranded?",
+            "on_absent": "No earlier run measured these libraries' strandedness, their kit does not fix it, and rnasplice cannot infer it. Which is it: forward, reverse or unstranded?"
+          },
+          "corroborate_with": [
+            {
+              "signal": "ExpressionKit",
+              "reverse_markers": [
+                "truseq stranded",
+                "illumina stranded",
+                "nebnext ultra ii directional",
+                "nebnext ultra directional",
+                "kapa stranded",
+                "dutp"
+              ],
+              "forward_markers": [
+                "quantseq fwd"
+              ],
+              "unstranded_markers": [
+                "truseq rna library prep",
+                "smart-seq"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "reverse_markers": [
+                "truseq stranded",
+                "illumina stranded",
+                "nebnext ultra ii directional",
+                "nebnext ultra directional",
+                "kapa stranded",
+                "dutp"
+              ],
+              "forward_markers": [
+                "quantseq fwd"
+              ],
+              "unstranded_markers": [
+                "truseq rna library prep",
+                "smart-seq"
+              ]
+            }
+          ]
         }
       }
     },

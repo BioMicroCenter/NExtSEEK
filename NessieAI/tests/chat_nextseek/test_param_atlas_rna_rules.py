@@ -131,3 +131,24 @@ def test_configure_run_writes_rnavar_read_length_as_a_number(tmp_path):
     out = json.loads(at.tool_configure_run(_Cfg(), state, {"pipeline_key": "rnavar"}, str(tmp_path)))
     assert out["ok"] is True, out
     assert out["resolved_params"]["read_length"] == 151
+
+
+# --- the library kit as a second strandedness signal (owner's choice, 2026-11-17) ------------
+#
+# Not from the pinned files: dUTP second-strand kits read the reverse strand first, by how they
+# are made. Only kits whose strand is fixed are listed; a kit that does not say leaves the ask.
+
+@pytest.mark.parametrize("pipeline", ["rnafusion", "rnasplice"])
+@pytest.mark.parametrize("signals, value, verdict", [
+    ({"ExpressionKit": "NEBNext Ultra II Directional RNA Library Prep"}, "reverse", "derived_uncorroborated"),
+    ({"Protocol": "polyA selection, TruSeq Stranded mRNA"}, "reverse", "derived_uncorroborated"),
+    ({"Strandedness": "reverse", "ExpressionKit": "Illumina Stranded mRNA Prep"}, "reverse", "corroborated"),
+    ({"Strandedness": "forward", "ExpressionKit": "KAPA Stranded mRNA-Seq"}, None, "conflict"),
+    ({"ExpressionKit": "NEBNext Ultra II RNA Library Prep"}, None, "absent"),   # unstranded or not: unsaid
+    ({"ExpressionKit": "SMARTer Stranded Total RNA-Seq Kit v2"}, None, "absent"),  # strand varies by version
+])
+def test_a_kit_with_a_fixed_strand_sets_strandedness(atlas, pipeline, signals, value, verdict):
+    out = evaluate_data_driven_param(_spec(atlas, pipeline, "strandedness"), signals)
+    assert out["verdict"] == verdict, out
+    if verdict != "conflict":
+        assert out["value"] == value
