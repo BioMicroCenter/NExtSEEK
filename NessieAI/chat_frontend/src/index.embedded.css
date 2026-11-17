@@ -51,6 +51,25 @@
   height: 100%;
   background-color: var(--background);
   color: var(--foreground);
+  /* The embedded panel is light-only (nothing here sets .dark): tell the browser so, or a host page, an
+     extension or the phone's dark mode can paint form controls with dark-mode system colours (light text)
+     on this white panel. */
+  color-scheme: light;
+}
+
+/* No preflight in this sheet (see the CLAUDE.md invariant), so form controls keep the browser's own text
+   colour (FieldText), which dark-mode tools turn white. Make them take the panel's colour. :where() keeps the
+   rule at zero specificity, so any utility class (text-amber-600, text-foreground) still wins. The fill colour
+   follows too, because WebKit paints text with -webkit-text-fill-color when one is set. */
+:where(#chat-assistant-root) :where(input, textarea, select, button) {
+  color: inherit;
+  -webkit-text-fill-color: currentcolor;
+}
+
+:where(#chat-assistant-root) :where(input, textarea)::placeholder {
+  color: var(--muted-foreground);
+  -webkit-text-fill-color: var(--muted-foreground);
+  opacity: 1;
 }
 
 #chat-assistant-root.dark {

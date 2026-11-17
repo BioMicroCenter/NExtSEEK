@@ -63,7 +63,7 @@ export function MessageInput({ onSend, disabled, apiService }: MessageInputProps
         <textarea
           ref={textareaRef}
           data-testid="chat-input"
-          className="flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring read-only:cursor-not-allowed read-only:opacity-50 [@media(pointer:coarse)]:min-h-11"
+          className="flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-base text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring read-only:cursor-not-allowed read-only:opacity-50 [@media(pointer:coarse)]:min-h-11"
           placeholder="Ask NExtSEEK a question..."
           value={value}
           onChange={(e) => {
