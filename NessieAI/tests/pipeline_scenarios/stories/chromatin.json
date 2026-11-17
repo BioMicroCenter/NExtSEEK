@@ -296,9 +296,9 @@
         "pipelines": "The user says the libraries are CUT&Tag and the ChIP metadata is wrong, which overrides the metadata: cutandrun, now choosable, is the pipeline for CUT&Tag. chipseq goes against the user's own statement. The cohort is paired-end with input libraries, which become the control group, so a launch can be built."
       },
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Was cutandrun-not-yet (not_yet family, ruled 'changed' 2026-10-26, expecting 'not yet'), flipped on 2026-11-12 when cutandrun became choosable; its recording was removed and it awaits the owner's ruling and a paid re-record."
+        "state": "accepted",
+        "date": "2026-11-16",
+        "note": "Accepted by the owner on the review page (2026-11-13)."
       }
     },
     {
@@ -330,9 +330,9 @@
         "pipelines": "The metadata says CUT&Tag (pA-Tn5 tethered by an antibody) with an IgG control library, paired-end: cutandrun. chipseq is for immunoprecipitated chromatin and atacseq for untargeted Tn5; neither fits."
       },
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Drafted with nf-core/cutandrun 3.2.2 becoming choosable; awaits the owner's ruling."
+        "state": "accepted",
+        "date": "2026-11-16",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-16). The cohort really is paired-end CUT&Tag (pA-Tn5, anti-H3K27me3 and anti-H3K4me3) with one IgG control library, so the premise holds and cutandrun is the answer, with chipseq and atacseq the plausible wrong picks. use_control true is the template default, but the user asks for peaks against the IgG control, so asserting it is right: an agent that missed the IgG group would have to set it false."
       }
     },
     {
@@ -361,9 +361,9 @@
         "pipelines": "Binding of a histone mark with replicate agreement, on CUT&Tag libraries: cutandrun gives peaks per replicate and a consensus per group. chipseq would ignore that the libraries are CUT&Tag."
       },
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Drafted with nf-core/cutandrun 3.2.2 becoming choosable; awaits the owner's ruling."
+        "state": "accepted",
+        "date": "2026-11-16",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-16). The cohort has exactly two H3K27me3 CUT&Tag replicates (from separate cell batches) plus an IgG control, so the premise holds; the question names an outcome, not a pipeline, and cutandrun's per-replicate peaks and per-group consensus answer it. The user asks for no setting, so an empty must_match is right, and chipseq is the plausible wrong pick."
       }
     },
     {
@@ -394,9 +394,9 @@
         "pipelines": "The user names the pipeline and a setting the release offers (normalisation_mode CPM)."
       },
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Drafted with nf-core/cutandrun 3.2.2 becoming choosable; awaits the owner's ruling."
+        "state": "accepted",
+        "date": "2026-11-16",
+        "note": "Accepted by the owner on the review page (2026-11-13)."
       }
     },
     {
@@ -427,14 +427,14 @@
         "pipelines": "SEACR is cutandrun's own peak caller and the release takes both callers in order (peakcaller seacr,macs2). Naming the callers does not name the pipeline."
       },
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Drafted with nf-core/cutandrun 3.2.2 becoming choosable; awaits the owner's ruling."
+        "state": "accepted",
+        "date": "2026-11-16",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-16). peakcaller 'seacr,macs2' is an allowed, non-default value (the default is seacr) that the user asks for in that order, and with two callers the first is the primary one, so the order matters and the assertion tests a real request. It shares the words 'call peaks' with cutandrun-plain but tests a different setting, and chipseq (whose caller is MACS2) is the right lookalike to forbid."
       }
     },
     {
       "id": "chip-not-cutandrun-lookalike",
-      "question": "Map where H3K27ac binds in these samples against their controls.",
+      "question": "Where does H3K27ac sit across the genome in these samples, and do the two replicates agree?",
       "cohort": "test::chip",
       "route": "nextseek_query",
       "acceptable": [
@@ -456,12 +456,12 @@
       "phrasing": "lookalike",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The metadata says ChIP with sonicated input controls, so chipseq. cutandrun shares the words 'binds' and 'controls' but is for CUT&RUN and CUT&Tag libraries, which these are not."
+        "pipelines": "This is cutandrun-outcome's question asked of the ChIP cohort. Where a mark binds and whether the replicates agree is what both chipseq and cutandrun answer, but the metadata says anti-H3K27ac immunoprecipitation of sonicated chromatin (LibrarySelection ChIP, LibraryStrategy ChIP-Seq), two replicates, each with an input control, so chipseq is right. cutandrun is the lookalike: it is for CUT&RUN and CUT&Tag libraries, with IgG controls and spike-in reads, which these are not. atacseq is wrong because these are antibody pull-downs, not untargeted Tn5."
       },
       "ruling": {
-        "state": "proposed",
-        "date": "2026-11-12",
-        "note": "Drafted with nf-core/cutandrun 3.2.2 becoming choosable; awaits the owner's ruling."
+        "state": "changed",
+        "date": "2026-11-16",
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-16). As drafted it repeated the accepted chip-plain almost word for word ('where H3K27ac binds in these samples against their controls' against 'compared with the input'), on the same cohort with the same answer, and nothing in it pointed toward CUT&RUN. Reworded to repeat cutandrun-outcome's question on the ChIP cohort, so the same words must give cutandrun on the CUT&Tag libraries and chipseq here, and only the metadata separates them; the premise holds (two anti-H3K27ac replicates, each with a sonicated-chromatin input)."
       }
     }
   ]
