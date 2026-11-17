@@ -3,10 +3,10 @@
   "workstation_repo": "~/src/NExtSEEK",
   "slack_note": {
     "enabled": false,
-    "channel_url": "https://example.slack.com/archives/CXXXXXXXXXX",
     "instances": [
       "prod"
-    ]
+    ],
+    "who": "your-first-name"
   },
   "instances": {
     "local": {

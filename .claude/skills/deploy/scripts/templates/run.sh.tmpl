@@ -3,8 +3,13 @@
 # do not edit it by hand (re-render instead). Sequential; every step appends one line to $ST that
 # ends in a UTC HH:MM:SS, and the last line is ALL_DONE. It never rolls anything back.
 set -u
+SELF=$(readlink -f "$0")   # before the cd: the lock pass runs this file again
 cd @@REPO@@ || exit 1
 H=@@HOME@@
+REPO=@@REPO@@
+LOCK=$H/launch.lock   # the box lock: one launch at a time, whoever starts it (flock, freed when the runner dies)
+WHO=@@WHO@@ FROM_HOST=@@FROM_HOST@@ WHAT=@@WHAT@@ EST_MIN=@@EST_MIN@@
+NOTE_ON=@@NOTE_ON@@ NOTE_TO=@@NOTE_TO@@   # the team note: emailed from this box at start, up and stopped
 TAG=@@TAG@@
 EXP=@@EXP@@
 BEHIND_OK=@@BEHIND_OK@@   # 1: the brief quotes the operator letting EXP be an ancestor of origin/dev
@@ -32,7 +37,22 @@ REHEARSE=@@REHEARSE@@   # 1 when the range has a migration (the brief's migratio
 ST=$H/launch-$TAG.status; L=$H/launch-$TAG
 # >>> functions (tests/test_launch.py sources this block)
 say(){ echo "$* $(date -u +%H:%M:%S)" >> "$ST"; }
-stop(){ say "STOPPED: $*"; say ALL_DONE; exit 1; }
+stop(){ say "STOPPED: $*"; note stopped "Stopped: $*"; say ALL_DONE; exit 1; }
+locked_run(){ # "$@" runs holding $LOCK (the flock process holds it, the command does not inherit it); another
+  # holder refuses with its line (who, from where, what, since when): exit 75
+  flock -n -o -E 75 "$LOCK" "$@"; rc=$?
+  if [ $rc = 75 ]; then mkdir -p "$L"; say "STOPPED: box busy: another launch holds it: $(head -1 "$LOCK" 2>/dev/null | cut -c1-300)"; say ALL_DONE; fi
+  return $rc
+}
+on_signal(){ # $1 the signal: a runner whose tmux died (HUP) or was killed (TERM, INT) still says so and sends the
+  # stopped note; SIGKILL cannot be caught, the watcher sees that one (lock free, no ALL_DONE)
+  trap - HUP TERM INT
+  last=$(grep -v "^NOTE " "$ST" 2>/dev/null | tail -1)
+  say "STOPPED: runner killed by SIG$1 after: $last"
+  note stopped "The launch runner was killed (SIG$1) after: $last"
+  say ALL_DONE; exit 1
+}
+@@NOTE_FN@@
 logname(){ case "$1" in
   app-build) echo app-build;;
 @@LOGNAME_CASES@@
@@ -216,8 +236,14 @@ rehearse_or_stop(){ # right after app-build (the new app image built, nothing re
 }
 # <<< functions
 
+if [ -z "${LAUNCH_LOCKED:-}" ]; then   # first pass: take the box lock and run this script again under it
+  export LAUNCH_LOCKED=1
+  locked_run "$SELF"; exit $?
+fi
+trap 'on_signal HUP' HUP; trap 'on_signal TERM' TERM; trap 'on_signal INT' INT
 mkdir -p "$L" "$H/backups"
 : > "$ST"
+echo "tag=$TAG who=$WHO from=$FROM_HOST instance=$INSTANCE sha=${EXP:0:8} what='$WHAT' start=$(TZ=America/New_York date '+%-I:%M %p') ET expected_end=$(TZ=America/New_York date -d "+$EST_MIN min" '+%-I:%M %p') ET" > "$LOCK"
 say "START tag=$TAG instance=$INSTANCE components=${COMPONENTS:-none}"
 
 w=$(in_window); [ -n "$w" ] && stop "inside the $w UTC stop window; start after it"
@@ -231,6 +257,7 @@ git fetch -q origin || stop "git fetch failed"
 for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
 set_aside || stop "could not set the dirty $SET_ASIDE aside; nothing was reset past the failed file"
 rm -f @@REFRESH_MARKER@@
+note start   # the first change to the box is the pull: the team hears before it
 git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, see $L/pull.log"
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"
@@ -448,4 +475,7 @@ if [ $DO_NESSIE = 1 ]; then
     docker cp nextseek:/app/runs/$RUN "$H/backups/" > /dev/null 2>&1
   done
 fi
+ci=$(grep "^CI_RESULT " "$ST" | tail -1 | sed -E 's/^CI_RESULT //; s/ [0-9:]+$//')
+n=$(grep -cE "^(FINDING|CI_NEW_REDS) " "$ST")
+note up "$(printf %s "${INSTANCE:0:1}" | tr '[:lower:]' '[:upper:]')${INSTANCE:1} runs ${EXP:0:8}. CI: ${ci:-not run}.$( [ "$n" -gt 0 ] && echo " $n finding(s) for $WHO to read.")"
 say ALL_DONE

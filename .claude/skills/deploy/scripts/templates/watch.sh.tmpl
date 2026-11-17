@@ -1,10 +1,34 @@
 # deploy launch watcher @@TAG@@. Rendered by launch.py. ONE connection that loops ON the box.
-H=@@HOME@@; ST=$H/launch-@@TAG@@.status; L=$H/launch-@@TAG@@
+H=@@HOME@@; ST=$H/launch-@@TAG@@.status; L=$H/launch-@@TAG@@; LOCK=$H/launch.lock
+TAG=@@TAG@@ EXP=@@EXP@@ REPO=@@REPO@@ INSTANCE=@@INSTANCE@@
+WHO=@@WHO@@ FROM_HOST=@@FROM_HOST@@ WHAT=@@WHAT@@ EST_MIN=@@EST_MIN@@ NOTE_ON=@@NOTE_ON@@ NOTE_TO=@@NOTE_TO@@
 UNTIL="${UNTIL:-ALL_DONE}"   # ALL_DONE, or FIRST_CASE to stop after the first harness case line
+say(){ echo "$* $(date -u +%H:%M:%S)" >> "$ST"; }
+@@NOTE_FN@@
+alive(){ ! flock -n "$LOCK" true 2>/dev/null && grep -q "^tag=$TAG " "$LOCK" 2>/dev/null; }   # our runner holds the box lock
+moved=""
 for i in $(seq 1 @@LOOPS@@); do
   last=$(cat $L/nessie-*.log 2>/dev/null | grep -E '^\[ *[0-9]+/' | tail -1 | cut -c1-140)
   echo "$(date -u +%H:%M:%S) [$(tail -1 $ST 2>/dev/null)] $last"
   grep -q ALL_DONE $ST 2>/dev/null && break
+  if ! alive; then   # the runner's own trap may still be writing: look again before calling it gone
+    sleep "${GONE_RECHECK_S:-30}"
+    grep -q ALL_DONE $ST 2>/dev/null && break
+    if ! alive; then
+      step=$(grep -v '^NOTE ' $ST 2>/dev/null | tail -1)
+      echo "RUNNER_GONE: the runner of $TAG stopped without ALL_DONE (its tmux or process died) after: $step"
+      grep -q '^NOTE sent start' $ST 2>/dev/null && NOTE_STARTED=1
+      say "STOPPED: runner gone without finishing (its tmux or process died) after: $step"
+      note stopped "The launch runner died without finishing after: $step"
+      say ALL_DONE
+      break
+    fi
+  fi
+  h=$(git -C "$REPO" rev-parse HEAD 2>/dev/null)
+  if [ -z "$moved" ] && [ -n "$h" ] && [ "$h" != "$EXP" ] && grep -q '^HEAD ' $ST 2>/dev/null; then
+    moved=1; echo "BOX_MOVED: HEAD is ${h:0:8}, not ${EXP:0:8}: another pull ran on this box"
+    say "FINDING BOX_MOVED HEAD is ${h:0:8}, not ${EXP:0:8} (another pull ran on this box mid-launch)"
+  fi
   [ "$UNTIL" = FIRST_CASE ] && [ -n "$last" ] && break
   sleep 60
 done

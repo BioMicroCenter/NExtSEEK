@@ -1,0 +1,56 @@
+note(){ # $1 start|up|stopped, $2 the detail: one email to the team channel, sent from this box with the
+  # NEXTSEEK_SMTP_* keys of docker/nextseek.env (they never leave it). up and stopped only follow a start
+  # note. Returns 0 always: a note never stops, delays or fails a launch (one try, no retry).
+  [ "${NOTE_ON:-0}" = 1 ] || return 0
+  case "$1" in start) NOTE_STARTED=1;; *) [ "${NOTE_STARTED:-0}" = 1 ] || return 0;; esac
+  local inst sha now subj body
+  inst="$(printf %s "${INSTANCE:0:1}" | tr '[:lower:]' '[:upper:]')${INSTANCE:1}"; sha=${EXP:0:8}
+  now=$(git -C "$REPO" rev-parse --short=8 HEAD 2>/dev/null)
+  case "$1" in
+    start) subj="Rebuilding $inst (NExtSEEK) to $sha"
+           body="$WHO is rebuilding $INSTANCE from $FROM_HOST: $WHAT, about $EST_MIN min (until about $(TZ=America/New_York date -d "+$EST_MIN min" '+%-I:%M %p') ET). Expect a short downtime.";;
+    up) subj="$inst is back up on $sha"; body="$2";;
+    stopped) subj="$inst rebuild to $sha stopped"; body="$2. $inst now runs ${now:-an unknown commit}. $WHO is looking.";;
+  esac
+  mkdir -p "$L"
+  NOTE_SUBJ="$subj" NOTE_BODY="$body" NOTE_TO="${NOTE_TO:-}" timeout -k 5 90 python3 - "$REPO/docker/nextseek.env" >> "$L/note.log" 2>&1 <<'PY'
+import os, smtplib, ssl, sys
+from email.message import EmailMessage
+env = {}
+try:
+    for line in open(sys.argv[1], encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            k, v = k.strip().removeprefix("export ").strip(), v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                v = v[1:-1]
+            env[k] = v
+except OSError:
+    pass
+to = (os.environ.get("NOTE_TO") or env.get("NESSIE_DIGEST_TO") or "").split()
+host = env.get("NEXTSEEK_SMTP_HOST")
+m = EmailMessage()
+m["Subject"], m["To"] = os.environ["NOTE_SUBJ"], ", ".join(to)
+m["From"] = env.get("NEXTSEEK_SMTP_FROM") or env.get("NEXTSEEK_SMTP_USER") or "deploy-note"
+m.set_content(os.environ["NOTE_BODY"] + "\n", cte="8bit")   # one readable line, no quoted-printable folds
+if os.environ.get("NOTE_DRY"):
+    print(m.as_string())
+    sys.exit(0)
+if not host or not to:
+    print("no NEXTSEEK_SMTP_HOST or no recipient (email_to, NESSIE_DIGEST_TO) on this box")
+    sys.exit(3)
+with smtplib.SMTP(host, int(env.get("NEXTSEEK_SMTP_PORT") or 587), timeout=30) as s:
+    s.starttls(context=ssl.create_default_context())
+    if env.get("NEXTSEEK_SMTP_USER"):
+        s.login(env["NEXTSEEK_SMTP_USER"], env.get("NEXTSEEK_SMTP_PASSWORD", ""))
+    s.send_message(m)
+print("sent:", m["Subject"])
+PY
+  case $? in
+    0) say "NOTE sent $1";;
+    3) say "NOTE skipped $1: no SMTP keys or recipient on this box";;
+    *) say "NOTE failed $1, see $L/note.log";;
+  esac
+  return 0
+}

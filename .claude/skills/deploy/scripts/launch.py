@@ -40,6 +40,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -516,9 +517,9 @@ PREFLIGHT_EXTRA = {
 }
 
 # Checks that can never be waived: they decide what ships, or whether something dies.
-UNWAIVABLE = {"complete", "branch", "expected", "origin_match", "ff", "busy", "fetch"}
+UNWAIVABLE = {"complete", "branch", "expected", "origin_match", "ff", "busy", "fetch", "box_lock"}
 PREFLIGHT_CHECK_IDS.update({
-    "complete", "disk", "memory", "swap", "oom", "restarts", "busy", "tmux", "branch", "fetch",
+    "complete", "disk", "memory", "swap", "oom", "restarts", "busy", "tmux", "box_lock", "unfinished", "branch", "fetch",
     "expected", "origin_match", "ff", "dirty", "dirty_touched", "nextseek_env", "ci_env",
     "labs_source", "http", "seed_touched", "compose_files", "compose_config", "posterior_routing",
     "laya_mode",
@@ -558,7 +559,7 @@ def cmd_preflight_script(a) -> int:
 
 def parse_preflight(text: str) -> dict:
     out: dict = {"kv": {}, "dirty": [], "dirty_touched": [], "images": {}, "containers": {},
-                 "mem": {}, "tmux": [], "seed_touched": [], "files": {}}
+                 "mem": {}, "tmux": [], "seed_touched": [], "files": {}, "lock": "", "unfinished": []}
     for line in text.splitlines():
         if line.startswith("KV "):
             k, _, v = line[3:].partition("=")
@@ -579,6 +580,10 @@ def parse_preflight(text: str) -> dict:
             out["mem"][parts[1]] = parts[2].strip() if len(parts) > 2 else ""
         elif line.startswith("TMUX "):
             out["tmux"].append(line[5:].strip())
+        elif line.startswith("LOCK "):
+            out["lock"] = line[5:].strip()
+        elif line.startswith("UNFINISHED "):
+            out["unfinished"].append(line[len("UNFINISHED "):].strip())
         elif line.startswith("SEED_TOUCHED "):
             out["seed_touched"].append(line[len("SEED_TOUCHED "):].strip())
         elif line.startswith("FILE "):
@@ -641,6 +646,14 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
                   and not t.startswith(ours + ":")]
     row("tmux", "; ".join(p["tmux"]) or "none", not other_jobs,
         "no other session's launch, rebuild or harness job in tmux")
+    row("box_lock", p["lock"] or kv.get("box_lock", "unknown"), kv.get("box_lock") == "free",
+        "no other launch holds the box (its runner holds ~/launch.lock): wait for it to end or ask whoever runs it; "
+        "never stop its tmux or its runner")
+    holder = re.search(r"\btag=(\S+)", p["lock"])
+    dead = [u for u in p["unfinished"] if not (holder and u.startswith(f"launch-{holder.group(1)} "))]
+    row("unfinished", "; ".join(dead) or "none", not dead,
+        "no launch of the last 24 h stopped writing without ALL_DONE (one that did died mid-run: tell whoever ran it)",
+        warn=True)
     row("branch", kv.get("branch", "unknown"), kv.get("branch") == "dev", "the checkout is on dev")
     row("fetch", kv.get("fetch", "unknown"), kv.get("fetch") == "ok", "git fetch origin worked")
     exp = kv.get("expected", "NOT_FOUND")
@@ -1131,6 +1144,20 @@ def migration_in_range(brief: BriefForm, d: Path) -> bool:
     return rv.is_file() and "migration" in load_json(rv, "commit-review-form.json")["derived"].get("flags", {})
 
 
+def note_values(note: dict, instance: str, what: str, minutes: float, ruled_out: list[str] = ()) -> dict:
+    """The who/what/when the box lock and the team note carry, and the note switch (shell-quoted)."""
+    # no rebuild (CI only, a Nessie test set) means no downtime: nothing to tell the team
+    on = note["on"] and not what.startswith("no rebuild") and not any("note" in r.lower() for r in ruled_out)
+    return {"WHO": shlex.quote(note["who"]), "FROM_HOST": shlex.quote(socket.gethostname().split(".")[0]),
+            "WHAT": shlex.quote(what), "EST_MIN": str(int(round(minutes))), "NOTE_ON": "1" if on else "0",
+            "NOTE_TO": shlex.quote(note["to"]), "INSTANCE": instance,
+            "NOTE_FN": (TEMPLATES / "note.sh.tmpl").read_text(encoding="utf-8").rstrip("\n")}
+
+
+def launch_what(brief: BriefForm, images: list[str]) -> str:
+    return ", ".join(images or ["no rebuild"]) + (", then CI" if brief.ci else "") + (", then Nessie" if brief.nessie else "")
+
+
 def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: list[str]) -> dict:
     inst = rules.INSTANCES[brief.instance]
     images = images_for(brief, d)
@@ -1143,6 +1170,8 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
     markers = "\n".join(
         f"  marker {m.container} {shlex.quote(m.file)} '{m.pattern}'" for m in brief.live_markers) or "  :"
     return {
+        **note_values(rules.note_config(inst.name), inst.name, launch_what(brief, images),
+                      data["derived"]["estimate"]["minutes"], brief.ruled_out),
         "TAG": tag, "EXP": exp_full, "BEHIND_OK": "1" if brief.ship_behind_origin else "0", "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
         "HOME": inst.home,
         "COMPONENTS": " ".join(images),
@@ -1199,8 +1228,11 @@ def cmd_runner(a) -> int:
         name = f"launch-{tag}-cases-{i}" + ("-member.json" if c.file.endswith(MEMBER_SUFFIX) else ".json")
         (out / name).write_bytes(Path(c.file).expanduser().read_bytes())
         cases.append(name)
-    run = render("run.sh.tmpl", runner_values(data, brief, d, exp_full, cases))
-    watch = render("watch.sh.tmpl", {"TAG": tag, "LOOPS": "300", "HOME": rules.INSTANCES[brief.instance].home})
+    vals = runner_values(data, brief, d, exp_full, cases)
+    run = render("run.sh.tmpl", vals)
+    watch = render("watch.sh.tmpl", {k: vals[k] for k in ("TAG", "EXP", "REPO", "HOME", "INSTANCE", "WHO", "FROM_HOST",
+                                                         "WHAT", "EST_MIN", "NOTE_ON", "NOTE_TO", "NOTE_FN")}
+                   | {"LOOPS": "300"})
     run_p, watch_p = out / f"launch-{tag}-run.sh", out / "watch.sh"
     for p, text in ((run_p, run), (watch_p, watch)):
         if p.exists() and not a.force:
@@ -2139,12 +2171,17 @@ def _ssh_kw(a, brief: str, purpose: str, script=None, out=None) -> dict:
 
 
 def cmd_slack_note(a) -> int:
-    """Print SLACK_POST (config says go) or SLACK_SKIP. Always exit 0: never stops a deploy."""
-    url, msg, why = rules.slack_note(a.instance, a.event, a.sha)
-    if url:
-        print(f"SLACK_POST channel={url} message={msg}")
+    """Say whether the box will email the team notes, and print a rollback note to send by hand. Always exit 0."""
+    n = rules.note_config(a.instance)
+    if n["on"]:
+        print(f"NOTE_BY_BOX: the {a.instance} runner emails the start, up and stopped notes as {n['who']} to "
+              f"{n['to'] or 'the box NESSIE_DIGEST_TO'}, with the NEXTSEEK_SMTP_* keys of the box's docker/nextseek.env "
+              "(a box without them skips the note and says so in the status)")
     else:
-        print(f"SLACK_SKIP: Slack note skipped: {why}; post by hand: {msg}")
+        print(f"NOTE_OFF: {n['why']}")
+    if a.event == "rollback":
+        print("ROLLBACK_NOTE (send by hand): "
+              + rules.ROLLBACK_NOTE.format(Inst=a.instance.capitalize(), sha=a.sha[:8]))
     return 0
 
 
@@ -2265,7 +2302,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("report"); s.add_argument("--brief", required=True); s.add_argument("--form")
     s.add_argument("--no-facts", action="store_true"); s.add_argument("--force", action="store_true")
     s = sub.add_parser("slack-note"); s.add_argument("--instance", required=True)
-    s.add_argument("--event", required=True, choices=["start", "up", "rollback"]); s.add_argument("--sha", required=True)
+    s.add_argument("--event", required=True, choices=["start", "up", "stopped", "rollback"]); s.add_argument("--sha", required=True)
     s = sub.add_parser("prepare"); s.add_argument("--form", required=True); s.add_argument("--out-dir")
     s.add_argument("--repo"); s.add_argument("--now"); s.add_argument("--after-failure")
     s.add_argument("--force", action="store_true")

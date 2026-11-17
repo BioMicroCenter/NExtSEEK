@@ -183,7 +183,7 @@ def good_preflight(**kv):
         "head": "926be1e3" + "b" * 32, "head_subject": "fix: a thing", "fetch": "ok",
         "expected": EXP, "origin": EXP, "origin_match": "yes", "ff": "yes", "range_count": "12",
         "nextseek_env": "ok", "ci_env_keys": "CI_SMOKE_PASS,CI_SMOKE_USER,CI_WRITE_PASS,CI_WRITE_USER,",
-        "http": "200", "labs_source": "present", "done": "yes",
+        "http": "200", "labs_source": "present", "box_lock": "free", "done": "yes",
     }
     base.update(kv)
     lines = [f"KV {k}={v}" for k, v in base.items()]
@@ -695,7 +695,7 @@ def _functions(text):
 
 
 def _header(text):
-    return "\n".join(ln for ln in text.splitlines()[:30]
+    return "\n".join(ln for ln in text.split("# >>> functions", 1)[0].splitlines()
                      if re.match(r"^(KNOWN_HEALTH_REDS|KNOWN_CI_REDS|SUMMARY_RED|SUMMARY_DOWN|WINDOWS)=", ln))
 
 
@@ -1299,7 +1299,14 @@ def test_the_watch_exits_0_once_the_runner_is_done_and_1_before(tmp_path, capsys
     st.write_text("START x 00:00:01\nSTOPPED: unexplained red after app: x 00:00:02\nALL_DONE 00:00:02\n")
     assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 0
     st.write_text("START x 00:00:01\n")
-    assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 1
+    lock = home / "launch.lock"     # a live runner holds the box lock under its own tag
+    lock.write_text("tag=20260926-1300 who=x\n")
+    holder = subprocess.Popen(["flock", str(lock), "sleep", "30"])
+    try:
+        import time; time.sleep(0.3)
+        assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 1
+    finally:
+        holder.kill(); holder.wait()
 
 
 def test_the_sidecar_op_check_applies_only_on_the_sidecar_road(tmp_path, capsys):
@@ -2208,36 +2215,206 @@ def test_the_runner_names_its_instance_to_the_harness_for_requires_env(tmp_path,
         assert subprocess.run(["bash", "-c", script], capture_output=True, text=True).stdout == want
 
 
-# --------------------------------------------------------------------------- slack note
-def _slack(tmp_path, monkeypatch, cfg, inst="prod", event="start"):
-    f = tmp_path / "boxes.json"
+# --------------------------------------------------------------------------- deploy note (email from the box)
+def _boxes(tmp_path, monkeypatch, cfg):
+    data = json.loads((SKILL / "boxes.example.json").read_text())
+    data.pop("slack_note", None)
     if cfg is not None:
-        f.write_text(json.dumps({"slack_note": cfg} if cfg != "none" else {}))
+        data["slack_note"] = cfg
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    f = tmp_path / "boxes-note.json"
+    f.write_text(json.dumps(data))
     monkeypatch.setenv("NEXTSEEK_BOXES", str(f))
-    return rules.slack_note(inst, event, "ad46e8781abc")
 
 
-ON = {"enabled": True, "channel_url": "https://x.slack.com/archives/C1"}
+ON = {"enabled": True, "instances": ["prod", "dev"], "who": "Alex"}
 
 
-@pytest.mark.parametrize("cfg,why", [
-    (None, "no slack_note"), ("none", "no slack_note"),
-    ({**ON, "enabled": False}, "off"), ({"enabled": True}, "channel_url"),
-    ({**ON, "instances": ["dev"]}, "not on for prod"),
+@pytest.mark.parametrize("cfg,inst,why", [
+    (None, "prod", "no slack_note"), ({**ON, "enabled": False}, "prod", "off"),
+    ({"enabled": True}, "dev", "not on for dev"), (ON, "local", "not on for local"),
 ])
-def test_slack_note_skips_and_never_raises(tmp_path, monkeypatch, cfg, why):
-    url, msg, reason = _slack(tmp_path, monkeypatch, cfg)
-    assert url is None and why in reason and "`ad46e878`" in msg
+def test_note_config_is_off_unless_asked_and_never_raises(tmp_path, monkeypatch, cfg, inst, why):
+    _boxes(tmp_path, monkeypatch, cfg)
+    n = rules.note_config(inst)
+    assert n["on"] is False and why in n["why"]
 
 
-def test_slack_note_posts_on_prod_only_by_default_and_dev_when_listed(tmp_path, monkeypatch, capsys):
-    url, msg, _ = _slack(tmp_path, monkeypatch, ON)
-    assert url == ON["channel_url"] and msg.startswith("Rebuilding prod")
-    assert _slack(tmp_path, monkeypatch, ON, inst="dev")[0] is None
-    assert _slack(tmp_path, monkeypatch, {**ON, "instances": ["prod", "dev"]}, inst="dev", event="up")[1].startswith("Dev is back up")
+def test_note_config_needs_no_channel_url_and_names_who(tmp_path, monkeypatch):
+    _boxes(tmp_path, monkeypatch, {**ON, "email_to": "team@example.org"})
+    n = rules.note_config("dev")
+    assert n == {"on": True, "to": "team@example.org", "who": "Alex", "why": ""}
+    _boxes(tmp_path, monkeypatch, {"enabled": True})
+    assert rules.note_config("prod")["to"] == ""     # the box's NESSIE_DIGEST_TO then
 
 
-def test_slack_note_command_always_exits_0(tmp_path, monkeypatch, capsys):
+def test_slack_note_command_says_the_box_sends_and_always_exits_0(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("NEXTSEEK_BOXES", str(tmp_path / "missing.json"))
-    code, out = run(["slack-note", "--instance", "prod", "--event", "up", "--sha", "ad46e87"], capsys)
-    assert code == 0 and out.out.startswith("SLACK_SKIP: Slack note skipped:") and "post by hand: Prod is back up" in out.out
+    code, out = run(["slack-note", "--instance", "prod", "--event", "rollback", "--sha", "ad46e87"], capsys)
+    assert code == 0 and out.out.startswith("NOTE_OFF:") and "(send by hand): Prod was rolled back to `ad46e87`" in out.out
+    _boxes(tmp_path, monkeypatch, ON)
+    code, out = run(["slack-note", "--instance", "dev", "--event", "start", "--sha", "ad46e87"], capsys)
+    assert code == 0 and out.out.startswith("NOTE_BY_BOX:") and "Alex" in out.out
+
+
+def _note_runner(tmp_path, capsys, monkeypatch, cfg=ON, **over):
+    _boxes(tmp_path, monkeypatch, cfg)
+    return rendered_runner(tmp_path / "r", capsys, **over)
+
+
+def test_the_runner_carries_who_what_and_the_note_switch(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    assert "NOTE_ON=1" in text and "WHO=Alex" in text and "FROM_HOST=" in text
+    assert "WHAT='app, cc-agent, then CI'" in text and re.search(r" EST_MIN=\d+\n", text)
+    d, text = _note_runner(tmp_path / "off", capsys, monkeypatch, cfg=None)
+    assert "NOTE_ON=0" in text
+    d, text = _note_runner(tmp_path / "ruled", capsys, monkeypatch, ruled_out=["the deploy note"])
+    assert "NOTE_ON=0" in text
+    # a launch that rebuilds nothing (CI only, a Nessie test set) causes no downtime: no note
+    d, text = _note_runner(tmp_path / "ci-only", capsys, monkeypatch, images=[])
+    assert "NOTE_ON=0" in text
+
+
+def _box(tmp_path, env_lines=None):
+    """A fake box home and repo for the runner's bash functions."""
+    h = tmp_path / "home"
+    (h / "repo" / "docker").mkdir(parents=True)
+    (h / "launch-T").mkdir()
+    if env_lines is not None:
+        (h / "repo" / "docker" / "nextseek.env").write_text("\n".join(env_lines) + "\n")
+    return h
+
+
+def _bash(tmp_path, text, h, body, extra=""):
+    script = tmp_path / "f.sh"
+    script.write_text(f"H={h}; ST=$H/launch-T.status; L=$H/launch-T; LOCK=$H/launch.lock; REPO=$H/repo\n"
+                      f"TAG=T; EXP={EXP}; INSTANCE=dev; WHO=Alex; FROM_HOST=laptop; WHAT='app, then CI'; EST_MIN=35\n"
+                      f"{extra}\n{_functions(text)}\n{body}\n")
+    return subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=60)
+
+
+def test_note_dry_run_names_who_where_what_and_the_end_time(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path, ["NEXTSEEK_SMTP_HOST=smtp.example.org", "NESSIE_DIGEST_TO=team@example.org"])
+    r = _bash(tmp_path, text, h, 'note start; note stopped "Stopped: CI died"; note up "Dev runs 1c070c08."',
+              "NOTE_ON=1; NOTE_TO=''; export NOTE_DRY=1")
+    assert r.returncode == 0, r.stderr
+    log = (h / "launch-T" / "note.log").read_text()
+    assert "To: team@example.org" in log and "Subject: Rebuilding Dev (NExtSEEK) to 1c070c08" in log
+    assert re.search(r"Alex is rebuilding dev from laptop: app, then CI, about 35 min \(until about \d+:\d\d [AP]M ET\)", log)
+    assert "Subject: Dev rebuild to 1c070c08 stopped" in log and "Stopped: CI died." in log
+    assert "Subject: Dev is back up on 1c070c08" in log
+    st = (h / "launch-T.status").read_text()
+    assert [ln.rsplit(" ", 1)[0] for ln in st.splitlines()] == ["NOTE sent start", "NOTE sent stopped", "NOTE sent up"]
+    assert "PASSWORD" not in log
+
+
+def test_no_stopped_or_up_note_before_a_start_note_and_none_when_off(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path, ["NEXTSEEK_SMTP_HOST=smtp.example.org", "NESSIE_DIGEST_TO=team@example.org"])
+    r = _bash(tmp_path, text, h, 'note stopped "inside the window"; note up x', "NOTE_ON=1; NOTE_TO=''; export NOTE_DRY=1")
+    assert r.returncode == 0 and not (h / "launch-T.status").exists()
+    r = _bash(tmp_path, text, h, "note start", "NOTE_ON=0")
+    assert r.returncode == 0 and not (h / "launch-T.status").exists()
+
+
+def test_a_box_without_smtp_keys_skips_the_note_and_a_dead_server_fails_it(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path, ["NESSIE_DIGEST_TO=team@example.org"])
+    r = _bash(tmp_path, text, h, "note start", "NOTE_ON=1; NOTE_TO=''")
+    assert r.returncode == 0 and "NOTE skipped start" in (h / "launch-T.status").read_text()
+    h2 = _box(tmp_path / "b", ["NEXTSEEK_SMTP_HOST=127.0.0.1", "NEXTSEEK_SMTP_PORT=9", "NESSIE_DIGEST_TO=t@example.org"])
+    r = _bash(tmp_path, text, h2, "note start; echo after", "NOTE_ON=1; NOTE_TO=''")
+    assert r.returncode == 0 and r.stdout.strip() == "after"
+    assert "NOTE failed start" in (h2 / "launch-T.status").read_text()
+
+
+# --------------------------------------------------------------------------- box lock, signal trap, watcher
+def test_a_second_launch_is_refused_with_the_holder_named(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path)
+    (h / "launch-T").rmdir()
+    lock = h / "launch.lock"
+    lock.write_text("tag=20261112-1940 who=Alex from=laptop instance=dev sha=8def0718 what='app, then CI'\n")
+    holder = subprocess.Popen(["flock", str(lock), "sleep", "20"])
+    try:
+        import time; time.sleep(0.3)
+        r = _bash(tmp_path, text, h, 'locked_run echo ran; echo "rc=$?"', "NOTE_ON=0")
+    finally:
+        holder.kill(); holder.wait()
+    assert "ran" not in r.stdout.split() and "rc=75" in r.stdout
+    st = (h / "launch-T.status").read_text()
+    assert "STOPPED: box busy: another launch holds it: tag=20261112-1940 who=Alex" in st
+    assert st.splitlines()[-1].startswith("ALL_DONE")
+    assert (h / "launch-T").is_dir()     # the pull tars it: a refused launch still has its folder
+
+
+def test_the_lock_is_held_while_the_runner_runs_and_freed_when_it_dies(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path)
+    child = 'flock -n "$LOCK" true && echo free || echo held'
+    r = _bash(tmp_path, text, h, f"locked_run bash -c '{child}'; {child}", f"export LOCK={h}/launch.lock; NOTE_ON=0")
+    assert r.stdout.split() == ["held", "free"], r.stderr
+
+
+def test_a_killed_runner_writes_stopped_and_all_done(tmp_path, capsys, monkeypatch):
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path)
+    (h / "launch-T.status").write_text("CHECKS CHECK http 200 20:02:23\n")
+    body = "trap 'on_signal HUP' HUP\n(sleep 0.5; kill -HUP $$) &\nsleep 20 & wait $!\necho not-reached"
+    r = _bash(tmp_path, text, h, body, "NOTE_ON=0")
+    assert "not-reached" not in r.stdout
+    st = (h / "launch-T.status").read_text().splitlines()
+    assert st[-2].startswith("STOPPED: runner killed by SIGHUP after: CHECKS CHECK http 200 20:02:23")
+    assert st[-1].startswith("ALL_DONE")
+
+
+def _watch(tmp_path, h, loops="2"):
+    text = L.render("watch.sh.tmpl", {"TAG": "T", "LOOPS": loops, "HOME": str(h), "REPO": str(h / "repo"),
+                                      "EXP": EXP, **L.note_values(rules.note_config("dev"), "dev", "app, then CI", 35)})
+    p = tmp_path / "watch.sh"
+    p.write_text(text)
+    assert subprocess.run(["bash", "-n", str(p)]).returncode == 0
+    return p
+
+
+def test_the_watcher_says_runner_gone_when_the_lock_is_free_and_no_all_done(tmp_path, capsys, monkeypatch):
+    _boxes(tmp_path, monkeypatch, None)
+    h = _box(tmp_path)
+    (h / "launch-T.status").write_text("START tag=T 19:42:11\nCHECKS CHECK http 200 20:02:23\n")
+    r = subprocess.run(["bash", str(_watch(tmp_path, h))], capture_output=True, text=True, timeout=120,
+                       env={**os.environ, "GONE_RECHECK_S": "0"})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "RUNNER_GONE" in r.stdout
+    st = (h / "launch-T.status").read_text().splitlines()
+    assert st[-2].startswith("STOPPED: runner gone without finishing (its tmux or process died) after: CHECKS CHECK http 200")
+    assert st[-1].startswith("ALL_DONE")
+
+
+def test_the_watcher_leaves_a_finished_run_alone(tmp_path, capsys, monkeypatch):
+    _boxes(tmp_path, monkeypatch, None)
+    h = _box(tmp_path)
+    (h / "launch-T.status").write_text("START tag=T 19:42:11\nALL_DONE 20:30:00\n")
+    r = subprocess.run(["bash", str(_watch(tmp_path, h))], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and "RUNNER_GONE" not in r.stdout
+    assert (h / "launch-T.status").read_text().count("ALL_DONE") == 1
+
+
+def test_preflight_stops_on_a_held_box_lock_and_names_the_holder(tmp_path, capsys):
+    text = good_preflight(box_lock="held") + "LOCK tag=20261112-1940 who=Alex from=laptop sha=8def0718\n"
+    code, out, d = preflight(tmp_path, capsys, text)
+    assert code == 5 and "- box_lock:" in out.err and "who=Alex" in out.err
+
+
+def test_preflight_warns_on_a_launch_that_died_without_finishing(tmp_path, capsys):
+    text = good_preflight() + "UNFINISHED launch-20261112-1940 CHECKS CHECK http 200 20:02:23\n"
+    code, out, d = preflight(tmp_path, capsys, text)
+    assert code == 0, out.err
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["unfinished"]["verdict"] == "warn" and "launch-20261112-1940" in rows["unfinished"]["value"]
+    # the launch holding the lock is running, not dead
+    text = (good_preflight(box_lock="held") + "LOCK tag=20261112-1940 who=Alex\n"
+            + "UNFINISHED launch-20261112-1940 CHECKS CHECK http 200 20:02:23\n")
+    code, out, d = preflight(tmp_path / "held", capsys, text)
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["unfinished"]["verdict"] == "ok" and rows["box_lock"]["verdict"] == "stop"

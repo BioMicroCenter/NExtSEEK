@@ -7,6 +7,7 @@ were last checked so a stale one is visible.
 """
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import re
@@ -118,33 +119,27 @@ def load_boxes() -> dict:
     return data
 
 
-SLACK_MESSAGES = {
-    "start": "Rebuilding {inst} (NExtSEEK) to `{sha}`. Expect a short downtime.",
-    "up": "{Inst} is back up on `{sha}`.",
-    "rollback": "{Inst} was rolled back to `{sha}`.",
-}
+ROLLBACK_NOTE = "{Inst} was rolled back to `{sha}`."
 
 
-def slack_note(instance: str, event: str, sha: str) -> tuple[str | None, str, str]:
-    """(channel_url or None, message, skip reason). Never raises: the Slack note must not touch a deploy.
+def note_config(instance: str) -> dict:
+    """{on, to, who, why} from the optional top-level `slack_note` of boxes.json. Never raises: the note
+    must not touch a deploy. The runner on the box sends the start, up and stopped notes by email (the box's
+    NEXTSEEK_SMTP_* keys); `to` empty means the box's NESSIE_DIGEST_TO (the team channel's address).
 
-    Reads the optional top-level `slack_note` of boxes.json: {"enabled": bool, "channel_url": str,
-    "instances": [..., default ["prod"]]}. The Chrome and Slack-login checks are the session's (SKILL.md)."""
-    msg = SLACK_MESSAGES[event].format(inst=instance, Inst=instance.capitalize(), sha=sha[:8])
+    {"enabled": bool, "instances": [..., default ["prod"]], "email_to": str (optional), "who": str (optional)}"""
     try:
         cfg = json.loads(boxes_path().read_text(encoding="utf-8")).get("slack_note")
     except (OSError, ValueError, AttributeError):
         cfg = None
-    if not isinstance(cfg, dict):
-        return None, msg, "no slack_note in the box config"
-    if cfg.get("enabled") is not True:
-        return None, msg, "slack_note is off in the box config"
-    if instance not in (cfg.get("instances") or ["prod"]):
-        return None, msg, f"slack_note is not on for {instance}"
-    url = cfg.get("channel_url")
-    if not (isinstance(url, str) and url.startswith("https://")):
-        return None, msg, "slack_note has no https channel_url"
-    return url, msg, ""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    who = cfg.get("who") if isinstance(cfg.get("who"), str) and cfg.get("who") else getpass.getuser()
+    to = cfg.get("email_to") if isinstance(cfg.get("email_to"), str) else ""
+    why = ("no slack_note in the box config" if not cfg
+           else "slack_note is off in the box config" if cfg.get("enabled") is not True
+           else f"slack_note is not on for {instance}"
+           if instance == "local" or instance not in (cfg.get("instances") or ["prod"]) else "")
+    return {"on": not why, "to": to, "who": who, "why": why}
 
 
 def reports_root() -> Path:
