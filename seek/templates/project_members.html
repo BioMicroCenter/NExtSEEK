@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Project Members - NExtSEEK{% endblock %}
+{% block main %}
+<div class="ns-workbench">
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Project Members</h1>
+    <p class="ns-page-subtitle">Pick a project to open its members page in SEEK.</p>
+  </header>
+  {% if seek_base %}
+  <select id="ns-project-members" class="form-select" style="max-width:32rem" data-members-base="{{ seek_base }}">
+    <option value="">Choose a project&hellip;</option>
+    {% for p in projects %}<option value="{{ p.id }}">{{ p.title }}</option>{% endfor %}
+  </select>
+  <script>
+    var sel = document.getElementById('ns-project-members');
+    sel.addEventListener('change', function () {
+      if (sel.value) window.location.href = sel.dataset.membersBase + '/projects/' + encodeURIComponent(sel.value) + '/admin_members';
+    });
+  </script>
+  {% else %}
+  <p>SEEK_PUBLIC_URL is not set on this instance, so there is nowhere to send you.</p>
+  {% endif %}
+</div>
+{% endblock %}

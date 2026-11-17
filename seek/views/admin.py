@@ -22,7 +22,7 @@ from ..dbtable_sample import DBtable_sample
 from ..seekdb import SeekDB
 import datetime
 import json
-from ..models import Assays_internal_assays, Clades, Internal_assays, Sample_types_clades
+from ..models import Assays_internal_assays, Clades, Internal_assays, Projects, Sample_types_clades
 from ..responses import json_response
 import os
 import pandas as pd
@@ -386,6 +386,15 @@ def internalAssays(request):
     assay_associations = simplejson.dumps(db_aia.getAllWithTitles(), default=list)
 
     return render(request,"internal_assays.html", {"internal_assays": internal_assays, "assay_associations": assay_associations})
+
+@requires_seek_login_redirect()
+@requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
+def projectMembers(request):
+    """A dropdown of every project that jumps to SEEK's own members page, ``<SEEK_PUBLIC_URL>/projects/<id>/admin_members``."""
+    projects = sorted(Projects.objects.values("id", "title"), key=lambda p: (p["title"] or "").lower())
+    base = (getattr(settings, "SEEK_PUBLIC_URL", "") or "").rstrip("/")
+    return render(request, "project_members.html", {"projects": projects, "seek_base": base})
+
 
 def internalAssaySuggestions(request):
     """Read-only tiered suggestions for every unmapped assay.

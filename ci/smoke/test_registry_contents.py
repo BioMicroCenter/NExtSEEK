@@ -55,7 +55,7 @@ from ci.smoke.test_reachability import _callable_routes
 # integration: +1 session search (/nextseek_api/assistant/sessions/search/) and +7
 # from feat/nfcore-reingest-integration (the four /nextseek_api/reingest-proposals/
 # routes and /nextseek_api/assistant/ run-harvest, run-checksum and upload-reingest).
-OWNED_ROUTE_COUNT = 185
+OWNED_ROUTE_COUNT = 186
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset, the Django admin login page and the retired /seek/newsearch/ (404).
