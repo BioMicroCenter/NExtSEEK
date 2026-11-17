@@ -155,6 +155,194 @@
           "definition": "The capture kit's target-region BED, as a path on the cluster. sarek calls variants only inside it; set wes=true with it.",
           "on_detect": "These look like exome or targeted-capture libraries. Which BED file of the kit's target regions should sarek use? Give its path on the cluster."}
       }
-    }}
+    }},
+    "rnafusion": {
+      "params": {
+        "strandedness": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": [
+            "forward",
+            "reverse",
+            "unstranded",
+            "unknown"
+          ],
+          "derive_from": {
+            "signal": "Strandedness",
+            "map": {
+              "forward": [
+                "forward"
+              ],
+              "reverse": [
+                "reverse"
+              ],
+              "unstranded": [
+                "unstranded"
+              ]
+            }
+          },
+          "ask": {
+            "definition": "Each library's strand-specificity, a required samplesheet column. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field).",
+            "on_conflict": "This sample's recorded strandedness reads more than one way. Which is it: forward, reverse or unstranded?",
+            "on_absent": "No earlier run measured these libraries' strandedness. Which is it: forward, reverse, unstranded, or unknown if you cannot tell?"
+          }
+        }
+      }
+    },
+    "rnasplice": {
+      "params": {
+        "strandedness": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": [
+            "forward",
+            "reverse",
+            "unstranded"
+          ],
+          "derive_from": {
+            "signal": "Strandedness",
+            "map": {
+              "forward": [
+                "forward"
+              ],
+              "reverse": [
+                "reverse"
+              ],
+              "unstranded": [
+                "unstranded"
+              ]
+            }
+          },
+          "ask": {
+            "definition": "Each library's strand-specificity, a required samplesheet column. rnasplice 1.0.4 accepts only forward, reverse or unstranded (no auto), and rMATS needs every sample to share one. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field).",
+            "on_conflict": "This sample's recorded strandedness reads more than one way. Which is it: forward, reverse or unstranded?",
+            "on_absent": "No earlier run measured these libraries' strandedness, and rnasplice cannot infer it. Which is it: forward, reverse or unstranded?"
+          }
+        }
+      }
+    },
+    "riboseq": {
+      "params": {
+        "type": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": [
+            "riboseq",
+            "tiseq",
+            "rnaseq"
+          ],
+          "derive_from": {
+            "signal": "LibraryStrategy",
+            "map": {
+              "riboseq": [
+                "Ribo-Seq"
+              ],
+              "rnaseq": [
+                "RNA-Seq"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Name",
+              "riboseq_markers": [
+                "riboseq",
+                "ribo-seq",
+                "footprint"
+              ],
+              "tiseq_markers": [
+                "tiseq",
+                "ti-seq"
+              ],
+              "rnaseq_markers": [
+                "rnaseq",
+                "rna-seq"
+              ]
+            },
+            {
+              "signal": "Notes",
+              "riboseq_markers": [
+                "ribosome profiling",
+                "ribosome footprint",
+                "ribo-seq"
+              ],
+              "tiseq_markers": [
+                "ti-seq",
+                "translation initiation"
+              ],
+              "rnaseq_markers": [
+                "rna-seq"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether each library is ribosome footprints (riboseq), translation-initiation footprints (tiseq) or ordinary RNA-seq of the same samples (rnaseq). It decides which libraries the footprint analyses read and which pair with them for translational efficiency.",
+            "on_conflict": "This library's strategy and its own name or notes disagree about whether it is Ribo-seq footprints or ordinary RNA-seq. Which is it?",
+            "on_absent": "Nothing in this library's metadata says whether it is Ribo-seq footprints, TI-seq or ordinary RNA-seq. Which is it?"
+          }
+        },
+        "strandedness": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": [
+            "forward",
+            "reverse",
+            "unstranded",
+            "auto"
+          ],
+          "on_absent": "use_default",
+          "default": "auto",
+          "derive_from": {
+            "signal": "Strandedness",
+            "map": {
+              "forward": [
+                "forward"
+              ],
+              "reverse": [
+                "reverse"
+              ],
+              "unstranded": [
+                "unstranded"
+              ]
+            }
+          },
+          "ask": {
+            "definition": "Each library's strand-specificity, a required samplesheet column. auto has riboseq infer it with Salmon from a million reads.",
+            "on_conflict": "This sample's recorded strandedness reads more than one way. Which is it: forward, reverse or unstranded?",
+            "on_absent": "not used: with no measured strandedness riboseq infers it (auto)"
+          }
+        }
+      }
+    },
+    "rnavar": {
+      "params": {
+        "read_length": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "integer",
+          "on_absent": "use_default",
+          "default": "150",
+          "range": [
+            20,
+            1000
+          ],
+          "derive_from": {
+            "signal": "F_bp",
+            "number": "exact"
+          },
+          "corroborate_with": [
+            {
+              "signal": "R_bp",
+              "number": "exact"
+            }
+          ],
+          "ask": {
+            "definition": "The reads' length; STAR builds its index with read_length - 1 as the splice-junction overhang, so it must match the reads (2x151 reads: 151).",
+            "on_conflict": "The forward and reverse read lengths recorded for these libraries differ, or differ between libraries. Which read length should STAR's index use?",
+            "on_absent": "not used: with no recorded read length rnavar keeps its default of 150"
+          }
+        }
+      }
+    }
   }
 }

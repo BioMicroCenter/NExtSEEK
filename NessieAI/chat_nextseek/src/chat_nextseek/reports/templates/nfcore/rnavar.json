@@ -22,6 +22,12 @@
       "steerable": true,
       "help": "TRUE by curated default: BQSR needs dbsnp + known_indels, and neither is provisioned in the Luria refs tree. Set false only when those are supplied."
     },
+    "read_length": {
+      "type": "number",
+      "default": 150,
+      "steerable": true,
+      "help": "The reads' length (2x151 reads: 151). STAR builds its index with read_length - 1 as the junction overhang; set from the D.SEQ F_bp/R_bp when they are recorded."
+    },
     "save_reference": {
       "type": "bool",
       "default": true,
