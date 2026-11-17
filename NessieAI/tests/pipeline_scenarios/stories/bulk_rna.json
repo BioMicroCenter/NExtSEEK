@@ -1236,6 +1236,40 @@
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "From dev's RNA selection case (fix(atlas) 4965404c), reworded for 240709KAM: four MDA-MB-231 tumour-line libraries (total RNA, NEBNext Ultra II Directional, paired-end 2x50), sorted EGFP-positive (positive-1, positive-2) and EGFP-negative (negative-1, negative-2). The original 'than in the normal cells' named a group this cohort does not have. A gene-level two-group contrast from FASTQ is rnaseq. Naming differentialabundance beside it follows the atlas's rnaseq-vs-differentialabundance entry ('both are needed in sequence'), as in gri-organoid-il1b and kam-tnbc-subtype. 'Tumour' plus 'expressed' must not pull toward rnavar, which calls variants and makes no expression table."
       }
+    },
+    {
+      "id": "rnavar-read-length",
+      "question": "Call the SNVs and short indels in these tumour-line RNA-seq libraries.",
+      "cohort": "240709KAM::A.GEX",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "read_length": 50
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "240709KAM is human bulk paired-end 2x50 RNA-seq of a tumour line (see variants-cells-express): a variant question on RNA reads is rnavar. rnavar 1.3.0 docs/usage.md says read_length must be the reads' own length (STAR's index overhang plus one), so the launch carries 50, read from the D.SEQ F_bp/R_bp by the param atlas. It passes only if the cohort's D.SEQ records hold F_bp; with none, rnavar's default 150 is used and the story fails on read_length."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-17",
+        "note": "Drafted with the param-atlas settings rules (2026-11-17); awaits the owner's ruling and a paid run."
+      }
     }
   ]
 }
