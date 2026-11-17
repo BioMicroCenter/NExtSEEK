@@ -2286,8 +2286,12 @@ def _box(tmp_path, env_lines=None):
 
 
 def _bash(tmp_path, text, h, body, extra=""):
+    stub = tmp_path / "nodocker"      # no container on a test machine: the note reads the file
+    stub.mkdir(exist_ok=True)
+    (stub / "docker").write_text("#!/bin/sh\nexit 1\n")
+    (stub / "docker").chmod(0o755)
     script = tmp_path / "f.sh"
-    script.write_text(f"H={h}; ST=$H/launch-T.status; L=$H/launch-T; LOCK=$H/launch.lock; REPO=$H/repo\n"
+    script.write_text(f"PATH={stub}:$PATH\nH={h}; ST=$H/launch-T.status; L=$H/launch-T; LOCK=$H/launch.lock; REPO=$H/repo\n"
                       f"TAG=T; EXP={EXP}; INSTANCE=dev; WHO=Alex; FROM_HOST=laptop; WHAT='app, then CI'; EST_MIN=35\n"
                       f"{extra}\n{_functions(text)}\n{body}\n")
     return subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=60)
@@ -2307,6 +2311,22 @@ def test_note_dry_run_names_who_where_what_and_the_end_time(tmp_path, capsys, mo
     st = (h / "launch-T.status").read_text()
     assert [ln.rsplit(" ", 1)[0] for ln in st.splitlines()] == ["NOTE sent start", "NOTE sent stopped", "NOTE sent up"]
     assert "PASSWORD" not in log
+
+
+def test_the_note_takes_the_running_container_env_over_the_file(tmp_path, capsys, monkeypatch):
+    # 11-17 prod: the file's raw password failed SMTP auth (535) while the container's env, as compose read
+    # the file, works: the note uses `docker inspect` of nextseek and the file only when there is no container
+    d, text = _note_runner(tmp_path, capsys, monkeypatch)
+    h = _box(tmp_path, ["NEXTSEEK_SMTP_HOST=smtp.example.org", "NEXTSEEK_SMTP_FROM=file@example.org",
+                        "NESSIE_DIGEST_TO=team@example.org"])
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "docker").write_text('#!/bin/sh\necho \'["NEXTSEEK_SMTP_HOST=smtp.example.org",'
+                                 '"NEXTSEEK_SMTP_FROM=container@example.org","NESSIE_DIGEST_TO=team@example.org"]\'\n')
+    (bin_ / "docker").chmod(0o755)
+    r = _bash(tmp_path, text, h, "note start", f"NOTE_ON=1; NOTE_TO=''; export NOTE_DRY=1; PATH={bin_}:$PATH")
+    assert r.returncode == 0, r.stderr
+    assert "From: container@example.org" in (h / "launch-T" / "note.log").read_text()
 
 
 def test_no_stopped_or_up_note_before_a_start_note_and_none_when_off(tmp_path, capsys, monkeypatch):

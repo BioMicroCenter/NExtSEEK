@@ -13,19 +13,27 @@ note(){ # $1 start|up|stopped, $2 the detail: one email to the team channel, sen
     stopped) subj="$inst rebuild to $sha stopped"; body="$2. $inst now runs ${now:-an unknown commit}. $WHO is looking.";;
   esac
   mkdir -p "$L"
+  # the env the running app was started with (compose already read nextseek.env: quotes, $$, escapes), the
+  # values the weekly digest proved; the raw file only when no nextseek container exists
+  NOTE_ENV_JSON=$(timeout -k 5 20 docker inspect -f '{{json .Config.Env}}' nextseek 2>/dev/null </dev/null) \
   NOTE_SUBJ="$subj" NOTE_BODY="$body" NOTE_TO="${NOTE_TO:-}" timeout -k 5 90 python3 - "$REPO/docker/nextseek.env" >> "$L/note.log" 2>&1 <<'PY'
-import os, smtplib, ssl, sys
+import json, os, smtplib, ssl, sys
 from email.message import EmailMessage
 env = {}
+try:
+    env = dict(x.split("=", 1) for x in json.loads(os.environ.get("NOTE_ENV_JSON") or "null") if "=" in x)
+except (ValueError, TypeError):
+    env = {}
 try:
     for line in open(sys.argv[1], encoding="utf-8"):
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
-            k, v = k.strip().removeprefix("export ").strip(), v.strip()
+            k, v = k.strip(), v.strip()
+            k = k[7:].strip() if k.startswith("export ") else k
             if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
                 v = v[1:-1]
-            env[k] = v
+            env.setdefault(k, v)
 except OSError:
     pass
 to = (os.environ.get("NOTE_TO") or env.get("NESSIE_DIGEST_TO") or "").split()
