@@ -94,9 +94,10 @@ class DigestTests(TestCase):
         assert "1 question, 1 person, 1 chat." in body
         users, team = body.split("Team (")
         assert "TCR data?" in users and "team check" not in users
-        assert "team check" in team and "tester" in team
+        assert "tester  1 question in 1 chat, Nov 11" in team
+        assert "team check" not in body   # team counts only, never their questions
         table = list(csv.DictReader(io.StringIO(D.sessions_csv(rows, team={"tester"}))))
-        assert [(r["username"], r["group"]) for r in table] == [("bob", "user"), ("tester", "team")]
+        assert [r["username"] for r in table] == ["bob"]   # team chats stay out of the CSV too
 
     def test_empty_week_still_says_so(self):
         subject, body = D.render([], *self._week(), instance="prod", excluded=set())
@@ -120,7 +121,7 @@ class DigestTests(TestCase):
         call_command("nessie_weekly_digest", "--since", "2026-11-10", "--until", "2026-11-17", stdout=out)
         text = out.getvalue()
         assert "Subject: Nessie questions" in text and "TCR data?" in text
-        assert "username,group,session_id,questions" in text
+        assert "username,session_id,questions" in text
         assert len(mail.outbox) == 0
 
     def test_send_refuses_without_smtp_settings(self):

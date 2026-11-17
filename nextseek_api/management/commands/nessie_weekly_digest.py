@@ -11,8 +11,8 @@ no state table, and re-running a past week gives the same email.
 Env (``docker/nextseek.env``): NEXTSEEK_SMTP_HOST (default outgoing.mit.edu), NEXTSEEK_SMTP_PORT
 (587, STARTTLS), NEXTSEEK_SMTP_USER, NEXTSEEK_SMTP_PASSWORD, NEXTSEEK_SMTP_FROM, NESSIE_DIGEST_TO
 (space-separated), NESSIE_DIGEST_INSTANCE (a label for the subject), NESSIE_DIGEST_EXCLUDE_USERS
-(space-separated logins left out, e.g. a test login), NESSIE_DIGEST_TEAM_USERS (space-separated logins listed
-in their own section at the bottom).
+(space-separated logins left out, e.g. a test login), NESSIE_DIGEST_TEAM_USERS (space-separated logins counted
+in their own section at the bottom, without their questions).
 
 Scheduled by the app's Celery beat: ``batch_upload.weekly_nessie_digest`` runs hourly and calls ``send_if_due``,
 which sends once after Monday 9 AM Eastern and does nothing where the SMTP keys are unset.
@@ -102,7 +102,8 @@ def _question_lines(by_user, order):
 
 def render(rows, since, until, instance="", excluded=(), team=()):
     """(subject, body). ``until`` is exclusive, so the last day shown is the day before it. Logins in ``team``
-    are listed in their own section at the bottom and are not in the headline counts."""
+    get one count line each in a section at the bottom (their questions are not listed) and are not in the
+    headline counts or the CSV."""
     last = until.astimezone(ET) - timedelta(days=1)
     span = f"{_day(since.astimezone(ET))} to {_day(last)}"
     where = f" on {instance}" if instance else ""
@@ -133,26 +134,28 @@ def render(rows, since, until, instance="", excluded=(), team=()):
         lines.append("No one outside the team asked Nessie anything this week.")
     if staff:
         order, people = _people_lines(staff)
-        lines += ["", "", f"Team ({_plural(n_staff, 'question')})", *people, *_question_lines(staff, order)]
-    lines += ["", "Attached: one row per chat (username, user or team, session id, question count, first and last "
-              "time, first question), for pulling the full chats."]
+        lines += ["", "", f"Team ({_plural(n_staff, 'question')})", *people]  # counts only, never the team's questions
+    lines += ["", "Attached: one row per chat outside the team (username, session id, question count, first and "
+              "last time, first question), for pulling the full chats."]
     return subject, "\n".join(lines) + "\n"
 
 
 def sessions_csv(rows, team=()):
+    """One row per chat, for pulling the chats later; the team's chats are left out."""
     chats = {}
     for r in rows:
-        c = chats.setdefault(r.session_id, {"username": r.username, "group": "team" if r.username in team else "user",
-                                            "session_id": r.session_id, "questions": 0,
+        if r.username in team:
+            continue
+        c = chats.setdefault(r.session_id, {"username": r.username, "session_id": r.session_id, "questions": 0,
                                             "first_asked_et": r.asked, "last_asked_et": r.asked,
                                             "first_question": " ".join(r.question.split())})
         c["questions"] += 1
         c["last_asked_et"] = r.asked
     out = io.StringIO()
-    w = csv.DictWriter(out, ["username", "group", "session_id", "questions", "first_asked_et", "last_asked_et", "first_question"],
+    w = csv.DictWriter(out, ["username", "session_id", "questions", "first_asked_et", "last_asked_et", "first_question"],
                        lineterminator="\n")
     w.writeheader()
-    for c in sorted(chats.values(), key=lambda c: (c["group"] == "team", c["username"], c["first_asked_et"])):
+    for c in sorted(chats.values(), key=lambda c: (c["username"], c["first_asked_et"])):
         w.writerow({**c, "first_asked_et": f"{c['first_asked_et']:%Y-%m-%d %H:%M}",
                     "last_asked_et": f"{c['last_asked_et']:%Y-%m-%d %H:%M}"})
     return out.getvalue()
