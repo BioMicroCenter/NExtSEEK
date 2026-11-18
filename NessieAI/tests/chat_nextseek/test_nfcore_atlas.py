@@ -205,7 +205,8 @@ def test_a_single_file_load_fails_loudly_on_a_malformed_sibling(tmp_path, monkey
         load_atlas(lone)
 
 
-NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript")
+NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript",
+                 "fastquorum")
 
 
 @pytest.mark.parametrize("key", NEW_CHOOSABLE)
@@ -221,6 +222,12 @@ def test_bisulfite_reads_are_kept_away_from_sarek_both_ways():
     pipelines = load_atlas()["pipelines"]
     assert "sarek" in pipelines["methylseq"]["versus"]
     assert "methylseq" in pipelines["sarek"]["versus"]
+
+
+def test_umi_libraries_are_told_apart_from_sarek_both_ways():
+    pipelines = load_atlas()["pipelines"]
+    assert pipelines["fastquorum"]["versus"]["sarek"]["ask_user"]
+    assert pipelines["sarek"]["versus"]["fastquorum"]["ask_user"]
 
 
 def test_atac_and_chip_point_at_each_other():

@@ -341,6 +341,130 @@
         "date": "2026-10-26",
         "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The user asks for tumour-normal mode, and sarek's default tools hold no somatic caller; the launch must include mutect2, and the WGS libraries keep wes false."
       }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "fastquorum-plain",
+      "phrasing": "plain",
+      "cohort": "230303ESS::A.ALN",
+      "question": "Collapse the reads of these duplex libraries into one error-corrected consensus read per molecule.",
+      "acceptable": [
+        [
+          "fastquorum"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "230303ESS is human hybrid-capture duplex sequencing (SequencingType Duplex Sequencing, LibraryStrategy Targeted Capture): per-molecule consensus reads are exactly fastquorum's output, with duplex_seq true from the metadata. fastquorum needs each library's fgbio read structure, which NExtSEEK does not record, so a right reply offers fastquorum and asks for it (or reads it from the protocol text) before building. sarek ignores UMIs and is not the answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "fastquorum-outcome",
+      "phrasing": "outcome",
+      "cohort": "230306ESS::A.ALN",
+      "question": "I need to tell real mutations at very low frequency from PCR and sequencing errors in these samples. What can you run first?",
+      "acceptable": [
+        [
+          "fastquorum"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Duplex capture libraries (230306ESS): separating rare true mutations from errors is what duplex consensus calling does, and it is the first step; fastquorum builds the consensus BAMs and calls no variants, which the reply should say. It asks for the read structure before building. Calling the rare variants from the consensus is a later step no atlas pipeline performs."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": true,
+        "must_match": {
+          "duplex_seq": true,
+          "filter_min_reads": "3 1 1"
+        }
+      },
+      "expect": null,
+      "id": "fastquorum-named",
+      "phrasing": "named",
+      "cohort": "230303ESS::A.ALN",
+      "question": "Run fastquorum on these duplex libraries. The read structure is 8M1S+T 8M1S+T on both reads, and keep only molecules seen on both strands.",
+      "acceptable": [
+        [
+          "fastquorum"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and gives the read structure, so nothing is left to ask: duplex_seq true (the metadata says duplex), read_structure 8M1S+T 8M1S+T on every row, and 'both strands' is fgbio FilterConsensusReads' per-strand minimum, filter_min_reads with a non-zero third value (\"3 1 1\" in fastquorum's docs; another value with a non-zero third count is also right)."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "duplex-variants-ambiguous",
+      "phrasing": "ambiguous",
+      "cohort": "230306ESS::A.ALN",
+      "question": "Find the mutations in these capture samples.",
+      "acceptable": [
+        [
+          "fastquorum"
+        ],
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The libraries are duplex sequencing, made to find mutations far below 1% of reads; ordinary variant calling (sarek) would treat them as plain capture reads and call only common variants. Which the user wants decides it: rare somatic mutations need the duplex consensus (fastquorum) first, germline or common variants are sarek. A right reply says the libraries are duplex and asks."
+      }
     }
   ]
 }

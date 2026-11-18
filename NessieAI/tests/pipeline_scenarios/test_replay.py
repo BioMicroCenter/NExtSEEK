@@ -308,10 +308,10 @@ def test_the_fixture_keeps_the_family_and_the_agent_model(tmp_path, monkeypatch)
 def test_a_run_that_builds_the_real_selection_context_replays_clean(synthetic_real_context, tmp_path, monkeypatch):
     fx = synthetic_real_context
     schemas = fx["tape"]["entries"]["schemas"]
-    # 14 rich pipelines, two documents each, every one fetched by the real context build
-    assert len(schemas) == len(FETCHED) == 28
+    # 15 rich pipelines, two documents each, every one fetched by the real context build
+    assert len(schemas) == len(FETCHED) == 30
     kinds = [("fixture" if "fixture" in a else "bytes" if "__bytes__" in a else "error") for a in schemas.values()]
-    assert kinds.count("fixture") == 26 and kinds.count("bytes") == 1 and kinds.count("error") == 1
+    assert kinds.count("fixture") == 28 and kinds.count("bytes") == 1 and kinds.count("error") == 1
     assert "https://" not in json.dumps(fx)
     assert fx["outcome"]["selection"] == {"verdict": "chosen", "pipelines": ["rnaseq"],
                                           "reason": "bulk or single-cell is not stated"}
