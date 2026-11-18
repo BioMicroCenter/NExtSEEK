@@ -923,6 +923,72 @@
           }
         }
       }
+    },
+    "fastquorum": {
+      "params": {
+        "duplex_seq": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "ambiguous_markers": [
+            "non-duplex",
+            "simplex",
+            "single-strand",
+            "single strand"
+          ],
+          "derive_from": {
+            "signal": "LibraryDesign",
+            "map": {
+              "true": [
+                "duplex"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "SequencingType",
+              "true_markers": [
+                "duplex"
+              ]
+            },
+            {
+              "signal": "Protocol",
+              "true_markers": [
+                "duplex"
+              ]
+            },
+            {
+              "signal": "ExpressionKit",
+              "true_markers": [
+                "duplex"
+              ]
+            },
+            {
+              "signal": "Name",
+              "true_markers": [
+                "duplex"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "true_markers": [
+                "duplex sequencing",
+                "duplex-seq",
+                "duplex consensus"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the libraries are duplex sequencing (both strands of each molecule tagged): true groups reads with fgbio's Paired strategy and calls duplex consensus; false is for single-strand UMI libraries. fastquorum's own default is true, which is wrong for single-strand UMI kits.",
+            "on_conflict": "These libraries' metadata reads both ways about duplex sequencing: one field names duplex, another single-strand or simplex, or the libraries differ. Are they duplex libraries?",
+            "on_absent": "Nothing in these libraries' metadata says whether they are duplex sequencing (both strands of each molecule tagged) or single-strand UMI libraries, and fastquorum calls them differently. Which are they?"
+          }
+        }
+      }
     }
   }
 }
