@@ -53,6 +53,16 @@ def test_menu_skips_reference_and_hidden_params(drafted):
     assert all(not name.startswith("igenomes_") for name in menu)
 
 
+def test_menu_reads_a_list_type_as_its_first_known_type():
+    from chat_nextseek.seqera.pack_draft import draft_params_menu
+    schema = {"$defs": {"consensus": {"properties": {
+        "call_min_reads": {"type": ["integer", "string"], "default": "1 1 1"},
+        "odd": {"type": ["null", "nonsense"]}}}}}
+    menu = draft_params_menu(schema)
+    assert menu["call_min_reads"]["type"] == "int"
+    assert menu["odd"]["type"] == "string"
+
+
 def test_schema_defaults_pass_their_own_schema(drafted):
     assert drafted["default_check_skipped"] is None
     assert drafted["default_check_errors"] == []

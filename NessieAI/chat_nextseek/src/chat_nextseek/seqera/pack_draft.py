@@ -55,6 +55,15 @@ def draft_catalog_row(pipeline: str, revision: str, nextflow_schema: dict,
     }
 
 
+def _menu_type(declared: Any) -> str:
+    """The menu type of a schema `type`. A list (fastquorum 2.0.0 declares
+    call_min_reads as ["integer", "string"]) takes its first type the menu knows."""
+    for name in (declared if isinstance(declared, list) else [declared]):
+        if isinstance(name, str) and name in _MENU_TYPE:
+            return _MENU_TYPE[name]
+    return "string"
+
+
 def draft_params_menu(nextflow_schema: dict) -> dict[str, dict]:
     """Every visible param outside the I/O and institutional sections, in the curated
     menu's shape. Reference params are left out: the launcher sets them."""
@@ -65,7 +74,7 @@ def draft_params_menu(nextflow_schema: dict) -> dict[str, dict]:
         for name, spec in (body.get("properties") or {}).items():
             if spec.get("hidden") or name in _REFERENCE_FLAGS or name.startswith("igenomes_"):
                 continue
-            entry = {"type": "enum" if spec.get("enum") else _MENU_TYPE.get(spec.get("type"), "string"),
+            entry = {"type": "enum" if spec.get("enum") else _menu_type(spec.get("type")),
                      "default": spec.get("default"), "steerable": True,
                      "help": spec.get("description", "")}
             if spec.get("enum"):
