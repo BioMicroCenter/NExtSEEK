@@ -206,3 +206,28 @@ def test_rnadnavar_status_is_not_a_param_atlas_rule(atlas):
     """status is tissue times molecule (docs/usage.md), which one rule cannot read; the
     samplesheet check refuses a missing or impossible one instead."""
     assert "status" not in atlas["pipelines"]["rnadnavar"]["params"]
+
+
+# --- the Luria launch profiles -----------------------------------------------------------------
+
+def test_rnadnavar_gets_the_gatk_bundle_and_the_gencode_gtf():
+    """rnadnavar 1.0.0 builds its STAR index from the FASTA and a GTF; the GATK bundle has none."""
+    from chat_nextseek.luria.run_script import luria_resource_params, luria_run_genome
+    genome = luria_run_genome("nf-core/rnadnavar", "GRCh38")
+    params = luria_resource_params("nf-core/rnadnavar", genome, "/refs")
+    assert genome == "GATK.GRCh38"
+    assert params["gtf"] == "/refs/gencode.v46.basic.annotation.gtf.gz"
+    assert params["dbsnp"].startswith("/refs/GATK.GRCh38/") and "intervals" not in params
+    assert luria_resource_params("nf-core/rnadnavar", genome, "/refs", {"gtf": "/mine.gtf"}).get("gtf") is None
+
+
+def test_sarek_is_still_given_no_gtf():
+    from chat_nextseek.luria.run_script import luria_resource_params
+    assert "gtf" not in luria_resource_params("nf-core/sarek", "GATK.GRCh38", "/refs")
+
+
+@pytest.mark.parametrize("pipeline", ["nf-core/createpanelrefs", "nf-core/variantbenchmarking"])
+def test_fai_is_passed_under_the_name_these_pipelines_declare(pipeline):
+    """createpanelrefs 1.1.0 and variantbenchmarking 1.6.1 name the FASTA index `fai`."""
+    from chat_nextseek.luria.run_script import luria_resource_params
+    assert luria_resource_params(pipeline, "GATK.GRCh38", "/refs")["fai"].endswith(".fasta.fai")
