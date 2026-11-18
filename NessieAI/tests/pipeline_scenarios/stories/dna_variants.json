@@ -350,9 +350,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The why called 230303ESS human; its lineage ends at a mouse, and the study already holds duplex consensus alignments (A.ALN), which a careful reply mentions; fastquorum with an ask for the read structure stays right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -370,7 +370,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "230303ESS is human hybrid-capture duplex sequencing (SequencingType Duplex Sequencing, LibraryStrategy Targeted Capture): per-molecule consensus reads are exactly fastquorum's output, with duplex_seq true from the metadata. fastquorum needs each library's fgbio read structure, which NExtSEEK does not record, so a right reply offers fastquorum and asks for it (or reads it from the protocol text) before building. sarek ignores UMIs and is not the answer."
+        "pipelines": "230303ESS is mouse, not human: its lineage ends at a mouse (D.SEQ -> DNA -> TIS -> PAV -> MUS; NessieAI/chat_nextseek/evals/demo_cohort_real.py), sequenced as duplex hybrid capture (SequencingType Duplex Sequencing, LibraryStrategy Targeted Capture). Per-molecule consensus reads are fastquorum's output, with duplex_seq true from the metadata. fastquorum needs each library's fgbio read structure, which NExtSEEK does not record, so a right reply offers fastquorum and asks for it (or reads it from the protocol text) before building. A careful reply also says the study already holds consensus alignments as A.ALN records (for example 8205.1.consensus.bam), so a run would redo them, aligned to the staged mouse bundle (GRCm39)."
       }
     },
     {
@@ -379,9 +379,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The answer (fastquorum, ask first) stands, but the why missed what the ask must cover: the cohort is mouse duplex capture whose existing consensus alignments set the reference question, so the reference has to be asked as well as the read structure. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -399,7 +399,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Duplex capture libraries (230306ESS): separating rare true mutations from errors is what duplex consensus calling does, and it is the first step; fastquorum builds the consensus BAMs and calls no variants, which the reply should say. It asks for the read structure before building. Calling the rare variants from the consensus is a later step no atlas pipeline performs."
+        "pipelines": "230306ESS is the same mouse duplex study as 230303ESS (twenty capture libraries, of which 230303ESS's twelve are the first; demo_cohort_real.py). Separating rare true mutations from PCR and sequencing errors is what duplex consensus does, and it is the first step: fastquorum builds the consensus BAMs and calls no variants, which the reply should say. It asks for the read structure before building, and should ask which reference to align to, since the study's existing consensus alignments (A.ALN) may not be on the staged mouse bundle (GRCm39). Calling the rare variants from the consensus is a later step no atlas pipeline performs."
       }
     },
     {
@@ -408,9 +408,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). 'Keep only molecules seen on both strands' fixes only the third value of filter_min_reads, so the exact must_match '3 1 1' would mark other right values partial while the why called them right; the question now states the three counts, and the why says the cohort is mouse. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": true,
@@ -423,7 +423,7 @@
       "id": "fastquorum-named",
       "phrasing": "named",
       "cohort": "230303ESS::A.ALN",
-      "question": "Run fastquorum on these duplex libraries. The read structure is 8M1S+T 8M1S+T on both reads, and keep only molecules seen on both strands.",
+      "question": "Run fastquorum on these duplex libraries. The read structure is 8M1S+T 8M1S+T on both reads, and keep only consensus reads built from at least three reads with at least one read from each strand.",
       "acceptable": [
         [
           "fastquorum"
@@ -431,18 +431,20 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The user names the pipeline and gives the read structure, so nothing is left to ask: duplex_seq true (the metadata says duplex), read_structure 8M1S+T 8M1S+T on every row, and 'both strands' is fgbio FilterConsensusReads' per-strand minimum, filter_min_reads with a non-zero third value (\"3 1 1\" in fastquorum's docs; another value with a non-zero third count is also right)."
+        "pipelines": "The user names the pipeline and gives the read structure, so nothing is left to ask. duplex_seq is true from the metadata (SequencingType Duplex Sequencing), read_structure 8M1S+T 8M1S+T goes on every row, and 'at least three reads with at least one from each strand' is fgbio FilterConsensusReads' duplex --min-reads (total, then each strand): filter_min_reads \"3 1 1\", the template's own example for keeping only molecules seen on both strands. 230303ESS is mouse (its lineage ends at MUS); the run aligns to the staged mouse bundle (GRCm39), which the reply should say, since the study's existing consensus alignments may be on another build."
       }
     },
     {
       "route": "nextseek_query",
-      "must_not": [],
+      "must_not": [
+        "sarek"
+      ],
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with fastquorum's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). sarek cannot be an acceptable answer: 230306ESS belongs to the same mouse duplex study as 230303ESS and sarek on Luria runs human samples only; consensus first is the route, so fastquorum alone is acceptable and sarek joins must_not, still with an ask. The species of 230306ESS is inferred from the shared study, not read from its own records. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -456,14 +458,11 @@
       "acceptable": [
         [
           "fastquorum"
-        ],
-        [
-          "sarek"
         ]
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The libraries are duplex sequencing, made to find mutations far below 1% of reads; ordinary variant calling (sarek) would treat them as plain capture reads and call only common variants. Which the user wants decides it: rare somatic mutations need the duplex consensus (fastquorum) first, germline or common variants are sarek. A right reply says the libraries are duplex and asks."
+        "pipelines": "230306ESS is the same mouse duplex study as 230303ESS (twenty capture libraries, of which 230303ESS's twelve are the first; demo_cohort_real.py), made to find induced mutations far below 1% of reads; the study already holds consensus alignments (A.ALN). sarek cannot run it: on Luria it runs human samples only (the GATK GRCh38 bundle), and it would treat duplex reads as ordinary capture reads. The route to these mutations is duplex consensus first (fastquorum), so a right reply says the libraries are duplex, asks what the user needs, and asks for the read structure and the reference before building anything."
       }
     },
     {
@@ -474,9 +473,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). NA12878 (GIAB HG001) A.VCF calls scored against a truth set per caller is variantbenchmarking, and truth_vcf and regions_bed are required_user_params with nothing staged, so asking is right; the story relies on the cohort being uploaded with its reingested sarek A.VCF children, without which sarek first would be the right answer. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -503,9 +502,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Missed true variants and wrong calls are false negatives and false positives against GIAB HG001; variantbenchmarking with an ask for the truth VCF and confident-regions BED paths is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -532,9 +531,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Asking for the truth VCF and BED paths is right, but the why's reason for no build was wrong: a /RUN/... path is exempt from the tape's absolute-path refusal (dna-germline-exome carries one in its replies); the real reason is that both paths are required_user_params the question does not give. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -552,7 +551,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The user names the pipeline and the truth set by name, not by path. analysis germline, variant_type small and truth_id HG001 follow from the metadata and the question, and happy_comparison_engine is vcfeval; the truth VCF and BED paths are still required_user_params, so a right reply asks for them. Expected built: false until a GIAB truth set is staged, because a story holding an absolute path cannot be recorded (record.py refuses one)."
+        "pipelines": "The user names the pipeline and the truth set by name, not by path. analysis germline, variant_type small and truth_id HG001 follow from the metadata and the question, and happy_comparison_engine is vcfeval; truth_vcf and regions_bed are still required_user_params with nothing staged, so a right reply asks for both paths before building. A scripted reply giving /RUN/refs paths, as dna-germline-exome does for its BED, could make this a built story later."
       }
     },
     {
@@ -563,13 +562,15 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). sarek is buildable on these two WGS FASTQ libraries (sarek-plain builds on the same cohort) and the why gave no reason to stop short, so the launch is expected, with wes false like every other WGS sarek story. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
-        "built": false,
-        "must_match": {}
+        "built": true,
+        "must_match": {
+          "wes": false
+        }
       },
       "id": "wgs-variants-quality-lookalike",
       "phrasing": "lookalike",
@@ -583,7 +584,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Sounds like a variant-quality question, but these are D.SEQ libraries with no calls yet and no truth set: the user wants variants called, with counts and Ts/Tv from the caller's own QC (sarek's bcftools stats in MultiQC). variantbenchmarking needs existing VCFs and a truth set and is not the answer."
+        "pipelines": "Sounds like a variant-quality question, but these are D.SEQ libraries with no calls yet and no truth set: the user wants variants called, with counts and Ts/Tv from the caller's own QC (sarek's bcftools stats and vcftools in MultiQC). sarek can build now on these WGS FASTQ, as sarek-plain does on the same cohort, with wes false. variantbenchmarking needs existing VCFs and a truth set and is not the answer."
       }
     },
     {
@@ -594,15 +595,15 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). There is nothing to ask: configure_run refuses oncoanalyser until the GRCh38_hmf bundle is staged, so the right reply is an offer with no launch, and expect null (not ask) makes the score check that oncoanalyser is the one offered; the sarek pair is added because the why allows offering it for the calls that can run now. Second reviewer: acceptable is oncoanalyser alone, since a sarek build gives none of the purity, ploidy or report asked for and should score partial."
       },
       "launch": {
         "built": false,
         "must_match": {}
       },
-      "expect": "ask",
+      "expect": null,
       "id": "oncoanalyser-plain",
       "phrasing": "plain",
       "cohort": "test::tumour_normal",
@@ -614,7 +615,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "test::tumour_normal is one patient's tumour and matched-normal WGS FASTQ (Type tumour and blood normal in the lineage). Purity, ploidy and a report together are oncoanalyser's alone (PURPLE, ORANGE); sarek gives calls without them. Its GRCh38_hmf reference bundle is not staged, so a right reply offers oncoanalyser, builds the pair's sheet if it likes, says the run cannot be submitted until the bundle is staged and that nothing is downloaded, and may offer sarek for the calls that can run now."
+        "pipelines": "test::tumour_normal is one patient's colorectal tumour and matched blood normal, WGS FASTQ, both under one PAT. Purity, ploidy and a report together are oncoanalyser's alone (PURPLE, ORANGE); sarek gives calls without them. configure_run refuses oncoanalyser while no GRCh38_hmf bundle is staged, so nothing can be built: a right reply offers oncoanalyser, says the run cannot be submitted until the bundle is staged and that nothing is downloaded, and may mention that sarek could make the calls now. No question is left for the user, so this is an offer with no launch, not an ask. A sarek-only offer or a sarek build answers only part of the question and is partial, as is a fork between the two."
       }
     },
     {
@@ -626,15 +627,15 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). HRD, signatures and tissue of origin are oncoanalyser's and sarek gives none of them, but nothing is left to ask: the run is refused until the reference bundle is staged, so expect null with no launch makes the score require that oncoanalyser is offered. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
         "must_match": {}
       },
-      "expect": "ask",
+      "expect": null,
       "id": "oncoanalyser-outcome",
       "phrasing": "outcome",
       "cohort": "test::tumour_normal",
@@ -646,7 +647,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "HRD status (CHORD), signature fitting (Sigs) and tissue of origin (CUPPA) are oncoanalyser outputs; sarek produces none of them. The reference bundle is not staged, so nothing can be submitted; the reply offers oncoanalyser and says so."
+        "pipelines": "HRD status (CHORD), signature fitting (Sigs) and tissue of origin (CUPPA) are oncoanalyser outputs; sarek produces none of them. The GRCh38_hmf reference bundle is not staged, so configure_run refuses the run and nothing can be submitted; the right reply offers oncoanalyser and says so. No question is left for the user, so this is an offer with no launch, not an ask."
       }
     },
     {
@@ -655,15 +656,15 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The user names oncoanalyser and the pair, so nothing is left to ask; configure_run refuses it while no GRCh38_hmf bundle is registered, so the right reply is an offer with no launch (expect null), which the score can hold to oncoanalyser. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
         "must_match": {}
       },
-      "expect": "ask",
+      "expect": null,
       "id": "oncoanalyser-named",
       "phrasing": "named",
       "cohort": "test::tumour_normal",
@@ -675,7 +676,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The user names the pipeline; the pair is WGS FASTQ and the metadata decides tumour and normal, so the sheet can be written, but configure_run refuses oncoanalyser while no GRCh38_hmf bundle is registered. A right reply says the bundle is not staged and nothing will be downloaded, and does not submit."
+        "pipelines": "The user names the pipeline; the pair is WGS FASTQ and the metadata decides tumour and normal (Type and Name corroborate), so the sheet can be written, but configure_run refuses oncoanalyser while no GRCh38_hmf bundle is registered. A right reply says the bundle is not staged and nothing will be downloaded, and does not submit. Nothing is left to ask, so this is an offer with no launch, not an ask."
       }
     },
     {
@@ -686,9 +687,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Somatic SNVs and indels of a WGS tumour/normal pair are sarek with mutect2 (wes false) and can build now, while oncoanalyser cannot run; it overlaps dna-tumour-vs-blood but adds the oncoanalyser contrast on its own cohort. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": true,
@@ -725,9 +726,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). createpanelrefs with an ask is right, but the why missed the first blocker: the normals' records name a remote folder and a bare BAM file name, no file on the cluster (as dev's TCGA normals point at GDC URLs), and configure_run refuses rows without one, so the BAM location must be asked with the reference. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -745,7 +746,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "test::normal_bams is blood-normal WGS registered as BAMs: a panel of normals from them is createpanelrefs (tools mutect2). The FASTA must be the one the BAMs were aligned against, which the metadata does not say, so a right reply offers createpanelrefs and asks which reference they were aligned to (or confirms the staged GATK GRCh38) before building; cnvkit_method wgs comes from the metadata."
+        "pipelines": "test::normal_bams is two blood-normal WGS libraries registered as BAMs whose records name a remote folder and a bare file name, not a file on the cluster (the shape of dev's TCGA normals, which point at GDC download URLs). A panel of normals from them is createpanelrefs (tools mutect2), with cnvkit_method wgs from the metadata. Two things stop a build: _createpanelrefs_run_errors refuses a row with no BAM on the cluster, and the FASTA must be the one the BAMs were aligned against, which the metadata does not say. A right reply offers createpanelrefs and asks for the BAMs' cluster paths and the reference (or confirms the staged GATK GRCh38) before building, and may note that two normals make a weak panel."
       }
     },
     {
@@ -756,9 +757,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). A Mutect2 panel of normals built from these normals by createpanelrefs is what filters recurrent artefacts from tumour-only calls; asking is right (the reference, and the BAMs' cluster paths, which the records do not give). Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -785,23 +786,15 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Not buildable as written: the normals' records give no BAM on the cluster (a remote folder plus a bare file name), and _createpanelrefs_run_errors refuses such rows, so a right reply asks for the BAM paths; the cohort's own description says it is for selection stories only. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
-        "built": true,
-        "must_match": {
-          "tools": {
-            "includes": [
-              "mutect2",
-              "cnvkit"
-            ]
-          },
-          "cnvkit_method": "wgs"
-        }
+        "built": false,
+        "must_match": {}
       },
-      "expect": null,
+      "expect": "ask",
       "id": "createpanelrefs-named",
       "phrasing": "named",
       "cohort": "test::normal_bams",
@@ -813,7 +806,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The user names the pipeline, the tools and the reference: tools mutect2,cnvkit, genome GATK.GRCh38, cnvkit_method wgs (LibraryStrategy WGS); no target BED, since the normals are whole genome. Nothing is left to ask."
+        "pipelines": "The user names the pipeline, the tools and the reference: tools mutect2,cnvkit, genome GATK.GRCh38, cnvkit_method wgs (LibraryStrategy WGS), no target BED. One thing is still missing: the normals' records name no BAM on the cluster (a remote folder and a bare file name, as dev's TCGA normals point at GDC URLs), and _createpanelrefs_run_errors refuses a row with no BAM or CRAM, so a right reply asks for the BAM paths (or says they must be staged) before building. With the BAMs on the cluster this becomes a built story with those settings."
       }
     },
     {
@@ -824,9 +817,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). 'Normals' and 'blood donors' point at a panel of normals, but the question asks each donor's own variants: sarek germline calling on WGS FASTQ (wes false) builds now, and createpanelrefs, which takes BAMs and answers nothing about a donor, is rightly must_not. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": true,
@@ -857,9 +850,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the atlas entry for tumourevo (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Subclonal structure from existing somatic calls plus allele-specific copy number is tumourevo, which is choosable but not launchable (no NExtSEEK record feeds it); naming it as dropped and building nothing passes, and re-calling with sarek ignores the user's stated input. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -888,9 +881,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the atlas entry for tumourevo (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Clonal composition and signatures are tumourevo's answer, not launchable here; the cohort has no somatic VCF or allele-specific copy number, so allowing sarek with mutect2 as a first step only (the pair) is fair, as the agent's own dropped-pipeline instruction permits. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -918,15 +911,14 @@
     {
       "route": "nextseek_query",
       "must_not": [
-        "tumourevo",
-        "variantprioritization"
+        "rnavar"
       ],
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with the atlas entry for tumourevo (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). As written it repeated dna-tumour-vs-blood on the same cohort almost word for word and looked like neither pipeline it guards against; reworded so drivers and evolution are named as later work while only the somatic calls are asked now, keeping the same answer and launch. Second reviewer: must_not keeps only rnavar, since the question invites naming tumourevo or variantprioritization as later steps, which must not fail the story."
       },
       "launch": {
         "built": true,
@@ -943,7 +935,7 @@
       "id": "somatic-calls-lookalike",
       "phrasing": "lookalike",
       "cohort": "test::tumour_normal",
-      "question": "Which mutations are in this patient's tumour but not in the matched blood sample?",
+      "question": "Before we work out which mutations drive this colon tumour and how it evolved, list the ones it carries that the patient's matched blood sample does not.",
       "acceptable": [
         [
           "sarek"
@@ -951,7 +943,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
-        "pipelines": "Looks like a tumour-evolution or prioritisation question but only asks for the somatic calls themselves: sarek tumour/normal calling from the WGS FASTQ, with a tumour/normal caller (mutect2) in tools and wes false. tumourevo and variantprioritization start from such calls and are not the answer."
+        "pipelines": "Mentions drivers and tumour evolution, which point at variantprioritization, tumourevo or oncoanalyser, but puts those later and asks now only for the somatic calls: sarek tumour/normal calling from the WGS FASTQ, mutect2 in tools, wes false. tumourevo and variantprioritization start from such calls and cannot be launched, so naming them as the later steps is fine, but only the sarek build answers what is asked now; oncoanalyser also calls them but its reference bundle is not staged. rnavar is wrong: these are DNA libraries. Reworded from 'Which mutations are in this patient's tumour but not in the matched blood sample?', which repeated dna-tumour-vs-blood."
       }
     },
     {
@@ -962,9 +954,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with the atlas entry for variantprioritization (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The answer stands (PCGR tiers and TMB are variantprioritization, not launchable; sarek first step allowed), but the why left an open question about oncoanalyser, whose entry has since landed; it is settled: oncoanalyser reports TMB but tiers nothing, so it is partial alone. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -986,7 +978,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
-        "pipelines": "Clinical-actionability tiers and TMB for somatic mutations are PCGR's output (variantprioritization, somatic mode), which NExtSEEK cannot launch. The cohort has no somatic VCF, so a right reply names variantprioritization as the answer it cannot run, and may offer sarek (with mutect2) as the first step only, saying it does not tier anything. If oncoanalyser's entry lands, an offer of it for TMB alone is a candidate third acceptable set (open question)."
+        "pipelines": "Clinical-actionability tiers and TMB for somatic mutations are PCGR's output (variantprioritization, somatic mode), which NExtSEEK cannot launch. The cohort has no somatic VCF, so a right reply names variantprioritization as the answer it cannot run, and may offer sarek (with mutect2) as the first step only, saying it does not tier anything. oncoanalyser reports TMB and drivers but tiers nothing for clinical actionability and cannot run yet, so naming it beside variantprioritization passes and naming it alone is partial."
       }
     },
     {
@@ -997,9 +989,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the atlas entry for variantprioritization (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Pathogenic germline variants in cancer-predisposition genes are CPSR (variantprioritization germline mode), not launchable here; these donors have only FASTQ, so sarek germline calling as the first step only is a fair second acceptable set. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1030,9 +1022,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the atlas entry for variantprioritization (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The named pipeline cannot be launched and this patient has no registered Mutect2 calls (sarek's pair VCFs are not registered), so naming it, saying so and building nothing is right; as in raredisease-not-yet, the user presumes existing calls, so a sarek build is held to partial."
       },
       "launch": {
         "built": false,
@@ -1061,9 +1053,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Tumour RNA plus tumour and blood exomes under one PAT is rnadnavar's input (status 2, 1, 0), and the exome BED (and the FASTQs' cluster paths, which the test records do not give) must be asked, so expect ask with rnavar must_not is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1092,9 +1084,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Somatic mutations seen in both the tumour's DNA and RNA are rnadnavar's consensus MAF; sarek sees no RNA and rnavar has no normal, and the exome BED must be asked, so the story is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1124,9 +1116,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). 240709KAM is MDA-MB-231 RNA-seq only, no DNA and no normal: rnadnavar and sarek cannot run, and rnavar cannot separate somatic from inherited variants, so asking whether all expressed variants will do is right, as in methyl-lookalike. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1156,15 +1148,22 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The why describes an offer of sarek for the somatic half, not a question, and sarek with mutect2 builds on this pair (as dna-tumour-vs-blood does); expect ask would mark that right build partial, so the story now expects the sarek launch. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
-        "built": false,
-        "must_match": {}
+        "built": true,
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "mutect2"
+            ]
+          }
+        }
       },
-      "expect": "ask",
+      "expect": null,
       "id": "rnadnavar-dna-only-lookalike",
       "phrasing": "lookalike",
       "cohort": "test::tumour_normal",
@@ -1176,7 +1175,7 @@
       ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "test::tumour_normal holds one patient's tumour and blood DNA only. The somatic part is sarek (mutect2 on the pair); whether the mutations are expressed needs tumour RNA-seq, which this cohort lacks, so rnadnavar cannot run. A right reply offers sarek for the somatic calls and says expression cannot be answered without the tumour's RNA."
+        "pipelines": "test::tumour_normal holds one patient's tumour and blood WGS DNA only. The somatic part is sarek (mutect2 on the pair, wes false), which builds now as in dna-tumour-vs-blood; whether the mutations are expressed needs tumour RNA-seq, which this cohort lacks, so rnadnavar cannot run and rnavar has no RNA to read. A right reply builds sarek for the somatic calls, now or once the user agrees, and says expression cannot be answered without the tumour's RNA."
       }
     },
     {
@@ -1185,9 +1184,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). A reference built from normals for later tumour calling is a panel of normals (createpanelrefs); which panel (Mutect2, CNVkit or both) is the user's choice, and the BAMs' cluster paths are missing too, so asking is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1214,9 +1213,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). 'What is driving this tumour' could mean drivers with purity and copy number (oncoanalyser, not runnable until its bundle is staged) or just the somatic calls (sarek); asking what the user needs is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1246,9 +1245,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). The user names rnadnavar and its callers; the exome target BED (wes true from WXS and WES) is not recorded, and the test cohort's FASTQs give no cluster path, so _rnadnavar_file_errors would stop a build anyway: asking is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1275,9 +1274,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). 'How good are these calls' on NA12878 A.VCF records is answered by scoring against GIAB HG001, and the truth-set paths must be asked, so expect ask is right. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
@@ -1306,9 +1305,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-11-18",
-        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). Mutations of the tumour found against the blood exome and seen again in its RNA is rnadnavar; the patient's normal DNA is in the cohort, so rnavar (no normal) is rightly must_not, and the exome BED must be asked. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,

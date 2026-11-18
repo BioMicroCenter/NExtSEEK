@@ -1273,52 +1273,64 @@
     },
     {
       "route": "nextseek_query",
-      "must_not": [],
+      "must_not": [
+        "differentialabundance"
+      ],
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with stableexpression's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). stableexpression is in the atlas (choosable, not launchable), so like differentialabundance in already-have-counts and tumourevo here, the story should require it be named as the answer that cannot run (expect null, acceptable stableexpression); not_yet is for kinds with no atlas pipeline and would pass a reply that names nothing. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
         "must_match": {}
       },
-      "expect": "not_yet",
+      "expect": null,
       "id": "stableexpression-plain",
       "phrasing": "plain",
       "cohort": "240709KAM::A.GEX",
       "question": "Which genes have the steadiest expression across these four samples, so I can pick reference genes for qPCR?",
-      "acceptable": [],
+      "acceptable": [
+        [
+          "stableexpression"
+        ]
+      ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Ranking genes by expression stability to choose qPCR reference genes is nf-core/stableexpression, which NExtSEEK cannot launch (atlas launchable: false): the reply says so and builds nothing. rnaseq makes counts, not a stability ranking, and differentialabundance finds genes that change, the opposite question."
+        "pipelines": "Ranking genes by expression stability to choose qPCR reference genes is nf-core/stableexpression, which is in the atlas but cannot be launched (launchable false: it reads count tables, and no NExtSEEK record feeds it). The right reply names it, says it cannot be run here and builds nothing; the selection names it as dropped. These four libraries already have per-sample count tables (A.GEX), so offering rnaseq would not move the user closer (partial), and differentialabundance answers the opposite question (genes that change). Four samples in two groups also make a thin stability ranking, which a careful reply may say."
       }
     },
     {
       "route": "nextseek_query",
-      "must_not": [],
+      "must_not": [
+        "differentialabundance"
+      ],
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with stableexpression's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). As for stableexpression-plain: stableexpression is choosable but not launchable, so the story requires it be named (expect null, acceptable stableexpression) rather than not_yet, which would pass a reply that names nothing; differentialabundance answers the opposite question. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
         "must_match": {}
       },
-      "expect": "not_yet",
+      "expect": null,
       "id": "stableexpression-outcome",
       "phrasing": "outcome",
       "cohort": "231101GRI::A.GEX",
       "question": "I need a short list of housekeeping genes whose levels do not move across any of these samples.",
-      "acceptable": [],
+      "acceptable": [
+        [
+          "stableexpression"
+        ]
+      ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Genes whose expression stays constant across all samples is stableexpression's stability ranking, not launchable here; the right reply says not yet and builds nothing. Its input would be these samples' count tables, which exist (A.GEX), so offering rnaseq would not move the user closer."
+        "pipelines": "Genes whose expression stays constant across all samples are stableexpression's stability ranking, which is in the atlas but cannot be launched here; the right reply names it, says it cannot run and builds nothing. Its input would be these samples' count tables, and the cohort already has an A.GEX record over its libraries, so offering rnaseq would not move the user closer (partial); differentialabundance finds genes that change, the opposite question."
       }
     },
     {
@@ -1329,23 +1341,34 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-11-18",
-        "note": "Drafted with stableexpression's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+        "note": "Ruled by an independent reviewer sub-agent on the owner's instruction (2026-11-18). expression-tumour-vs-normal, on the same cohort and the same EGFP groups, accepts rnaseq alone or with differentialabundance; expect not_yet would fail that same offer here, so the story is ruled the same way, with stableexpression still must_not. Checked by a second reviewer sub-agent (2026-11-18)."
       },
       "launch": {
         "built": false,
         "must_match": {}
       },
-      "expect": "not_yet",
+      "expect": null,
       "id": "stableexpression-lookalike",
       "phrasing": "lookalike",
       "cohort": "240709KAM::A.GEX",
       "question": "Is GAPDH expressed at the same level in the EGFP-positive cells as in the EGFP-negative ones?",
-      "acceptable": [],
+      "acceptable": [
+        [
+          "differentialabundance"
+        ],
+        [
+          "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "differentialabundance"
+        ]
+      ],
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "A housekeeping gene is named, but the question compares two groups (EGFP-positive against EGFP-negative, 240709KAM), which is a differential test on existing counts: differentialabundance, not launchable here. stableexpression ranks genes by constancy across all samples and does not test one gene between groups, so naming it is wrong."
+        "pipelines": "Names a housekeeping gene, but compares two groups (EGFP-positive against EGFP-negative, two libraries each, 240709KAM): a differential question, answered by differentialabundance on counts (not launchable here) or read from the existing A.GEX count tables. Ruled like expression-tumour-vs-normal on the same cohort and groups, where rnaseq, alone or with differentialabundance, is accepted. stableexpression ranks genes by constancy across all samples and tests no gene between groups, so naming it fails."
       }
     }
   ]

@@ -108,7 +108,7 @@ def duplex_seq():
     # the mouse panel cohort: LibraryStrategy OTHER, the panel named in LibraryDesign
     ({"LibraryDesign": "Duplex Sequencing Mouse Mutagenesis Panel v2.0", "LibraryStrategy": "OTHER"},
      "true", "derived_uncorroborated"),
-    # the human hybrid-capture cohort: the duplex protocol, Targeted Capture / Hybrid Selection
+    # a hybrid-capture duplex cohort: the duplex protocol, Targeted Capture / Hybrid Selection
     ({"Protocol": "Duplex-sequencing", "LibraryStrategy": "Targeted Capture"}, "true", "derived_uncorroborated"),
     ({"LibraryDesign": "Duplex Sequencing panel", "Protocol": "Duplex-sequencing"}, "true", "corroborated"),
     # groundtruth 230303ESS / 230306ESS: SequencingType "Duplex Sequencing"
