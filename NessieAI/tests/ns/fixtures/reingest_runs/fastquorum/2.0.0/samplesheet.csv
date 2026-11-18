@@ -1,0 +1,2 @@
+sample,fastq_1,fastq_2,read_structure
+SRR6109255,/RUN/inputs/SRR6109255_1.fastq.gz,/RUN/inputs/SRR6109255_2.fastq.gz,10M1S+T 10M1S+T

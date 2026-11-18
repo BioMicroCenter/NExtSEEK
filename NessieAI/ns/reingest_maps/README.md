@@ -278,6 +278,8 @@ What blocks each row:
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
+| fastquorum | `filtering/align_consensus_bam/<id>/<id>.mapped.bam` (+ `.bai`) with `--mode ht`: that mode's final, aligned consensus. With `--mode ht`, `consensus_filtering/filtered/<id>/<id>.cons.filtered.bam` is the unmapped consensus before alignment, under the name `--mode rd` gives its final BAM | A.ALN | choice: a map cannot pick a candidate by a param, so the map registers `--mode rd` only and the launch template does not offer `mode`; a foreign `--mode ht` run would register its unmapped BAM |
+| fastquorum | `metrics/duplex_seq/<id>/*.duplex_seq_metrics.*.txt` (duplex yield, family sizes, UMI counts) | none | type: no sample type holds duplex yield metrics; ruled out in `unmapped_files` |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | methylseq | Bismark's per-read, per-context calls `<aligner>/methylation_calls/methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz`, the targeted bedGraph `*.bedGraph.targeted.bedGraph` (with `--run_targeted_sequencing`), and `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`). The CpG coverage and bedGraph have rules (A.MSEQ); their MeanCpGMethylationPercent reads the general-stats column `bismark-percent_cpg_meth`, checked on `4.2.0-local-test` | A.MSEQ | choice: whether to register the per-read calls (large; summarised by the coverage file) and the genome-wide cytosine report, which would need a slot or Notes on A.MSEQ |
@@ -413,6 +415,21 @@ and leave the other caller's blank. The FRiP table's name is read off the releas
 AWS run wrote no FRiP table. A.CHRM has no attribute for the peak caller, so with `--peakcaller seacr,macs2` a
 replicate's two peak rows differ only by `DataType` and file. The spike-in alignment rate has no D.SEQ attribute
 and is ruled out. Antibody stays blank: the samplesheet has no antibody column.
+
+### fastquorum
+
+The 2.0.0 map (`applies_to_versions` `>=2.0,<2.1`) is checked against `2.0.0`, the release's default nf-test
+snapshot (`--mode rd`, `--duplex_seq true`, one paired-end library, read structure `10M1S+T 10M1S+T`). nf-core
+published no AWS results for 2.0.0, so no QC attribute is mapped: D.SEQ gets only `Link_QC`. Its MultiQC reads
+FastQC and fgbio GroupReadsByUmi's family sizes, and no D.SEQ attribute holds a family-size share; a real run's
+general stats go to the approval queue.
+
+The one rule registers each library's filtered, aligned consensus (`consensus_filtering/filtered/<id>/<id>.cons.filtered.bam`,
+with its `.bai`) as A.ALN under Genome Alignment, `Aligner` bwa mem. In `--mode rd` (the default and the only mode the
+launch template offers) FilterConsensusReads runs after the consensus is aligned, so that file is the end product and
+the earlier aligned consensus under `filtering/align_consensus_bam/` is ruled out. `--mode ht` reverses the order (see
+"Outputs with no rule yet"). Samples are `library_id` when the samplesheet gives one, else `sample`; NExtSEEK's
+launch writes `sample` only.
 
 ### methylseq's variant fixtures
 
