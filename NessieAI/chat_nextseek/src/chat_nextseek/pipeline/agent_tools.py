@@ -645,6 +645,14 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
                   for uid, param, val in ddp["corrections"]]
         return json.dumps({"ok": False, "errors": errors})
 
+    # fastquorum needs every row's fgbio read structure: it places the UMI, nothing in
+    # NExtSEEK's metadata records it, and a wrong one groups reads into the wrong molecules
+    # without an error. Fail closed so the agent asks instead of guessing.
+    if pipeline_key == "fastquorum":
+        rs_errors = _fastquorum_read_structure_errors(merged_rows)
+        if rs_errors:
+            return json.dumps({"ok": False, "errors": rs_errors})
+
     # rnasplice needs a non-blank 'condition' per row (it defines the comparison).
     # Nothing derives it yet, so fail closed early rather than emit a samplesheet
     # nf-schema rejects late. (Deriving condition from the cohort grouping is a follow-up.)
@@ -866,6 +874,10 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         sheet_errors = _cutandrun_sheet_errors(merged.get("use_control"), _samplesheet_rows(state))
         if sheet_errors:
             return json.dumps({"ok": False, "errors": sheet_errors})
+    if pipeline_key == "fastquorum":
+        sheet_errors = _fastquorum_read_structure_errors(_samplesheet_rows(state), count_fastqs=True)
+        if sheet_errors:
+            return json.dumps({"ok": False, "errors": sheet_errors})
 
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (seqera.pairing).
@@ -1048,6 +1060,58 @@ def _atacseq_control_errors(with_control: Any, rows: list[dict]) -> list[str]:
                 "is not a sample and replicate of this samplesheet; name the control's own sample "
                 "and replicate values, and include the control as a row.")
     return errors
+
+
+#: One fgbio read-structure segment: fixed-length parts (<n><op>), optionally ending in one
+#: "+<op>" for the rest of the read. Operators: T template, B sample barcode, M molecular
+#: barcode (UMI), S skip, C cellular barcode (fgbio's Read-Structures wiki).
+_READ_SEGMENT = re.compile(r"^(?:[1-9]\d*[TBMSC])*(?:[1-9]\d*[TBMSC]|\+[TBMSC])$")
+_FASTQ_COLUMNS = ("fastq_1", "fastq_2", "fastq_3", "fastq_4")
+
+
+def _fastquorum_read_structure_errors(rows: list[dict], *, count_fastqs: bool = False) -> list[str]:
+    """Why fastquorum 2.0.0 would refuse or misread these rows' read structures ([] if none).
+
+    Every row needs one (assets/schema_input.json requires it), each segment must parse as
+    fgbio's grammar and hold a UMI somewhere in the structure (M), and the rows of one sample
+    must agree, since they are merged into one library (docs/usage.md). With `count_fastqs`
+    (the written samplesheet, whose FASTQ paths are filled), the segment count must equal the
+    FASTQs on the row; a row with no FASTQ yet (an accession to fetch) is not counted.
+    """
+    errors: list[str] = []
+    by_sample: dict[str, set[str]] = {}
+    for row in rows:
+        sample = str(row.get("sample") or row.get("Sample") or "?")
+        structure = " ".join(str(row.get("read_structure") or "").split())
+        if not structure:
+            errors.append(f"row {sample!r}: no read_structure. fastquorum needs the library's fgbio "
+                          "read structure (where the UMI sits in each read, e.g. \"8M1S+T 8M1S+T\"); "
+                          "nothing in NExtSEEK's metadata records it, so take it from the protocol "
+                          "text or ask the user. Do not guess.")
+            continue
+        segments = structure.split(" ")
+        bad = [seg for seg in segments if not _READ_SEGMENT.match(seg)]
+        if bad:
+            errors.append(f"row {sample!r}: read_structure {structure!r} is not an fgbio read "
+                          f"structure (bad segment {bad[0]!r}); see "
+                          "https://github.com/fulcrumgenomics/fgbio/wiki/Read-Structures.")
+            continue
+        if "M" not in structure:
+            errors.append(f"row {sample!r}: read_structure {structure!r} names no UMI (M); "
+                          "fastquorum groups reads by their UMI, so a library without one "
+                          "cannot run it.")
+        by_sample.setdefault(sample, set()).add(structure)
+        fastqs = [c for c in _FASTQ_COLUMNS if str(row.get(c) or "").strip()]
+        if count_fastqs and fastqs and len(fastqs) != len(segments):
+            errors.append(f"row {sample!r}: read_structure {structure!r} has {len(segments)} "
+                          f"segment(s) but the row has {len(fastqs)} FASTQ(s); give one segment "
+                          "per FASTQ (paired-end: two).")
+    for sample, structures in by_sample.items():
+        if len(structures) > 1:
+            errors.append(f"sample {sample!r}: its rows give different read structures "
+                          f"({', '.join(sorted(structures))}); rows of one sample are one library, "
+                          "merged before grouping, so they must share one.")
+    return list(dict.fromkeys(errors))
 
 
 def _cutandrun_sheet_errors(use_control: Any, rows: list[dict]) -> list[str]:

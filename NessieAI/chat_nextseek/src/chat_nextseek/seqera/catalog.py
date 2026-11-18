@@ -208,6 +208,31 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "EM-seq FASTQ inputs."
         ),
     },
+    "fastquorum": {
+        "repo": "https://github.com/nf-core/fastquorum",
+        "default_revision": "2.0.0",
+        "description": "UMI consensus reads (fgbio): duplex or single-strand consensus BAMs from UMI-tagged DNA libraries.",
+        "common_assays": ["duplex sequencing", "Duplex-Seq", "UMI", "consensus", "error-corrected sequencing"],
+        "default_genome": "GRCh38",
+        "default_profile": "singularity",
+        # 2.0.0 declares genome, fasta and fasta_fai, and builds the BWA index from the fasta.
+        "reference_cli_flags": ["genome", "fasta"],
+        # assets/schema_input.json at 2.0.0 requires these three; fastq_2 to fastq_4 and
+        # library_id, lane, flowcell, umi_file are optional.
+        "required_columns": ["sample", "fastq_1", "read_structure"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"duplex",
+            r"\bUMI\b",
+            r"consensus",
+        ],
+        "pipeline_kind_description": (
+            "Consensus reads from UMI-tagged DNA libraries (fgbio best practice): groups reads "
+            "by UMI and position, calls a duplex or single-strand consensus, and aligns it. "
+            "Every row needs the library's fgbio read structure, which says where the UMI sits."
+        ),
+    },
     "ampliseq": {
         "repo": "https://github.com/nf-core/ampliseq",
         "default_revision": "2.10.0",

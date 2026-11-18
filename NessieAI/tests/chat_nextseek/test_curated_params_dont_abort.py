@@ -452,7 +452,8 @@ def test_sarek_bam_output_is_not_steerable():
 
 
 PINS = {"atacseq": "2.1.2", "chipseq": "2.1.0", "methylseq": "4.2.0",  # Task 3 Step 2, owner-approved
-        "cutandrun": "3.2.2"}  # owner-approved 2026-11-12
+        "cutandrun": "3.2.2",  # owner-approved 2026-11-12
+        "fastquorum": "2.0.0"}  # latest release on nf-co.re, 2026-11-18
 
 
 @pytest.mark.parametrize("key", sorted(PINS))

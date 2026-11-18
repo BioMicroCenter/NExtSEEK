@@ -1,0 +1,54 @@
+{
+  "report_type": "NFCORE_FASTQUORUM_SAMPLESHEET",
+  "description": "nf-core/fastquorum samplesheet context. One row per FASTQ set of a UMI library (one per lane or run), with the read structure that says where the UMI sits in each read.",
+  "params": {
+    "duplex_seq":                  {"type": "bool", "default": true, "steerable": true, "help": "Duplex sequencing: reads from both strands of one source molecule are grouped (strategy Paired) and called with CallDuplexConsensusReads. Set false for single-strand UMI libraries, which get CallMolecularConsensusReads and the Adjacency strategy. The pipeline's own default is true."},
+    "groupreadsbyumi_strategy":    {"type": "enum", "allowed": ["Identity", "Edit", "Adjacency", "Paired"], "default": null, "steerable": true, "help": "fgbio GroupReadsByUmi strategy. Unset, the pipeline uses Paired with duplex_seq and Adjacency without; it must match the library (Paired for duplex)."},
+    "groupreadsbyumi_edits":       {"type": "int", "default": 1, "steerable": true, "help": "Maximum UMI edits when grouping reads into a molecule."},
+    "call_min_reads":              {"type": "string", "default": null, "steerable": true, "help": "Minimum reads to call a consensus (fgbio --min-reads). Unset, fgbio's own default applies. For duplex, up to three space-separated values: total, the larger strand, the smaller strand (for example \"1 1 0\")."},
+    "call_min_baseq":              {"type": "int", "default": 10, "steerable": true, "help": "Minimum input base quality used to call a consensus."},
+    "filter_min_reads":            {"type": "string", "default": null, "steerable": true, "help": "Minimum reads to keep a consensus read (fgbio FilterConsensusReads --min-reads); for duplex, up to three values as for call_min_reads (for example \"3 1 1\" keeps only molecules seen on both strands)."},
+    "filter_min_baseq":            {"type": "int", "default": 10, "steerable": true, "help": "Consensus bases below this quality are masked."},
+    "filter_max_base_error_rate":  {"type": "number", "default": 0.1, "steerable": true, "help": "Maximum error rate for a single consensus base; bases above it are masked."},
+    "correct_umis_max_mismatches": {"type": "int", "default": 2, "steerable": true, "help": "Only for rows with a umi_file (a fixed UMI set): mismatches allowed when matching an observed UMI to the known set."},
+    "correct_umis_min_distance":   {"type": "int", "default": 1, "steerable": true, "help": "Only for rows with a umi_file: minimum edit distance between the best and next-best known UMI."},
+    "multiqc_title":               {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": ["fasta"],
+  "pipeline": {
+    "name": "nf-core/fastquorum",
+    "repository": "https://github.com/nf-core/fastquorum",
+    "documentation_url": "https://nf-co.re/fastquorum/2.0.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Required columns: sample, fastq_1, read_structure. fastq_2 holds read 2 of a paired library. read_structure is the fgbio read structure, one space-separated segment per FASTQ given (paired-end: two segments), and is the same on every row of one sample.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "read_structure"
+    ],
+    "optional_columns": [
+      "fastq_2"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "read_structure": null
+    }
+  ],
+  "validation_rules": [
+    "sample has no spaces. Rows sharing a sample are lanes or runs of ONE library and are merged before UMI grouping; never give two separate libraries the same sample.",
+    "read_structure follows fgbio's grammar (https://github.com/fulcrumgenomics/fgbio/wiki/Read-Structures): each segment is lengths with an operator, T template, M molecular barcode (UMI), S skip, B sample barcode, and '+' for the rest of the read, for example \"8M1S+T 8M1S+T\" for an 8 bp UMI and one skipped base at the start of both reads, or \"12M+T +T\" for a UMI on read 1 only.",
+    "The number of segments must equal the number of FASTQs on the row: two for paired-end (fastq_1 and fastq_2), one for single-end.",
+    "Never guess a read structure: it depends on the library kit (TwinStrand Duplex Sequencing, IDT xGen Duplex, Agilent SureSelect XT HS2 and others place the UMI differently). Take it from the protocol text or the kit's documentation, or ask the user.",
+    "The run aligns with BWA to the genome's FASTA; the BWA index is built on the first run."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "One row per FASTQ pair of each D.SEQ library; lanes or runs of one library share its sample.",
+      "Fill read_structure from the protocol text when it states the UMI layout; otherwise ask the user for it before writing the samplesheet."
+    ]
+  }
+}
