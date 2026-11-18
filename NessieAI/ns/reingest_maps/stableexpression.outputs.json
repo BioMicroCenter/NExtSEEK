@@ -1,0 +1,40 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/stableexpression",
+  "applies_to_versions": ">=1.1,<1.2",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "inventory_globs": [],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "reporting/all_genes_summary.csv",
+      "why": "The pipeline's result: every gene's stability score, rank, section and expression statistics across all the datasets. No sample type holds a gene-stability ranking (A.GEX holds abundance matrices and differential results), and its datasets name no NExtSEEK sample to be its parent; see the README, stableexpression."
+    },
+    {
+      "glob": "reporting/*",
+      "why": "MultiQC's report and the Dash Plotly app (its code and a copy of the merged counts, design and gene summary): views of the results, not results. With no D.SEQ parent there is no row for Link_QC to land on."
+    },
+    {
+      "glob": "merged_data/*",
+      "why": "All datasets' normalised (and imputed) counts as parquet, and the merged design: an expression matrix assembled from count tables and public datasets that name no NExtSEEK sample, so no parent resolves (G-6), and parquet is no A.GEX DataType yet."
+    },
+    {
+      "glob": "datasets/*",
+      "why": "Each input dataset at every step (downloaded, ID-renamed, sample-filtered, TPM or CPM normalised, quantile normalised), as parquet: intermediates of the merged matrix."
+    },
+    {
+      "glob": "{accessions,id_mapping,annotation}/*",
+      "why": "Expression Atlas and GEO accessions found, the g:Profiler or custom gene-ID mapping and gene metadata, and the gene lengths used for TPM: inputs and lookups the run assembled, not results."
+    },
+    {
+      "glob": "{statistics,errors,warnings}/*",
+      "why": "Per-dataset zero, missing-value and skewness statistics, ID-mapping counts, and the reasons datasets or genes failed or were warned about: run diagnostics, shown in the MultiQC report."
+    }
+  ],
+  "outputs": [],
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

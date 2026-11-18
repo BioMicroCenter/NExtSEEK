@@ -1,0 +1,37 @@
+{
+ "rules": {
+  "aln_dna": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.ALN"
+  },
+  "aln_rna": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.ALN"
+  }
+ },
+ "warnings": [
+  "subject_a.normal: no file for optional rule aln_rna; no row written",
+  "subject_a.tumor: no file for optional rule aln_rna; no row written",
+  "subject_a.tumor_rna: no file for optional rule aln_dna; no row written"
+ ]
+}

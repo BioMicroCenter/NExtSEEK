@@ -1,0 +1,1090 @@
+[
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "driver_annotation/annotate_driver/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_driver.rds",
+  "bytes": 0
+ },
+ {
+  "path": "driver_annotation/annotate_driver/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_driver.rds",
+  "bytes": 0
+ },
+ {
+  "path": "driver_annotation/annotate_driver/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_driver.rds",
+  "bytes": 0
+ },
+ {
+  "path": "driver_annotation/annotate_driver/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_driver.rds",
+  "bytes": 0
+ },
+ {
+  "path": "driver_annotation/annotate_driver/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_driver.rds",
+  "bytes": 0
+ },
+ {
+  "path": "driver_annotation/annotate_driver/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_driver.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cna2cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_cna.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cna2cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_cna.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cna2cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_cna.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cna2cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_cna.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cna2cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_cna.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cna2cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_cna.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cnaqc2tsv/SCOUT/SPN01_MS/SCOUT_SPN01_MS_joint_table.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cnaqc2tsv/SCOUT/SPN01_SS/SCOUT_SPN01_SS_joint_table.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/cnaqc2tsv/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_joint_table.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/vcf2cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_snv.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/vcf2cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_snv.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/vcf2cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_snv.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/vcf2cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_snv.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/vcf2cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_snv.rds",
+  "bytes": 0
+ },
+ {
+  "path": "formatter/vcf2cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_snv.rds",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/mpileup/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/mpileup/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/mpileup/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/mpileup/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/mpileup/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/mpileup/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SCOUT_SPN01_SS_all_positions.rds",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_pileup_VCF.rds",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_positions_missing.bed",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_pileup_VCF.rds",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_positions_missing.bed",
+  "bytes": 0
+ },
+ {
+  "path": "lifter/positions/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_tumourevo_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_data.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_data_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_qc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_qc.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_qc_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_data.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_data_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_qc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_qc.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_qc_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_data.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_data_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_qc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_qc.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_qc_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_data.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_data_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_qc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_qc.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_qc_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_data.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_data_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_qc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_qc.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_qc_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_data.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_data_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_qc.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_qc.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/cnaqc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_qc_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/join_cnaqc/SCOUT/SPN01_MS/SCOUT_SPN01_MS_multi_cnaqc_ALL.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/join_cnaqc/SCOUT/SPN01_SS/SCOUT_SPN01_SS_multi_cnaqc_ALL.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/join_cnaqc/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_multi_cnaqc_ALL.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_qc.csv",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_qc.csv",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_qc.csv",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_qc.csv",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_qc.csv",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_plot.rds",
+  "bytes": 0
+ },
+ {
+  "path": "qc/tinc/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_qc.csv",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/10000001-11000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/10000001-11000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/1000001-2000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/1000001-2000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/12000001-13000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/12000001-13000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/15000001-16000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/15000001-16000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/17000001-18000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/17000001-18000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/2000001-3000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/2000001-3000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/22000001-23000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/22000001-23000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/30000001-31000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/30000001-31000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/31000001-32000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/31000001-32000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/34000001-35000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/34000001-35000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/35000001-36000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/35000001-36000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/40000001-41000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/40000001-41000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/4000001-5000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/4000001-5000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/42000001-43000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/42000001-43000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/47000001-48000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/47000001-48000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/48000001-49000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/48000001-49000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/49000001-50000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/49000001-50000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/5000001-6000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/5000001-6000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/52000001-53000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/52000001-53000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/53000001-54000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/53000001-54000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/60000001-61000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/60000001-61000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/63000001-64000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/63000001-64000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/68000001-69000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/68000001-69000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/70000001-71000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/70000001-71000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/7000001-8000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/7000001-8000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/78000001-79000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/78000001-79000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/80000001-81000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/80000001-81000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/8000001-9000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/8000001-9000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/81000001-82000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/81000001-82000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/82000001-83000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/82000001-83000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/9000001-10000000.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/9000001-10000000_reg.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/17/all_var.gz",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/chr_synonyms.txt",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/vep.tar/Homo_sapiens/110_GRCh38/info.txt",
+  "bytes": 0
+ },
+ {
+  "path": "references/vep/versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SCOUT_SPN01_MS_ctree_pyclonevi.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SCOUT_SPN01_MS_ctree_pyclonevi_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SCOUT_SPN01_MS_ctree_pyclonevi_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SCOUT_SPN01_MS_ctree_pyclonevi_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SCOUT_SPN01_MS_ctree_pyclonevi_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_ctree_mobster.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_ctree_mobster_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_ctree_mobster.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_ctree_mobster_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SCOUT_SPN01_SS_ctree_pyclonevi.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SCOUT_SPN01_SS_ctree_pyclonevi_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SCOUT_SPN01_SS_ctree_pyclonevi_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SCOUT_SPN01_SS_ctree_pyclonevi_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SCOUT_SPN01_SS_ctree_pyclonevi_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_ctree_mobster.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_ctree_mobster_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_ctree_mobster.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_ctree_mobster_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_ctree_pyclonevi.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_ctree_pyclonevi_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_ctree_pyclonevi_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_ctree_pyclonevi_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_ctree_pyclonevi_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_ctree_mobster.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_ctree_mobster_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_ctree_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_ctree_mobster.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_ctree_mobster_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/ctree/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_ctree_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_mobster_best_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_mobster_best_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_mobster_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_mobster_best_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_mobster_best_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_mobster_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_mobster_best_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_mobster_best_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_mobster_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_mobster_best_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_mobster_best_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_mobster_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_mobster_best_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_mobster_best_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_mobster_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_mobster_best_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_mobster_best_plots.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_mobster_fit.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_mobster_report.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_mobster_report.png",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/mobster/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C_mobster_report.rds",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_MS/SCOUT_SPN01_MS_all_fits.h5",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_MS/SCOUT_SPN01_MS_best_fit.txt",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_MS/SCOUT_SPN01_MS_cluster_table.csv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_MS/SCOUT_SPN01_MS_pyclone_input.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_MS/SCOUT_SPN01_MS_pyclone_input_all_samples.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS/SCOUT_SPN01_SS_all_fits.h5",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS/SCOUT_SPN01_SS_best_fit.txt",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS/SCOUT_SPN01_SS_cluster_table.csv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS/SCOUT_SPN01_SS_pyclone_input.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS/SCOUT_SPN01_SS_pyclone_input_all_samples.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_all_fits.h5",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_best_fit.txt",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_cluster_table.csv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_pyclone_input.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "subclonal_deconvolution/pyclonevi/SCOUT/SPN01_SS_nobam/SCOUT_SPN01_SS_nobam_pyclone_input_all_samples.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "variant_annotation/vep/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_B.annotated.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_annotation/vep/SCOUT/SPN01_MS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_MS_SPN01_100X_0.9p_Sample_C.annotated.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_annotation/vep/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_B.annotated.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_annotation/vep/SCOUT/SPN01_SS/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_SPN01_100X_0.9p_Sample_C.annotated.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_annotation/vep/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_B/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_B.annotated.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_annotation/vep/SCOUT/SPN01_SS_nobam/SPN01_100X_0.9p_Sample_C/SCOUT_SPN01_SS_nobam_SPN01_100X_0.9p_Sample_C.annotated.vcf.gz",
+  "bytes": 0
+ }
+]

@@ -1,0 +1,150 @@
+[
+ {
+  "path": "bcftools/filter/NA12878.deepvariant_calls.deepvariant.norm.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/NA12878.deepvariant_calls.deepvariant.norm.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/NA12878.haplotypecaller_calls.haplotypecaller.norm.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/NA12878.haplotypecaller_calls.haplotypecaller.norm.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/NA12878.deepvariant_calls.deepvariant.norm.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/NA12878.deepvariant_calls.deepvariant.norm.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/NA12878.haplotypecaller_calls.haplotypecaller.norm.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/NA12878.haplotypecaller_calls.haplotypecaller.norm.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.classification.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.conf.yaml",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.html",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.pass.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.pass.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.pass.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.deepvariant_calls/NA12878.deepvariant_calls.cpsr.grch38.xlsx",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.classification.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.conf.yaml",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.html",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.pass.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.pass.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.pass.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "cpsr/NA12878.haplotypecaller_calls/NA12878.haplotypecaller_calls.cpsr.grch38.xlsx",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_variantprioritization_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "tabix/NA12878.deepvariant.chr22.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "tabix/NA12878.haplotypecaller.chr22.vcf.gz.tbi",
+  "bytes": 0
+ }
+]

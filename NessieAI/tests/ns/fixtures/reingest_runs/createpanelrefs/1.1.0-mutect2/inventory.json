@@ -1,0 +1,122 @@
+[
+ {
+  "path": "gatk4/createsomaticpanelofnormals/mutect2.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/createsomaticpanelofnormals/mutect2.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/__tiledb_workspace.tdb",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/callset.json",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$2$23354000/.__consolidation_lock",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$2$23354000/__array_schema.tdb",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$2$23354000/genomicsdb_meta_dir/genomicsdb_column_bounds.json",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$24132500$24910998/.__consolidation_lock",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$24132500$24910998/__array_schema.tdb",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$24132500$24910998/genomicsdb_meta_dir/genomicsdb_column_bounds.json",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$25689498$46709983/.__consolidation_lock",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$25689498$46709983/__array_schema.tdb",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/chr21$25689498$46709983/genomicsdb_meta_dir/genomicsdb_column_bounds.json",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/vcfheader.vcf",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/genomicsdb/mutect2/vidmap.json",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/mutect2/normal.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/mutect2/normal.vcf.gz.stats",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/mutect2/normal.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/mutect2/tumour.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/mutect2/tumour.vcf.gz.stats",
+  "bytes": 0
+ },
+ {
+  "path": "gatk4/mutect2/tumour.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_createpanelrefs_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_report.html",
+  "bytes": 0
+ }
+]

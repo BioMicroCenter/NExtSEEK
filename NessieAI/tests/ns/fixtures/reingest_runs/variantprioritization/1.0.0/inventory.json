@@ -1,0 +1,190 @@
+[
+ {
+  "path": "bcftools/filter/HCC1395.HCC1395T.mutect2.norm.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/HCC1395.HCC1395T.mutect2.norm.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/HCC1395.HCC1395T.strelka_indel.norm.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/HCC1395.HCC1395T.strelka_indel.norm.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/HCC1395.HCC1395T.strelka_snv.norm.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/filter/HCC1395.HCC1395T.strelka_snv.norm.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/HCC1395.HCC1395T.mutect2.norm.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/HCC1395.HCC1395T.mutect2.norm.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/HCC1395.HCC1395T.strelka_indel.norm.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/HCC1395.HCC1395T.strelka_indel.norm.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/HCC1395.HCC1395T.strelka_snv.norm.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "bcftools/norm/HCC1395.HCC1395T.strelka_snv.norm.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "custom/intersect_vcf/HCC1395.HCC1395T_keys.txt",
+  "bytes": 0
+ },
+ {
+  "path": "custom/pcgr_ready_vcf/HCC1395.HCC1395T.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "custom/pcgr_ready_vcf/HCC1395.HCC1395T.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395.HCC1395T.mutect2.reformatted.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395.HCC1395T.mutect2.reformatted.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395.HCC1395T.strelka_indel.reformatted.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395.HCC1395T.strelka_indel.reformatted.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395.HCC1395T.strelka_snv.reformatted.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395.HCC1395T.strelka_snv.reformatted.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "custom/reformat/HCC1395T.reformatted.allelic_cna.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.cna_gene.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.cna_gene_ann.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.cna_segment.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.conf.yaml",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.maf",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.pass.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.pass.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.pass.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.snv_indel_ann.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.tmb.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "pcgr/HCC1395.HCC1395T/HCC1395.HCC1395T.pcgr.grch38.xlsx",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_variantprioritization_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "tabix/HCC1395T_vs_HCC1395N.mutect2.filtered_chr22.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "tabix/HCC1395T_vs_HCC1395N.strelka.somatic_indels_chr22.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "tabix/HCC1395T_vs_HCC1395N.strelka.somatic_snvs_chr22.vcf.gz.tbi",
+  "bytes": 0
+ }
+]

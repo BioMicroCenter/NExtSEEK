@@ -1,0 +1,78 @@
+[
+ {
+  "path": "annotation/gene_transcript_lengths.csv",
+  "bytes": 0
+ },
+ {
+  "path": "datasets/microarray/normalised/microarray.normalised/2.samples_filtered/microarray.normalised.zeros_filtered.nulls_filtered.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "datasets/microarray/normalised/microarray.normalised/3.tpm_normalised/microarray.normalised.zeros_filtered.nulls_filtered.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "datasets/microarray/normalised/microarray.normalised/4.quantile_normalised/microarray.normalised.zeros_filtered.nulls_filtered.quant_norm.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "datasets/rnaseq/raw/rnaseq.raw/2.samples_filtered/rnaseq.raw.zeros_filtered.nulls_filtered.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "datasets/rnaseq/raw/rnaseq.raw/3.tpm_normalised/rnaseq.raw.zeros_filtered.nulls_filtered.tpm.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "datasets/rnaseq/raw/rnaseq.raw/4.quantile_normalised/rnaseq.raw.zeros_filtered.nulls_filtered.tpm.quant_norm.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "id_mapping/unique_gene_ids.txt",
+  "bytes": 0
+ },
+ {
+  "path": "merged_data/all_counts.imputed.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "merged_data/all_counts.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "merged_data/whole_design.csv",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_stableexpression_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reporting/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "statistics/missing_values_filter_stats.csv",
+  "bytes": 0
+ },
+ {
+  "path": "statistics/ratio_nulls.csv",
+  "bytes": 0
+ },
+ {
+  "path": "statistics/ratio_nulls_per_sample.csv",
+  "bytes": 0
+ },
+ {
+  "path": "statistics/ratio_zeros.csv",
+  "bytes": 0
+ },
+ {
+  "path": "statistics/skewness.csv",
+  "bytes": 0
+ },
+ {
+  "path": "statistics/zero_values_filter_stats.csv",
+  "bytes": 0
+ }
+]

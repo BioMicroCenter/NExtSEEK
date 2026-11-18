@@ -1,0 +1,8 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "genome": "GRCh38_hmf",
+ "input": "/RUN/samplesheet.csv",
+ "mode": "wgts",
+ "outdir": "/RUN"
+}

@@ -1414,6 +1414,8 @@ _OLD_INVENTORY = {
     "**/*.macs2_peaks.narrowPeak", "**/*.macs2_peaks.broadPeak",
     "**/05_consensus_peaks/*.consensus.peaks.awk.bed",
     "**/05_consensus_peaks/*.consensus.peak_counts.bed",
+    # oncoanalyser 3.0.0 writes its MultiQC report at the run root, rnadnavar 1.0.0 under reports/
+    "**/multiqc_report.html", "**/reports/multiqc_report.html",
 }
 
 

@@ -1,0 +1,55 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/createpanelrefs",
+  "applies_to_versions": ">=1.1,<1.2",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "inventory_globs": [],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "gatk4/createsomaticpanelofnormals/*",
+      "why": "The Mutect2 panel of normals (<mutect2_pon_name>.vcf.gz and its .tbi): sites seen across the normals, a reference for later somatic calling, not one sample's variant calls. No sample type means a panel of normals; a schema request (see the README, createpanelrefs)."
+    },
+    {
+      "glob": "gatk4/mutect2/*",
+      "why": "Mutect2's tumour-only-mode calls on each normal, unfiltered, with their stats: the inputs the panel of normals is built from, not results of their own."
+    },
+    {
+      "glob": "gatk4/genomicsdb/*",
+      "why": "The GenomicsDB workspace GATK merges the per-normal calls in before CreateSomaticPanelOfNormals: an intermediate."
+    },
+    {
+      "glob": "cnvkit/*",
+      "why": "CNVkit's pooled copy-number reference (<cnvkit_pon_name>.cnn), a panel of normals with no sample type, and each normal's target and antitarget coverage, its inputs."
+    },
+    {
+      "glob": "germlinecnvcaller/*",
+      "why": "GATK gCNV's contig-ploidy and CNV models (the cohort model a later case-mode run reads), with each normal's read counts and model-fit calls: a reference with no sample type, and its inputs."
+    },
+    {
+      "glob": "gens/*",
+      "why": "The GENS read-count panel of normals (HDF5) and each normal's read counts: a reference with no sample type, and its inputs."
+    },
+    {
+      "glob": "references/*",
+      "why": "FASTA index and dictionary, CNVkit target and antitarget BEDs, the GENS interval list and the Mutect2 target BED the pipeline made or copied: reference files, not sample data."
+    },
+    {
+      "glob": "reports/multiqc/*",
+      "why": "The MultiQC report and its data; the harvest links the report to each normal as Link_QC itself. In the 1.1.0 snapshots its data folder holds only software versions, citations and sources: no general-stats table."
+    }
+  ],
+  "outputs": [],
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}

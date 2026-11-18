@@ -1,0 +1,12 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "genome": "GRCh38",
+ "igenomes_ignore": true,
+ "input": "/RUN/samplesheet.csv",
+ "no_intervals": true,
+ "outdir": "/RUN",
+ "split_fastq": 50000,
+ "tools": "strelka,filtering",
+ "wes": true
+}

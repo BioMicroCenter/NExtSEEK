@@ -1,0 +1,115 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/oncoanalyser",
+  "applies_to_versions": ">=3.0,<3.1",
+  "accepts_parent_types": ["D.SEQ"],
+  "samplesheet_sample_column": "sample_id",
+  "claims_every_file": true,
+  "inventory_globs": ["**/multiqc_report.html"],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "logs/*",
+      "why": "Each process's .command.{sh,run,out,err,log}, published by oncoanalyser 3.0.0 under logs/<group_id>/ and logs/other/: run records, not results."
+    },
+    {
+      "glob": "multiqc_report.html",
+      "why": "The run's MultiQC report, published at the results root: the harvest links it to each D.SEQ as Link_QC itself; it is not a result to register."
+    },
+    {
+      "glob": "*/alignments/*",
+      "except_globs": ["*/alignments/*/*.redux.bam", "*/alignments/*/*.redux.bam.bai",
+                       "*/alignments/*/*.md.bam", "*/alignments/*/*.md.bam.bai"],
+      "why": "REDUX's per-sample model tables beside its BAM (base-quality recalibration, duplicate frequencies, microsatellite jitter and repeat tables, the MSI prediction, the BQR plot). oncoanalyser's redux_dir restart reads them from the run folder; A.ALN has one secondary slot, which holds the index, and no Notes."
+    },
+    {
+      "glob": "*/bamtools/*",
+      "why": "Bam Tools' per-sample coverage, fragment-length and flag-count tables. Their whole-genome coverage could fill A.ALN MedianCoverage and the 10x/30x shares, but no reader exists for bam_metric.summary.tsv yet (see the README, Outputs with no rule yet)."
+    },
+    {
+      "glob": "*/{amber,cobalt}/*",
+      "why": "AMBER's B-allele frequencies and COBALT's read-depth ratios of the tumour and normal: inputs PURPLE fits purity, ploidy and copy number from, made from the pair."
+    },
+    {
+      "glob": "*/{sage,sage_append,pave}/*",
+      "why": "SAGE's somatic and germline SNV/indel calls, their RNA-appended copies and PAVE's annotated copies. Each is made from the tumour and its normal (named after the tumour), so a row needs both as Parent, which no rule can express yet; sarek's map rules out its pair calls for the same reason."
+    },
+    {
+      "glob": "*/esvee/*",
+      "why": "ESVEE's structural-variant calls from the tumour/normal pair (pair-level, as SAGE's), its assembly tables and its read-preparation BAMs (intermediates)."
+    },
+    {
+      "glob": "*/purple/*",
+      "why": "PURPLE's purity, ploidy and copy-number fit, gene and segment copy number, driver catalogues and the final somatic and germline VCFs, plots and circos inputs: all made from the tumour/normal pair. A.CNV fits the copy number, but its row needs both samples as Parent (see the README, Outputs with no rule yet)."
+    },
+    {
+      "glob": "*/linx/*",
+      "why": "LINX's SV clustering, fusions, drivers and plots, from PURPLE's pair-level calls."
+    },
+    {
+      "glob": "*/lilac/*",
+      "why": "LILAC's HLA class I alleles and somatic HLA status, typed from the pair. A.HLA fits the alleles, but its row needs a reader for lilac.tsv's one-allele-per-row layout and both samples as Parent."
+    },
+    {
+      "glob": "*/{chord,sigs,cuppa,virusbreakend,virusinterpreter,teal,cider,neo,peach,isofox,qsee,orange}/*",
+      "why": "Homologous-recombination deficiency (CHORD), signature fits (Sigs), tissue of origin (CUPPA), viral integration (VIRUSBreakend, Virus Interpreter), telomere lengths (TEAL), IG/TCR CDR3 sequences (CIDER), neoepitopes (Neo), pharmacogenomic haplotypes (PEACH), RNA transcript abundance (Isofox), and the QSEE and ORANGE reports: no sample type holds any of them."
+    }
+  ],
+  "outputs": [
+    {
+      "id": "aln_dna",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": ["*/alignments/*/*.redux.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "*/alignments/*/*.redux.bam.bai"}
+      ],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@row_name",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "BWA-MEM2",
+        "Genome": "$params.genome",
+        "Software": "nf-core/oncoanalyser"
+      }
+    },
+    {
+      "id": "aln_rna",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": ["*/alignments/*/*.md.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "*/alignments/*/*.md.bam.bai"}
+      ],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@row_name",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "STAR",
+        "Genome": "$params.genome",
+        "Software": "nf-core/oncoanalyser"
+      }
+    }
+  ],
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}

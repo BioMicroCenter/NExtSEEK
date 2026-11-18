@@ -1,0 +1,10 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "gcnv_scatter_content": 2,
+ "genome": "GRCh38.chr21.testdata",
+ "input": "/RUN/samplesheet.csv",
+ "mutect2_intervals_num": 1,
+ "outdir": "/RUN",
+ "tools": "cnvkit"
+}
