@@ -989,6 +989,568 @@
           }
         }
       }
+    },
+    "variantbenchmarking": {
+      "params": {
+        "caller": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": [
+            "haplotypecaller",
+            "deepvariant",
+            "freebayes",
+            "strelka",
+            "manta",
+            "mutect2",
+            "tiddit",
+            "unknown"
+          ],
+          "on_absent": "use_default",
+          "default": "unknown",
+          "derive_from": {
+            "signal": "Software",
+            "map": {
+              "haplotypecaller": [
+                "haplotypecaller"
+              ],
+              "deepvariant": [
+                "deepvariant"
+              ],
+              "freebayes": [
+                "freebayes"
+              ],
+              "strelka": [
+                "strelka"
+              ],
+              "manta": [
+                "manta"
+              ],
+              "mutect2": [
+                "mutect2"
+              ],
+              "tiddit": [
+                "tiddit"
+              ]
+            }
+          },
+          "ask": {
+            "definition": "The variant caller that wrote each test VCF, lowercase with no spaces (assets/schema_input.json: caller ^\\S+$). The pipeline treats strelka and manta VCFs specially and names its summary rows after it; unknown is allowed.",
+            "on_conflict": "This VCF's Software names more than one variant caller. Which caller wrote it?",
+            "on_absent": "Nothing in this VCF's record names the caller that wrote it. Which caller was it? (unknown is allowed.)"
+          }
+        },
+        "variant_type": {
+          "target": "run_param",
+          "scope": "run",
+          "allowed": [
+            "small",
+            "structural"
+          ],
+          "derive_from": {
+            "signal": "Software",
+            "map": {
+              "small": [
+                "haplotypecaller",
+                "deepvariant",
+                "freebayes",
+                "strelka",
+                "mutect2"
+              ],
+              "structural": [
+                "manta",
+                "tiddit",
+                "delly",
+                "lumpy",
+                "gridss",
+                "smoove",
+                "structural variant"
+              ]
+            }
+          },
+          "ask": {
+            "definition": "Which kind of variants the run scores: small (SNVs and indels together, every sarek small-variant caller) or structural (manta, tiddit). One kind per run; the other kind's VCFs are left out or run separately.",
+            "on_conflict": "These VCFs come from both small-variant callers and structural-variant callers, and one run scores one kind. Which should this run score: the small variants (SNVs and indels) or the structural variants?",
+            "on_absent": "Nothing in these VCFs' records says whether they hold small variants (SNVs and indels) or structural variants. Which do they hold?"
+          }
+        },
+        "analysis": {
+          "target": "run_param",
+          "scope": "run",
+          "allowed": [
+            "germline",
+            "somatic"
+          ],
+          "derive_from": {
+            "signal": "Software",
+            "map": {
+              "germline": [
+                "germline",
+                "haplotypecaller",
+                "deepvariant"
+              ],
+              "somatic": [
+                "somatic",
+                "mutect2",
+                "muse"
+              ]
+            }
+          },
+          "ask": {
+            "definition": "germline scores one individual's calls against a germline truth set (GIAB); somatic scores tumour-versus-normal calls against a somatic truth set (SEQC2). It picks the tools: hap.py for germline, som.py for somatic.",
+            "on_conflict": "These VCFs' records name both germline and somatic callers, and one run is one or the other. Are these germline calls or somatic (tumour versus normal) calls?",
+            "on_absent": "Nothing in these VCFs' records says whether they are germline calls or somatic (tumour versus normal) calls. Which are they?"
+          }
+        },
+        "truth_id": {
+          "target": "run_param",
+          "scope": "run",
+          "allowed": [
+            "HG001",
+            "HG002",
+            "HG003",
+            "HG004",
+            "HG005",
+            "HG006",
+            "HG007"
+          ],
+          "derive_from": {
+            "signal": "Name",
+            "map": {
+              "HG001": [
+                "NA12878",
+                "GM12878",
+                "HG001"
+              ],
+              "HG002": [
+                "NA24385",
+                "GM24385",
+                "HG002"
+              ],
+              "HG003": [
+                "NA24149",
+                "GM24149",
+                "HG003"
+              ],
+              "HG004": [
+                "NA24143",
+                "GM24143",
+                "HG004"
+              ],
+              "HG005": [
+                "NA24631",
+                "GM24631",
+                "HG005"
+              ],
+              "HG006": [
+                "NA24694",
+                "GM24694",
+                "HG006"
+              ],
+              "HG007": [
+                "NA24695",
+                "GM24695",
+                "HG007"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Type",
+              "HG001_markers": [
+                "NA12878",
+                "GM12878",
+                "HG001"
+              ],
+              "HG002_markers": [
+                "NA24385",
+                "GM24385",
+                "HG002"
+              ],
+              "HG003_markers": [
+                "NA24149",
+                "GM24149",
+                "HG003"
+              ],
+              "HG004_markers": [
+                "NA24143",
+                "GM24143",
+                "HG004"
+              ],
+              "HG005_markers": [
+                "NA24631",
+                "GM24631",
+                "HG005"
+              ],
+              "HG006_markers": [
+                "NA24694",
+                "GM24694",
+                "HG006"
+              ],
+              "HG007_markers": [
+                "NA24695",
+                "GM24695",
+                "HG007"
+              ]
+            },
+            {
+              "signal": "__protocol_text__",
+              "HG001_markers": [
+                "NA12878",
+                "HG001"
+              ],
+              "HG002_markers": [
+                "NA24385",
+                "HG002"
+              ],
+              "HG003_markers": [
+                "NA24149",
+                "HG003"
+              ],
+              "HG004_markers": [
+                "NA24143",
+                "HG004"
+              ],
+              "HG005_markers": [
+                "NA24631",
+                "HG005"
+              ],
+              "HG006_markers": [
+                "NA24694",
+                "HG006"
+              ],
+              "HG007_markers": [
+                "NA24695",
+                "HG007"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "The Genome in a Bottle id of the truth sample, used to name every output and written over the truth VCF's sample column (HG001 is NA12878, HG002 is NA24385). It must name the individual whose truth VCF you give.",
+            "on_conflict": "These samples' records name more than one Genome in a Bottle individual (or the libraries differ). Which individual's truth set should the calls be scored against?",
+            "on_absent": "Nothing in these samples' records names a Genome in a Bottle individual (such as NA12878, which is HG001). Which truth sample is this, by the id you want in the outputs?"
+          }
+        },
+        "targets_bed": {
+          "target": "run_param",
+          "scope": "run",
+          "detect_only": true,
+          "detect": {
+            "signal": "LibraryStrategy",
+            "markers": [
+              "WXS",
+              "WES",
+              "exome",
+              "Targeted-Capture",
+              "Targeted Capture",
+              "capture",
+              "panel"
+            ]
+          },
+          "corroborate_with": [
+            {
+              "signal": "SequencingType",
+              "markers": [
+                "WES",
+                "exome",
+                "capture",
+                "panel"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "The capture kit's target-region BED as a path on the cluster, so exome or panel calls are scored only where the assay could call (hap.py/som.py -T). Whole-genome calls need none.",
+            "on_detect": "These calls come from exome or targeted-capture libraries. Which BED file of the kit's target regions should the score be restricted to? Give its path on the cluster."
+          }
+        }
+      }
+    },
+    "oncoanalyser": {
+      "params": {
+        "sample_type": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": [
+            "tumor",
+            "normal"
+          ],
+          "ambiguous_markers": [
+            "non-tumor",
+            "non-tumour",
+            "nontumor",
+            "nontumour",
+            "non-malignant",
+            "nonmalignant",
+            "non-cancer",
+            "noncancer",
+            "abnormal",
+            "adjacent",
+            "non-neoplastic",
+            "nonneoplastic",
+            "tumor-free",
+            "tumour-free",
+            "tumor free",
+            "tumour free",
+            "non tumor",
+            "non tumour"
+          ],
+          "derive_from": {
+            "signal": "Type",
+            "map": {
+              "tumor": [
+                "tumor",
+                "tumour",
+                "cancer",
+                "carcinoma",
+                "malignan",
+                "metasta",
+                "neoplas"
+              ],
+              "normal": [
+                "normal",
+                "healthy",
+                "germline",
+                "blood",
+                "pbmc",
+                "buffy"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "Name",
+              "tumor_markers": [
+                "tumor",
+                "tumour"
+              ],
+              "normal_markers": [
+                "normal",
+                "germline",
+                "blood"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether each sample is the tumour or the matched normal; oncoanalyser compares a patient's tumour with its normal, so a swap calls the normal's germline variants as somatic and the tumour's mutations as absent.",
+            "on_conflict": "The sample's metadata reads both ways about tumour vs normal: a field says something like \"non-tumour\" or \"adjacent\", or its tissue type and its own name disagree. I won't guess, which is it?",
+            "on_absent": "Nothing in these samples' metadata says tumour or normal. Which is the tumour and which the matched normal?"
+          }
+        }
+      }
+    },
+    "createpanelrefs": {
+      "params": {
+        "cnvkit_method": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "string",
+          "allowed": [
+            "wgs",
+            "hybrid",
+            "amplicon"
+          ],
+          "derive_from": {
+            "signal": "LibraryStrategy",
+            "map": {
+              "wgs": [
+                "WGS"
+              ],
+              "hybrid": [
+                "WXS",
+                "WES",
+                "Targeted-Capture",
+                "Targeted Capture"
+              ],
+              "amplicon": [
+                "AMPLICON"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "SequencingType",
+              "wgs_markers": [
+                "whole genome",
+                "whole-genome",
+                "WGS"
+              ],
+              "hybrid_markers": [
+                "exome",
+                "WES",
+                "WXS",
+                "capture"
+              ],
+              "amplicon_markers": [
+                "amplicon"
+              ]
+            },
+            {
+              "signal": "LibrarySelection",
+              "wgs_markers": [
+                "RANDOM"
+              ],
+              "hybrid_markers": [
+                "hybrid"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "How the normals were sequenced, which CNVkit's reference must match: wgs for whole genome, hybrid for exome or hybrid capture, amplicon for amplicon panels. hybrid and amplicon also need the kit's target BED.",
+            "on_conflict": "These normals' metadata disagree about whole genome versus capture (or the libraries differ). Which are they: whole genome, hybrid capture or amplicon?",
+            "on_absent": "Nothing in these normals' metadata says whether they are whole genome, hybrid capture (exome or panel) or amplicon. Which are they?"
+          }
+        },
+        "mutect2_target_bed": {
+          "target": "run_param",
+          "scope": "run",
+          "detect_only": true,
+          "detect": {
+            "signal": "LibraryStrategy",
+            "markers": [
+              "WXS",
+              "WES",
+              "exome",
+              "Targeted-Capture",
+              "Targeted Capture",
+              "capture",
+              "panel",
+              "AMPLICON"
+            ]
+          },
+          "corroborate_with": [
+            {
+              "signal": "SequencingType",
+              "markers": [
+                "WES",
+                "exome",
+                "capture",
+                "panel",
+                "amplicon"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "The capture kit's target BED, as a path on the cluster. Mutect2 then calls each normal only inside it, as the panel's tumours will be.",
+            "on_detect": "These look like exome or targeted-capture normals. Which BED file of the kit's target regions should the panel of normals use? Give its path on the cluster."
+          }
+        }
+      }
+    },
+    "rnadnavar": {
+      "params": {
+        "read_length": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "integer",
+          "on_absent": "use_default",
+          "default": "76",
+          "range": [
+            20,
+            1000
+          ],
+          "abstain_when": {
+            "signal": "LibrarySource",
+            "markers": [
+              "GENOMIC"
+            ]
+          },
+          "derive_from": {
+            "signal": "F_bp",
+            "number": "exact"
+          },
+          "corroborate_with": [
+            {
+              "signal": "R_bp",
+              "number": "exact"
+            }
+          ],
+          "ask": {
+            "definition": "The RNA reads' length; STAR builds its index and aligns with read_length - 1 as the splice-junction overhang (conf/modules/alignment/bam_align.config: --sjdbOverhang ${params.read_length - 1}), so it must match the RNA reads (2x101 reads: 101). DNA libraries have no say.",
+            "on_conflict": "The forward and reverse read lengths recorded for these RNA libraries differ, or differ between libraries. Which read length should STAR use?",
+            "on_absent": "not used: with no recorded read length rnadnavar keeps its default of 76"
+          }
+        },
+        "wes": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "boolean",
+          "allowed": [
+            "true",
+            "false"
+          ],
+          "abstain_when": {
+            "signal": "LibrarySource",
+            "markers": [
+              "TRANSCRIPTOMIC"
+            ]
+          },
+          "derive_from": {
+            "signal": "LibraryStrategy",
+            "map": {
+              "true": [
+                "WXS",
+                "WES",
+                "exome",
+                "Targeted-Capture",
+                "Targeted Capture"
+              ],
+              "false": [
+                "WGS"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "SequencingType",
+              "true_markers": [
+                "WES",
+                "exome",
+                "capture",
+                "panel"
+              ],
+              "false_markers": [
+                "whole genome",
+                "WGS"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "Whether the DNA libraries are exome or targeted capture (true) or whole genome (false). It sets Strelka2's and Mutect2's exome settings and goes with intervals; the RNA libraries do not decide it.",
+            "on_conflict": "These DNA libraries' metadata reads both ways about exome versus whole genome, or the libraries differ. Which are they?",
+            "on_absent": "Nothing in these DNA libraries' metadata says whether they are whole genome or exome/targeted capture. Which are they?"
+          }
+        },
+        "intervals": {
+          "target": "run_param",
+          "scope": "run",
+          "detect_only": true,
+          "detect": {
+            "signal": "LibraryStrategy",
+            "markers": [
+              "WXS",
+              "WES",
+              "exome",
+              "Targeted-Capture",
+              "Targeted Capture",
+              "panel"
+            ]
+          },
+          "corroborate_with": [
+            {
+              "signal": "SequencingType",
+              "markers": [
+                "WES",
+                "exome",
+                "capture",
+                "panel"
+              ]
+            }
+          ],
+          "ask": {
+            "definition": "The capture kit's target-region BED, as a path on the cluster. rnadnavar runs base recalibration and calling only inside it (the RNA tumour's calls too); set wes=true with it.",
+            "on_detect": "These DNA libraries look like exome or targeted capture. Which BED file of the kit's target regions should rnadnavar use? Give its path on the cluster."
+          }
+        }
+      }
     }
   }
 }
