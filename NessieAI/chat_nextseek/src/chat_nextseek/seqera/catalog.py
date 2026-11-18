@@ -233,6 +233,153 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "Every row needs the library's fgbio read structure, which says where the UMI sits."
         ),
     },
+    "variantbenchmarking": {
+        "repo": "https://github.com/nf-core/variantbenchmarking",
+        "default_revision": "1.6.1",
+        "description": "Scores existing variant calls against a truth set (GIAB, SEQC2): precision, recall and F1 per caller.",
+        "common_assays": ["variant benchmarking", "truth set", "Genome in a Bottle", "GIAB", "NA12878",
+                          "HG001", "precision recall", "hap.py", "vcfeval"],
+        # Its runs use the GATK GRCh38 bundle sarek calls on, so the test VCFs' contigs match the
+        # FASTA (run_script.LURIA_PIPELINE_LAUNCH genome_alias, as for sarek).
+        "default_genome": "GATK.GRCh38",
+        "default_profile": "singularity",
+        # 1.6.1 nextflow_schema.json declares genome and fasta (and requires fai, passed as a
+        # resource param), and no gtf.
+        "reference_cli_flags": ["genome", "fasta"],
+        # assets/schema_input.json at 1.6.1 requires id and caller, and test_vcf or test_regions
+        # (anyOf dependentRequired); id is unique (uniqueEntries). docs/usage.md: the first three
+        # columns are id,test_vcf,caller (emitter PIPELINE_HEADER_PREFIX writes test_vcf second).
+        # This catalog supports test_vcf (A.VCF) only.
+        "required_columns": ["id", "caller"],
+        "samplesheet_input_kind": "vcf",
+        "accepted_leaf_sample_types": ["A.VCF"],
+        "accepted_assay_patterns": [
+            r"variant call",
+            r"\bVCF\b",
+            r"benchmark",
+        ],
+        "pipeline_kind_description": (
+            "Benchmarks variant calls that already exist (A.VCF records, e.g. from sarek) against a "
+            "truth set such as Genome in a Bottle HG001 for NA12878: precision, recall and F1 per "
+            "caller and variant class. Calls nothing itself; the truth VCF and its confident-regions "
+            "BED are paths the user gives, since none is staged."
+        ),
+    },
+    "oncoanalyser": {
+        "repo": "https://github.com/nf-core/oncoanalyser",
+        "default_revision": "3.0.0",
+        "description": "Whole cancer-genome analysis of WGS tumour/normal pairs (Hartwig WiGiTS): somatic SNVs, indels, SVs, copy number, purity and ploidy, drivers, HLA, signatures, HRD, tissue of origin and a report.",
+        "common_assays": ["WGS", "tumour/normal", "tumor/normal", "cancer genome", "somatic", "purity", "ploidy"],
+        # oncoanalyser's own key for the Hartwig GRCh38 bundle (lib/Constants.groovy
+        # GENOMES_SUPPORTED: GRCh37_hmf, GRCh38_hmf); the launcher maps the species-resolved
+        # GRCh38 to it (run_script.LURIA_PIPELINE_LAUNCH genome_alias).
+        "default_genome": "GRCh38_hmf",
+        "default_profile": "singularity",
+        # 3.0.0 declares genome but no fasta or gtf (nextflow_schema.json): its genome files are
+        # ref_data_genome_{fasta,fai,dict,img,bwamem2_index,gridss_index} and the WiGiTS bundle
+        # ref_data_hmf_data_path, all defaulting to data.oncoanalyser.com URLs (conf/hmf_genomes.config,
+        # nextflow.config ref_data_base). The launcher passes local copies (resource_params);
+        # configure_run refuses the run while no GRCh38_hmf bundle is registered.
+        "reference_cli_flags": ["genome"],
+        # assets/schema_input.json at 3.0.0 requires these seven. info is optional there, but
+        # lib/Utils.groovy parseInput requires library_id and lane in it on every FASTQ row,
+        # and filepath holds "<R1>;<R2>" (exactly two paths). Long format: one row per FASTQ pair.
+        "required_columns": ["group_id", "subject_id", "sample_id", "sample_type", "sequence_type",
+                             "filetype", "filepath"],
+        # The reads are resolved as FASTQ; the emitter writes them in oncoanalyser's long format
+        # (seqera/emitter.py _oncoanalyser_rows). GDC/TCGA BAMs are not accepted: usage.md
+        # "Sequencing technologies" requires alignments to the bundled genome with soft-clipped
+        # supplementary reads and mate CIGARs.
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Whole genome only: exome or panel data in wgts mode mis-fits copy number and purity,
+        # and targeted mode needs a panel's resources (only TSO500 on GRCh37 is built in).
+        "accepted_assay_patterns": [
+            r"^WGS$",
+            r"^DNA[-_ ]?seq$",
+            r"whole[-_ ]?genome",
+            r"\bsomatic\b",
+        ],
+        "pipeline_kind_description": (
+            "Whole cancer-genome analysis of a whole-genome tumour and its matched normal with the "
+            "Hartwig WiGiTS tools: somatic SNVs, indels and SVs, copy number with purity and ploidy, "
+            "drivers, HLA, signatures, HRD, tissue of origin and an ORANGE report. Human only, FASTQ "
+            "only here; its GRCh38_hmf reference bundle is not staged on the cluster yet."
+        ),
+    },
+    "createpanelrefs": {
+        "repo": "https://github.com/nf-core/createpanelrefs",
+        "default_revision": "1.1.0",
+        "description": "Panels of normals from many normal alignments: a GATK Mutect2 somatic panel of normals and a CNVkit copy-number reference.",
+        "common_assays": ["panel of normals", "PoN", "normal", "WGS", "WES", "exome"],
+        # sarek's key for the GATK GRCh38 bundle, whose fasta, fai and dict are staged
+        # (run_script.LURIA_GENOME_RESOURCES); 1.1.0's conf/igenomes.config names the same key.
+        # A panel meant for sarek's Mutect2 must be built on sarek's reference.
+        "default_genome": "GATK.GRCh38",
+        "default_profile": "singularity",
+        # 1.1.0 declares genome, fasta, fai and dict, and no gtf (nextflow_schema.json).
+        "reference_cli_flags": ["genome", "fasta"],
+        # assets/schema_input.json at 1.1.0: sample required, oneOf bam or cram, no
+        # additionalProperties: false. The bam branch's mapped/index/file_type become bam/bai or
+        # cram/crai by the row's file_type (seqera/emitter.py _createpanelrefs_rows).
+        "required_columns": ["sample"],
+        # Alignments in, like pacvar: D.SEQ leaves whose registered data file is a BAM or CRAM
+        # (TCGA's GDC normals). A FASTQ-only cohort must be aligned first.
+        "samplesheet_input_kind": "bam",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^WGS$",
+            r"^WES$",
+            r"^WXS$",
+            r"\bexome\b",
+            r"^DNA[-_ ]?seq$",
+            r"panel of normals",
+        ],
+        "pipeline_kind_description": (
+            "Builds reference panels from many normal (non-tumour) DNA alignments, BAM or CRAM: a "
+            "Mutect2 somatic panel of normals for later somatic calling and a CNVkit pooled "
+            "copy-number reference. Calls nothing for any one sample. The FASTA must be the one the "
+            "alignments were made against."
+        ),
+    },
+    "rnadnavar": {
+        "repo": "https://github.com/nf-core/rnadnavar",
+        "default_revision": "1.0.0",
+        "description": "Somatic SNVs and indels from tumour RNA-seq together with the same patient's normal DNA (and tumour DNA).",
+        "common_assays": ["RNA-seq", "WXS", "WES", "WGS", "somatic mutation", "tumour/normal", "tumor/normal"],
+        # Runs on the GATK GRCh38 bundle (refs/GATK.GRCh38), as sarek does: dbSNP, known
+        # indels, gnomAD and the PoN share its contigs. rnadnavar 1.0.0's own conf/igenomes.config
+        # has no GATK.GRCh38 key, so the run needs igenomes_ignore (main.nf genomeExistsError via
+        # utils_nfcore_rnadnavar_pipeline); with it the key is only a label.
+        "default_genome": "GATK.GRCh38",
+        "default_profile": "singularity",
+        # 1.0.0 declares genome, fasta and gtf; STAR_GENOMEGENERATE needs the GTF
+        # (subworkflows/local/prepare_genome/main.nf), and the GATK bundle has none.
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
+        # assets/schema_input.json requires patient+sample only, but samplesheet_to_channel
+        # (subworkflows/local/samplesheet_to_channel/main.nf) takes a FASTQ row only with lane
+        # and fastq_2, a BAM row only with lane, and status is written on every row because the
+        # schema's default (1) and docs/usage.md's (0) disagree: emitter._rnadnavar_rows writes
+        # status and lane on every row.
+        "required_columns": ["patient", "sample"],
+        # NEW input kind (emitter_needs): FASTQ pairs when the D.SEQ has local FASTQs, else
+        # its BAM (+ .bai) under columns bam/bai; usage.md "Starting from different steps": mapping.
+        "samplesheet_input_kind": "fastq_or_bam",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"\bsomatic\b",
+            r"tumou?r[-_ /]?normal",
+            r"\bRNA\b.*\bDNA\b|\bDNA\b.*\bRNA\b",
+        ],
+        "pipeline_kind_description": (
+            "Somatic mutations of one patient's tumour from its RNA-seq and DNA, each tumour "
+            "(DNA status 1, RNA status 2) called against the patient's normal DNA (status 0) "
+            "with Strelka2 and Mutect2, then normalised, merged into a consensus MAF and filtered, "
+            "with RNA-specific filters on the RNA tumour. Needs a DNA normal per patient; an RNA "
+            "library from normal tissue cannot be used. Annotation, SAGE and the HISAT2 "
+            "realignment pass are off: their resources are not staged."
+        ),
+    },
     "ampliseq": {
         "repo": "https://github.com/nf-core/ampliseq",
         "default_revision": "2.10.0",

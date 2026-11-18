@@ -1,0 +1,80 @@
+{
+  "report_type": "NFCORE_CREATEPANELREFS_SAMPLESHEET",
+  "description": "nf-core/createpanelrefs samplesheet context, aligned to the pinned 1.1.0 schema. Builds panels of normals from many normal alignments: a GATK Mutect2 panel of normals and a CNVkit copy-number reference.",
+  "params": {
+    "tools":                 {"type": "string", "default": "mutect2", "steerable": true,
+                              "help": "comma list of panels to build: mutect2 (a Mutect2 somatic panel of normals, for sarek's pon) and cnvkit (a CNVkit pooled reference). Not offered: germlinecnvcaller (needs gcnv_ploidy_priors, a contig-ploidy priors table that is not staged) and gens (a reference for the GENS viewer, which NExtSEEK does not use)."},
+    "mutect2_target_bed":    {"type": "string", "default": null, "steerable": true,
+                              "help": "exome or capture only: the kit's target BED as a path on the cluster; Mutect2 calls each normal only inside it. Unset on whole-genome normals."},
+    "mutect2_intervals_num": {"type": "int", "default": 20, "steerable": true,
+                              "help": "how many interval chunks Mutect2 and GenomicsDBImport are scattered over."},
+    "mutect2_pon_name":      {"type": "string", "default": "mutect2", "steerable": true,
+                              "help": "file name stem of the panel of normals VCF (gatk4/createsomaticpanelofnormals/<name>.vcf.gz)."},
+    "cnvkit_method":         {"type": "enum", "allowed": ["wgs", "hybrid", "amplicon"], "default": "wgs", "steerable": true,
+                              "help": "wgs for whole-genome normals, hybrid for exome or hybrid capture, amplicon for amplicon panels; hybrid and amplicon need cnvkit_targets. Must match how the tumours to be compared were sequenced."},
+    "cnvkit_targets":        {"type": "string", "default": null, "steerable": true,
+                              "help": "with cnvkit_method hybrid or amplicon: the kit's target BED as a path on the cluster."},
+    "cnvkit_pon_name":       {"type": "string", "default": "cnvkit", "steerable": true,
+                              "help": "file name stem of the CNVkit reference (cnvkit/<name>.cnn)."},
+    "multiqc_title":         {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/createpanelrefs",
+    "repository": "https://github.com/nf-core/createpanelrefs",
+    "documentation_url": "https://nf-co.re/createpanelrefs/1.1.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "One row per normal sample: sample, then bam and bai for a BAM, or cram and crai for a CRAM. Every row is a normal: the pipeline treats every sample as one of the panel. The index columns may be blank (the pipeline indexes a file without one).",
+    "required_columns": ["sample"],
+    "optional_columns": ["bam", "bai", "cram", "crai"],
+    "reference_requirement": "The FASTA the alignments were made against, with its .fai and .dict. Mutect2 refuses reads whose contigs do not match the reference."
+  },
+  "samplesheet_template": [{"sample": null, "bam": null, "bai": null}],
+  "examples": {
+    "bam_row": {"sample": "D.SEQ-260711ENG-13-PUB", "bam": "/net/bmc-pub10/data1/bmc/bam/normal.bam", "bai": "/net/bmc-pub10/data1/bmc/bam/normal.bam.bai"}
+  },
+  "validation_rules": [
+    "The file is CSV with header sample,bam,bai for BAM normals, sample,cram,crai for CRAM normals, or sample,bam,bai,cram,crai when the cohort mixes them (each row then leaves the other pair blank).",
+    "Each row needs exactly one of bam (ending .bam) or cram (ending .cram) (assets/schema_input.json oneOf); the file must exist when the run starts.",
+    "Only normal samples (blood or normal tissue): a tumour in the panel removes its own somatic mutations from every later call. Leave tumours out, and ask when a sample's normal status is unclear.",
+    "Every alignment must be against one reference, and the run's FASTA must be that reference: GDC/TCGA BAMs are aligned to GDC's GRCh38.d1.vd1, which is not the staged GATK GRCh38 bundle.",
+    "A panel of normals is meant for tumours sequenced the same way: whole-genome normals for whole-genome tumours, the same capture kit (mutect2_target_bed, cnvkit_targets) for exomes.",
+    "Do not request germlinecnvcaller (its ploidy priors are not staged) or gens."
+  ],
+  "notes": "Input is alignments (samplesheet_input_kind bam): D.SEQ leaves whose registered data file is a BAM or CRAM on the cluster. A FASTQ cohort must be aligned first. Mutect2's per-normal calls run in tumour-only mode. The Mutect2 PoN mirrors GATK's: no germline resource is passed (1.1.0 declares none).",
+  "sources": [
+    {"label": "nf-core/createpanelrefs usage docs @ 1.1.0", "url": "https://nf-co.re/createpanelrefs/1.1.0/docs/usage/", "notes": "Samplesheet columns and the mandatory and optional params of each tool."},
+    {"label": "nf-core/createpanelrefs nextflow_schema.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/createpanelrefs/1.1.0/nextflow_schema.json", "notes": "Authoritative param names; tools is required, pattern (cnvkit|germlinecnvcaller|gens|mutect2) comma list."},
+    {"label": "nf-core/createpanelrefs assets/schema_input.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/createpanelrefs/1.1.0/assets/schema_input.json", "notes": "sample required, oneOf bam or cram; no additionalProperties: false."},
+    {"label": "nf-core/createpanelrefs tests/csv/1.0.0/bam_cram.csv @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/createpanelrefs/1.1.0/tests/csv/1.0.0/bam_cram.csv", "notes": "A passing test sheet that mixes BAM and CRAM rows with blank cells in the unused column."}
+  ],
+  "schema": {"sections": {"samplesheet_columns": {
+    "description": "Column-level field dictionary for the nf-core/createpanelrefs input samplesheet.",
+    "fields": {
+      "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample id (no spaces).", "validation_hints": "The NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-13-PUB"},
+      "bam": {"required": "one of bam or cram", "position_rule": "Column 2", "expected_value": "path string", "allowed_values": ".bam", "description": "The normal's BAM.", "validation_hints": "Absolute cluster path from the sample's Link_PrimaryData / File_PrimaryData.", "example": "/net/bmc-pub10/data1/bmc/bam/normal.bam"},
+      "bai": {"required": "optional", "position_rule": "Column 3", "expected_value": "path string", "allowed_values": ".bai", "description": "Its index.", "validation_hints": "Blank when none is registered; the pipeline indexes it.", "example": "/net/bmc-pub10/data1/bmc/bam/normal.bam.bai"},
+      "cram": {"required": "one of bam or cram", "position_rule": "Column 2 or 4", "expected_value": "path string", "allowed_values": ".cram", "description": "The normal's CRAM.", "validation_hints": "Only for CRAM rows; its reference must be the run's FASTA.", "example": ""},
+      "crai": {"required": "optional", "position_rule": "Column 3 or 5", "expected_value": "path string", "allowed_values": ".crai", "description": "Its index.", "validation_hints": "Blank when none is registered.", "example": ""}
+    }}}},
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/createpanelrefs samplesheet from a resolved NExtSEEK D.SEQ cohort of normal-sample alignments.",
+    "workflow_role": "Selected to build a panel of normals (Mutect2, CNVkit) from many normals. For variant calls of these samples use sarek; it can later use the Mutect2 panel.",
+    "output_expectation": "CSV with header sample,bam,bai (or the CRAM form).",
+    "population_priority": [
+      "One row per normal D.SEQ; sample = the D.SEQ UID; bam/bai (or cram/crai) from its registered data file.",
+      "Leave out any tumour; ask when a sample's normal status is unclear.",
+      "Name the reference the alignments were made against; say so when it is not the staged bundle."
+    ],
+    "final_checks": [
+      "Every row has exactly one of bam or cram, ending in .bam or .cram.",
+      "No tumour sample is in the sheet.",
+      "For capture normals, mutect2_target_bed (and cnvkit_targets with cnvkit_method hybrid) name the kit's BED."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node; not measured. Mutect2 runs once per normal, then one GenomicsDBImport and CreateSomaticPanelOfNormals over all of them.",
+    "setup_minutes": [0, 0], "setup_label": "",
+    "base_minutes": [30, 90], "per_sample_minutes": [60, 240]
+  }
+}

@@ -45,6 +45,8 @@ PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "pathogensurveillance": {"sample": "sample_id", "fastq_1": "path", "fastq_2": "path_2"},
     # cutandrun names a sample's group `group`; replicates of one group share it.
     "cutandrun": {"sample": "group"},
+    # variantbenchmarking 1.6.1 names each test VCF's row `id` (assets/schema_input.json).
+    "variantbenchmarking": {"sample": "id"},
 }
 
 
@@ -239,6 +241,9 @@ PIPELINE_HEADER_PREFIX: dict[str, dict[str, Any]] = {
     # every row to have exactly five fields, so no other column is written.
     "cutandrun": {"columns": ["group", "replicate", "fastq_1", "fastq_2", "control"],
                   "if_used": [], "exact": True},
+    # variantbenchmarking 1.6.1 docs/usage.md: "there is a strict requirement for the first 3
+    # columns to match" id,test_vcf,caller.
+    "variantbenchmarking": {"columns": ["id", "test_vcf", "caller"], "if_used": []},
 }
 
 
@@ -494,6 +499,136 @@ def _alignment_from_meta(meta: Mapping[str, Any]) -> tuple[str, str, str]:
     wanted_index = (".crai",) if file_type == "cram" else (".bai",)
     index = next(iter(_paths_with_ext(meta, wanted_index)), "")
     return mapped, file_type, index
+
+
+#: A called VCF or BCF (variantbenchmarking 1.6.1 assets/schema_input.json test_vcf pattern), and the
+#: gVCF names sarek gives its reference-block files, which are not calls.
+_VCF_EXTS = (".vcf", ".vcf.gz", ".bcf", ".bcf.gz")
+_GVCF_EXTS = (".g.vcf", ".g.vcf.gz", ".gvcf", ".gvcf.gz")
+#: The fields that name an A.VCF record's OWN file. Its File_SecondaryData holds the gVCF and the
+#: .tbi index (sarek.outputs.json companions), and the flattened lineage carries the parent's files.
+_VCF_PRIMARY_FIELDS = ("File_PrimaryData", "Link_PrimaryData")
+
+
+def _vcf_from_meta(meta: Mapping[str, Any]) -> str:
+    """The A.VCF record's own called VCF path ('' when it names none): a value of File_PrimaryData or
+    Link_PrimaryData with a '/' and a VCF/BCF extension, never a gVCF; local paths first."""
+    found: list[str] = []
+    for key in _VCF_PRIMARY_FIELDS:
+        for part in str((meta or {}).get(key) or "").split(";"):
+            p = part.strip()
+            low = p.lower()
+            if "/" in p and low.endswith(_VCF_EXTS) and not low.endswith(_GVCF_EXTS):
+                found.append(p)
+    return sorted(found, key=lambda p: 0 if p.startswith("/") else 1)[0] if found else ""
+
+
+#: nf-core/oncoanalyser 3.0.0 long-format FASTQ row (usage.md "FASTQ"; lib/Utils.groovy parseInput).
+ONCOANALYSER_COLUMNS = ("group_id", "subject_id", "sample_id", "sample_type", "sequence_type",
+                        "filetype", "info", "filepath")
+_LANE_TOKEN = re.compile(r"_L(\d{3})_", re.I)
+
+
+def _oncoanalyser_rows(rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Standard-name rows (sample, fastq_1, fastq_2, group_id or patient, sample_type, optional lane
+    and library_id) as oncoanalyser's long-format rows, one per FASTQ pair, and their header.
+
+    library_id is the D.SEQ UID unless the row gives one; lane is the row's, else the L00N token of
+    read 1's file name, else 001, 002 ... in row order within the sample, so library_id + lane never
+    repeat inside a sample (Utils.groovy refuses a repeat). subject_id is group_id."""
+    used: dict[str, set[str]] = {}
+    out = []
+    for row in rows:
+        sample = str(row.get("sample") or row.get("sample_id") or "")
+        group = str(row.get("group_id") or row.get("patient") or "")
+        r1, r2 = str(row.get("fastq_1") or ""), str(row.get("fastq_2") or "")
+        lane = str(row.get("lane") or "").strip()
+        lane = lane[1:] if lane[:1] in ("L", "l") and lane[1:].isdigit() else lane
+        if not lane:
+            hit = _LANE_TOKEN.search(r1.rsplit("/", 1)[-1])
+            lane = hit.group(1) if hit else ""
+        taken = used.setdefault(sample, set())
+        if not lane or lane in taken:
+            n = 1
+            while f"{n:03d}" in taken:
+                n += 1
+            lane = f"{n:03d}"
+        taken.add(lane)
+        out.append({
+            "group_id": group,
+            "subject_id": str(row.get("subject_id") or group),
+            "sample_id": sample,
+            "sample_type": str(row.get("sample_type") or "").strip().lower(),
+            "sequence_type": "dna",
+            "filetype": "fastq",
+            "info": f"library_id:{row.get('library_id') or sample};lane:{lane}",
+            "filepath": f"{r1};{r2}" if r1 and r2 else r1,
+        })
+    return out, list(ONCOANALYSER_COLUMNS)
+
+
+#: nf-core/createpanelrefs 1.1.0 columns (assets/schema_input.json), in header order.
+CREATEPANELREFS_COLUMNS = ("sample", "bam", "bai", "cram", "crai")
+
+
+def _createpanelrefs_rows(rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """The bam branch's rows (sample, mapped, file_type, index) as createpanelrefs rows: bam/bai for a
+    BAM and cram/crai for a CRAM (schema_input.json oneOf bam | cram), and the header those rows use.
+    file_type decides the pair and is not written. A cohort mixing BAM and CRAM gets all five columns,
+    the other pair blank on each row, as the release's own tests/csv/1.0.0/bam_cram.csv does."""
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        mapped = str(row.get("mapped") or "")
+        kind = str(row.get("file_type") or "").lower() or ("cram" if mapped.lower().endswith(".cram") else "bam")
+        data, index = ("cram", "crai") if kind == "cram" else ("bam", "bai")
+        new = {"sample": str(row.get("sample") or ""), data: mapped}
+        if row.get("index"):
+            new[index] = str(row["index"])
+        out.append(new)
+    header = [c for c in CREATEPANELREFS_COLUMNS if c == "sample" or any(r.get(c) for r in out)]
+    if len(header) == 1:
+        header.append("bam")   # no row resolved a file: keep the column so the gap is visible
+    return out, header
+
+
+#: nf-core/rnadnavar 1.0.0: patient,status,sample,lane then fastq_1,fastq_2 (assets/samplesheet.csv)
+#: or bam,bai (docs/usage.md "Starting from different steps", mapping).
+RNADNAVAR_HEAD = ("patient", "status", "sample", "lane")
+
+
+def _rnadnavar_rows(rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Rows of the fastq_or_bam branch with rnadnavar's lane on every row (samplesheet_to_channel
+    takes a row only with a lane): the row's own, else 1, 2, 3 within each sample. Header: the four
+    leading columns, then the FASTQ pair and/or the BAM pair that any row uses."""
+    used: dict[str, set[str]] = {}
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        new = {c: ("" if row.get(c) is None else str(row.get(c))) for c in RNADNAVAR_HEAD}
+        taken = used.setdefault(new["sample"], set())
+        if not new["lane"] or new["lane"] in taken:
+            n = 1
+            while str(n) in taken:
+                n += 1
+            new["lane"] = str(n)
+        taken.add(new["lane"])
+        for c in ("fastq_1", "fastq_2", "bam", "bai"):
+            if row.get(c):
+                new[c] = str(row[c])
+        out.append(new)
+    header = list(RNADNAVAR_HEAD)
+    if any(r.get("fastq_1") for r in out) or not any(r.get("bam") for r in out):
+        header += ["fastq_1", "fastq_2"]
+    if any(r.get("bam") for r in out):
+        header += ["bam", "bai"]
+    return out, header
+
+
+#: Pipelines whose samplesheet is rebuilt from the whole cohort's rows, with its own exact header.
+PIPELINE_ROW_TRANSFORMS = {
+    "oncoanalyser": _oncoanalyser_rows,
+    "createpanelrefs": _createpanelrefs_rows,
+    "rnadnavar": _rnadnavar_rows,
+}
 
 
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> None:
@@ -882,6 +1017,11 @@ def emit_nfcore_artifacts(
     # a different resolver, and no ENA/fetchngs fallback — you cannot download a
     # FASTQ to stand in for the BAM you were asked to convert.
     is_alignment_input = entry.get("samplesheet_input_kind") == "bam"
+    # "vcf" pipelines (variantbenchmarking) take an A.VCF record's own called VCF: no FASTQ, no
+    # fetch fallback. "fastq_or_bam" (rnadnavar) takes local FASTQs when the leaf has them, else its
+    # BAM, which the pipeline converts back to reads and aligns again.
+    is_vcf_input = entry.get("samplesheet_input_kind") == "vcf"
+    is_fastq_or_bam = entry.get("samplesheet_input_kind") == "fastq_or_bam"
 
     # Build a deterministic accession → ENA URL map. Run accessions are 1:1.
     # For experiment/study/biosample/biosample-prefixed accessions that resolve
@@ -933,6 +1073,37 @@ def emit_nfcore_artifacts(
             cohort_rows.append(dict(rewritten))
             keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
             continue
+        if is_vcf_input:
+            rewritten = dict(row)
+            rewritten.pop("fastq_1", None)
+            rewritten.pop("fastq_2", None)
+            rewritten["test_vcf"] = str(rewritten.get("test_vcf") or "") or _vcf_from_meta(sample_meta)
+            for field in enrichment:
+                value = sample_meta.get(field)
+                rewritten[field] = "" if value is None else value
+            cohort_rows.append(dict(rewritten))
+            keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+            continue
+        if is_fastq_or_bam:
+            rewritten = dict(row)
+            r1 = str(rewritten.get("fastq_1") or "") or _fastq_from_meta(sample_meta, "primary")
+            if r1:
+                rewritten["fastq_1"] = r1
+                rewritten["fastq_2"] = str(rewritten.get("fastq_2") or "") or _fastq_from_meta(sample_meta, "secondary")
+            else:
+                rewritten.pop("fastq_1", None)
+                rewritten.pop("fastq_2", None)
+                mapped, file_type, index = _alignment_from_meta(sample_meta)
+                if file_type != "cram":   # CRAM needs its own reference to decode: not offered
+                    rewritten["bam"] = str(rewritten.get("bam") or "") or mapped
+                    if index or rewritten.get("bai"):
+                        rewritten["bai"] = str(rewritten.get("bai") or "") or index
+            for field in enrichment:
+                value = sample_meta.get(field)
+                rewritten[field] = "" if value is None else value
+            cohort_rows.append(dict(rewritten))
+            keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+            continue
         runs = acc_to_runs.get(acc_str) if acc_str else None
         if runs:
             # Legacy ENA fan-out — dormant on the Luria path (resolutions=[] -> acc_to_runs empty),
@@ -975,8 +1146,12 @@ def emit_nfcore_artifacts(
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
-    columns = _positional_columns(pipeline, keep_rows,
-                                  _ensure_columns(keep_rows, required, enrichment))
+    transform = PIPELINE_ROW_TRANSFORMS.get(pipeline)
+    if transform:
+        keep_rows, columns = transform(keep_rows)
+    else:
+        columns = _positional_columns(pipeline, keep_rows,
+                                      _ensure_columns(keep_rows, required, enrichment))
     samplesheet_path = out_path / "samplesheet.csv"
     _write_csv(samplesheet_path, keep_rows, columns)
     # cohort.json sidecar: the only surviving record of which D.SEQ sample each

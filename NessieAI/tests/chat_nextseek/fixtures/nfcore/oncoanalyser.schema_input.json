@@ -1,0 +1,63 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/nf-core/oncoanalyser/master/assets/schema_input.json",
+    "title": "nf-core/oncoanalyser pipeline - params.input schema",
+    "description": "Schema for the file provided with params.input",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "group_id": {
+                "type": "string",
+                "description": "Groups sample_id entries into the sample analysis",
+                "pattern": "^\\S+$",
+                "errorMessage": "group_id must be provided and cannot contain spaces"
+            },
+            "subject_id": {
+                "type": "string",
+                "description": "Subject/patient identifier, used internally to perform sanity check when processing multiple groups",
+                "pattern": "^\\S+$",
+                "errorMessage": "subject_id must be provided and cannot contain spaces"
+            },
+            "sample_id": {
+                "type": "string",
+                "description": "Sample identifier",
+                "pattern": "^\\S+$",
+                "errorMessage": "sample_id must be provided and cannot contain spaces"
+            },
+            "sample_type": {
+                "type": "string",
+                "description": "Sample type",
+                "pattern": "^\\S+$",
+                "enum": ["normal", "tumor", "donor", "tumor_normal"],
+                "errorMessage": "sample_type must be provided and cannot contain spaces"
+            },
+            "sequence_type": {
+                "type": "string",
+                "description": "Sequence type",
+                "pattern": "^\\S+$",
+                "enum": ["dna", "rna", "dna_rna"],
+                "errorMessage": "sequence_type must be provided and cannot contain spaces"
+            },
+            "info": {
+                "type": "string",
+                "description": "Additional sample information",
+                "pattern": "^\\S+$",
+                "errorMessage": "info cannot contain spaces"
+            },
+            "filetype": {
+                "type": "string",
+                "description": "Type of provided file",
+                "pattern": "^\\S+$",
+                "errorMessage": "filetype must be provided and cannot contain spaces"
+            },
+            "filepath": {
+                "type": "string",
+                "description": "Path to file",
+                "pattern": "^\\S+$",
+                "errorMessage": "filepath must be provided and cannot contain spaces"
+            }
+        },
+        "required": ["group_id", "subject_id", "sample_id", "sample_type", "sequence_type", "filetype", "filepath"]
+    }
+}

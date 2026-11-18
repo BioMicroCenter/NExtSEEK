@@ -211,6 +211,9 @@ LURIA_GENOME_RESOURCES: dict[str, dict[str, str]] = {
         "pon_tbi": "GATK.GRCh38/1000g_pon.hg38.vcf.gz.tbi",
         "wgs_intervals": "GATK.GRCh38/wgs_calling_regions_noseconds.hg38.bed",
         "bwa": "GATK.GRCh38/BWAIndex/",
+        # The GRCh38 bundle's GENCODE annotation (LURIA_GENOMES["GRCh38"]["gtf"]), chr-named as the
+        # GATK FASTA is. Only rnadnavar takes it: STAR builds its index from the FASTA and a GTF.
+        "gtf": "gencode.v46.basic.annotation.gtf.gz",
     },
 }
 
@@ -299,6 +302,32 @@ LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
             "wgs_intervals": "intervals",
             "bwa": "bwa",
         },
+    },
+    # nf-core/rnadnavar 1.0.0 (NOT yet run on Luria): the same GATK bundle as sarek, whose
+    # dbSNP, known indels, gnomAD and PoN it takes under the same names, plus the GENCODE GTF
+    # STAR needs (its nextflow_schema.json at 1.0.0 declares every name below).
+    "nf-core/rnadnavar": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {
+            "fasta_fai": "fasta_fai", "dict": "dict", "gtf": "gtf",
+            "dbsnp": "dbsnp", "dbsnp_tbi": "dbsnp_tbi",
+            "known_indels": "known_indels", "known_indels_tbi": "known_indels_tbi",
+            "germline_resource": "germline_resource",
+            "germline_resource_tbi": "germline_resource_tbi",
+            "pon": "pon", "pon_tbi": "pon_tbi",
+            "bwa": "bwa",
+        },
+    },
+    # nf-core/createpanelrefs 1.1.0 and nf-core/variantbenchmarking 1.6.1 (NOT yet run on Luria):
+    # the GATK bundle sarek calls on, so a panel of normals or a benchmark shares sarek's
+    # contigs. Both name the FASTA index `fai`; variantbenchmarking's schema requires it.
+    "nf-core/createpanelrefs": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {"fasta_fai": "fai", "dict": "dict"},
+    },
+    "nf-core/variantbenchmarking": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {"fasta_fai": "fai"},
     },
 }
 

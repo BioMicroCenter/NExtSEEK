@@ -1,0 +1,190 @@
+{
+  "report_type": "NFCORE_RNADNAVAR_SAMPLESHEET",
+  "description": "nf-core/rnadnavar samplesheet context, aligned to the pinned 1.0.0 schema. Somatic SNVs and indels from a patient's tumour RNA-seq together with the same patient's normal DNA (and, usually, tumour DNA), each tumour called against the DNA normal.",
+  "params": {
+    "tools": {
+      "type": "string",
+      "default": "strelka,mutect2,norm,consensus,filtering,rna_filtering",
+      "steerable": true,
+      "help": "comma list. Callers: strelka, mutect2 (both somatic, each tumour against the patient's DNA normal), manta (somatic structural variants). Post-calling: norm (vt normalisation), consensus (MAF of the calls the callers agree on), rescue (a second consensus pass that keeps a call seen in one caller plus the other data type; needs consensus), filtering (MAF filtering), rna_filtering (RNA-specific filters on the RNA tumour's MAF). Not available: sage (needs the Hartwig high-confidence, actionable-panel and hotspot files, not staged), vep (needs a VEP cache, not staged), realignment (always runs SAGE and builds a HISAT2 index, about 200 GB of memory by default)."
+    },
+    "wes": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "true when the DNA libraries are exome or targeted capture; intervals must then name the kit's BED. The RNA libraries do not decide it."
+    },
+    "intervals": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "the capture kit's target BED as a path on the cluster (exome or panel DNA). Whole-genome runs get the staged GATK calling regions. Mutect2 cannot run with no intervals at all."
+    },
+    "read_length": {
+      "type": "number",
+      "default": 76,
+      "steerable": true,
+      "help": "the RNA reads' length; STAR's index and alignment use read_length - 1 as the splice-junction overhang (2x101 reads: 101). Set from the RNA libraries' F_bp/R_bp when recorded."
+    },
+    "aligner": {
+      "type": "enum",
+      "allowed": [
+        "bwa-mem",
+        "bwa-mem2"
+      ],
+      "default": "bwa-mem",
+      "steerable": true,
+      "help": "DNA aligner. bwa-mem uses the BWA index staged with the GATK GRCh38 bundle; bwa-mem2 builds its own index on every run. RNA is always aligned with STAR."
+    },
+    "skip_tools": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "comma list from the schema's skip_tools, e.g. baserecalibrator, markduplicates_report, fastqc"
+    },
+    "joint_mutect2": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Mutect2 in multi-sample mode, all of a patient's tumours (DNA and RNA) called together against the normal; only one normal per patient."
+    },
+    "trim_fastq": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "trim reads with fastp before alignment"
+    },
+    "save_reference": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "keep the STAR index built from the GATK FASTA, so a later run can reuse it"
+    },
+    "save_output_as_bam": {
+      "type": "bool",
+      "default": false,
+      "steerable": false,
+      "help": "kept off: reingest registers rnadnavar's alignments as CRAMs only"
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/rnadnavar",
+    "repository": "https://github.com/nf-core/rnadnavar",
+    "documentation_url": "https://nf-co.re/rnadnavar/1.0.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "One row per FASTQ pair (patient, status, sample, lane, fastq_1, fastq_2) or per BAM (patient, status, sample, lane, bam, bai). status is 0 for normal DNA, 1 for tumour DNA, 2 for tumour RNA, and every patient with a tumour row needs a status-0 DNA normal. Paired-end only; lane is required.",
+    "required_columns": [
+      "patient",
+      "sample"
+    ],
+    "optional_columns": [
+      "status",
+      "lane",
+      "fastq_1",
+      "fastq_2",
+      "bam",
+      "bai"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "patient": null,
+      "status": null,
+      "sample": null,
+      "lane": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "examples": {
+    "fastq_example": {
+      "patient": "PAT-000000XXX-1",
+      "status": 2,
+      "sample": "D.SEQ-000000XXX-3",
+      "lane": "L001",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R1.fastq.gz",
+      "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R2.fastq.gz"
+    },
+    "bam_example": {
+      "patient": "PAT-000000XXX-1",
+      "status": 0,
+      "sample": "D.SEQ-000000XXX-1",
+      "lane": "1",
+      "bam": "/net/bmc-pub10/data1/bmc/bam/normal.bam",
+      "bai": "/net/bmc-pub10/data1/bmc/bam/normal.bam.bai"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "status is 0 (normal DNA), 1 (tumour DNA) or 2 (tumour RNA), written on every row: the pipeline's own default disagrees between its schema (1) and its usage page (0).",
+    "An RNA library from normal tissue has no status: rnadnavar would align it with BWA as if it were DNA. Leave such libraries out.",
+    "Every patient with a status 1 or 2 row needs a status 0 DNA normal in the same run; the pipeline stops otherwise when strelka, mutect2 or sage are requested.",
+    "lane must be filled on every row and differ between rows of one sample; a FASTQ row needs both fastq_1 and fastq_2 (single-end reads are refused), a BAM row needs bam and, when it exists, bai.",
+    "A BAM is turned back into reads and aligned again (BWA for DNA, STAR for RNA), so GDC or other pre-aligned BAMs are accepted whatever their reference.",
+    "For exome or targeted DNA set wes=true and give intervals the kit's BED path on the cluster; never use the whole-genome calling regions for capture data.",
+    "Do not request sage, vep or realignment: their resources are not staged.",
+    "Leave save_output_as_bam off: reingest registers rnadnavar's alignments as CRAMs only."
+  ],
+  "notes": "Runs on the GATK GRCh38 bundle staged under refs/GATK.GRCh38 (luria/refs/stage_dna_refs.sh): its FASTA for both DNA and RNA, its dbSNP and known indels for base recalibration, its gnomAD germline resource and panel of normals for Mutect2, its BWA index. STAR needs a GTF, and the bundle has none, so the GENCODE GTF of the GRCh38 reference bundle is passed beside it (its contigs share the bundle's chr names). The STAR index is built from the GATK FASTA on the first run: the staged STAR index was built on the GENCODE FASTA, whose contigs differ.",
+  "sources": [
+    {
+      "label": "nf-core/rnadnavar usage docs @ 1.0.0",
+      "url": "https://nf-co.re/rnadnavar/1.0.0/docs/usage/",
+      "notes": "Samplesheet columns, status 0/1/2, an RNA tumour needs a DNA normal, columns per starting step."
+    },
+    {
+      "label": "nf-core/rnadnavar nextflow_schema.json @ 1.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/rnadnavar/1.0.0/nextflow_schema.json",
+      "notes": "Authoritative param names, types, patterns and defaults for the pinned revision."
+    },
+    {
+      "label": "nf-core/rnadnavar assets/schema_input.json @ 1.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/rnadnavar/1.0.0/assets/schema_input.json",
+      "notes": "Authoritative samplesheet columns and allowed values."
+    },
+    {
+      "label": "nf-core/rnadnavar subworkflows/local/samplesheet_to_channel/main.nf @ 1.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/rnadnavar/1.0.0/subworkflows/local/samplesheet_to_channel/main.nf",
+      "notes": "A FASTQ row needs lane and fastq_2, a BAM row needs lane; anything else stops the run."
+    }
+  ],
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/rnadnavar samplesheet from a resolved NExtSEEK D.SEQ cohort holding a patient's tumour RNA-seq and DNA libraries.",
+    "workflow_role": "Selected for somatic mutations seen in tumour RNA against the patient's DNA normal. For variants from RNA alone use rnavar; for DNA-only tumour/normal calling use sarek.",
+    "output_expectation": "CSV with header patient,status,sample,lane,fastq_1,fastq_2 for FASTQ inputs, or patient,status,sample,lane,bam,bai for BAM inputs.",
+    "population_priority": [
+      "One row per FASTQ pair or per BAM; sample = the D.SEQ UID; lane distinguishes rows of one sample.",
+      "patient = the PAT UID in the lineage, so the RNA, the tumour DNA and the normal DNA of one person share it.",
+      "status from the param atlas verdict (normal or tumour from the tissue, DNA or RNA from LibrarySource and LibraryStrategy); where the verdict is unclear, leave it to the pairing table configure_run shows the user.",
+      "Say plainly that variant annotation and the RNA realignment pass are off and why."
+    ],
+    "final_checks": [
+      "Every row has patient, status, sample and lane.",
+      "Every patient with a status 1 or 2 row has a status 0 row.",
+      "No RNA library is written with status 0 or 1.",
+      "For capture DNA, wes=true and intervals names the kit's BED."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node (Nessie's default submit); not measured. The first run builds a STAR index from the GATK FASTA (about an hour and 32 GB or more of memory). Refine from real runs.",
+    "setup_minutes": [
+      60,
+      120
+    ],
+    "setup_label": "STAR index build (first run)",
+    "base_minutes": [
+      10,
+      30
+    ],
+    "per_sample_minutes": [
+      240,
+      720
+    ]
+  }
+}
