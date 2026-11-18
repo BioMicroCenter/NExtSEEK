@@ -6,7 +6,7 @@ The pipeline-scenario stories (`NessieAI/tests/pipeline_scenarios/`) run against
 of samples. Real public cohorts cover most data kinds. For the kinds with none (human
 WGS and exome, tumour and matched normal, methylation, ATAC, ChIP, CUT&Tag, small RNA,
 riboseq, and a species with no reference bundle), `cohorts/<name>.json` ([cohorts/README.md](cohorts/README.md)) defines a small test
-cohort whose metadata the pipeline agent reads. The ten names are fixed by
+cohort whose metadata the pipeline agent reads. The names are fixed by
 `NessieAI/tests/pipeline_scenarios/test_cohorts.json`.
 
 `make_test_cohorts.py <out-dir> [<cohort> ...]` turns the definitions into upload

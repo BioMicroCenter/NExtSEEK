@@ -72,6 +72,12 @@
         },
         "methylseq": {
           "differs_by": "methylseq measures cytosine methylation from bisulfite or enzymatically converted genomic DNA (LibraryStrategy Bisulfite-Seq), not expression; rnaseq on such reads, or methylseq on RNA reads, answers nothing."
+        },
+        "stableexpression": {
+          "stableexpression": {
+            "differs_by": "rnaseq produces each sample's gene counts from FASTQ. stableexpression ranks genes by how constant their expression is across many samples or datasets (candidate qPCR reference genes); it reads count tables or public datasets, and cannot be launched from here.",
+            "ask_user": "Do you want each gene's expression level in these samples, or a ranking of the genes whose expression stays the most constant across them (reference genes for qPCR)?"
+          }
         }
       }
     },
@@ -285,6 +291,12 @@
         "sarek": {
           "differs_by": "rnavar calls variants from RNA-seq reads and sees only expressed transcripts. sarek calls them from DNA libraries, genome-wide.",
           "ask_user": "Are these RNA-seq libraries or DNA libraries (genome, exome, panel)?"
+        },
+        "rnadnavar": {
+          "rnadnavar": {
+            "differs_by": "rnavar calls every variant in RNA-seq reads with no normal: germline and somatic together. rnadnavar takes the tumour's RNA with the same patient's normal DNA (and tumour DNA) and reports only somatic mutations, checked across RNA and DNA.",
+            "ask_user": "Do you have normal DNA (blood or normal tissue) from the same patient, and do you want only the tumour's somatic mutations, or every variant the RNA shows?"
+          }
         }
       }
     },
@@ -361,6 +373,88 @@
         "rnasplice": {
           "differs_by": "Both compare groups. differentialabundance compares gene-level counts; rnasplice compares isoform usage from raw reads.",
           "ask_user": "When you compare the groups, do you want to know which genes changed in total, or which version of each gene was made?"
+        },
+        "stableexpression": {
+          "stableexpression": {
+            "differs_by": "differentialabundance finds the genes that change between groups. stableexpression finds the genes whose expression does not change across samples or conditions, ranked by a stability score.",
+            "ask_user": "Are you looking for genes that differ between your groups, or for genes that stay the same across all samples?"
+          }
+        }
+      }
+    },
+    "rnadnavar": {
+      "revision": "1.0.0",
+      "answers": "Which somatic SNVs and short indels does a patient's tumour carry, called from its RNA-seq and its DNA, each against the same patient's normal DNA, and which of them are seen in the tumour's RNA as well as in its DNA (a consensus MAF across callers and data types, with RNA-specific filters)?",
+      "assumes_prep": "Bulk, paired-end Illumina libraries of one patient: tumour RNA-seq (poly-A or total RNA) and normal DNA (blood or normal tissue; whole genome or exome), usually with tumour DNA too. A tumour RNA library without a DNA normal from the same patient cannot run it.",
+      "input_you_must_have": "Paired-end FASTQ, or a BAM (it is turned back into reads and aligned again), for each library; per patient a normal DNA library and at least one tumour library (DNA or RNA), all linked to the same patient (PAT) in NExtSEEK. An RNA library from normal tissue is left out. For exome DNA, the capture kit's target-region BED on the cluster. Variant annotation, SAGE and the RNA realignment pass are off: their resources are not staged.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq",
+          "WXS",
+          "WGS",
+          "Targeted-Capture"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC",
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "tumour",
+          "tumor",
+          "matched normal",
+          "blood normal",
+          "solid tissue normal",
+          "primary tumor",
+          "exome",
+          "poly-A",
+          "TCGA"
+        ]
+      },
+      "species_constraint": "HUMAN only here: it runs on the GATK GRCh38 bundle staged for DNA variant calling (dbSNP, known indels, gnomAD, panel of normals), with the GRCh38 GENCODE GTF for STAR. The pipeline itself was written for human and mouse, but no mouse germline resource is staged.",
+      "versus": {
+        "rnavar": {
+          "differs_by": "rnavar calls variants from RNA-seq alone, with no normal, so inherited variants and somatic mutations come out together. rnadnavar needs the same patient's normal DNA, calls only somatic mutations, and checks them across the tumour's RNA and DNA.",
+          "ask_user": "Do you have normal DNA (blood or normal tissue) from the same patient, and do you want only the tumour's somatic mutations, or every variant the RNA shows?"
+        },
+        "sarek": {
+          "differs_by": "sarek calls somatic mutations from tumour and normal DNA only. rnadnavar adds the tumour's RNA-seq: it calls the RNA against the DNA normal too and reports which mutations are seen in both, with RNA-specific filters (RNA editing, splicing artefacts). Without tumour RNA, sarek is the pipeline.",
+          "ask_user": "Do you also have RNA-seq of the tumour, and do you want to know which of its somatic mutations are expressed?"
+        }
+      }
+    },
+    "stableexpression": {
+      "revision": "1.1.0",
+      "launchable": false,
+      "launchable_why": "Owner's decision (2026-11-18). stableexpression does not read sequencing samples: its input is count tables, each with a design file, listed in a datasets CSV or YAML (assets/schema_datasets.json: counts, design, platform rnaseq|microarray, normalised), or public Expression Atlas and GEO datasets it finds by species and keywords and downloads itself. NExtSEEK's launch path builds samplesheets from D.SEQ FASTQs, and the run also needs the internet (Expression Atlas, GEO, g:Profiler ID mapping, an Ensembl GFF for gene lengths) unless all of those are given as files.",
+      "answers": "Which genes have the most stable expression across many samples and datasets, ranked by a stability score (Normfinder, geNorm, coefficients of variation): candidate reference or housekeeping genes for normalising RT-qPCR, for a species and, optionally, a set of conditions.",
+      "assumes_prep": "No sequencing prep. The input is expression tables made earlier: raw or normalised RNA-seq counts, or normalised microarray values, each with a sample-to-condition design, and/or public Expression Atlas and GEO datasets of the species chosen by keywords.",
+      "input_you_must_have": "A species name, and either count tables with their designs (one gene-ID column then one column per sample; raw counts preferred) or nothing but keywords to fetch public datasets. A run on public data alone uses none of the user's samples.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "count matrix",
+          "Expression Atlas",
+          "GEO",
+          "microarray",
+          "reference genes",
+          "housekeeping genes",
+          "RT-qPCR normalisation"
+        ]
+      },
+      "species_constraint": "Any species Expression Atlas, GEO or a supplied count table covers; no NExtSEEK reference bundle is used. Not launchable here, so the species never decides the choice.",
+      "versus": {
+        "rnaseq": {
+          "differs_by": "rnaseq turns FASTQ into gene counts per sample. stableexpression starts from count tables (or public datasets) and ranks genes by how little their expression varies across all samples: reference-gene candidates, not expression levels or differences.",
+          "ask_user": "Do you want each gene's expression level in these samples, or a ranking of the genes whose expression stays the most constant across them (reference genes for qPCR)?"
+        },
+        "differentialabundance": {
+          "differs_by": "Both start from a count matrix. differentialabundance finds the genes that change between groups; stableexpression finds the genes that do not change across any of the samples or conditions.",
+          "ask_user": "Are you looking for genes that differ between your groups, or for genes that stay the same across all samples?"
         }
       }
     }

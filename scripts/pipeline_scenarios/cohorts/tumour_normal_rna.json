@@ -1,0 +1,133 @@
+{
+  "name": "tumour_normal_rna",
+  "description": "One patient: tumour RNA-seq, tumour exome and matched blood exome, all under the patient (nf-core rnadnavar test data, TCRBOA7)",
+  "levels": [
+    {
+      "sample_type": "PAT",
+      "rows": [
+        {
+          "Name": "NTC-TNR-patient1",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-TNR-P1",
+          "Sex": "M",
+          "Age": "61",
+          "Age_Units": "years",
+          "Disease": "Bladder urothelial carcinoma"
+        }
+      ]
+    },
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-TNR-p1-tumour",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TNR-patient1",
+          "Type": "Primary tumour tissue",
+          "Tissue": "Bladder",
+          "Disease": "bladder urothelial carcinoma",
+          "Source": "Surgical resection"
+        },
+        {
+          "Name": "NTC-TNR-p1-normal",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TNR-patient1",
+          "Type": "Blood (matched normal)",
+          "Tissue": "Blood",
+          "Source": "Pre-operative blood draw"
+        }
+      ]
+    },
+    {
+      "sample_type": "RNA",
+      "rows": [
+        {
+          "Name": "NTC-TNR-p1-tumour-rnalib",
+          "Parent": "NTC-TNR-p1-tumour",
+          "Scientist": "Nessie Test",
+          "Protocol": "TruSeq Stranded mRNA, poly(A) selection",
+          "Lab": "Test Lab"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-TNR-p1-tumour-lib",
+          "Parent": "NTC-TNR-p1-tumour",
+          "Scientist": "Nessie Test",
+          "Protocol": "Agilent SureSelect Human All Exon V6 hybrid capture",
+          "Lab": "Test Lab"
+        },
+        {
+          "Name": "NTC-TNR-p1-normal-lib",
+          "Parent": "NTC-TNR-p1-normal",
+          "Scientist": "Nessie Test",
+          "Protocol": "Agilent SureSelect Human All Exon V6 hybrid capture",
+          "Lab": "Test Lab"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-TNR-p1-tumour-RNA",
+          "Parent": "NTC-TNR-p1-tumour-rnalib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "TCRBOA7-T-RNA.read1.250000.fastq.gz, TCRBOA7-T-RNA.read2.250000.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/rnadnavar/data/tcrb/fastq/",
+          "SequencingType": "RNA-Seq",
+          "LibraryStrategy": "RNA-Seq",
+          "LibrarySource": "TRANSCRIPTOMIC",
+          "LibrarySelection": "PolyA",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "polyA RNA",
+          "Sequencer": "Illumina HiSeq 2000",
+          "F_bp": 101,
+          "R_bp": 101
+        },
+        {
+          "Name": "NTC-TNR-p1-tumour-WES",
+          "Parent": "NTC-TNR-p1-tumour-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "TCRBOA7-T-WEX.read1.250000.fastq.gz, TCRBOA7-T-WEX.read2.250000.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/rnadnavar/data/tcrb/fastq/",
+          "SequencingType": "WES",
+          "LibraryStrategy": "WXS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "Hybrid Selection",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina HiSeq 2000",
+          "ExpressionKit": "SureSelect Human All Exon V6",
+          "F_bp": 101,
+          "R_bp": 101
+        },
+        {
+          "Name": "NTC-TNR-p1-normal-WES",
+          "Parent": "NTC-TNR-p1-normal-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "TCRBOA7-N-WEX.read1.250000.fastq.gz, TCRBOA7-N-WEX.read2.250000.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/rnadnavar/data/tcrb/fastq/",
+          "SequencingType": "WES",
+          "LibraryStrategy": "WXS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "Hybrid Selection",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina HiSeq 2000",
+          "ExpressionKit": "SureSelect Human All Exon V6",
+          "F_bp": 101,
+          "R_bp": 101
+        }
+      ]
+    }
+  ]
+}

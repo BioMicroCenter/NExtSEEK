@@ -465,6 +465,869 @@
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
         "pipelines": "The libraries are duplex sequencing, made to find mutations far below 1% of reads; ordinary variant calling (sarek) would treat them as plain capture reads and call only common variants. Which the user wants decides it: rare somatic mutations need the duplex consensus (fastquorum) first, germline or common variants are sarek. A right reply says the libraries are duplex and asks."
       }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "variantbenchmarking-plain",
+      "phrasing": "plain",
+      "cohort": "test::giab_hg001_vcf",
+      "question": "Score these variant calls against the Genome in a Bottle truth set and give me precision and recall for each caller.",
+      "acceptable": [
+        [
+          "variantbenchmarking"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The cohort is NA12878 (GIAB HG001) with A.VCF calls from a sarek run; scoring calls against a truth set per caller is exactly variantbenchmarking. analysis germline, variant_type small and truth_id HG001 come from the metadata; the truth VCF and its confident-regions BED are not staged, so a right reply offers variantbenchmarking and asks for both paths. Calling the variants again (sarek) is not the answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "variantbenchmarking-outcome",
+      "phrasing": "outcome",
+      "cohort": "test::giab_hg001_vcf",
+      "question": "How accurate are the variant calls we have for these NA12878 genomes? I want to know how many true variants each caller missed and how many of its calls are wrong.",
+      "acceptable": [
+        [
+          "variantbenchmarking"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Missed true variants and wrong calls are false negatives and false positives against a truth set; NA12878 is GIAB HG001, and the calls already exist as A.VCF records. variantbenchmarking is the run; it asks for the truth VCF and confident-regions BED paths before building."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "variantbenchmarking-named",
+      "phrasing": "named",
+      "cohort": "test::giab_hg001_vcf",
+      "question": "Run variantbenchmarking on these NA12878 VCFs against GIAB HG001 v4.2.1 on GRCh38, with hap.py using the vcfeval engine.",
+      "acceptable": [
+        [
+          "variantbenchmarking"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and the truth set by name, not by path. analysis germline, variant_type small and truth_id HG001 follow from the metadata and the question, and happy_comparison_engine is vcfeval; the truth VCF and BED paths are still required_user_params, so a right reply asks for them. Expected built: false until a GIAB truth set is staged, because a story holding an absolute path cannot be recorded (record.py refuses one)."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "variantbenchmarking"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with variantbenchmarking's atlas entry (2026-11-18); awaits the owner's ruling, the giab_hg001_vcf test cohort and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "id": "wgs-variants-quality-lookalike",
+      "phrasing": "lookalike",
+      "cohort": "test::human_wgs_germline",
+      "expect": null,
+      "question": "Call the variants in these two genomes and tell me how many SNVs and indels each has and its Ts/Tv ratio.",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Sounds like a variant-quality question, but these are D.SEQ libraries with no calls yet and no truth set: the user wants variants called, with counts and Ts/Tv from the caller's own QC (sarek's bcftools stats in MultiQC). variantbenchmarking needs existing VCFs and a truth set and is not the answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "createpanelrefs"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "oncoanalyser-plain",
+      "phrasing": "plain",
+      "cohort": "test::tumour_normal",
+      "question": "Give me the whole cancer-genome picture for this tumour against its matched normal: somatic mutations and rearrangements, copy number, tumour purity and ploidy, and a summary report.",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "test::tumour_normal is one patient's tumour and matched-normal WGS FASTQ (Type tumour and blood normal in the lineage). Purity, ploidy and a report together are oncoanalyser's alone (PURPLE, ORANGE); sarek gives calls without them. Its GRCh38_hmf reference bundle is not staged, so a right reply offers oncoanalyser, builds the pair's sheet if it likes, says the run cannot be submitted until the bundle is staged and that nothing is downloaded, and may offer sarek for the calls that can run now."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "createpanelrefs"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "oncoanalyser-outcome",
+      "phrasing": "outcome",
+      "cohort": "test::tumour_normal",
+      "question": "Is this tumour homologous-recombination deficient, and which mutational signatures and likely tissue of origin does it show?",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "HRD status (CHORD), signature fitting (Sigs) and tissue of origin (CUPPA) are oncoanalyser outputs; sarek produces none of them. The reference bundle is not staged, so nothing can be submitted; the reply offers oncoanalyser and says so."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "oncoanalyser-named",
+      "phrasing": "named",
+      "cohort": "test::tumour_normal",
+      "question": "Run oncoanalyser on this tumour and its matched normal.",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline; the pair is WGS FASTQ and the metadata decides tumour and normal, so the sheet can be written, but configure_run refuses oncoanalyser while no GRCh38_hmf bundle is registered. A right reply says the bundle is not staged and nothing will be downloaded, and does not submit."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "createpanelrefs"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with oncoanalyser's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": true,
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "mutect2"
+            ]
+          }
+        }
+      },
+      "expect": null,
+      "id": "somatic-pair-lookalike",
+      "phrasing": "lookalike",
+      "cohort": "test::tumour_normal",
+      "question": "Which somatic SNVs and small indels does the tumour carry that its matched normal does not?",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Only somatic SNVs and indels are asked: sarek with mutect2 on the tumour/normal pair answers it and can run now (wes false, WGS). oncoanalyser also calls them but its reference bundle is not staged and the question asks for nothing only it gives; a reply that mentions it as the fuller analysis is fine, a reply that builds nothing is not."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "oncoanalyser"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "createpanelrefs-plain",
+      "phrasing": "plain",
+      "cohort": "test::normal_bams",
+      "question": "Build a panel of normals from these blood-normal alignments, so later somatic calls can drop recurrent artefacts.",
+      "acceptable": [
+        [
+          "createpanelrefs"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "test::normal_bams is blood-normal WGS registered as BAMs: a panel of normals from them is createpanelrefs (tools mutect2). The FASTA must be the one the BAMs were aligned against, which the metadata does not say, so a right reply offers createpanelrefs and asks which reference they were aligned to (or confirms the staged GATK GRCh38) before building; cnvkit_method wgs comes from the metadata."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "oncoanalyser"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "createpanelrefs-outcome",
+      "phrasing": "outcome",
+      "cohort": "test::normal_bams",
+      "question": "Our tumour-only variant calls are full of recurring artefacts and common germline variants. What can you make from these normal samples so the caller can filter those out?",
+      "acceptable": [
+        [
+          "createpanelrefs"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Filtering recurrent artefacts from tumour-only calls is what a Mutect2 panel of normals does, and createpanelrefs builds it from these normals. The reply offers it and asks the reference question, and may say sarek's Mutect2 then uses the panel."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": true,
+        "must_match": {
+          "tools": {
+            "includes": [
+              "mutect2",
+              "cnvkit"
+            ]
+          },
+          "cnvkit_method": "wgs"
+        }
+      },
+      "expect": null,
+      "id": "createpanelrefs-named",
+      "phrasing": "named",
+      "cohort": "test::normal_bams",
+      "question": "Run createpanelrefs with mutect2 and cnvkit on these whole-genome normals; they were aligned to the GATK GRCh38 bundle.",
+      "acceptable": [
+        [
+          "createpanelrefs"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline, the tools and the reference: tools mutect2,cnvkit, genome GATK.GRCh38, cnvkit_method wgs (LibraryStrategy WGS); no target BED, since the normals are whole genome. Nothing is left to ask."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "createpanelrefs"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with createpanelrefs' atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": true,
+        "must_match": {
+          "wes": false
+        }
+      },
+      "expect": null,
+      "id": "healthy-donors-lookalike",
+      "phrasing": "lookalike",
+      "cohort": "test::human_wgs_germline",
+      "question": "Use these two healthy blood donors as normals and tell me which variants each one carries.",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The words 'normals' and 'blood donors' point at a panel of normals, but the question asks for each donor's own variants: sarek germline calling (wes false, WGS). The libraries are FASTQ, which createpanelrefs cannot take, and a panel answers no question about either donor."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the atlas entry for tumourevo (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": null,
+      "id": "tumourevo-plain",
+      "phrasing": "plain",
+      "cohort": "test::tumour_normal",
+      "question": "We already have this patient's somatic mutation calls and allele-specific copy-number segments for the tumour. Work out its clonal structure: how many subclones there are and which mutations are clonal.",
+      "acceptable": [
+        [
+          "tumourevo"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
+        "pipelines": "Clonal and subclonal structure from existing somatic calls plus allele-specific copy number is tumourevo's question (MOBSTER, PyClone-VI, VIBER, ctree). It cannot be launched from NExtSEEK, so the right reply names it, says it cannot be run here and why (the calls and segments are not registered in NExtSEEK), and builds nothing. The user already has the calls, so re-calling them with sarek is not a right offer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the atlas entry for tumourevo (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": null,
+      "id": "tumourevo-outcome",
+      "phrasing": "outcome",
+      "cohort": "test::tumour_normal",
+      "question": "Is this patient's colon tumour made of one clone or several, and which mutational processes shaped it?",
+      "acceptable": [
+        [
+          "tumourevo"
+        ],
+        [
+          "sarek",
+          "tumourevo"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
+        "pipelines": "One patient, colon tumour and matched blood normal, WGS FASTQ. Clonal composition and mutational signatures are tumourevo's answer, which NExtSEEK cannot launch. It needs a somatic VCF and allele-specific copy number this cohort does not have; offering sarek (with mutect2) as the first step only is allowed, saying it does not answer the question and that on Luria it cannot give allele-specific copy number (ascat and controlfreec are not staged). Either reply is right; building tumourevo is impossible."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "tumourevo",
+        "variantprioritization"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the atlas entry for tumourevo (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": true,
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "mutect2"
+            ]
+          }
+        }
+      },
+      "expect": null,
+      "id": "somatic-calls-lookalike",
+      "phrasing": "lookalike",
+      "cohort": "test::tumour_normal",
+      "question": "Which mutations are in this patient's tumour but not in the matched blood sample?",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
+        "pipelines": "Looks like a tumour-evolution or prioritisation question but only asks for the somatic calls themselves: sarek tumour/normal calling from the WGS FASTQ, with a tumour/normal caller (mutect2) in tools and wes false. tumourevo and variantprioritization start from such calls and are not the answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the atlas entry for variantprioritization (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": null,
+      "id": "variantprioritization-plain",
+      "phrasing": "plain",
+      "cohort": "test::tumour_normal",
+      "question": "Which of this colon tumour's somatic mutations are clinically actionable, and what is its tumour mutational burden?",
+      "acceptable": [
+        [
+          "variantprioritization"
+        ],
+        [
+          "sarek",
+          "variantprioritization"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
+        "pipelines": "Clinical-actionability tiers and TMB for somatic mutations are PCGR's output (variantprioritization, somatic mode), which NExtSEEK cannot launch. The cohort has no somatic VCF, so a right reply names variantprioritization as the answer it cannot run, and may offer sarek (with mutect2) as the first step only, saying it does not tier anything. If oncoanalyser's entry lands, an offer of it for TMB alone is a candidate third acceptable set (open question)."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the atlas entry for variantprioritization (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": null,
+      "id": "cancer-predisposition-outcome",
+      "phrasing": "outcome",
+      "cohort": "test::human_wgs_germline",
+      "question": "Do either of these two donors carry an inherited variant known to raise cancer risk?",
+      "acceptable": [
+        [
+          "variantprioritization"
+        ],
+        [
+          "sarek",
+          "variantprioritization"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
+        "pipelines": "Germline variants in cancer-predisposition genes, classified for pathogenicity, are CPSR's output (variantprioritization, germline mode, status 0), which NExtSEEK cannot launch (the PCGR bundle and VEP cache are not staged). sarek's germline calling (haplotypecaller or deepvariant) makes the input VCF and its map registers it, so offering sarek as the first step only is right too, saying it classifies nothing (and annotates nothing on Luria)."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the atlas entry for variantprioritization (2026-11-18), which the owner made choosable but not launchable; awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": null,
+      "id": "variantprioritization-named",
+      "phrasing": "named",
+      "cohort": "test::tumour_normal",
+      "question": "Run nf-core/variantprioritization with PCGR on this patient's Mutect2 calls.",
+      "acceptable": [
+        [
+          "variantprioritization"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run or says it cannot be launched.",
+        "pipelines": "The user names the pipeline, which cannot be launched from NExtSEEK; the right reply says so, and that this patient has no registered Mutect2 calls (sarek's tumour/normal pair VCFs are not registered), and builds nothing."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "rnadnavar-plain",
+      "phrasing": "plain",
+      "cohort": "test::tumour_normal_rna",
+      "question": "Find the somatic mutations in this patient's tumour using its RNA-seq together with the tumour and blood exomes.",
+      "acceptable": [
+        [
+          "rnadnavar"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient's tumour RNA-seq, tumour exome and blood exome, all under one PAT: tumour RNA plus DNA normal is exactly rnadnavar's input (status 2, 1 and 0). The exomes need the capture kit's BED (intervals, detect_only), which NExtSEEK does not record, so a right reply offers rnadnavar and asks for the BED path before building. rnavar ignores the normal and cannot tell somatic from inherited."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "rnadnavar-outcome",
+      "phrasing": "outcome",
+      "cohort": "test::tumour_normal_rna",
+      "question": "Which of this tumour's somatic mutations also show up in its RNA? I want the ones both data types agree on.",
+      "acceptable": [
+        [
+          "rnadnavar"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Somatic mutations seen in both the tumour's DNA and RNA are rnadnavar's consensus MAF (tools consensus, called against the blood exome). sarek would call the DNA alone and say nothing about the RNA. The exome BED is still needed, so the reply asks for it."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnadnavar",
+        "sarek"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "rnadnavar-rna-only-lookalike",
+      "phrasing": "lookalike",
+      "cohort": "240709KAM::A.GEX",
+      "question": "Which somatic mutations, not inherited ones, does this tumour line carry?",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "240709KAM is four MDA-MB-231 RNA-seq libraries with no DNA at all, and no normal. rnadnavar needs the patient's normal DNA, so it cannot run; sarek needs DNA. rnavar can call the variants the RNA shows, but without a normal it cannot separate somatic from inherited ones: a right reply says so and asks whether all expressed variants are acceptable."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnadnavar",
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with rnadnavar's atlas entry (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "rnadnavar-dna-only-lookalike",
+      "phrasing": "lookalike",
+      "cohort": "test::tumour_normal",
+      "question": "Which mutations are in this patient's tumour but not in the blood, and are they expressed?",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "test::tumour_normal holds one patient's tumour and blood DNA only. The somatic part is sarek (mutect2 on the pair); whether the mutations are expressed needs tumour RNA-seq, which this cohort lacks, so rnadnavar cannot run. A right reply offers sarek for the somatic calls and says expression cannot be answered without the tumour's RNA."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "createpanelrefs-ambiguous",
+      "phrasing": "ambiguous",
+      "cohort": "test::normal_bams",
+      "question": "Build a reference from these healthy samples that I can use later when calling my tumours.",
+      "acceptable": [
+        [
+          "createpanelrefs"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Blood normals registered as BAMs: a reference built from normals for later tumour calling is a panel of normals, createpanelrefs. Which panel (a Mutect2 panel of normals for somatic SNVs, a CNVkit reference for copy number, or both) is the user's choice, so a right reply asks which before building."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "oncoanalyser-ambiguous",
+      "phrasing": "ambiguous",
+      "cohort": "test::tumour_normal",
+      "question": "What is driving this patient's tumour?",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ],
+        [
+          "sarek"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A whole-genome tumour with its matched normal. Drivers with purity, ploidy, copy number and SVs are oncoanalyser's output; somatic mutation calls alone are sarek's. Either is a fair offer, but a right reply asks what the user needs and says oncoanalyser's reference bundle is not staged yet, so it cannot run today."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "rnadnavar-named",
+      "phrasing": "named",
+      "cohort": "test::tumour_normal_rna",
+      "question": "Run rnadnavar on this patient's tumour RNA and both exomes, calling with strelka and mutect2.",
+      "acceptable": [
+        [
+          "rnadnavar"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names rnadnavar and its callers. The rows are tumour RNA (status 2), tumour exome (1) and blood exome (0) under one patient. The exomes need the capture kit's target BED as intervals (wes true from the metadata), which nothing in NExtSEEK records, so a right reply asks for its path before building."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "variantbenchmarking-ambiguous",
+      "phrasing": "ambiguous",
+      "cohort": "test::giab_hg001_vcf",
+      "question": "How good are these calls?",
+      "acceptable": [
+        [
+          "variantbenchmarking"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "NA12878 is Genome in a Bottle HG001, so its calls can be scored against the GIAB truth set: precision, recall and F1 per caller is variantbenchmarking's output. The truth VCF and its confident-regions BED are paths the user must give (none is staged), so a right reply asks for them."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar"
+      ],
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-18",
+        "note": "Drafted with the eight-pipeline atlas entries (2026-11-18); awaits the owner's ruling and a paid run."
+      },
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "expect": "ask",
+      "id": "rnadnavar-ambiguous",
+      "phrasing": "ambiguous",
+      "cohort": "test::tumour_normal_rna",
+      "question": "Which of this patient's tumour mutations are actually expressed?",
+      "acceptable": [
+        [
+          "rnadnavar"
+        ]
+      ],
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The patient has tumour RNA plus tumour and blood exomes: mutations found in the DNA against the normal and seen again in the RNA are rnadnavar's consensus and RNA filtering. rnavar alone calls RNA variants with no normal, so it cannot say which are somatic. The exome target BED is not recorded, so a right reply asks for it."
+      }
     }
   ]
 }

@@ -169,7 +169,7 @@ def synthetic_real_context(tmp_path, monkeypatch):
         FETCHED.append(url)
         pipeline, _revision, *rest = url.split("/nf-core/")[1].split("/")
         name = f"{pipeline}.{rest[-1]}"
-        if pipeline == "sarek" and name.endswith("schema_input.json"):
+        if (pipeline == "sarek" and name.endswith("schema_input.json")) or not (fixtures / name).exists():
             raise requests.HTTPError(f"404 Client Error: Not Found for url: {url}",
                                      response=SimpleNamespace(status_code=404))
         data = (fixtures / name).read_bytes()
@@ -308,10 +308,11 @@ def test_the_fixture_keeps_the_family_and_the_agent_model(tmp_path, monkeypatch)
 def test_a_run_that_builds_the_real_selection_context_replays_clean(synthetic_real_context, tmp_path, monkeypatch):
     fx = synthetic_real_context
     schemas = fx["tape"]["entries"]["schemas"]
-    # 15 rich pipelines, two documents each, every one fetched by the real context build
-    assert len(schemas) == len(FETCHED) == 30
+    # 22 rich pipelines, two documents each, every one fetched by the real context build;
+    # stableexpression 1.1.0 ships no assets/schema_input.json, so its fetch is a 404 like sarek's
+    assert len(schemas) == len(FETCHED) == 44
     kinds = [("fixture" if "fixture" in a else "bytes" if "__bytes__" in a else "error") for a in schemas.values()]
-    assert kinds.count("fixture") == 28 and kinds.count("bytes") == 1 and kinds.count("error") == 1
+    assert kinds.count("fixture") == 41 and kinds.count("bytes") == 1 and kinds.count("error") == 2
     assert "https://" not in json.dumps(fx)
     assert fx["outcome"]["selection"] == {"verdict": "chosen", "pipelines": ["rnaseq"],
                                           "reason": "bulk or single-cell is not stated"}

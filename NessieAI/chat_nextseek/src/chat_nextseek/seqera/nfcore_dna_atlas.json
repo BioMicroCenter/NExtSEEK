@@ -44,6 +44,36 @@
         "fastquorum": {
           "differs_by": "fastquorum builds UMI consensus reads (duplex or single-strand) and calls no variants. sarek marks duplicates and calls variants from ordinary reads, ignoring UMIs, so on duplex libraries it cannot tell a very rare mutation from a PCR or sequencing error.",
           "ask_user": "Do these libraries carry UMIs (duplex or single-strand), and do you want error-corrected consensus reads, or ordinary germline or somatic variant calls?"
+        },
+        "variantbenchmarking": {
+          "differs_by": "sarek calls germline and somatic variants from FASTQ. variantbenchmarking calls nothing: it compares VCFs a caller already wrote (A.VCF records) with a truth set (GIAB, SEQC2) and reports how many calls are right and how many were missed (precision, recall, F1). For how accurate a caller is on a reference sample such as NA12878, sarek is the first step and variantbenchmarking the second.",
+          "ask_user": "Do you want variants called from these reads, or the calls you already have scored against a truth set (for example Genome in a Bottle for NA12878)?"
+        },
+        "oncoanalyser": {
+          "differs_by": "oncoanalyser runs the whole Hartwig cancer-genome analysis on a whole-genome tumour/normal pair: somatic SNVs, indels and SVs, copy number with purity and ploidy, drivers, HLA, signatures, HRD, tissue of origin and a report. sarek calls germline and somatic variants on WGS, exome or panels and gives none of purity, ploidy, signatures or a report. oncoanalyser takes WGS FASTQ pairs only and its reference bundle is not staged, so today only sarek can be submitted.",
+          "ask_user": "Do you want variant calls (germline, or somatic, also from exomes or panels), or the full cancer-genome picture of whole-genome tumour/normal pairs (purity, ploidy, drivers, signatures, a report)?"
+        },
+        "createpanelrefs": {
+          "differs_by": "createpanelrefs builds a Mutect2 panel of normals (and a CNVkit reference) from many normal samples, for later somatic calling, and calls nothing for any one sample. sarek calls variants per sample, and somatic variants of a tumour against its matched normal, filtering Mutect2 calls with a panel of normals (today the staged GATK 1000 Genomes panel).",
+          "ask_user": "Do you want variant calls for these samples, or a panel of normals built from many normals for later somatic calling?"
+        },
+        "tumourevo": {
+          "tumourevo": {
+            "differs_by": "tumourevo calls no variants: it models a tumour's clonal evolution (subclones, clone trees, signatures, drivers) from a somatic VCF and allele-specific copy-number segments that already exist. sarek makes the somatic VCF from tumour and normal FASTQ, but on Luria its allele-specific copy-number callers (ASCAT, Control-FREEC) are not staged and NExtSEEK does not register its tumour/normal pair VCFs, so sarek alone does not produce tumourevo's input here.",
+            "ask_user": "Do you want the tumour's somatic mutations called, or the clonal structure and evolution inferred from calls you already have?"
+          }
+        },
+        "variantprioritization": {
+          "variantprioritization": {
+            "differs_by": "variantprioritization calls no variants: it ranks and reports ones that already exist, somatic ones by clinical actionability (PCGR) and germline ones in cancer-predisposition genes (CPSR). sarek calls them from FASTQ; on Luria it annotates nothing (its VEP and snpEff caches are not staged), and NExtSEEK registers its germline VCFs but not its tumour/normal pair VCFs.",
+            "ask_user": "Do you want variants called from the reads, or variants you already have interpreted for clinical actionability or cancer predisposition?"
+          }
+        },
+        "rnadnavar": {
+          "rnadnavar": {
+            "differs_by": "sarek calls somatic mutations from tumour and normal DNA only. rnadnavar also takes the tumour's RNA-seq, calls it against the same DNA normal, and reports which mutations the RNA and the DNA share. With no tumour RNA it has nothing to add, and sarek is the pipeline.",
+            "ask_user": "Do you also have RNA-seq of the tumour, and do you want to know which of its somatic mutations are expressed?"
+          }
         }
       }
     },
@@ -220,6 +250,203 @@
         "sarek": {
           "differs_by": "sarek calls germline and somatic variants from ordinary reads and marks PCR duplicates, so each molecule's UMI is ignored. fastquorum collapses the reads of each UMI into one consensus read per molecule and calls no variants; on duplex or UMI libraries it is the step that makes very rare mutations (below about 1% of reads) distinguishable from errors.",
           "ask_user": "Do these libraries carry UMIs (duplex or single-strand), and do you want error-corrected consensus reads, or ordinary germline or somatic variant calls?"
+        }
+      }
+    },
+    "variantbenchmarking": {
+      "revision": "1.6.1",
+      "answers": "How accurate are variant calls that already exist: each test VCF is compared with a truth set (Genome in a Bottle for germline calls, SEQC2 for somatic) inside the truth set's confident regions, and the run reports true positives, false positives, false negatives, precision, recall and F1 per caller and per variant class (SNVs and indels; or SVs, CNVs). It calls no variants itself.",
+      "assumes_prep": "Variant calls already made from DNA sequencing of an individual with a published truth set: a Genome in a Bottle reference sample (NA12878 is HG001, NA24385 is HG002) for germline calls, or the SEQC2 HCC1395 pair for somatic calls, on the truth set's genome build.",
+      "input_you_must_have": "A.VCF records (the VCFs a caller wrote, for example a sarek run reingested into NExtSEEK); the truth VCF and its confident-regions BED as paths on the cluster, since no truth set is staged; for exome or panel calls, the kit's target BED. Raw reads alone are not enough: their variants must be called first (sarek).",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "WXS",
+          "Targeted-Capture"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "NA12878",
+          "GM12878",
+          "HG001",
+          "NA24385",
+          "HG002",
+          "Genome in a Bottle",
+          "GIAB",
+          "reference material",
+          "truth set",
+          "benchmark",
+          "SEQC2",
+          "HCC1395"
+        ]
+      },
+      "species_constraint": "Human in practice: the truth sets are human (GIAB, SEQC2) and the run uses the GATK GRCh38 bundle staged for sarek, so calls must be on GRCh38 with its contig names. GRCh37 calls would need a GRCh37 FASTA and truth set, or liftover chain and rename files, none of which is staged.",
+      "versus": {
+        "sarek": {
+          "differs_by": "sarek calls variants from a sample's reads and writes the VCFs. variantbenchmarking calls nothing: it scores VCFs that already exist (sarek's A.VCF records) against a truth set such as GIAB HG001 for NA12878 and reports precision, recall and F1 per caller. With no VCF yet, sarek comes first; with no truth set for the individual, there is nothing to score against.",
+          "ask_user": "Do you want variants called from these reads, or the calls you already have scored against a truth set (for example Genome in a Bottle for NA12878)? If scoring, which truth VCF and confident-regions BED should I use?"
+        }
+      }
+    },
+    "oncoanalyser": {
+      "revision": "3.0.0",
+      "answers": "For a whole-genome tumour and its matched normal: which somatic SNVs, indels and structural variants the tumour carries, its copy-number profile with tumour purity and ploidy, the driver genes hit (somatic and germline), its HLA class I alleles and their somatic loss, microsatellite status, mutational signatures, homologous-recombination deficiency (CHORD), viral integration, telomere length, its likely tissue of origin (CUPPA), and one summary report (ORANGE PDF).",
+      "assumes_prep": "Short-read paired-end Illumina whole-genome DNA libraries of a tumour and a matched normal (blood or normal tissue) from the same human patient. The pipeline also takes tumour RNA, exomes and panels (targeted mode) and Ultima or Roche SBX reads; none of those is offered here.",
+      "input_you_must_have": "Gzipped paired-end FASTQ for one tumour and one matched-normal WGS library per patient, both under the same patient (PAT) in NExtSEEK, and which is tumour and which normal. Alignments (BAM/CRAM, such as GDC/TCGA files) are not accepted: oncoanalyser needs reads aligned to its own GRCh38_hmf genome. It also needs the Hartwig GRCh38_hmf reference bundle (genome, BWA-MEM2 and GRIDSS indexes, WiGiTS resources) on the cluster, which is not staged: a run is refused until it is, rather than downloading it, so the reply must say it cannot be submitted yet.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "whole genome",
+          "PCR-free",
+          "tumour",
+          "tumor",
+          "matched normal",
+          "cancer",
+          "somatic"
+        ]
+      },
+      "species_constraint": "HUMAN only: the Hartwig resources exist for GRCh37_hmf and GRCh38_hmf alone (lib/Constants.groovy). Neither is staged on the cluster today.",
+      "versus": {
+        "sarek": {
+          "differs_by": "oncoanalyser is the whole Hartwig cancer-genome analysis of a WGS tumour/normal pair: somatic SNVs, indels and SVs, copy number with purity and ploidy, drivers, HLA, signatures, HRD, tissue of origin and a report. sarek calls germline variants of any sample and somatic variants of a tumour against its normal (Mutect2, Strelka, Manta, CNVkit) on WGS, exome or panels, and gives no purity, ploidy, signatures or report. oncoanalyser needs WGS FASTQ of a pair and a reference bundle that is not staged, so it cannot be submitted yet; sarek can.",
+          "ask_user": "Do you want the full cancer-genome picture of these whole-genome tumour/normal pairs (purity, ploidy, drivers, signatures, a report), or variant calls (germline, or somatic, also from exomes or panels)?"
+        },
+        "tumourevo": {
+          "differs_by": "tumourevo starts from somatic VCFs and allele-specific copy number that already exist (Mutect2, Strelka, Platypus or TNscope VCFs; ASCAT, Sequenza, Battenberg or FACETS segments) and reconstructs subclones, clone trees and signatures over time; it reads none of oncoanalyser's SAGE or PURPLE files. oncoanalyser starts from reads and makes the calls, with its own purity and ploidy, but builds no subclonal or evolutionary model.",
+          "ask_user": "Do you need the somatic calls made from these reads, or an evolutionary, subclonal reconstruction from variant and copy-number calls you already have?"
+        },
+        "variantprioritization": {
+          "differs_by": "variantprioritization annotates and ranks variant calls that already exist for clinical relevance (PCGR for somatic, CPSR for germline); it is built for sarek's outputs (Mutect2, Strelka, HaplotypeCaller, DeepVariant, ASCAT) and makes no calls. oncoanalyser makes the calls from reads and reports drivers in its own ORANGE report.",
+          "ask_user": "Do you already have variant calls and want them prioritised for clinical relevance, or do you need the calls made from these tumour/normal reads?"
+        },
+        "createpanelrefs": {
+          "differs_by": "createpanelrefs builds reference panels (a Mutect2 panel of normals, a CNVkit reference) from many normal samples, for later GATK-style somatic calling; it analyses no tumour. oncoanalyser analyses each tumour against its own matched normal and brings its own panels of normals (SAGE, ESVEE) in the Hartwig bundle, so it does not use a createpanelrefs panel.",
+          "ask_user": "Do you want these tumours analysed against their matched normals, or a reference panel built from a set of normal samples?"
+        }
+      }
+    },
+    "createpanelrefs": {
+      "revision": "1.1.0",
+      "answers": "No biological answer about any one sample: it builds reference panels from many normal samples that later somatic analyses use to drop recurrent artefacts and common germline variants: a GATK Mutect2 panel of normals (the pon sarek's Mutect2 reads) and a CNVkit pooled copy-number reference. It also builds GATK gCNV and GENS references, which are not offered.",
+      "assumes_prep": "Normal (non-tumour) human DNA, blood or normal tissue, sequenced the same way as the tumours the panel will serve: whole genome, or the same exome or capture kit. Already aligned (BAM or CRAM). A useful panel takes many normals (GATK's guidance asks for dozens); a handful builds but filters little.",
+      "input_you_must_have": "A BAM or CRAM per normal on the cluster, registered as the D.SEQ's data file, and the FASTA those alignments were made against (with its .fai and .dict): the staged GATK GRCh38 bundle fits alignments made by sarek, but GDC/TCGA normals are aligned to GDC's GRCh38.d1.vd1, which is not staged. For exome or capture normals, the kit's target BED. Not FASTQ: reads must be aligned first. Whether dev's TCGA blood-normal records point at BAMs on the cluster or only at GDC ids is open, and GDC's normal BAMs are controlled access.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "WXS",
+          "Targeted-Capture"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "normal",
+          "blood",
+          "germline",
+          "buffy coat",
+          "panel of normals",
+          "PoN",
+          "BAM",
+          "CRAM"
+        ]
+      },
+      "species_constraint": "Any species with a FASTA in principle; the staged reference is the human GATK GRCh38 bundle only, and TCGA's GDC alignments need GDC's GRCh38.d1.vd1, which is not staged.",
+      "versus": {
+        "sarek": {
+          "differs_by": "createpanelrefs builds a Mutect2 panel of normals (and a CNVkit reference) from many normal samples and calls nothing for any one sample. sarek calls germline variants per sample and somatic variants of a tumour against its matched normal, and filters Mutect2 calls with a panel of normals (today the staged GATK 1000 Genomes panel); a createpanelrefs panel is for tumours with no matched normal, or for artefacts specific to one lab or kit.",
+          "ask_user": "Do you want variant calls for these samples, or a panel of normals built from them for later somatic calling?"
+        },
+        "oncoanalyser": {
+          "differs_by": "createpanelrefs builds reference panels from a set of normal samples and analyses no tumour. oncoanalyser analyses each whole-genome tumour against its own matched normal, with its own panels of normals in the Hartwig bundle, so it does not use a createpanelrefs panel.",
+          "ask_user": "Do you want a reference panel built from these normal samples, or tumours analysed against their matched normals?"
+        }
+      }
+    },
+    "tumourevo": {
+      "revision": "1.0.0",
+      "launchable": false,
+      "launchable_why": "Owner's ruling 2026-11-18: choosable, not launchable. Every row needs a somatic VCF and allele-specific copy-number segments, and NExtSEEK holds neither for any cohort, the TCGA tumour/normal pairs on dev included: (1) no somatic A.VCF is registered, because sarek's map rules out all <tumour>_vs_<normal> pair outputs (sarek.outputs.json, unmapped_files \"*_vs_*/*\"); (2) no A.CNV is registered, because no map produces one and sarek's ASCAT and Control-FREEC are not staged on Luria, while CNVkit, which is, is not a caller tumourevo accepts (schema_input.json cna_caller: sequenza, ASCAT, Battenberg, facets); (3) A.CNV has no attribute for the purity/ploidy file (cna_extra). By default it also downloads the VEP cache (download_cache_vep true), the SigProfiler genome (download_sigprofiler_genome true) and the IntOGen driver table (drivers_table, a URL); none is staged on Luria.",
+      "answers": "How did a tumour evolve: which of its somatic mutations are clonal and which subclonal, how many subclones there are and how they are related (a clone tree), which known driver genes are hit, and which mutational signatures shaped it, for one sample, several samples of a patient (multi-region or longitudinal), or a cohort. It calls no variants itself.",
+      "assumes_prep": "No sequencing prep of its own and it cannot be launched from NExtSEEK: it starts from a tumour's somatic SNV/indel VCF (Mutect2, Strelka, Platypus or TNscope) and its allele-specific copy-number segments with purity and ploidy (ASCAT, Sequenza, Battenberg or FACETS), made from whole-genome tumour/normal sequencing (or tumour-only calls). NExtSEEK registers neither input for any cohort yet: sarek's tumour/normal pair VCFs are not registered and nothing registers allele-specific copy number.",
+      "input_you_must_have": "Per tumour sample: the somatic VCF and its .tbi, the allele-specific copy-number segments file and the caller's name, ideally the purity/ploidy file, the patient and dataset it belongs to, its matched normal's sample id (omit for tumour-only, and drop tinc), and the tumour type as an IntOGen code or PANCANCER; optionally the tumour BAM/CRAM and index, needed when a patient's samples were called separately. Human GRCh38 or GRCh37 only.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "tumour-normal",
+          "matched normal",
+          "multi-region",
+          "longitudinal",
+          "whole genome",
+          "somatic"
+        ]
+      },
+      "species_constraint": "HUMAN only: genome is GRCh38 or GRCh37 (nextflow_schema.json enum), the driver table is IntOGen's human compendium, and VEP and SigProfiler use human references.",
+      "versus": {
+        "sarek": {
+          "differs_by": "sarek starts from FASTQ and calls the somatic mutations and copy-number changes of a tumour against its matched normal. tumourevo starts where sarek stops: it takes a tumour's somatic VCF (Mutect2, Strelka, Platypus or TNscope) plus allele-specific copy-number segments (ASCAT, Sequenza, Battenberg or FACETS) and infers the tumour's clonal structure (MOBSTER, PyClone-VI, VIBER), clone trees, driver annotation and mutational signatures. It calls nothing itself.",
+          "ask_user": "Do you already have this tumour's somatic mutation calls and allele-specific copy-number segments, or should they be called from the reads first?"
+        },
+        "variantprioritization": {
+          "differs_by": "Both start from somatic VCFs. variantprioritization interprets each mutation for the clinic (PCGR tiers, TMB, MSI) and checks germline cancer-predisposition genes (CPSR). tumourevo ignores clinical meaning and models the tumour's history: which mutations are clonal or subclonal, how the clones are related, and which mutational processes acted. tumourevo needs allele-specific copy number and purity; variantprioritization's copy number is optional.",
+          "ask_user": "Do you want each mutation's clinical significance and the tumour's mutational burden, or how the tumour evolved (its clones and their order)?"
+        },
+        "oncoanalyser": {
+          "differs_by": "oncoanalyser runs end to end from a WGS tumour/normal pair's reads: it calls the mutations, purity, ploidy, allele-specific copy number and structural variants itself, names drivers and writes a report. tumourevo calls nothing: it needs a somatic VCF and allele-specific copy-number segments from other callers, and adds what oncoanalyser does not, multi-sample subclonal clustering (MOBSTER, PyClone-VI, VIBER) and clone trees (ctree), for one or several samples of a patient.",
+          "ask_user": "Do you need the tumour's mutations, copy number, purity and drivers called from the reads, or the subclonal structure and clone tree of calls you already have?"
+        }
+      }
+    },
+    "variantprioritization": {
+      "revision": "1.0.0",
+      "launchable": false,
+      "launchable_why": "Owner's ruling 2026-11-18: choosable, not launchable. Somatic mode (PCGR) needs per-caller somatic VCFs and NExtSEEK registers none (sarek's map rules out every <tumour>_vs_<normal> output, unmapped_files \"*_vs_*/*\"); its optional CNA segments have no registered source either (no map produces A.CNV). Germline mode (CPSR) could read the germline A.VCF rows sarek's map does register, but every run needs the PCGR reference bundle (pcgr_download true downloads it; pcgr_bundleversion 20250314) and an Ensembl VEP 113 cache (vep_cache defaults to s3://annotation-cache/vep_cache/), and neither is staged on Luria. Its outputs are named <patient>.<sample>, which the reingest harvest cannot attribute to a sample, so even a run elsewhere registers nothing yet.",
+      "answers": "Which of a tumour's somatic SNVs, indels and copy-number changes matter clinically: each annotated and tiered by actionability (PCGR), with tumour mutational burden, MSI status and mutational signatures; and, for germline calls, which variants in cancer-predisposition genes are pathogenic (CPSR). It calls no variants itself.",
+      "assumes_prep": "No sequencing prep of its own and it cannot be launched from NExtSEEK: it starts from VCFs that already exist, somatic tumour/normal calls (Mutect2, Strelka, FreeBayes) with optional ASCAT or CNVkit segments, or germline calls (DeepVariant, HaplotypeCaller, Strelka, FreeBayes), from WGS, exome or panel sequencing. NExtSEEK registers no somatic VCF yet, and the PCGR bundle and VEP cache it needs are not staged.",
+      "input_you_must_have": "One samplesheet row per VCF: patient, status (1 tumour/somatic, 0 normal/germline), sample, and the VCF, whose header must name its caller; several rows per tumour when there are several callers. For somatic copy number (cna_analysis), an ASCAT- or CNVkit-style segments file (.cns or .txt) on every somatic row. The assay (WGS, WES or TARGETED) and, for TMB on capture data, the effective target size. The PCGR reference bundle and a VEP cache for the assembly. Human GRCh38 or GRCh37.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "WXS",
+          "Targeted-Capture"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "tumour-normal",
+          "somatic",
+          "germline",
+          "cancer predisposition",
+          "hereditary cancer",
+          "panel",
+          "exome"
+        ]
+      },
+      "species_constraint": "HUMAN only: PCGR and CPSR ship reference bundles for grch37 and grch38 (ext.genome is params.genome lowercased), and VEP's species defaults to homo_sapiens.",
+      "versus": {
+        "sarek": {
+          "differs_by": "sarek calls variants from FASTQ (and on Luria runs no annotation: its VEP and snpEff caches are not staged). variantprioritization calls nothing: it takes VCFs that already exist (sarek's Mutect2, Strelka, FreeBayes, DeepVariant or HaplotypeCaller output), annotates them with PCGR (somatic: tiers by clinical actionability, TMB, MSI, signatures, with optional CNA segments) or CPSR (germline: cancer-predisposition genes), and writes clinical-style reports.",
+          "ask_user": "Do you already have the VCFs, or should the variants be called from the reads first? And do you want somatic mutations ranked by clinical actionability, or germline variants checked in cancer-predisposition genes?"
+        },
+        "tumourevo": {
+          "differs_by": "tumourevo models clonal evolution (subclones, clone trees, signatures) from a somatic VCF plus allele-specific copy-number segments; it gives no clinical tiers. variantprioritization gives each somatic mutation a clinical-actionability tier with TMB and MSI (PCGR), and reports germline cancer-predisposition variants (CPSR); it says nothing about clonal structure.",
+          "ask_user": "Do you want each mutation's clinical significance, or how the tumour evolved (its clones and their order)?"
+        },
+        "oncoanalyser": {
+          "differs_by": "oncoanalyser calls a WGS tumour/normal pair from its reads (mutations, purity, ploidy, copy number, structural variants, drivers, TMB and MSI) and writes its own report. variantprioritization calls nothing: it annotates existing VCFs with PCGR, tiering somatic mutations by clinical actionability (TMB, MSI, signatures, optional CNA), and with CPSR for germline cancer-predisposition variants; it works for WGS, exome or panels.",
+          "ask_user": "Do you need the tumour analysed from its reads, or existing variant calls tiered for clinical actionability or checked for cancer predisposition?"
         }
       }
     }

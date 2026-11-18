@@ -64,7 +64,8 @@ def test_the_rich_pipelines_are_the_ones_that_get_schemas():
     assert RICH_PIPELINES == (
         "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
         "atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript",
-        "fastquorum",
+        "fastquorum", "variantbenchmarking", "oncoanalyser", "createpanelrefs", "tumourevo",
+        "variantprioritization", "rnadnavar", "stableexpression",
     )
 
 
