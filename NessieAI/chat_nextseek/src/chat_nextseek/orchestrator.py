@@ -90,7 +90,7 @@ from .helpers import (
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, asks_for_a_count, id_spelling_note, id_spelling_variant,
                           normalized_cypher, quoted_in, scope_repair_context, timed_out, timeout_retry_context,
                           zero_row_retry_context)
-from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_notes, lab_people, lab_people_notes
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
@@ -1799,7 +1799,16 @@ def _execute_graph_turn(
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     subject_agent_note, subject_reply_notes, plan = _subject_check(config, user_text, plan, debug_payload,
                                                                    skip=graph_plan is not None)
-    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note, subject_agent_note)
+    # Who a lab code names is read from the Scientist values on the code's samples, for a question that asks
+    # for a person: the lab record alone can hold only a surname.
+    lab_agent_note, lab_reply_notes = None, []
+    turn_lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+    if turn_lab_codes and asks_lab_person(user_text):
+        people = lab_people(config, turn_lab_codes, run=tool_neo4j_query)
+        lab_agent_note, lab_reply_notes = lab_people_notes(people)
+        if lab_agent_note:
+            debug_payload["lab_people"] = {code: [list(v) for v in values] for code, values in people.items()}
+    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note, subject_agent_note, lab_agent_note)
                                 if part) or None
 
     if graph_plan is None:
@@ -1891,7 +1900,7 @@ def _execute_graph_turn(
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
-    query_notes: list[str] = list(uid_reply_notes) + subject_reply_notes + catalog_notes
+    query_notes: list[str] = list(uid_reply_notes) + subject_reply_notes + lab_reply_notes + catalog_notes
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(run.spelling_note or RETRY_CHANGED_ANSWER_NOTE)
