@@ -1,0 +1,2079 @@
+{
+ "_note": "Two cases per issue from user_questions.json (its _issues block, key run2), admin login. The member-login cases are in user_questions_run2-member.json. It is the union of the run2 picks in that file's _issues block: change both together.",
+ "include_ids": [
+  "person.scientist_patients_in_project",
+  "person.scientist_by_first_name",
+  "person.lab_code_full_name",
+  "person.beh_lab_show",
+  "person.lau_lab_files",
+  "search.collaborative_cross_mice",
+  "artifact.csv_of_cc_mice_with_transcriptomics",
+  "file.flow_file_for_a_patient",
+  "search.mtb_converters",
+  "pub.doi_url_form",
+  "pub.pmid_bare",
+  "fu.investigators_of_those_patients",
+  "graph.project_samples_with_flow_or_cytof",
+  "graph.impact_monkeys_with_sequencing_stays_dseq",
+  "export.session_to_the_developers",
+  "entity.how_many_pbmc_samples_do_we_have"
+ ],
+ "families": {
+  "lineage_tree": {
+   "description": "Trace what came from what, in either direction.",
+   "variants": [
+    {
+     "id": "uq.one_patient_every_mention.1",
+     "family": "lineage_tree",
+     "name": "Sample tree for one patient named by a study label",
+     "tags": [
+      "user",
+      "issue:one_patient_every_mention",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "show me the sample tree for DFCI-4",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "PAT-241113DFC-4"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(7,?945))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b708 (distinct )?samples))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: the patient is PAT-241113DFC-4 (GBM1.DFCI4), 633 samples below it. The tree is of that one patient, not of every record that mentions the label (7,945 rows with relatives)."
+    },
+    {
+     "id": "uq.one_patient_every_mention.s1",
+     "family": "lineage_tree",
+     "name": "Sample tree for one animal named by its number",
+     "tags": [
+      "user",
+      "issue:one_patient_every_mention",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "show me the sample tree for monkey 16619",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "NHP-221109FLY-5"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(samples mention))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: animal 16619 is NHP-221109FLY-5. Its tree size was not measured."
+    },
+    {
+     "id": "uq.condition_dropped.3",
+     "family": "lineage_tree",
+     "name": "D.SEQ derived from patient lung tissue",
+     "tags": [
+      "user",
+      "issue:condition_dropped",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Show me all D.SEQ files derived from patient lung biopsies",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])10(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b6,?417\\b))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 10 D.SEQ come from human lung tissue. Without the lung condition the count is 6,417."
+    },
+    {
+     "id": "uq.no_answer_at_all.1",
+     "family": "lineage_tree",
+     "name": "The macaques of a model with flow data below, rephrased",
+     "tags": [
+      "user",
+      "issue:no_answer_at_all",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many of the NHP samples associated with MDL-250912LAU-1 have a D.FLOW sample downstream?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)(\\b0\\b|\\bno\\b|\\bnone\\b|zero|not found|couldn.?t find)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(\\bPAT\\b|patient|human|\\bMUS\\b|mouse|mice)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: MDL-250912LAU-1 is the mouse-human model: 0 macaques above it (95 mice, 304 patients)."
+    },
+    {
+     "id": "uq.no_answer_at_all.s1",
+     "family": "lineage_tree",
+     "name": "The same count for the macaque-human model",
+     "tags": [
+      "user",
+      "issue:no_answer_at_all",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many of the NHP samples associated with MDL-250912LAU-2 have a D.FLOW sample downstream?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])94(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)(\\b0\\b|\\bno\\b|\\bnone\\b|zero|not found|couldn.?t find)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: MDL-250912LAU-2 has 94 macaques above it, none with a D.FLOW below."
+    }
+   ]
+  },
+  "sample_search": {
+   "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
+   "variants": [
+    {
+     "id": "uq.id_written_another_way.1",
+     "family": "sample_search",
+     "name": "A typo, a navigation word, the full ask, the other spelling, the patient",
+     "tags": [
+      "user",
+      "issue:id_written_another_way",
+      "issue:navigation_word_searched",
+      "issue:one_patient_every_mention",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "typo",
+       "query": "Show me the familietur for DFCI-4",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(PAT-241113DFC-4|DFCI4)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b0 samples mention))"
+        }
+       ]
+      },
+      {
+       "label": "nav_word",
+       "query": "Sampletree",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(mention \\\"?Sampletree))"
+        }
+       ]
+      },
+      {
+       "label": "full_ask",
+       "query": "Show me the sample tree for patient DFCI-4 from the BTC study",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "PAT-241113DFC-4"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(returned 0 rows))"
+        }
+       ]
+      },
+      {
+       "label": "other_spelling",
+       "query": "Search for DFCI4 nstead",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "DFCI4"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b0 samples mention))"
+        }
+       ]
+      },
+      {
+       "label": "the_patient",
+       "query": "I want the PAT sample.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "PAT-241113DFC-4"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "GBM1\\.DFCI4"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: DFCI-4 is stored as DFCI4 on PAT-241113DFC-4 (GBM1.DFCI4). The whole chat in order; each turn should reach the patient or ask which sample."
+    },
+    {
+     "id": "uq.id_written_another_way.s1",
+     "family": "sample_search",
+     "name": "A patient label typed with a space",
+     "tags": [
+      "user",
+      "issue:id_written_another_way",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Find the samples for patient DFCI 5",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(PAT-241113DFC-5|DFCI5)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b0 samples mention))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: GBM1.DFCI5 is PAT-241113DFC-5. Same naming family as the user's patient: the only names with a known other spelling."
+    },
+    {
+     "id": "uq.cc_mice_not_found.s1",
+     "family": "sample_search",
+     "name": "Another mouse line asked by its name",
+     "tags": [
+      "user",
+      "issue:cc_mice_not_found",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "do you have any datasets with IFN gamma receptor knockout mice ?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)IFN"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)\\b(MUS|mice|mouse)\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(these results are for|returned no matches))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: IMPAcTb mice carry cohorts named IFNgRKO (IV, SubQ, PBS). The count was not measured. Behaviour only: no word search stands in."
+    },
+    {
+     "id": "uq.plain_words_condition.s1",
+     "family": "sample_search",
+     "name": "Another clinical status in plain words",
+     "tags": [
+      "user",
+      "issue:plain_words_condition",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "show samples for human subjects who are HIV positive",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)HIV"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(\\bPAT\\b|patient)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: StatusHIV is filled on 494 patients. Its values were not read, so no count is pinned."
+    },
+    {
+     "id": "uq.by_lab_breakdown.1",
+     "family": "sample_search",
+     "name": "D.SEQ per project, per lab, then the field names",
+     "tags": [
+      "user",
+      "issue:by_lab_breakdown",
+      "issue:howto_developer_docs",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "per_project",
+       "query": "Can you list out the number of D.SEQ datasets for a given project with its name?  I can try to look at the project name and decide if it's IMPAcTB associated.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)impact"
+        }
+       ]
+      },
+      {
+       "label": "per_lab",
+       "query": "Ok, so the relevant project is called 'Impactb Investigation' from the list above. In those, D.SEQ should include single cell RNA sequencing datasets as well as DNA sequencing.  How many D.SEQ are associated with a given lab (some labs should be more likely to be suppliers of RNA sequencing data)",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\bFOR\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])2,?973(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(no associated lab))"
+        }
+       ]
+      },
+      {
+       "label": "fields",
+       "query": "What the data fields available for these samples?  Maybe it's called something other than lab...",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(UID|Scientist)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(/nextseek_api/))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: D.SEQ in IMPAcTb by the lab code in the UID: FOR 2,973, SHA 807, LAU 590, SAS 278, BRY 8, SES 2. The Lab field is empty on them."
+    },
+    {
+     "id": "uq.by_lab_breakdown.s1",
+     "family": "sample_search",
+     "name": "Patients per lab in a project",
+     "tags": [
+      "user",
+      "issue:by_lab_breakdown",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many patients does each lab have in the IMPAcTb project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\bBOO\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\bSES\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(no associated lab))"
+        }
+       ]
+      }
+     ],
+     "_why": "Patient UIDs in the project carry the lab codes BOO and SES among others. Counts per lab were not measured."
+    },
+    {
+     "id": "uq.plain_keyword_search.1",
+     "family": "sample_search",
+     "name": "Where are BAL cells",
+     "tags": [
+      "user",
+      "issue:plain_keyword_search",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Where are BAL Cells?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(BAL|bronchoalveolar)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(CEL|TIS)"
+        }
+       ]
+      }
+     ],
+     "_why": "Cell (CEL) records with bronchoalveolar lavage in the protocol."
+    }
+   ]
+  },
+  "system_capability_question": {
+   "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
+   "variants": [
+    {
+     "id": "uq.navigation_word_searched.s1",
+     "family": "system_capability_question",
+     "name": "A patient, then the one word Sampletree",
+     "tags": [
+      "user",
+      "issue:navigation_word_searched",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "find",
+       "query": "Find patient GBM1.DFCI2",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "PAT-241113DFC-2"
+        }
+       ]
+      },
+      {
+       "label": "nav_word",
+       "query": "Sampletree",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(mention \\\"?Sampletree))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(PAT-241113DFC-2|/seek/sampletree/)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: GBM1.DFCI2 is PAT-241113DFC-2. The second turn asks for that patient's tree page, not a text search for the word."
+    },
+    {
+     "id": "uq.howto_developer_docs.2",
+     "family": "system_capability_question",
+     "name": "How to get all metadata for some UIDs",
+     "tags": [
+      "user",
+      "issue:howto_developer_docs",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "I have a a few samples with UID, how to get all the metadata of those samples",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(UID|paste|list)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(/nextseek_api/))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(advanced_search))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(MATCH \\())"
+        }
+       ]
+      }
+     ],
+     "_why": "Paste the UIDs, or the Sample Search steps; no endpoints."
+    },
+    {
+     "id": "uq.howto_developer_docs.s1",
+     "family": "system_capability_question",
+     "name": "How to find one patient's data files myself",
+     "tags": [
+      "user",
+      "issue:howto_developer_docs",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "how do i find all the flow cytometry files for one patient myself?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(search|ask|sample ?tree|UID)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(/nextseek_api/))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(advanced_search))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(MATCH \\())"
+        }
+       ]
+      }
+     ],
+     "_why": "Behaviour only: steps on the site or an offer to run it; no endpoints."
+    }
+   ]
+  },
+  "graph_traversal": {
+   "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
+   "variants": [
+    {
+     "id": "uq.reply_explains_internals.1",
+     "family": "graph_traversal",
+     "name": "Field values per patient, then whether a field exists",
+     "tags": [
+      "user",
+      "issue:reply_explains_internals",
+      "issue:field_values_across_set",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "values",
+       "query": "what are the metadata values stored in the A.CNV analyses for each patient in the BTC study",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "A\\.CNV"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "PAT-241113DFC-\\d"
+        }
+       ]
+      },
+      {
+       "label": "field",
+       "query": "is fraction tumor a metadata field used for any of the tissue samples or their children?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "TumorFractionFromCNV"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(NOT APPLIED))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, 2026-11-17: the matching field is TumorFractionFromCNV. The reply must not explain its own query lines."
+    },
+    {
+     "id": "uq.reply_explains_internals.s1",
+     "family": "graph_traversal",
+     "name": "Whether a field exists on a type or its parents",
+     "tags": [
+      "user",
+      "issue:reply_explains_internals",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "is ploidy a metadata field used for any of the A.CNV analyses or their parents?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)ploidy"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(NOT APPLIED|the query read))"
+        }
+       ]
+      }
+     ],
+     "_why": "Not measured: whether a ploidy field exists is unverified. Behaviour only: answers about the field without explaining its query."
+    },
+    {
+     "id": "uq.missing_data_say_what_exists.s1",
+     "family": "graph_traversal",
+     "name": "A data type for one animal number, or what exists instead",
+     "tags": [
+      "user",
+      "issue:missing_data_say_what_exists",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "I'm looking for flow cytometry data for NHP 16619. If this data doesn't exist, tell me what does.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(16619|NHP-221109FLY-5)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: animal 16619 is NHP-221109FLY-5. Whether it has flow cytometry data was not measured."
+    },
+    {
+     "id": "uq.condition_dropped.s1",
+     "family": "graph_traversal",
+     "name": "Mouse + liver + RNA-seq, as a count",
+     "tags": [
+      "user",
+      "issue:condition_dropped",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "how many mouse liver rna-seq samples are in the database?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)liver"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(mouse|mice|MUS)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(these results are for|returned no matches))"
+        }
+       ]
+      }
+     ],
+     "_why": "Not measured. Behaviour only: all three conditions kept, no word search stands in."
+    },
+    {
+     "id": "uq.data_kind_in_project.2",
+     "family": "graph_traversal",
+     "name": "TCR data in a project, then the UIDs",
+     "tags": [
+      "user",
+      "issue:data_kind_in_project",
+      "issue:followup_only_preview",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "tcr",
+       "query": "do we have any T Cell Receptor or TCR data for the IMPAcTB project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)single[- ]cell"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!\\s*Yes, probably)"
+        }
+       ]
+      },
+      {
+       "label": "uids",
+       "query": "Can you give me the unique IDs of the 4 D.SEQ records?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "D\\.SEQ-230405SHA-5\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "D\\.SEQ-230405SHA-8\\b"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: the 4 D.SEQ that mention TCR (D.SEQ-230405SHA-5 to -8) are single-cell RNA-seq (RNA-Seq, cDNA), not TCR sequencing. A text match on TCR does not confirm TCR data."
+    },
+    {
+     "id": "uq.data_kind_in_project.s1",
+     "family": "graph_traversal",
+     "name": "Spatial transcriptomics data in another project",
+     "tags": [
+      "user",
+      "issue:data_kind_in_project",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "do we have any spatial transcriptomics data for the Breakthrough Cancer project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(A\\.SPTX|(?i:spatial))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)\\byes\\b|\\b\\d[\\d,]* (A\\.SPTX|spatial)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: the Breakthrough Cancer project holds A.SPTX records (97 below one patient alone)."
+    },
+    {
+     "id": "uq.field_values_across_set.1",
+     "family": "graph_traversal",
+     "name": "Species across a project",
+     "tags": [
+      "user",
+      "issue:field_values_across_set",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What species are the samples in the IMPACT project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)fascicularis"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(does not explicitly contain species))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: Species is recorded on macaques (Macaca fascicularis 327; Macaca mulatta under three spellings, 364), cells and bacteria; mice and patients carry no Species field."
+    },
+    {
+     "id": "uq.field_values_across_set.s1",
+     "family": "graph_traversal",
+     "name": "Sequencing types across a project",
+     "tags": [
+      "user",
+      "issue:field_values_across_set",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What sequencing types are the D.SEQ samples in the IMPAcTb project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)single cell RNA"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)DNA barcoding"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: the D.SEQ SequencingType values in IMPAcTb include Single Cell RNA Sequencing and DNA Barcoding."
+    },
+    {
+     "id": "uq.project_totals_overview.1",
+     "family": "graph_traversal",
+     "name": "How many samples in a project",
+     "tags": [
+      "user",
+      "issue:project_totals_overview",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "how many samples are in impactb",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b8\\d,?\\d{3}\\b"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 85,892 samples through the project's 19 studies (earlier reads: 83,217 and 84,527)."
+    },
+    {
+     "id": "uq.project_totals_overview.s1",
+     "family": "graph_traversal",
+     "name": "How many samples in another project",
+     "tags": [
+      "user",
+      "issue:project_totals_overview",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "how many samples are in CSBC",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])4,?274(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 4,274 samples in Cancer_Systems_Biology_Consortium(CSBC)."
+    }
+   ]
+  },
+  "artifact_delivery": {
+   "description": "Get the file the assistant just made out of the turn and to the user.",
+   "variants": [
+    {
+     "id": "uq.sheet_for_uid_list.2",
+     "family": "artifact_delivery",
+     "name": "Columns named first, then 50 pasted DNA UIDs, then protocol rounds",
+     "tags": [
+      "user",
+      "issue:sheet_for_uid_list",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "columns",
+       "query": "Given a list of DNA.Parent, I'd like to export a metadata sheet which includes NHP organism, D.SEQ LibraryStrategy, D.SEQ ExtractedMolecule, D.SEQ LibraryDesign, D.SEQ Sequencer, TIS tissue type, TIS ExtractionInterval, D.SEQ File_PrimaryData, D.SEQ File_SecondaryData, D.SEQ Checksum_PrimaryData, D.SEQ Checksum_SecondaryData",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(UID|list|paste|upload)"
+        }
+       ]
+      },
+      {
+       "label": "list",
+       "query": "these are the DNA UIDs for which I want the previously mentioned data\nDNA-230717SHA-1\nDNA-230717SHA-2\nDNA-230717SHA-3\nDNA-230717SHA-4\nDNA-230717SHA-5\nDNA-230717SHA-6\nDNA-230717SHA-7\nDNA-230717SHA-8\nDNA-230717SHA-9\nDNA-230717SHA-10\nDNA-230717SHA-11\nDNA-230717SHA-12\nDNA-230717SHA-13\nDNA-230717SHA-14\nDNA-230717SHA-15\nDNA-230717SHA-16\nDNA-230717SHA-17\nDNA-230717SHA-18\nDNA-230717SHA-19\nDNA-230717SHA-20\nDNA-230717SHA-22\nDNA-230717SHA-23\nDNA-230717SHA-24\nDNA-230717SHA-25\nDNA-230717SHA-26\nDNA-231206SHA-4\nDNA-231206SHA-5\nDNA-231206SHA-9\nDNA-231206SHA-12\nDNA-231206SHA-13\nDNA-231206SHA-16\nDNA-231206SHA-17\nDNA-231206SHA-18\nDNA-231206SHA-19\nDNA-231206SHA-20\nDNA-231206SHA-22\nDNA-231206SHA-24\nDNA-231206SHA-25\nDNA-231206SHA-26\nDNA-231206SHA-39\nDNA-231206SHA-46\nDNA-231206SHA-47\nDNA-231206SHA-48\nDNA-231206SHA-49\nDNA-231206SHA-50\nDNA-230717SHA-27\nDNA-230717SHA-28\nDNA-230717SHA-29\nDNA-230717SHA-30\nDNA-230717SHA-31",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])50(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "protocols",
+       "query": "Could you update the output sheet with the TIS protocol, PAV Procedure, DNA Protocol, D.SEQ Protocol, A.SCXP Protocol for each DNA UID?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)protocol"
+        }
+       ]
+      },
+      {
+       "label": "correction",
+       "query": "Sorry, I meant NHP protocol, not TIS protocol. can you update it again?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)NHP"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)protocol"
+        }
+       ]
+      },
+      {
+       "label": "no_output",
+       "query": "do any of the D.SEQ or A.SCXP include information about the software versions used, aside from the P.SHA-220912-V1_Drop-seq_Alignment_Cookbook.pdf? I don't need an output at this time.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(A\\.SCXP|D\\.SEQ)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(software|version|tool)"
+        }
+       ]
+      }
+     ],
+     "_why": "The question lists 50 DNA UIDs. The sheet has one row per DNA sample with fields from its tissue, animal and sequencing records."
+    },
+    {
+     "id": "uq.sheet_for_uid_list.s1",
+     "family": "artifact_delivery",
+     "name": "A sheet for five pasted patient UIDs",
+     "tags": [
+      "user",
+      "issue:sheet_for_uid_list",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Make me an Excel sheet with the name and the number of tissue samples for each of these patients:\nPAT-241113DFC-1\nPAT-241113DFC-2\nPAT-241113DFC-3\nPAT-241113DFC-4\nPAT-241113DFC-5",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\.xlsx"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])5(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: the five patients exist (GBM1.DFCI1 to GBM1.DFCI5). Tissue counts per patient were not measured."
+    },
+    {
+     "id": "uq.export_full_list.1",
+     "family": "artifact_delivery",
+     "name": "Export the full list after a search",
+     "tags": [
+      "user",
+      "issue:export_full_list",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "setup_not_verbatim",
+       "query": "List the single cell RNA sequencing datasets (D.SEQ) in the IMPAcTb project",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        }
+       ]
+      },
+      {
+       "label": "export",
+       "query": "Export the full list of these samples to Excel",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(\\.xlsx|Excel)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b20 (matching )?samples))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 727 D.SEQ in IMPAcTb are single-cell RNA-seq by sequencing type. The first turn is NOT the user's (theirs was a UID-code search left out of this set); the export sentence is verbatim."
+    },
+    {
+     "id": "uq.export_full_list.s1",
+     "family": "artifact_delivery",
+     "name": "Export a lab's mice to CSV after a search",
+     "tags": [
+      "user",
+      "issue:export_full_list",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "find",
+       "query": "Find the mice from the Behar lab",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])1,?027(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "export",
+       "query": "Export the full list of those mice to a CSV file",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\.csv"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b20 (matching )?(samples|mice|rows)))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 1,027 mice carry the Behar lab code (BEH) in the UID."
+    },
+    {
+     "id": "uq.cc_stopped_nothing_back.s1",
+     "family": "artifact_delivery",
+     "name": "A CSV that needs a walk over every macaque",
+     "tags": [
+      "user",
+      "issue:cc_stopped_nothing_back",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "can you write me a csv file of the macaques in IMPAcTb that have barcode data? I would like the animal name, species, study, and whether the animal has CFU data",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\.csv"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])(100|99)(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 100 macaques in IMPAcTb have barcode data (an A.DBMM below them), 99 of them also CFU."
+    }
+   ]
+  },
+  "data_file_location": {
+   "description": "Where a stored data file (sequencing, flow, a model) lives and how to get it: its File_PrimaryData and Link_PrimaryData fields. NExtSEEK holds the metadata, not the files.",
+   "variants": [
+    {
+     "id": "uq.asked_for_file_got_none.s1",
+     "family": "data_file_location",
+     "name": "Download another model file",
+     "tags": [
+      "user",
+      "issue:asked_for_file_got_none",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Can you help me download the model file MDL-250912LAU-1?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "MDL-250912LAU-1"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file|/net/|\\.rds\\b|path)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: MDL-250912LAU-1 exists (the mouse-human model). Its file path was not read."
+    }
+   ]
+  },
+  "person_lab_resolution": {
+   "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
+   "variants": [
+    {
+     "id": "uq.files_read_as_dfile.s1",
+     "family": "person_lab_resolution",
+     "name": "Files of another lab",
+     "tags": [
+      "user",
+      "issue:files_read_as_dfile",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which files are associated with the Behar Lab?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(\\bBEH\\b|Behar)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(no data files?\\b))"
+        }
+       ]
+      }
+     ],
+     "_why": "The Behar lab code is BEH. The file count was not measured. Behaviour only: the data records, not the D.FILE type."
+    }
+   ]
+  },
+  "followup_over_results": {
+   "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
+   "variants": [
+    {
+     "id": "uq.followup_only_preview.1",
+     "family": "followup_over_results",
+     "name": "A count, then which labs",
+     "tags": [
+      "user",
+      "issue:followup_only_preview",
+      "issue:by_lab_breakdown",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "count",
+       "query": "how many mice are there?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])6,?479(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "labs",
+       "query": "which labs are those mouse samples from?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\bENG\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\bSAS\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(cannot be determined))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 6,479 mice; by the lab code in the UID: ENG 3,513, SAS 1,036, BEH 1,027, SAR 478 and nine smaller."
+    },
+    {
+     "id": "uq.followup_only_preview.s1",
+     "family": "followup_over_results",
+     "name": "A count, then a breakdown of those",
+     "tags": [
+      "user",
+      "issue:followup_only_preview",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "count",
+       "query": "How many macaques are in the IMPAcTb project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])704(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "species",
+       "query": "Which species are those macaques?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)fascicularis"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])327(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(cannot be determined))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 704 macaques in IMPAcTb; 327 are Macaca fascicularis."
+    },
+    {
+     "id": "uq.two_counts_same_thing.s1",
+     "family": "followup_over_results",
+     "name": "A project count, then the same set by lab",
+     "tags": [
+      "user",
+      "issue:two_counts_same_thing",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "count",
+       "query": "How many mouse samples are in Impact?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])2,?294(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "labs",
+       "query": "Which labs are the 2,294 mouse samples from?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b(SAS|BEH)\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(\\b6,?479\\b))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 2,294 mice are in the IMPAcTb project; the follow-up must keep that number."
+    }
+   ]
+  },
+  "sample_retrieve": {
+   "description": "Pull the full record for samples the user can already name.",
+   "variants": [
+    {
+     "id": "uq.suggested_sentence_sent_back.1",
+     "family": "sample_retrieve",
+     "name": "The offered example sentence, pasted back in quotes",
+     "tags": [
+      "user",
+      "issue:suggested_sentence_sent_back",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "\"Retrieve metadata for MDL-250912LAU-2\"",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "MDL-250912LAU-2"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(scientist|file|protocol)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "The quotes are part of what was sent. The record is a model with a scientist, a file and a protocol."
+    },
+    {
+     "id": "uq.suggested_sentence_sent_back.s1",
+     "family": "sample_retrieve",
+     "name": "The same sentence shape for another record, in quotes",
+     "tags": [
+      "user",
+      "issue:suggested_sentence_sent_back",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "\"Retrieve metadata for PAT-241113DFC-2\"",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "PAT-241113DFC-2"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "GBM1\\.DFCI2"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: PAT-241113DFC-2 is named GBM1.DFCI2."
+    },
+    {
+     "id": "uq.record_by_uid.1",
+     "family": "sample_retrieve",
+     "name": "What data, all the records, which investigator for one animal",
+     "tags": [
+      "user",
+      "issue:record_by_uid",
+      "verbatim"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "types",
+       "query": "What types of data exist for NHP-250905FLY-1 from the IMPACT project?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "NHP-250905FLY-1"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(D\\.SEQ|A\\.GEX|DNA|TIS)"
+        }
+       ]
+      },
+      {
+       "label": "records",
+       "query": "Can you list all of the 11 records associated with NHP-250905FLY-1?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(TIS|DNA|D\\.SEQ|PAV)-\\d{6}[A-Z]{3}-\\d+"
+        }
+       ]
+      },
+      {
+       "label": "investigator",
+       "query": "Which investigator is NHP-250905FLY-1 associated with?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(scientist|investigator|lab)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "Behaviour only: the record's tree, then its people."
+    },
+    {
+     "id": "uq.record_by_uid.s1",
+     "family": "sample_retrieve",
+     "name": "What data exists for another animal",
+     "tags": [
+      "user",
+      "issue:record_by_uid",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What types of data exist for NHP-221109FLY-5?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "NHP-221109FLY-5"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(TIS|PAV|tissue|visit)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong|No available REST endpoint))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: NHP-221109FLY-5 exists (animal 16619, study IV-BCG SIV Aim 3). Its tree was not read."
+    }
+   ]
+  },
+  "session_export": {
+   "description": "Export the chat session itself, for example to send it to the developers: the All files zip of the transcript, its files and a manifest.",
+   "variants": [
+    {
+     "id": "uq.share_chat_with_team.s1",
+     "family": "session_export",
+     "name": "Send this conversation to the data team",
+     "tags": [
+      "user",
+      "issue:share_chat_with_team",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How can I send this conversation to the data team so they can see what went wrong?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(all files|link|address bar|zip)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(no such feature|not possible|does not have a built-in))"
+        }
+       ]
+      }
+     ],
+     "_why": "Behaviour only: the All files zip or the chat link, not 'no way'."
+    }
+   ]
+  }
+ }
+}
