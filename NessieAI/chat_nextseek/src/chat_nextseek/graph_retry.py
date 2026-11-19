@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
+from .graph_scope import HIDDEN_SAMPLE_PROPERTIES
+
 _TIMED_OUT = re.compile(r"TransactionTimedOut|25N14|not completed within")
 
 
@@ -183,3 +185,62 @@ def id_spelling_note(v: IdSpelling) -> str:
     return (f"No record contains '{v.term}' exactly as written; this result matches it written with other "
             f"separators or none (for example '{v.joined}'). Say that in one short clause after the answer, so the "
             "user knows which spelling matched.")
+
+
+#: Scope refusals a rewrite can cure: each is about how the statement is written, not about data the caller may not
+#: see. A statement refused for any other code (a label or relationship a member may not read, a variable-length walk,
+#: no scope) gets no rewrite. Production (who-asked-2, R1): members' counts refused for these codes were answered by a
+#: word search that counted something else.
+SCOPE_REPAIR_CODES = frozenset({"unjoined_node", "hidden_property", "pattern_expression", "function_not_allowed",
+                                "dynamic_property", "whole_properties"})
+
+_HIDDEN = ", ".join(sorted(HIDDEN_SAMPLE_PROPERTIES))
+#: What the graph agent is told for each curable code, beside the check's own reasons.
+_SCOPE_REPAIR_HINTS = {
+    "unjoined_node": (
+        "A Study is read only through a sample it holds, (s:Sample)-[:IN_STUDY]->(st:Study); an Investigation "
+        "through such a study or through its Project; a Person through MEMBER_OF to a Project. Never walk down from "
+        "a Project or an Investigation to its studies: to count or list studies, reach them from the samples."),
+    "hidden_property": f"These sample properties are hidden and may not be read: {_HIDDEN}. Leave them out.",
+    "pattern_expression": "Test a pattern with EXISTS { MATCH ... }, never a pattern inside an expression.",
+    "function_not_allowed": "Use only built-in Cypher functions; no apoc and no procedure.",
+    "dynamic_property": "Name each property (s.Name or s.`Some name`); never subscript a node with a key, s[k].",
+    "whole_properties": "Name each property you need; never properties() or a map projection of every property.",
+}
+
+
+def scope_repair_context(result: dict) -> str | None:
+    """The one rewrite a scope-refused statement gets, told the check's own reasons; None when the result is not a
+    refusal or any of its codes is one a rewrite cannot cure (``SCOPE_REPAIR_CODES``)."""
+    scope = result.get("scope") if isinstance(result, dict) else None
+    if not isinstance(scope, dict) or scope.get("decision") != "refused":
+        return None
+    codes = list(dict.fromkeys(scope.get("codes") or ()))
+    if not codes or not set(codes) <= SCOPE_REPAIR_CODES:
+        return None
+    reasons = "; ".join(str(r) for r in scope.get("reasons") or ()) or ", ".join(codes)
+    hints = " ".join(_SCOPE_REPAIR_HINTS[c] for c in codes)
+    return (
+        "Your previous Cypher query was not run: it could not be confirmed to stay within the user's projects. "
+        f"The check's reasons: {reasons}. {hints} Rewrite it once to answer the same question with the same "
+        "filters, in a form the check accepts."
+    )
+
+
+_COUNT_WORDS = re.compile(r"\bhow\s+many\b|\bnumber\s+of\b|^\W*count\b|\bcount\s+(?:of|the|all|every|each)\b"
+                          r"|\bbreak(?:s|ing)?\s+(?:\w+\s+){0,4}?down\b"
+                          r"|\bbroken\s+down\b|\bbreakdown\b|\btally\b", re.I)
+_COUNT_CALL = re.compile(r"\bcount\s*\(", re.I)
+
+
+def asks_for_a_count(question: str | None, cypher: str | None) -> bool:
+    """Is this a count or a breakdown: the question asks for one, or the statement written for it counts?
+
+    A refused count is never answered by the word search (who-asked-2, R1): that search counts the records that
+    mention a word, which is another number. The statement is read masked, so a ``count(`` inside a string or a
+    comment is not a count, and a ``COUNT { }`` subquery is a filter, not one.
+    """
+    if _COUNT_WORDS.search(question or ""):
+        return True
+    from .cypher_text import mask_cypher
+    return bool(_COUNT_CALL.search(mask_cypher(cypher or "")))

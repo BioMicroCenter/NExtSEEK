@@ -467,6 +467,11 @@ GRAPH_SCOPE_FALLBACK_NOTE = (
     "was not run. This answer comes from the project-scoped sample search instead. Say so, and say which "
     "conditions of the question that search could not apply."
 )
+#: Appended to a refused count's error: the op ran no word search in its place (who-asked-2, R1).
+GRAPH_COUNT_REFUSED_HINT = (
+    "This asks for a count, and the project-scoped word search counts something else, so none was run: tell the "
+    "user it could not be counted, and never give a number from another search."
+)
 
 
 def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elapsed_s: float, *,
@@ -593,6 +598,7 @@ def run_graph_question(
     uid_checks: list | None = None,
     agent_plan: Any = None,
     plan_source: str | None = None,
+    text_fallback: bool = True,
 ) -> GraphAnswer:
     """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
 
@@ -605,8 +611,10 @@ def run_graph_question(
 
     Every statement, a retry's too, runs through ``neo4j_exec`` (the scoped ``tool_neo4j_query`` when None) on the
     ``config`` it was handed: nothing here builds or changes a scope. A retry is kept only when it answered and,
-    after a first query that matched nothing, found something. Whatever answers last and was refused for its scope
-    goes to ``_graph_search_fallback``.
+    after a first query that matched nothing, found something. With no ``retry`` (the graph op), a refusal a rewrite
+    can cure gets one, told the check's reasons, while the fallback budget lasts. Whatever answers last and was
+    refused for its scope goes to ``_graph_search_fallback``, unless ``text_fallback`` is False (the aggregate op) or
+    it is a count (``graph_retry.asks_for_a_count``): a count is never answered by the word search.
 
     ``turn`` (a Container-CC turn) supplies the vocabulary and the turn's plan. The plan is, in order: ``parser_plan``
     when handed one (the aggregate op makes one for all its parts; ``plan_source`` says where it came from), else the
@@ -643,6 +651,8 @@ def run_graph_question(
         exec_fn = tool_neo4j_query
     plan_dump, own_cypher, cypher, result = _run_plan(plan, exec_fn, config, prepare_cypher)
     attempts = [_attempt("initial", result)]
+    if retry is None:
+        retry = _scope_retry(now, started, fallback_budget_s)
     changed = False
     spec = retry(result, own_cypher) if retry is not None and own_cypher else None
     if spec:
@@ -657,12 +667,28 @@ def run_graph_question(
             plan_dump, cypher, result = again_dump, again_cypher, again_result
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
     if is_scope_refusal(result):
+        from chat_nextseek.graph_retry import asks_for_a_count
+        if not text_fallback or asks_for_a_count(query, cypher):
+            result = {**result, "error": f"{result.get('error') or ''} {GRAPH_COUNT_REFUSED_HINT}".strip()}
+            return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
         fallback = _graph_search_fallback(config, parser_plan, result, write_gate, now() - started,
                                           budget_s=fallback_budget_s)
         hint = GRAPH_SCOPE_FALLBACK_HINT if fallback["ok"] else GRAPH_SCOPE_FALLBACK_RETRY_HINT
         result = {**result, "error": f"{result.get('error') or ''} {hint}".strip()}
         return GraphAnswer(plan_dump, result, fallback, parser_plan, cypher, attempts, changed, plan_source or "parser")
     return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
+
+
+def _scope_retry(now, started, budget_s):
+    """The graph op's one rewrite of a scope refusal a rewrite can cure, told the check's reasons; none once the op is
+    past the point where a fallback could still start (a graph call can take a minute)."""
+    from chat_nextseek.graph_retry import scope_repair_context
+    budget = fallback_start_budget_s(None) if budget_s is None else budget_s
+
+    def retry(result, cypher):
+        context = scope_repair_context(result)
+        return ("scope_repair", context) if context and now() - started < budget else None
+    return retry
 
 
 def _uid_check(config, query, neo4j_exec, filter_uids=None):

@@ -20,6 +20,7 @@ import pytest
 
 from chat_nextseek import cypher_text
 from chat_nextseek import graph_catalog as gcat
+from chat_nextseek.agents.graph import render_hidden_properties
 from chat_nextseek.agents.graph import (
     V11_NODE_PROPERTIES,
     V11_RELATIONSHIP_PROPERTIES,
@@ -82,7 +83,9 @@ def test_the_wrappers_compose_with_the_shipped_routing_core(wrapper):
                                   "api_agent.txt"])
 def test_no_text_override_carries_a_template_marker(name):
     # Only the two parser wrappers are templated ({{NAME}} markers), and v2 overrides neither. JSON braces are fine.
+    # The graph prompt's one slot is filled from graph_scope's hidden list (render_hidden_properties, lane B).
     text = shipped(name).replace("{{KNOWN_INVESTIGATION_TITLES}}", "").replace("{{KNOWN_PROJECT_TITLES}}", "")
+    text = text.replace("{{HIDDEN_SAMPLE_PROPERTIES}}", "") if name == "graph_agent.txt" else text
     assert not re.search(r"\{\{[A-Z_]+\}\}", text)
 
 
@@ -181,7 +184,8 @@ def test_the_bound_is_the_measured_longest_chain_plus_one():
 
 
 def test_the_system_properties_the_prompt_names_are_the_guard_s():
-    agent = shipped("graph_agent.txt")
+    # The hidden ones are filled in from graph_scope's list (lane B): an admin's prompt names every one.
+    agent = render_hidden_properties(shipped("graph_agent.txt"), scoped=False)
     line = next(l for l in agent.splitlines() if l.startswith("- **System properties**"))
     named = set(re.findall(r"`([a-z_]+)`", line.split(".", 1)[0] + line))
     assert V12_SYSTEM_PROPERTIES <= named
@@ -208,8 +212,7 @@ def test_list_properties_are_carved_out_of_the_to_string_rule():
     agent = shipped("graph_agent.txt")
     rule = agent[agent.index("**Never compare free text with a bare `=`.**"):]
     rule = rule[:rule.index("\n")]
-    for prop in ("project_ids", "parent_titles", "parent_title_hashes"):
-        assert prop in rule
+    assert "project_ids" in rule and "any other list property" in rule
 
 
 def test_the_lab_code_is_matched_after_the_date_not_at_the_start():

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from .. import call_scope, cypher_text, graph_catalog, graph_context
+from ..graph_scope import HIDDEN_SAMPLE_PROPERTIES
 from ..graph_contract import schema
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured
@@ -2529,6 +2530,23 @@ def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) 
         "project": getattr(vocab, "project_titles", ())})
 
 
+def _fields_block(config, snapshot, user_query: str, plan_dict: dict, entity_dict: dict) -> str:
+    """FIELDS NAMED IN THIS QUESTION (``helpers.field_words``, who-asked-2 R3): the attributes whose title holds a
+    word the question counts, from the snapshot every caller gets. Their filled counts only for a caller who sees
+    every project: a member's catalog is redacted of counts on purpose."""
+    from ..helpers import field_words
+    try:  # a signal: its failure must never cost the turn the live catalog
+        found = field_words.fields_named(snapshot, user_query, plan_dict, entity_dict)
+        counts: dict = {}
+        if found and graph_catalog.shows_committed_vocabulary(config):  # graph_scope.sees_all
+            for detail in graph_catalog.get_type_details(config, sorted({code for code, _ in found})):
+                counts.update({(detail.title, a.title): a.sample_count for a in detail.attributes})
+        return field_words.render_fields(found, counts)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("FIELDS NAMED IN THIS QUESTION skipped: %s: %s", type(exc).__name__, exc)
+        return ""
+
+
 def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
                             reader: str = "graph agent") -> CatalogContext | CatalogFallback:
     """The rendered v1.1 catalog for this question, or the ``CatalogFallback`` saying why the committed JSON must be
@@ -2555,6 +2573,9 @@ def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, 
         project_titles = {n: t for n, (_lv, t, own) in hits.items() if own}
         if block:
             vocabulary = f"{vocabulary}\n\n{block}" if vocabulary else block
+        fields = _fields_block(config, snapshot, user_query or "", plan_dict, entity_dict)
+        if fields:
+            vocabulary = f"{vocabulary}\n\n{fields}" if vocabulary else fields
     except graph_catalog.CatalogUnavailable as exc:
         return _catalog_fallback(config, str(exc), reader)
     except Exception as exc:  # noqa: BLE001 (a catalog defect must cost the context, not the turn)
@@ -2850,6 +2871,25 @@ def _projects_parser_plan(config) -> bool:
     return getattr(config, "PROJECT_PARSER_PLAN", False) is True
 
 
+#: Where graph_agent.txt's system-properties line names the hidden sample properties (``render_hidden_properties``).
+HIDDEN_PROPERTIES_SLOT = "{{HIDDEN_SAMPLE_PROPERTIES}}"
+
+
+def render_hidden_properties(prompt, scoped: bool):
+    """The graph prompt with its hidden-property slot filled from ``HIDDEN_SAMPLE_PROPERTIES``, the scope check's own
+    list: listed for an admin, who may read them; named as never readable for anyone else, whose statement naming one
+    is refused (who-asked-2, R1: "every stored property" invited that refusal)."""
+    if not isinstance(prompt, str):
+        return prompt
+    names = sorted(HIDDEN_SAMPLE_PROPERTIES)
+    if scoped:
+        fill = (". Never read " + " or ".join(f"`{n}`" for n in names)
+                + ": they are hidden from this user, and a query that names one is refused")
+    else:
+        fill = ", " + ", ".join(f"`{n}` (a list)" for n in names)
+    return prompt.replace(HIDDEN_PROPERTIES_SLOT, fill)
+
+
 def graph_agent(
     config: ChatConfig,
     user_query: str,
@@ -2911,8 +2951,9 @@ def graph_agent(
     # so the text the model reads is unchanged and a Gemini move (the marker stripped) reads the one message it
     # read before. A repair appends to this list, so it keeps the head.
     head, found, sections = schema_message.partition("\n\n" + graph_context.RESOLVED_TYPES_HEADING)
+    system_prompt = render_hidden_properties(config.GRAPH_AGENT_SYSTEM_PROMPT, scoped)
     messages = [
-        {"role": "system", "content": config.GRAPH_AGENT_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "system", "content": head, "cache_point": "1h"},
     ]
     if found:
@@ -2936,7 +2977,7 @@ def graph_agent(
             config=config,
             prompt=prompt,
             model=GraphAgentPlan,
-            system=config.GRAPH_AGENT_SYSTEM_PROMPT,
+            system=system_prompt,
             messages=messages,
             model_name=graph_model,
             temperature=0,

@@ -202,19 +202,23 @@ def test_a_refused_identity_never_reaches_the_scope():
 # The graph turn on its own
 # --------------------------------------------------------------------------- #
 
-def _graph_turn(monkeypatch, tmp_path, plans, results):
+def _graph_turn(monkeypatch, tmp_path, plans, results, user_text="which tissue samples"):
+    """``user_text`` is not a count by default: a refused count is never answered by the sample search (lane B)."""
     plan_iter, result_iter = iter(plans), iter(results)
     calls = {"agent": 0, "neo4j": 0, "chatter": 0}
     cyphers: list = []
+    retry_contexts: list = []
 
     def agent(config, user_text, entity_result, plan, retry_context=None, refine_context=None):
         calls["agent"] += 1
+        retry_contexts.append(retry_context)
         return next(plan_iter)
 
     def neo4j(config, cypher, params=None):
         calls["neo4j"] += 1
         cyphers.append(cypher)
-        return next(result_iter)
+        result = next(result_iter)
+        return result(cypher) if callable(result) else result
 
     chatter_kwargs: list = []
 
@@ -235,14 +239,14 @@ def _graph_turn(monkeypatch, tmp_path, plans, results):
     events: list = []
     session: dict = {}
     out = orch._execute_graph_turn(
-        config=config, session=session, user_text="how many", entity_result=EntityAgentOutput(),
+        config=config, session=session, user_text=user_text, entity_result=EntityAgentOutput(),
         plan=ParserPlan(mode="graph_query", intent_summary="count"), log_dir=str(tmp_path),
         artifact_store=MagicMock(register_path=MagicMock(return_value=None)),
         send_event=lambda name, payload: events.append((name, payload)), debug_payload=debug,
         t_total_start=time.perf_counter(),
     )
     return SimpleNamespace(out=out, debug=debug, calls=calls, written=written, events=events, session=session,
-                           chatter_kwargs=chatter_kwargs, cyphers=cyphers)
+                           chatter_kwargs=chatter_kwargs, cyphers=cyphers, retry_contexts=retry_contexts)
 
 
 def _plan(cypher):
@@ -270,7 +274,8 @@ def test_a_refused_first_attempt_makes_no_second_agent_call_and_falls_back(monke
 
 
 def test_no_scope_falls_back_the_same_way(monkeypatch, tmp_path):
-    run = _graph_turn(monkeypatch, tmp_path, [_plan("MATCH (s:T_TIS) RETURN count(s) AS n")], [_no_scope()])
+    listing = "MATCH (s:T_TIS) RETURN s.uuid AS uid"
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(listing)], [_no_scope(listing)])
 
     assert isinstance(run.out, orch.GraphScopeFallback)
     assert run.out.codes == ("no_scope",)
@@ -337,14 +342,15 @@ class _TurnConfig:
         return None
 
 
-def _run_turn(parser_plan, graph_results, *, history=None):
+def _run_turn(parser_plan, graph_results, *, history=None, user_text="which lung tissue samples", cyphers=None):
     graph_results = iter(graph_results)
+    cyphers = iter(cyphers or [])
     seen = SimpleNamespace(agent=0, api_plans=[], api_requests=[], chatter=[], graph_chatter=0)
 
     def graph_agent(config, user_text, entity_result, plan, retry_context=None, refine_context=None):
         seen.agent += 1
         seen.refine_context = refine_context
-        return _plan(REFUSED_CYPHER)
+        return _plan(next(cyphers, REFUSED_CYPHER))
 
     def api_agent(config, plan):
         seen.api_plans.append(plan)
@@ -372,7 +378,8 @@ def _run_turn(parser_plan, graph_results, *, history=None):
             patch.object(orch, "entity_agent", return_value=EntityAgentOutput()), \
             patch.object(orch, "parser_agent", return_value=parser_plan), \
             patch.object(orch, "graph_agent", graph_agent), \
-            patch.object(orch, "tool_neo4j_query", lambda config, cypher, params=None: next(graph_results)), \
+            patch.object(orch, "tool_neo4j_query", lambda config, cypher, params=None: _next_result(graph_results,
+                                                                                                    cypher)), \
             patch("chat_nextseek.agents.api_agent_build_request", api_agent), \
             patch.object(orch, "tool_nextseek_api_request", api_request), \
             patch.object(orch, "chatter_agent_answer", chatter), \
@@ -380,9 +387,14 @@ def _run_turn(parser_plan, graph_results, *, history=None):
             patch.object(orch, "log_api_call"), \
             patch.object(orch, "_write_graph_debug", return_value=None), \
             patch.object(orch, "_artifacts_for", return_value=None):
-        payload = orch.run_query(session, _TurnConfig(), "how many lung tissue samples", None,
+        payload = orch.run_query(session, _TurnConfig(), user_text, None,
                                  credentials=CREDS, graph_scope={"is_admin": False, "project_ids": [2]})
     return payload, seen, session
+
+
+def _next_result(results, cypher):
+    result = next(results)
+    return result(cypher) if callable(result) else result
 
 
 def _assert_fell_back(payload, seen):
@@ -607,3 +619,113 @@ def test_a_count_scoped_to_a_published_study_gets_no_holding_note():
     assert holding_study_note("MATCH (s:T_TIS) RETURN count(s)", {"t": "Zeta Unpublished"}, []) is None
     assert holding_study_note(cy.replace("$t", "'Quill Unpublished'"), {}, []) is not None
     assert holding_study_note("MATCH (st:Study) RETURN st.title AS t", {}, [{"t": "Zeta Unpublished"}]) is not None
+
+
+# --------------------------------------------------------------------------- #
+# Lane B (who-asked-2, R1): a refusal a rewrite can cure gets one rewrite told the check's own reasons, and a count
+# the check refuses is never answered by the sample search. The refusals come from the real scope check under a
+# member scope; a statement it proves is answered by a fake row. Entities are invented.
+# --------------------------------------------------------------------------- #
+
+class _MemberConfig:
+    GRAPH_SCOPE = GraphScope(is_admin=False, project_ids=(7,))
+    EXTRA_ALLOWED_PROCEDURES = ()
+
+
+def _checked(rows):
+    """The real tool under a member scope: its refusal as it is; a statement it proves answers ``rows``."""
+    from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
+
+    def run(cypher):
+        result = tool_neo4j_query(_MemberConfig(), cypher, {})
+        if result["scope"]["decision"] == "refused":
+            return result
+        return {**_proven(len(rows), cypher, data=rows), "scope": result["scope"]}
+    return run
+
+
+STUDY_WALK_DOWN = ("MATCH (st:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(p:Project) "
+                   "WHERE p.title = 'Quill' RETURN count(DISTINCT st) AS n")
+STUDY_FROM_SAMPLES = ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'Quill' "
+                      "MATCH (s)-[:IN_STUDY]->(st:Study) RETURN count(DISTINCT st) AS n")
+
+
+def test_a_members_refused_study_count_is_rewritten_once_with_the_checks_reason(monkeypatch, tmp_path):
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(STUDY_WALK_DOWN), _plan(STUDY_FROM_SAMPLES)],
+                      [_checked([{"n": 4}]), _checked([{"n": 4}])], user_text="How many studies does Quill have?")
+
+    assert not isinstance(run.out, orch.GraphScopeFallback)
+    assert run.out["reply"] == "graph reply"
+    assert run.cyphers == [STUDY_WALK_DOWN, STUDY_FROM_SAMPLES], "a second statement runs"
+    assert "graph_scope_fallback" not in run.debug
+    assert [(a["reason"], a["scope_decision"]) for a in run.debug["graph_attempts"]] == [
+        ("initial", "refused"), ("scope_repair", "proven")]
+    told = run.retry_contexts[1]
+    assert "st (Study) is not joined to a sample it holds" in told, "the check's own reason"
+    assert "IN_STUDY" in told
+
+
+def test_a_hidden_property_on_another_type_is_rewritten_the_same_way(monkeypatch, tmp_path):
+    hidden = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.parent_titles AS parents"
+    named = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.Colour AS colour"
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(hidden), _plan(named)],
+                      [_checked([{"uid": "ZEB-1", "colour": "red"}])] * 2, user_text="list every field of the zebras")
+
+    assert run.cyphers == [hidden, named]
+    assert "graph_scope_fallback" not in run.debug
+    assert "the property parent_titles is hidden" in run.retry_contexts[1]
+    assert "parent_title_hashes" in run.retry_contexts[1], "every hidden property is named, from graph_scope"
+
+
+def test_a_count_refused_after_its_rewrite_says_it_could_not_count_and_stops(monkeypatch, tmp_path):
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(STUDY_WALK_DOWN), _plan(STUDY_WALK_DOWN), _plan("NEVER")],
+                      [_checked([]), _checked([])], user_text="How many studies does Quill have?")
+
+    assert not isinstance(run.out, orch.GraphScopeFallback), "a count is never answered by the sample search"
+    assert run.out["reply"] == orch.COUNT_SCOPE_REPLY
+    assert run.calls == {"agent": 2, "neo4j": 2, "chatter": 0}, "one rewrite, then stop"
+    assert "graph_scope_fallback" not in run.debug
+    for leak in ("Cypher", "scope", "guard", "graph_search", "Reason"):
+        assert leak not in orch.COUNT_SCOPE_REPLY
+
+
+def test_a_count_refused_for_a_code_no_rewrite_cures_stops_without_a_rewrite(monkeypatch, tmp_path):
+    walk = "MATCH (z:T_ZEB)-[:OF_TYPE]->(t:SampleType) RETURN count(t) AS n"  # relationship_type: not curable
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(walk), _plan("NEVER")], [_checked([])],
+                      user_text="number of zebra types")
+    assert run.out["reply"] == orch.COUNT_SCOPE_REPLY
+    assert run.calls["agent"] == 1
+
+
+def test_a_list_refused_after_its_rewrite_still_falls_back(monkeypatch, tmp_path):
+    hidden = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.parent_titles AS parents"
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(hidden), _plan(hidden)], [_checked([]), _checked([])],
+                      user_text="which zebras have parents")
+    assert isinstance(run.out, orch.GraphScopeFallback)
+    assert [a["reason"] for a in run.out.attempts] == ["initial", "scope_repair"]
+
+
+def test_a_members_how_many_question_makes_no_sample_search_call():
+    payload, seen, _ = _run_turn(ParserPlan(mode="graph_query", intent_summary="count studies"),
+                                 [_checked([]), _checked([])], user_text="How many studies does Quill have?",
+                                 cyphers=[STUDY_WALK_DOWN, STUDY_WALK_DOWN])
+
+    assert seen.agent == 2
+    assert seen.api_plans == [] and seen.api_requests == [], "no graph_search call"
+    assert payload["reply"] == orch.COUNT_SCOPE_REPLY
+    assert "graph_scope_fallback" not in payload["debug"]
+
+
+@pytest.mark.parametrize("question,cypher,count", [
+    ("How many zebras are there?", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", True),
+    ("which zebras", "MATCH (z:T_ZEB) RETURN count(z) AS n", True),
+    ("Break the zebras down by colour", "MATCH (z:T_ZEB) RETURN z.Colour AS c", True),
+    ("which zebras", "MATCH (z:T_ZEB) WHERE z.title CONTAINS 'count(' RETURN z.uuid AS uid", False),
+    ("list the zebras", "MATCH (z:T_ZEB) WHERE COUNT { (z)-[:DERIVED_FROM]->(:Sample) } > 1 RETURN z.uuid AS u",
+     False),
+    ("zebras with a stripe count above 100", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", False),
+    ("Count the zebras", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", True),
+])
+def test_what_counts_as_a_count(question, cypher, count):
+    from chat_nextseek.graph_retry import asks_for_a_count
+    assert asks_for_a_count(question, cypher) is count
