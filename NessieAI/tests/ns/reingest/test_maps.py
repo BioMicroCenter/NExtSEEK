@@ -388,8 +388,9 @@ def test_an_alternative_group_needs_two_rules():
 
 
 def test_peak_callers_are_alternatives_and_bigwigs_and_variant_callers_are_not():
-    for pipeline in ("atacseq", "chipseq"):
+    for pipeline, peak_type in (("atacseq", "A.ATAC"), ("chipseq", "A.CHRM")):
         groups = {r.id: r.alternative_group for r in maps.load(pipeline).outputs
-                  if r.sample_type == "A.CHRM" and r.cardinality == "per_sample"}
+                  if r.sample_type == peak_type and r.cardinality == "per_sample"
+                  and r.id != "aln"}
         assert groups == {"peaks_narrow": "peaks", "peaks_broad": "peaks", "bigwig": None}
     assert not any(r.alternative_group for r in maps.load("sarek").outputs)

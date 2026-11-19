@@ -81,7 +81,7 @@ def test_atacseq_2_1_2_gets_its_genome_and_aligner_from_nessies_launch_files(tmp
     assert genomes and set(genomes.values()) == {"GRCh38"}
     assert "D.SEQ" in genomes
     aligners = {r.attributes["Aligner"].value for r in result.rows
-                if r.sample_type == "A.ALN" and "Aligner" in r.attributes}
+                if r.sample_type == "A.ATAC" and "Aligner" in r.attributes}
     assert aligners == {"bwa"}
 
 
