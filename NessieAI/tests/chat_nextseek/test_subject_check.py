@@ -251,14 +251,19 @@ def test_a_reagent_gene_disease_cell_type_or_date_runs_no_lookup():
                            ("List samples from H1N1 infected ferrets", "H1N1"),
                            ("Show me data for BRCA1 mutation carriers", "BRCA1"),
                            ("Samples for p53 knockout mice", "p53"),
-                           ("Show samples from 2023-2024", "2023-2024")):
+                           ("Show samples from 2023-2024", "2023-2024"),
+                           # an individual's word used as an adjective before a marker, not before a name
+                           ("Show samples from human CD4 T cells", "CD4"),
+                           ("Give me the data for monkey IL-6 levels", "IL-6"),
+                           ("Samples from macaque p53 tumours", "p53")):
         assert sc.check_subject(_config(), question, _plan([term]), run=run) is None, question
     assert run.calls == []
 
 
 def test_samples_that_came_from_a_named_patient_resolve_it():
     for question in ("What samples came from patient XY-7?", "Show everything collected from patient XY-7",
-                     "list the records of monkey 77-001"):
+                     "list the records of monkey 77-001", "data for patient XY-7 and its visits",
+                     "samples from patient XY-7 in the freezer", "data for patient XY-7, please"):
         term = "77-001" if "77" in question else "XY-7"
         check = sc.check_subject(_config(), question, _plan([term]), run=fake_neo4j(_graph()))
         assert check is not None and len(check.roots) == 1, question

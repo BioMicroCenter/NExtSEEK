@@ -38,6 +38,11 @@ _BEFORE_TREE = re.compile(r"(?:trees?|lineage|derived|descendants?|child(?:ren)?
 _BEFORE_ITEMS = re.compile(r"(?:samples?|data|records?|everything)(?:\s+(?:that|which))?"
                            r"(?:\s+(?:came|come|comes|were|was|are|is|collected|taken|drawn|obtained))?"
                            r"\s+(?:of|for|from|under)\s+(?:(?:the|a|an)\s+)?([A-Za-z]+)\s+$", re.IGNORECASE)
+#: After the name, on that samples/data path: the name ends its phrase (the question ends, punctuation, "'s", or a
+#: word that cannot be the noun the name modifies). "Samples from human CD4 T cells" and "data for mouse IL-6
+#: levels" put a marker before a noun, so "human" and "mouse" are adjectives there, not an individual's word.
+_NAME_ENDS = re.compile(r"\s*(?:$|[?.,;:!)]|['’]s\b)|\s+(?:and|or|from|in|with|at|of|for|to|on|under|that|which|who"
+                        r"|whose|since|before|after|by|please|only)\b", re.IGNORECASE)
 #: Or the name, then its tree: "XY-7's sample tree", "XY-7 lineage".
 _AFTER_NAME = re.compile(r"^(?:'s)?\s+(?:sample\s*)?(?:trees?|lineage|descendants)\b", re.IGNORECASE)
 #: A turn that is only the tree page's name ("Sampletree"): the parser carried the subject from the previous question
@@ -88,7 +93,7 @@ def asks_about_one_subject(question: str | None, term: str, words: frozenset[str
         if _BEFORE_TREE.search(before) or _AFTER_NAME.match(q[m.end():]):
             return True
         items = _BEFORE_ITEMS.search(before)
-        if items and _singular(items.group(1).lower()) in words:
+        if items and _singular(items.group(1).lower()) in words and _NAME_ENDS.match(q[m.end():]):
             return True
     return False
 
