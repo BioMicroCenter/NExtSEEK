@@ -124,7 +124,7 @@
     "SampleType File Link": null,
     "Associated Assay Parents": "ATAC-Seq",
     "Associated Assay Children": null,
-    "Parent_SampleTypes": "DNA",
+    "Parent_SampleTypes": "DNA, D.SEQ",
     "Child_SampleTypes": null
   },
   {
@@ -163,8 +163,8 @@
     "ID": 133,
     "SampleType": "A.CHRM",
     "Name": "Chromatin Sequencing Analysis",
-    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv",
-    "Tags": "chromatin sequencing analysis, ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ATACseq analysis, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2",
+    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv\nATAC-seq files are A.ATAC, not A.CHRM.",
+    "Tags": "chromatin sequencing analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2",
     "Required Metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
     "Standard Metadata": "Protocol, Type, Repository, RepositoryID, RepositoryLink, DataType, Assembly, Pipeline",
     "Possible Metadata Fields": "DOI, PMID, FRiPPercent, PeakCount, Name, Antibody, File_SecondaryData, Link_SecondaryData, Notes",
@@ -1307,9 +1307,9 @@
     "Clade": "Raw",
     "SampleType File Link": null,
     "Associated Assay Parents": "Short Read Sequencing, Bulk DNA Sequencing, Long-Read Sequencing, Single Cell Sequencing, WGS, WXS, RNA-Seq, miRNA-Seq",
-    "Associated Assay Children": "Gene Expression Analysis, Single Cell Expression Analysis, Genome Alignment, Spatial Transcriptomics, Chromatin Sequencing Analysis, Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix), Mutational Spectra Analysis, Copy Number Variation Analysis, CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing), Variant Call Filtering",
+    "Associated Assay Children": "Gene Expression Analysis, Single Cell Expression Analysis, Genome Alignment, Spatial Transcriptomics, Chromatin Sequencing Analysis, Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix), Mutational Spectra Analysis, Copy Number Variation Analysis, CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing), Variant Call Filtering, ATAC-Seq",
     "Parent_SampleTypes": "DNA, RNA",
-    "Child_SampleTypes": "A.GEX, A.SCXP, A.CNV, A.ALN, A.CHRM, A.SPTX, A.DBMM, A.MUSP, A.VCF"
+    "Child_SampleTypes": "A.GEX, A.SCXP, A.CNV, A.ALN, A.CHRM, A.SPTX, A.DBMM, A.MUSP, A.VCF, A.ATAC"
   },
   {
     "ID": 128,

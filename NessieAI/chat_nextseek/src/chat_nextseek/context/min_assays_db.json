@@ -151,8 +151,8 @@
   },
   {
     "Name": "Chromatin Sequencing Analysis",
-    "Description": "Chromatin sequencing analysis is a genomic assay that interrogates the structural and regulatory landscape of chromatin by sequencing DNA associated with specific chromatin states, protein binding sites, or accessibility regions. This approach typically employs next-generation sequencing (NGS) technologies following chromatin preparation steps such as immunoprecipitation (ChIP-seq), transposase-based accessibility profiling (ATAC-seq), or nuclease digestion (MNase-seq or FAIRE-seq), depending on the specific application. The resulting sequencing data are computationally processed through alignment, peak calling, and downstream statistical analyses to identify genomic loci associated with transcription factor binding, histone modifications, or open chromatin regions. This assay provides high-resolution, genome-wide maps of chromatin organization that are linked to functional regulatory elements and gene expression data.",
-    "Tags": "ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility analysis, epigenomics analysis, histone modification analysis, open chromatin analysis, regulatory element mapping, sequencing analysis, ATAC-seq, ChIP-seq, CUT&RUN, CUT&Tag, peak calling, MACS2, differential accessibility"
+    "Description": "Chromatin sequencing analysis is a genomic assay that interrogates the structural and regulatory landscape of chromatin by sequencing DNA associated with specific chromatin states, protein binding sites, or accessibility regions. This approach typically employs next-generation sequencing (NGS) technologies following chromatin preparation steps such as immunoprecipitation (ChIP-seq), or nuclease digestion (MNase-seq or FAIRE-seq), depending on the specific application. The resulting sequencing data are computationally processed through alignment, peak calling, and downstream statistical analyses to identify genomic loci associated with transcription factor binding, histone modifications, or open chromatin regions. This assay provides high-resolution, genome-wide maps of chromatin organization that are linked to functional regulatory elements and gene expression data. ATAC-seq is under the ATAC-Seq assay.",
+    "Tags": "ChIP-seq analysis, chromatin accessibility analysis, epigenomics analysis, histone modification analysis, open chromatin analysis, regulatory element mapping, sequencing analysis, ChIP-seq, CUT&RUN, CUT&Tag, peak calling, MACS2, differential accessibility"
   },
   {
     "Name": "CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
@@ -721,8 +721,8 @@
   },
   {
     "Name": "ATAC-Seq",
-    "Description": "ATAC-seq (assay for transposase-accessible chromatin), named as the data source GDC names this experimental strategy. In NExtSEEK this assay holds only records that link to controlled-access BAM files at GDC. ATAC-seq from any other source is under Chromatin Sequencing Analysis.",
-    "Tags": "GDC ATAC-Seq, GDC experimental strategy, controlled-access BAM"
+    "Description": "ATAC-seq (assay for transposase-accessible chromatin) maps open chromatin: a transposase inserts sequencing adapters into accessible DNA, and the reads show where the genome is accessible. This assay holds ATAC-seq from every source. Records from GDC link to controlled-access BAM files, use the name GDC gives this experimental strategy, and hang directly from the DNA aliquot because GDC offers no FASTQ. Results that nf-core/atacseq produces from sequencing reads hang from D.SEQ. ChIP-seq, CUT&RUN and other chromatin assays are under Chromatin Sequencing Analysis.",
+    "Tags": "ATAC-seq, ATACseq, assay for transposase-accessible chromatin, chromatin accessibility, open chromatin, Tn5, nf-core/atacseq, peak calling, GDC ATAC-Seq, GDC experimental strategy, controlled-access BAM"
   },
   {
     "Name": "RNA-Seq",
