@@ -986,6 +986,12 @@ def _premise_count(t: _Turn) -> _Finding | None:
     # An aggregate row with a total column beside the answer (one row, count 1) is compared on that total.
     row_total = total_column_value(t.rows[0]) if len(t.rows) == 1 else None
     got = {t.result_n(), t.inp.total, t.inp.count, row_total}
+    # A breakdown (one group per row) adds up to the set it breaks down: the number in the question is reproduced.
+    if len(t.rows) > 1:
+        for col in t.rows[0]:
+            vals = [r.get(col) for r in t.rows]
+            if all(isinstance(v, int) and not isinstance(v, bool) for v in vals):
+                got.add(sum(vals))
     shown = row_total if row_total is not None else t.result_n()
     partners = _of_partners(t.q)
     for x in claimed_counts(t.q):

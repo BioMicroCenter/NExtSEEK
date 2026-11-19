@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -282,6 +284,60 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
     )
 
 
+_PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
+#: An ALL-CAPS block name: in backticks in the chatter prompt, or before "block" or "line" in any prompt.
+_CAPS_LABEL = re.compile(r"`([A-Z][A-Z ]{3,58}[A-Z])`")
+_CAPS_BLOCK = re.compile(r"\b((?:[A-Z]{2,} ){1,6}[A-Z]{2,}) (?:block|line)\b")
+_MIXED_LABEL = re.compile(r"`([A-Z][a-z]+(?: [A-Za-z]+)+)`")
+
+
+@lru_cache(maxsize=1)
+def internal_labels() -> tuple[str, ...]:
+    """The names of the blocks the prompts hand the model (NOT APPLIED, UID CHECK, Constrained by, ...), read from the
+    prompt files so a new block heading is covered. A reply that holds one has leaked it: the user cannot know it."""
+    found: set[str] = set()
+    for f in sorted(_PROMPTS.glob("*.txt")):
+        text = f.read_text(encoding="utf-8")
+        found.update(m.group(1) for m in _CAPS_BLOCK.finditer(text))
+        if f.name == "chatter_agent.txt":
+            found.update(_CAPS_LABEL.findall(text))
+            # The blocks the chatter is given, by name, are listed in the one section that opens the prompt.
+            given = text.split("WHAT YOU ARE GIVEN", 1)[-1].split("HOW MUCH YOU MAY SAY", 1)[0]
+            found.update(_MIXED_LABEL.findall(given))
+    return tuple(sorted(found, key=len, reverse=True))
+
+
+def _leaked(text: str) -> list[str]:
+    return [lab for lab in internal_labels() if lab in text]
+
+
+def _drop_label_sentences(text: str) -> str:
+    labels = internal_labels()
+    out = []
+    for line in text.split("\n"):
+        if not any(lab in line for lab in labels):
+            out.append(line)
+            continue
+        kept = [s for s in re.split(r"(?<=[.!?])\s+", line) if not any(lab in s for lab in labels)]
+        if kept and line.strip()[:1] not in "-*|":  # a bullet or table row with a label goes whole
+            out.append(" ".join(kept))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def scrub_internal_labels(reply: str, rewrite=None) -> str:
+    """A reply that holds an internal block label is rewritten once (``rewrite(labels)`` returns the new text), and any
+    sentence that still holds one is dropped."""
+    leaked = _leaked(reply or "")
+    if not leaked:
+        return reply
+    if rewrite is not None:
+        try:
+            reply = rewrite(leaked) or reply
+        except Exception:
+            pass
+    return _drop_label_sentences(reply) if _leaked(reply) else reply
+
+
 def _type_names(config: Any) -> dict[str, str]:
     """``{SampleType: Name}`` from the catalog's sample type rows."""
     catalog = getattr(config, "MIN_SAMPLETYPES", None)
@@ -303,6 +359,21 @@ def _type_tags(config: Any) -> dict[str, list[str]]:
         str(item["SampleType"]): [t.strip() for t in str(item.get("Tags") or "").split(",") if t.strip()]
         for item in catalog if isinstance(item, dict) and item.get("SampleType")
     }
+
+
+def type_names_in_rows(config: Any, rows: list) -> dict[str, str]:
+    """``{code: catalog name}`` for every value in the rows (or list in a value) that is a sample type code, so a
+    reader copies the name and does not make one up (Patient Visit was called "pathology"). Catalog-driven."""
+    names = _type_names(config)
+    found: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, (dict, list, tuple)):
+            continue
+        for value in row.values() if isinstance(row, dict) else row:
+            for v in value if isinstance(value, list) else [value]:
+                if isinstance(v, str) and v in names:
+                    found[v] = names[v]
+    return found
 
 
 def _type_names_block(config: Any, rows: list) -> str:
@@ -1124,6 +1195,17 @@ def chatter_agent_answer(
             usage_label="CHATTER",
         )
         print("[DEBUG][CHATTER] Raw answer:", answer)
+
+        def _rewrite(labels):
+            return call_llm_text(
+                config,
+                messages=[*messages, {"role": "assistant", "content": answer}, {"role": "user", "content": (
+                    "Your reply names internal labels (" + ", ".join(labels) + ") that the user cannot see or know. "
+                    "Write the reply again with the same facts, saying each one in plain words with no label.")}],
+                model_name=chatter_model, client=chatter_client, agent_label="chatter", temperature=0,
+                thinking_budget=chatter_budget, usage_label="CHATTER")
+
+        answer = scrub_internal_labels(answer, _rewrite)
         log_prompt(
             log_dir or config.LOG_DIR,
             log_label,
