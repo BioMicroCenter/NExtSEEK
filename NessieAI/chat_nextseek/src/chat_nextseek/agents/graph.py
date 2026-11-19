@@ -2530,6 +2530,19 @@ def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) 
         "project": getattr(vocab, "project_titles", ())})
 
 
+def _fields_block(config, snapshot, user_query: str, plan_dict: dict, entity_dict: dict) -> str:
+    """FIELDS NAMED IN THIS QUESTION (``helpers.field_words``, who-asked-2 R3): the attributes whose title holds a
+    word the question counts, from the snapshot every caller gets. Their filled counts only for a caller who sees
+    every project: a member's catalog is redacted of counts on purpose."""
+    from ..helpers import field_words
+    found = field_words.fields_named(snapshot, user_query, plan_dict, entity_dict)
+    counts: dict = {}
+    if found and graph_catalog.shows_committed_vocabulary(config):  # graph_scope.sees_all
+        for detail in graph_catalog.get_type_details(config, sorted({code for code, _ in found})):
+            counts.update({(detail.title, a.title): a.sample_count for a in detail.attributes})
+    return field_words.render_fields(found, counts)
+
+
 def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
                             reader: str = "graph agent") -> CatalogContext | CatalogFallback:
     """The rendered v1.1 catalog for this question, or the ``CatalogFallback`` saying why the committed JSON must be
@@ -2556,6 +2569,9 @@ def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, 
         project_titles = {n: t for n, (_lv, t, own) in hits.items() if own}
         if block:
             vocabulary = f"{vocabulary}\n\n{block}" if vocabulary else block
+        fields = _fields_block(config, snapshot, user_query or "", plan_dict, entity_dict)
+        if fields:
+            vocabulary = f"{vocabulary}\n\n{fields}" if vocabulary else fields
     except graph_catalog.CatalogUnavailable as exc:
         return _catalog_fallback(config, str(exc), reader)
     except Exception as exc:  # noqa: BLE001 (a catalog defect must cost the context, not the turn)
