@@ -697,7 +697,9 @@ def clamp_lab_codes(codes: Any, matched: Any) -> list[str]:
 # stored values first, for a question that asks for the code's person, and hands both the
 # graph agent and the reply the most common ones with their counts.
 
-#: The code at its place in the UID (``TYPE-YYMMDDCODE-n``); grouped on the stored value.
+#: The code at its place in the UID (``TYPE-YYMMDDCODE-n``); grouped on the stored value. No index can seek a code
+#: in the middle of a UID (the uuid range index seeks a prefix only), so this filters every sample's uuid: about
+#: 0.3 s on 168k samples at the 2 us a node measured for unindexed reads (review F7, not measured on a box).
 LAB_PEOPLE_CYPHER = (
     "MATCH (s:Sample) WHERE s.uuid =~ $pattern AND s.Scientist IS NOT NULL AND s.Scientist <> ''\n"
     "RETURN s.Scientist AS scientist, count(*) AS n ORDER BY n DESC LIMIT $top"
@@ -711,7 +713,14 @@ _PERSON_ASK = re.compile(
     r"|\bstands?\s+for\b|\b(?:scientists?|person|people|names?)\s+behind\b",
     re.IGNORECASE,
 )
-_PI_ASK = re.compile(r"\bP\.?I\.?s?\b")  # capitals only: "pi values" is not a PI
+#: "PI" is a person when it heads its phrase: it ends the clause, takes "'s", is followed by a word that cannot be
+#: the noun it modifies ("the PI of code X", "the PI for QQZ", "who is the PI?"), or follows "which"/"whose". As a
+#: stain (propidium iodide) it modifies the next word: "PI-stained", "PI staining", "PI uptake". Capitals only: "pi
+#: values" is not a PI.
+_PI_ASK = re.compile(r"\bP\.?I\.?s?\b(?=\s*(?:[?.,;:!)]|$)|['’]s\b|\s+(?:of|for|is|was|are|were|behind|who|whose"
+                     r"|named|name|names)\b)|\b(?:which|whose)\s+P\.?I\.?s?\b")
+#: The most one people read may take: a slow scan ends the read with no note, never the turn.
+LAB_PEOPLE_TIMEOUT_S = 5
 
 _CODE = re.compile(r"[A-Z]{3}")
 
@@ -725,7 +734,8 @@ def lab_people(config: Any, codes: Any, *, run: Any, top: int = 5, max_codes: in
     """``{CODE: [(stored Scientist value, samples), ...]}``, most common first, for each three-letter code.
 
     ``run`` is ``tool_neo4j_query``, so the caller's graph scope applies. A value that is not a
-    three-letter code never reaches the regex. None when a read failed or was refused.
+    three-letter code never reaches the regex. Each read is one filter over every sample's uuid, capped at
+    ``LAB_PEOPLE_TIMEOUT_S``; the first that fails, times out or is refused ends the reads, and the answer is None.
     """
     out: dict[str, list[tuple[str, int]]] = {}
     for code in _as_sequence(codes):
@@ -734,7 +744,8 @@ def lab_people(config: Any, codes: Any, *, run: Any, top: int = 5, max_codes: in
             continue
         if len(out) >= max_codes:
             break
-        result = run(config, LAB_PEOPLE_CYPHER, {"pattern": f"(?i)^[^-]+-[0-9]{{6}}{code}-.*", "top": top})
+        result = run(config, LAB_PEOPLE_CYPHER, {"pattern": f"(?i)^[^-]+-[0-9]{{6}}{code}-.*", "top": top},
+                     timeout_s=LAB_PEOPLE_TIMEOUT_S)
         if not isinstance(result, dict) or not result.get("ok"):
             return None
         out[code] = [(str(row.get("scientist")).strip(), int(row.get("n") or 0))
@@ -755,9 +766,10 @@ def lab_people_notes(people: dict | None) -> tuple[str | None, list[str]]:
                      f"most common first: {listed}.")
         first, *rest = values
         spoken = f"{first[0]} on {first[1]} samples" + "".join(f", {name} on {n}" for name, n in rest)
-        reply.append(f"Samples whose UID carries lab code {code} name these people in their Scientist field, "
-                     f"most common first: {spoken}. When the user asks who the code's person or lab is, answer "
-                     "with these names and counts and say they come from the samples' Scientist field.")
+        # The instruction comes before the names: a reply note is cut at 400 characters (helpers/query_scope.py).
+        reply.append(f"Asked who lab code {code}'s person or lab is, answer with these names from the Scientist field "
+                     "of its samples and say so; that field names who made or handled each sample, so the most "
+                     f"common is not necessarily the lab head. Most common first: {spoken}.")
     if not agent:
         return None, []
     return "LAB CODE PEOPLE (read before your query):\n" + "\n".join(f"- {line}" for line in agent), reply

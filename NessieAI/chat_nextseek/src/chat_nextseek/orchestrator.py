@@ -1810,7 +1810,7 @@ def _execute_graph_turn(
     # for a person: the lab record alone can hold only a surname.
     lab_agent_note, lab_reply_notes = None, []
     turn_lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
-    if turn_lab_codes and asks_lab_person(user_text):
+    if turn_lab_codes and graph_plan is None and asks_lab_person(user_text):  # a chip's statement is already written
         people = lab_people(config, turn_lab_codes, run=tool_neo4j_query)
         lab_agent_note, lab_reply_notes = lab_people_notes(people)
         if lab_agent_note:
