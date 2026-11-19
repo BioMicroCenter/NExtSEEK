@@ -1,0 +1,164 @@
+{
+  "name": "bacterial_assemblies",
+  "description": "Three Klebsiella pneumoniae clinical isolates, each with its own genome assembly (A.ASM FASTA, one per genome) made by nf-core/bacass (nf-core funcscan test data)",
+  "levels": [
+    {
+      "sample_type": "BAC",
+      "rows": [
+        {
+          "Name": "NTC-ASM-KP01",
+          "Scientist": "Nessie Test",
+          "Species": "Klebsiella pneumoniae",
+          "Strain": "KP01",
+          "Source": "ST258, blood culture"
+        },
+        {
+          "Name": "NTC-ASM-KP02",
+          "Scientist": "Nessie Test",
+          "Species": "Klebsiella pneumoniae",
+          "Strain": "KP02",
+          "Source": "ST307, urine culture"
+        },
+        {
+          "Name": "NTC-ASM-KP03",
+          "Scientist": "Nessie Test",
+          "Species": "Klebsiella pneumoniae",
+          "Strain": "KP03",
+          "Source": "ST11, wound swab"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-ASM-KP01-lib",
+          "Parent": "NTC-ASM-KP01",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA Prep, isolate genome",
+          "Lab": "Test Lab",
+          "Barcode": "AGTCAGTC"
+        },
+        {
+          "Name": "NTC-ASM-KP02-lib",
+          "Parent": "NTC-ASM-KP02",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA Prep, isolate genome",
+          "Lab": "Test Lab",
+          "Barcode": "CTGACTGA"
+        },
+        {
+          "Name": "NTC-ASM-KP03-lib",
+          "Parent": "NTC-ASM-KP03",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA Prep, isolate genome",
+          "Lab": "Test Lab",
+          "Barcode": "GACTGACT"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-ASM-KP01-seq",
+          "Parent": "NTC-ASM-KP01-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-ASM-KP01_R1.fastq.gz, NTC-ASM-KP01_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/bacass/",
+          "SequencingType": "bacterial WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina MiSeq",
+          "F_bp": 250,
+          "R_bp": 250
+        },
+        {
+          "Name": "NTC-ASM-KP02-seq",
+          "Parent": "NTC-ASM-KP02-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-ASM-KP02_R1.fastq.gz, NTC-ASM-KP02_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/bacass/",
+          "SequencingType": "bacterial WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina MiSeq",
+          "F_bp": 250,
+          "R_bp": 250
+        },
+        {
+          "Name": "NTC-ASM-KP03-seq",
+          "Parent": "NTC-ASM-KP03-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-ASM-KP03_R1.fastq.gz, NTC-ASM-KP03_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/bacass/",
+          "SequencingType": "bacterial WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina MiSeq",
+          "F_bp": 250,
+          "R_bp": 250
+        }
+      ]
+    },
+    {
+      "sample_type": "A.ASM",
+      "rows": [
+        {
+          "Name": "NTC-ASM-KP01-assembly",
+          "Parent": "NTC-ASM-KP01-seq",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTA",
+          "File_PrimaryData": "NTC-ASM-KP01.scaffolds.fa.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/funcscan/wastewater/",
+          "Pipeline": "nf-core/bacass",
+          "Assembler": "Unicycler",
+          "Organism": "Klebsiella pneumoniae",
+          "ContigCount": 64,
+          "AssemblyLengthBp": 5612034,
+          "GenomeCount": 1
+        },
+        {
+          "Name": "NTC-ASM-KP02-assembly",
+          "Parent": "NTC-ASM-KP02-seq",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTA",
+          "File_PrimaryData": "NTC-ASM-KP02.scaffolds.fa.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/funcscan/wastewater/",
+          "Pipeline": "nf-core/bacass",
+          "Assembler": "Unicycler",
+          "Organism": "Klebsiella pneumoniae",
+          "ContigCount": 81,
+          "AssemblyLengthBp": 5498771,
+          "GenomeCount": 1
+        },
+        {
+          "Name": "NTC-ASM-KP03-assembly",
+          "Parent": "NTC-ASM-KP03-seq",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTA",
+          "File_PrimaryData": "NTC-ASM-KP03.scaffolds.fa.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/funcscan/wastewater/",
+          "Pipeline": "nf-core/bacass",
+          "Assembler": "Unicycler",
+          "Organism": "Klebsiella pneumoniae",
+          "ContigCount": 57,
+          "AssemblyLengthBp": 5701356,
+          "GenomeCount": 1
+        }
+      ]
+    }
+  ]
+}

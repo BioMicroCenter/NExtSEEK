@@ -1,0 +1,73 @@
+{
+  "guidance": {
+    "notes": [
+      "This file holds the pipelines that analyse neither a host's RNA nor a host's DNA: metagenomic profiling of the organisms in a sample, and pipelines whose input is not sequencing reads at all but a genome assembly or contigs (FASTA), several genomes combined into one FASTA, or protein sequences (FASTA).",
+      "A cohort with no raw reads can still run a pipeline here when its records hold the file that pipeline takes: an assembly or contig FASTA, a combined multi-genome FASTA, or a protein FASTA, reachable on the cluster. The SAMPLE DIGEST counts those under sequence_files. Never refuse such a cohort only because it has no FASTQ, and never offer one of these pipelines to a cohort that holds only reads when its input is an assembly or protein FASTA.",
+      "Metagenomic profiling needs reads from the whole community of a sample (shotgun metagenomics, LibrarySource METAGENOMIC), not reads from one host or one cultured isolate, and it needs the classification databases its tools read staged on the cluster."
+    ]
+  },
+  "pipelines": {
+    "proteinfold": {
+      "revision": "2.0.0",
+      "answers": "What is the predicted 3D structure of this protein or protein complex, how confident is the prediction residue by residue (pLDDT) and across chains (pTM, ipTM, predicted aligned error), and how do the chains of a complex pack against each other?",
+      "assumes_prep": "No wet-lab prep: the input is amino acid sequence, one protein FASTA per D.PSEQ sample with one sequence per chain (an antibody's heavy and light chain, a heterodimer's two subunits). The prediction method follows the question: esmfold for speed or many sequences (no database), colabfold or alphafold2 for accuracy on a single chain or a complex (multimer presets, chosen from the sample's ChainCount). Ligands, cofactors, nucleic acids and modified residues need an all-atom method AND a YAML or JSON input describing those molecules, which a D.PSEQ FASTA does not hold: such a question cannot be run from NExtSEEK today, and the reply must say so rather than fold the protein alone.",
+      "input_you_must_have": "One uncompressed protein FASTA (.fasta, .fa or .faa; a gzipped file is refused) per D.PSEQ sample, reachable on Luria. For any mode but esmfold, the path to that mode's databases on Luria (ColabFold several hundred GB, AlphaFold2 about 2 TB, AlphaFold3 also licensed weights): none is staged, so the user is asked for it before launch. Luria GPU partitions are not confirmed, so every run is CPU-only, which is practical for esmfold and slow for the MSA-based modes. NExtSEEK holds no D.PSEQ samples yet, and no assay produces them.",
+      "data_signals": {
+        "sample_types": ["D.PSEQ"],
+        "file_types": [".fasta", ".fa", ".faa"],
+        "prep_kit_hints": ["protein sequence", "amino acid sequence", "antibody sequence", "heavy chain", "light chain", "protein complex"]
+      },
+      "species_constraint": "None: structure prediction reads only the sequence, from any organism. What limits it on Luria is not species but provisioning: the databases and GPU partitions are not confirmed, and only esmfold runs without a user-supplied database path.",
+      "versus": {}
+    },
+    "pangenome": {
+      "revision": "1.1.3",
+      "answers": "How do several genomes of one species or clade differ from one another as a whole: which sequence they share and which is variable, where they carry structural variants, insertions, inversions and rearrangements, all held in one pangenome variation graph (and, on request, a VCF of the variation against one of the genomes)?",
+      "assumes_prep": "No wet-lab prep: the input is genome assemblies already made, for a cohort of several genomes of one species or clade (bacterial strains of one species, a crop's cultivars, phased haplotypes of one population). They must be ONE combined FASTA holding every genome, sequence names in PanSN form (sample#haplotype#contig), bgzip-compressed, registered as one A.ASM sample. Combining several A.ASM samples' FASTAs into one is not supported yet: a cohort of one A.ASM per genome cannot run until that combine step exists, and the reply must say so.",
+      "input_you_must_have": "Exactly one A.ASM sample whose file is the combined, PanSN-named FASTA, bgzipped (.fa.gz, .fna.gz or .fasta.gz; plain gzip fails), reachable on Luria. The number of haplotypes in it (n_haplotypes, its distinct sample#haplotype prefixes), read from the sample's GenomeCount or asked for. No reference genome and no database. NExtSEEK holds no A.ASM samples yet.",
+      "data_signals": {
+        "sample_types": ["A.ASM"],
+        "file_types": [".fa.gz", ".fna.gz", ".fasta.gz"],
+        "prep_kit_hints": ["pangenome", "PanSN", "combined assemblies", "multiple genomes", "strains", "haplotypes", "comparative genomics"]
+      },
+      "species_constraint": "None: any species, but every genome in the file must be of the same species or a close clade, or they will not align into one graph.",
+      "versus": {}
+    },
+    "taxprofiler": {
+      "revision": "2.0.1",
+      "answers": "Which organisms (bacteria, archaea, fungi, viruses, parasites) are in each sample, and in what relative abundance, read by read, from shotgun metagenomic sequencing, profiled with one or several classifiers (Kraken2 with Bracken, MetaPhlAn, mOTUs, Kaiju, Centrifuge and others) against one or several databases at once, with an optional standardised table per classifier that compares the samples side by side. It profiles the reads directly: it does not assemble genomes (that is nf-core/mag) and it is not for 16S or ITS amplicons (that is nf-core/ampliseq). Both are catalog pipelines outside this atlas, so neither has a versus entry: choose mag when the question asks for genomes, bins or contigs from the community, and ampliseq when the libraries are PCR amplicons of a marker gene.",
+      "assumes_prep": "Shotgun sequencing of the whole community of a sample (LibraryStrategy WGS or WGA, LibrarySource METAGENOMIC): a microbiome, environmental or clinical sample whose DNA (or RNA, for a metatranscriptome) was fragmented and sequenced without targeting one gene. Short reads (Illumina, BGISEQ/DNBSEQ) or long reads (Nanopore, PacBio HiFi); upstream recommends one run per read type. A host-associated sample (gut, skin, tissue, blood) can have its host reads removed first when the host genome FASTA is given. 16S/ITS amplicon libraries (LibraryStrategy AMPLICON) are ampliseq's, not this pipeline's; reads of one cultured isolate are a genome to assemble (bacass) or map (bactmap), not a community to profile.",
+      "input_you_must_have": "Gzipped FASTQ per D.SEQ library, and the sequencing platform, which is read from the record's Sequencer (asked when the metadata is silent or disagrees). And at least one classification database staged on Luria, named in a database sheet: taxprofiler ships no database and builds none, and none is provisioned on Luria, so the user names each database's path (Kraken2 standard 8 GB is a common start; a full standard set is about 100 GB) before launch. Which classifiers run follows from the databases named, or from the classifiers the question names. NExtSEEK holds no shotgun metagenomic cohort labelled as such today.",
+      "data_signals": {
+        "library_strategy": ["WGS", "WGA", "OTHER"],
+        "library_source": ["METAGENOMIC", "METATRANSCRIPTOMIC"],
+        "prep_kit_hints": ["shotgun metagenomics", "metagenome", "microbiome", "stool", "fecal", "environmental DNA", "Nextera XT", "taxonomic profiling", "Kraken", "MetaPhlAn"]
+      },
+      "species_constraint": "None for the organisms profiled: what can be detected is what the named databases hold. The host species matters only for host-read removal, which needs that host's genome FASTA.",
+      "versus": {
+        "funcscan": {
+          "differs_by": "taxprofiler reads the raw shotgun reads and says which organisms are present and how abundant. funcscan reads genome assemblies (A.ASM FASTA) and says which functional genes, resistance genes, antimicrobial peptides, biosynthetic gene clusters or CAZymes they carry. A reads-only cohort can run taxprofiler now; funcscan needs it assembled first.",
+          "ask_user": "Do you want to know which organisms are in these samples, or which functional genes (resistance genes, antimicrobial peptides, gene clusters, CAZymes) their genomes carry?"
+        }
+      }
+    },
+    "funcscan": {
+      "revision": "4.0.0",
+      "answers": "Which functional genes do these assembled genomes or contigs carry: antibiotic resistance genes (ARGs, the resistome), antimicrobial peptides (AMPs), biosynthetic gene clusters for natural products (BGCs) and carbohydrate-active enzymes (CAZymes), each found with several tools and summarised per screen, with the gene predictions they rest on. The screens run are the ones the question asks about.",
+      "assumes_prep": "Assembled prokaryotic sequence, not reads: one genome assembly, metagenome-assembled genome (bin) or contig set per sample, registered as an A.ASM record with its FASTA (from nf-core/mag, nf-core/bacass, nf-core/genomeassembler or an assembly made elsewhere). A cohort that holds only reads (D.SEQ) cannot run funcscan: it must be assembled first, with mag for a metagenome or bacass for a bacterial isolate, and the reply must say so rather than offer funcscan on the reads. Fungal genomes suit only the BGC screen (antiSMASH's fungi mode).",
+      "input_you_must_have": "One nucleotide FASTA per A.ASM sample (.fasta, .fa, .fna or .fas, optionally gzipped), reachable on Luria. No reference genome. Each screen downloads its tools' databases (CARD, AMRFinderPlus, DeepARG, antiSMASH, dbCAN and others) on first use: none is provisioned on Luria, so the compute node needs outbound internet access. NExtSEEK holds no A.ASM samples yet.",
+      "data_signals": {
+        "sample_types": ["A.ASM"],
+        "file_types": [".fasta", ".fa", ".fna", ".fas", ".fasta.gz", ".fa.gz", ".fna.gz"],
+        "prep_kit_hints": ["genome assembly", "metagenome-assembled genome", "MAG", "contigs", "antimicrobial resistance", "resistome", "antimicrobial peptide", "biosynthetic gene cluster", "natural products", "CAZyme"]
+      },
+      "species_constraint": "Prokaryotic sequence (bacteria and archaea): the gene predictors and most screens are built for it. Fungal assemblies run only the BGC screen meaningfully (bgc_antismash_taxon fungi).",
+      "versus": {
+        "taxprofiler": {
+          "differs_by": "funcscan screens assemblies for functional genes; taxprofiler profiles which organisms are in a sample from its raw shotgun reads. A cohort with reads only runs taxprofiler, or is assembled (mag, bacass) before funcscan.",
+          "ask_user": "Do you want to know which functional genes these genomes carry, or which organisms are present in the samples?"
+        }
+      }
+    }
+  }
+}

@@ -234,8 +234,22 @@ def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
             out.append(row)
             continue
         for f1, f2 in found:
-            out.append({**row, "fastq_1": f1, "fastq_2": f2})
+            filled = {**row, "fastq_1": f1, "fastq_2": f2}
+            # A sheet that names each run (nf-core/taxprofiler's run_accession, unique per
+            # sample) gets each run's own accession when one row became several.
+            if len(found) > 1 and "run_accession" in row:
+                filled["run_accession"] = _run_id(f1)
+            out.append(filled)
     return out, missing
+
+
+def _run_id(fastq: str) -> str:
+    """The run accession in a fetchngs file name: the last id token, SRR1 in
+    SRX9_SRR1_1.fastq.gz (the naming _cached_runs reads)."""
+    tokens = Path(fastq).name[: -len(".fastq.gz")].split("_")
+    if len(tokens) > 1 and tokens[-1] in ("1", "2"):
+        tokens.pop()
+    return tokens[-1]
 
 
 def _main_ids(sheet: str = "samplesheet.csv", ids: str = "ids.csv") -> int:

@@ -1,0 +1,22 @@
+{
+ "rules": {
+  "alphafold3": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "ModelRank",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "PredictionMethod",
+    "Software"
+   ],
+   "rows": 2,
+   "sample_type": "A.PSTR"
+  }
+ },
+ "warnings": []
+}

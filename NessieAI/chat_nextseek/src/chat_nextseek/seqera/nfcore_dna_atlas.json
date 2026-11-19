@@ -40,6 +40,48 @@
         "methylseq": {
           "differs_by": "methylseq reads bisulfite or enzymatically converted libraries for methylation; sarek on those reads would call conversions as mutations.",
           "ask_user": "Were these libraries bisulfite or EM-seq converted?"
+        },
+        "eager": {
+          "differs_by": "sarek is for modern DNA: long, undamaged molecules from fresh or frozen tissue, blood or cells. eager is for ancient or degraded DNA (bone, teeth, museum or archaeological material): short molecules with post-mortem C-to-T damage at the read ends, which sarek would call as mutations and its aligner settings would lose. eager also measures the damage, authenticates the reads, estimates contamination and screens for microbes; sarek does none of that.",
+          "ask_user": "Is this ancient or degraded DNA (archaeological, museum or historical material), or modern DNA?"
+        },
+        "raredisease": {
+          "differs_by": "Both call germline variants from human genome or exome DNA. raredisease is built for families with a rare disease: it calls a family (case) together and needs each sample's sex, affected status and parents, and it adds mitochondrial variants, CNVs and a family check (its annotation and ranking need references not staged on Luria). sarek calls each sample alone with the callers you choose, germline or somatic, and needs no pedigree.",
+          "ask_user": "Are these samples a family (or patients) studied for a rare inherited disease, with affected status and parents known, or do you want variant calls per sample?"
+        },
+        "oncoanalyser": {
+          "differs_by": "sarek is general variant calling: germline or somatic SNVs, indels and SVs from genome, exome or panel DNA, with the callers you choose. oncoanalyser is a full cancer report for a human tumour from whole-genome DNA (optionally with tumour RNA): purity and ploidy, somatic small variants, SVs, copy number, drivers, signatures, HLA, fusions and a summary. It has no exome mode.",
+          "ask_user": "Do you want variant calls for these samples, or a full tumour report (purity, drivers, copy number and structural variants, and fusions if there is tumour RNA)?"
+        }
+      }
+    },
+    "oncoanalyser": {
+      "revision": "3.0.0",
+      "answers": "For a human tumour: how pure is the sample and what is its ploidy, which somatic SNVs, indels, structural variants and copy-number changes does it carry, which of them are drivers, which mutational signatures, HLA alleles and viral integrations are there, and, with tumour RNA, which genes are expressed and fused?",
+      "assumes_prep": "Short-read Illumina whole-genome DNA of a tumour, ideally with a matched normal from the same patient (blood or adjacent normal), and optionally a whole-transcriptome RNA library of the same tumour. Paired-end FASTQ.",
+      "input_you_must_have": "Paired-end FASTQ per sample, each linked to its patient in NExtSEEK so a tumour and its normal share a group. Tumour-only DNA, tumour with matched normal, and either with tumour RNA all run; a normal alone does not.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "GENOMIC",
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "tumour",
+          "tumor",
+          "matched normal",
+          "PCR-free",
+          "whole genome"
+        ]
+      },
+      "species_constraint": "HUMAN ONLY. It runs the Hartwig WiGiTS tools on the Hartwig GRCh38 (or GRCh37) bundle and its human driver, hotspot and population resources; no other species is supported. The bundle is not staged on Luria, so each run downloads it.",
+      "versus": {
+        "sarek": {
+          "differs_by": "oncoanalyser is a full cancer report for a human tumour (purity, drivers, SV and copy-number interpretation, signatures, HLA, optional RNA expression and fusions). sarek is general variant calling from DNA with the callers you choose, germline or somatic, genome, exome or panel, and does not estimate purity or call drivers.",
+          "ask_user": "Do you want variant calls for these samples, or a full tumour report (purity, drivers, copy number and structural variants, and fusions if there is tumour RNA)?"
         }
       }
     },
@@ -181,6 +223,76 @@
         "rnaseq": {
           "differs_by": "methylseq reads converted genomic DNA and reports cytosine methylation; rnaseq reads transcripts and reports expression. A question about how methylation relates to expression needs both runs, one on each kind of library.",
           "ask_user": "Do you want the methylation of these DNA libraries, or the expression of RNA libraries?"
+        }
+      }
+    },
+    "eager": {
+      "revision": "2.5.3",
+      "answers": "For ancient or degraded DNA: how much of each library is endogenous DNA of the target organism, how damaged is it (C-to-T misincorporation at read ends, fragment length) and so is it authentically ancient, how contaminated is it (nuclear contamination of human males, mitochondrial-to-nuclear ratio), what is each individual's genetic sex, what are its genotypes for population genetics or a pathogen genome, and, with a classifier database, which microbes a metagenomic screen finds?",
+      "assumes_prep": "Short-read Illumina libraries (shotgun or capture, single- or paired-end) of ancient, historical or otherwise degraded DNA: bone, teeth, dental calculus, sediment, museum or archaeological specimens. Double- or single-stranded builds, with full, half or no UDG (USER) treatment.",
+      "input_you_must_have": "FASTQ per library on the cluster (a TSV sheet cannot be filled by the archive download). Each library's UDG treatment (none, half or full) and whether it is single- or double-stranded, from its metadata or asked, because damage handling depends on them. For a metagenomic screen, a MALT or Kraken2 database, which is not staged on Luria, so the screen is not offered yet.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "Targeted-Capture",
+          "OTHER"
+        ],
+        "library_source": [
+          "GENOMIC",
+          "METAGENOMIC"
+        ],
+        "prep_kit_hints": [
+          "ancient",
+          "aDNA",
+          "UDG",
+          "USER",
+          "single-stranded library",
+          "bone",
+          "tooth",
+          "petrous",
+          "calculus",
+          "museum",
+          "archaeological",
+          "1240K"
+        ]
+      },
+      "species_constraint": "Any species with a reference FASTA staged on Luria (today GRCh38, GRCm39, and two macaque assemblies); a pathogen or an extinct species needs its reference staged first. Sex determination and nuclear contamination are human-only steps.",
+      "versus": {
+        "sarek": {
+          "differs_by": "eager is for ancient or degraded DNA: it maps short, damaged reads with settings tuned for them, measures post-mortem damage to authenticate the reads, estimates contamination and genetic sex, and can genotype with damage-aware trimming. sarek is for modern DNA and would call damage as mutations; it has no damage, authentication or contamination step.",
+          "ask_user": "Is this ancient or degraded DNA (archaeological, museum or historical material), or modern DNA?"
+        }
+      }
+    },
+    "raredisease": {
+      "revision": "3.1.2",
+      "answers": "For a human family (trio or larger) or a single patient with a suspected rare inherited disease: which germline SNVs and indels, structural variants, copy-number variants and mitochondrial variants does each family carry, called jointly across the family, and do the samples' sex and relatedness match the pedigree?",
+      "assumes_prep": "Short-read paired-end Illumina human DNA: whole genome (PCR-free or not) or whole exome / targeted capture, from blood, saliva or tissue of patients and their relatives.",
+      "input_you_must_have": "Paired-end FASTQ per sample, each sample's sex and affected status (from its metadata, or asked), the family (case) it belongs to, and which samples are its father and mother when they are sequenced. For exome or capture, the kit's target BED on the cluster. Variant annotation and ranking (VEP cache, gnomAD, vcfanno resources, rank models), repeat expansions (a variant catalog) and the genome interval lists it requires are not staged on Luria, so a run cannot start until intervals_wgs and intervals_y are staged, and it never annotates or ranks variants until the rest are.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "WXS",
+          "Targeted-Capture"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "trio",
+          "proband",
+          "affected",
+          "rare disease",
+          "exome",
+          "PCR-free",
+          "whole genome"
+        ]
+      },
+      "species_constraint": "HUMAN ONLY. 3.1.2 takes genome GRCh37 or GRCh38 and its annotation, ranking and repeat resources are human; on Luria only the GRCh38 FASTA is staged, and the interval lists the schema requires are not.",
+      "versus": {
+        "sarek": {
+          "differs_by": "raredisease calls a family together and needs a pedigree (sex, affected status, parents, case); it adds mitochondrial variants, CNVs and a sex and relatedness check, for germline rare-disease questions in humans. sarek calls each sample alone, germline or somatic, with the callers you choose, and needs no pedigree; it is the route for tumour/normal pairs and for germline calls without family structure.",
+          "ask_user": "Are these samples a family (or patients) studied for a rare inherited disease, with affected status and parents known, or do you want variant calls per sample?"
         }
       }
     }

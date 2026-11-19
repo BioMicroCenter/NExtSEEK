@@ -1,0 +1,89 @@
+{
+  "report_type": "NFCORE_TAXPROFILER_SAMPLESHEET",
+  "description": "nf-core/taxprofiler context, aligned to the pinned 2.0.1 schemas. Taxonomic classification and profiling of shotgun metagenomic reads against classification databases.",
+  "params": {
+    "databases": {"type": "string", "default": null, "steerable": true, "help": "The database sheet (tool, db_name, db_params, db_path) taxprofiler requires. The user names the databases (see required_user_params) or the curated list in reference_bundles.json does; configure_run writes databases.csv into the run folder. An absolute path to a .csv is the user's own sheet on Luria and passes through. No database is provisioned on Luria."},
+    "run_kraken2":     {"type": "bool", "default": null, "steerable": true, "help": "Kraken2 k-mer classification. Set from the databases: on for every classifier the sheet holds a database for, unless the question names particular classifiers (then only those). Needed by Bracken."},
+    "run_bracken":     {"type": "bool", "default": null, "steerable": true, "help": "Bracken species abundance re-estimated from Kraken2, for a question about relative abundance. Set when the sheet holds a bracken database (kraken2 then runs on it too). Short reads only: taxprofiler skips it for long reads."},
+    "run_metaphlan":   {"type": "bool", "default": null, "steerable": true, "help": "MetaPhlAn marker-gene profiles (bacteria, archaea, eukaryotes, species level). Set when the sheet holds a metaphlan database and the question does not name other classifiers."},
+    "run_motus":       {"type": "bool", "default": null, "steerable": true, "help": "mOTUs marker-gene profiles, including species without a reference genome. Set when the sheet holds a motus database."},
+    "run_kaiju":       {"type": "bool", "default": null, "steerable": true, "help": "Kaiju protein-level classification, for divergent or poorly referenced communities. Set when the sheet holds a kaiju database."},
+    "run_centrifuge":  {"type": "bool", "default": null, "steerable": true, "help": "Centrifuge classification. Set when the sheet holds a centrifuge database."},
+    "run_diamond":     {"type": "bool", "default": null, "steerable": true, "help": "DIAMOND protein alignment against a reference protein set (read 1 only for unmerged pairs). Set when the sheet holds a diamond database."},
+    "run_malt":        {"type": "bool", "default": null, "steerable": true, "help": "MALT alignment, used for ancient or low-abundance pathogen screening. Set when the sheet holds a malt database."},
+    "run_krakenuniq":  {"type": "bool", "default": null, "steerable": true, "help": "KrakenUniq, which adds unique k-mer counts to tell real hits from false positives (pathogen screening). Set when the sheet holds a krakenuniq database."},
+    "run_ganon":       {"type": "bool", "default": null, "steerable": true, "help": "ganon classification and abundance. Set when the sheet holds a ganon database."},
+    "run_kmcp":        {"type": "bool", "default": null, "steerable": true, "help": "KMCP profiling, including viruses. Set when the sheet holds a kmcp database."},
+    "run_sylph":       {"type": "bool", "default": null, "steerable": true, "help": "sylph genome-level abundance (not standardised by TAXPASTA). Set when the sheet holds a sylph database."},
+    "run_melon":       {"type": "bool", "default": null, "steerable": true, "help": "Melon, for long-read prokaryotic profiles (not standardised by TAXPASTA). Set when the sheet holds a melon database."},
+    "run_metacache":   {"type": "bool", "default": null, "steerable": true, "help": "MetaCache classification (not standardised by TAXPASTA). Set when the sheet holds a metacache database."},
+    "run_profile_standardisation": {"type": "bool", "default": null, "steerable": true, "help": "TAXPASTA: one standardised table per classifier and database with a column per sample. Set when the question compares samples, or compares classifiers or databases, in one table; those tables come back into NExtSEEK as run-level Taxonomic Profile rows. The release's default (off) leaves only each tool's own per-sample reports."},
+    "run_krona": {"type": "bool", "default": null, "steerable": true, "help": "Krona interactive pie charts per classifier and database, for a question that wants to browse each sample's composition. The release's default is off."},
+    "perform_shortread_qc": {"type": "bool", "default": null, "steerable": true, "help": "Adapter clipping and length filtering of short reads (fastp) before classification. Set for raw Illumina reads, which is what a D.SEQ record holds unless it says the reads were trimmed; leave it unset for reads already trimmed."},
+    "perform_longread_qc": {"type": "bool", "default": null, "steerable": true, "help": "Adapter trimming and length/quality filtering of Nanopore or PacBio reads before classification. Set for raw long reads (an OXFORD_NANOPORE or PACBIO_SMRT instrument_platform)."},
+    "perform_shortread_complexityfilter": {"type": "bool", "default": null, "steerable": true, "help": "Removes low-complexity reads, which inflate false-positive hits in Kraken-style classifiers. Set when the question is pathogen or low-abundance taxon detection, where false positives matter most."},
+    "perform_runmerging": {"type": "bool", "default": null, "steerable": true, "help": "Merges the runs of one sample before profiling, so each sample gets one profile. configure_run sets it when a sample can arrive as several runs (two rows share a sample, or a row downloads an experiment accession); with one run per sample the release's default stands."},
+    "perform_shortread_hostremoval": {"type": "bool", "default": null, "steerable": true, "help": "Removes reads that map to the host genome before classification. Set for host-associated samples (gut, skin, tissue, blood) when the question is about the microbes, and give hostremoval_reference; taxprofiler stops without it."},
+    "perform_longread_hostremoval": {"type": "bool", "default": null, "steerable": true, "help": "Host-read removal for long reads, set on the same grounds as perform_shortread_hostremoval; needs hostremoval_reference."},
+    "hostremoval_reference": {"type": "string", "default": null, "steerable": true, "help": "The host genome FASTA on Luria (for example the human or mouse reference genome FASTA), required when either host-removal flag is set."},
+    "multiqc_title": {"type": "string", "default": null, "steerable": true, "help": "MultiQC report title, when the user wants the report named."}
+  },
+  "reference_resources": [],
+  "required_user_params": [
+    {"name": "databases",
+     "definition": "The classification databases to profile against, one per line as CLASSIFIER PATH [PARAMS], with the database's full path on Luria. taxprofiler ships no database, and none is provisioned on Luria, so they must already exist there (a directory or a .tar.gz). Classifiers: kraken2, bracken, metaphlan, motus, kaiju, centrifuge, diamond, malt, krakenuniq, ganon, kmcp, sylph, melon, metacache. Every classifier you list runs, unless you ask for particular ones. If you already have a taxprofiler database sheet on Luria, give its full path instead.",
+     "example": "kraken2 /net/your-lab/dbs/k2_standard_08gb.tar.gz",
+     "scope": "run"}
+  ],
+  "pipeline": {
+    "name": "nf-core/taxprofiler",
+    "repository": "https://github.com/nf-core/taxprofiler",
+    "documentation_url": "https://nf-co.re/taxprofiler/2.0.1/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns: sample, run_accession, instrument_platform, fastq_1, fastq_2, fasta (the first six, in this order). sample, run_accession and instrument_platform are required. One row per D.SEQ run; sample is the D.SEQ UID; run_accession is its archive run accession, else the UID again; instrument_platform comes from the record's sequencing metadata (param atlas).",
+    "required_columns": ["sample", "run_accession", "instrument_platform", "fastq_1", "fastq_2"],
+    "optional_columns": ["fasta"],
+    "reference_requirement": "NONE from the genome bundles: taxprofiler classifies against the databases in its --databases sheet, and declares no genome, fasta or gtf parameter."
+  },
+  "samplesheet_template": [
+    {"sample": null, "run_accession": null, "instrument_platform": null, "fastq_1": null, "fastq_2": null}
+  ],
+  "validation_rules": [
+    "The sheet is comma-separated and opens with sample,run_accession,instrument_platform,fastq_1,fastq_2,fasta.",
+    "FASTQ must be gzipped (.fastq.gz or .fq.gz).",
+    "instrument_platform is one of the ENA platforms (ILLUMINA, OXFORD_NANOPORE, PACBIO_SMRT, BGISEQ, DNBSEQ, ION_TORRENT, ...). It only tells taxprofiler short reads from long ones: OXFORD_NANOPORE and PACBIO_SMRT are long, the rest short. A Nanopore or PacBio row leaves fastq_2 empty.",
+    "(sample, run_accession) must be unique; an experiment accession that downloads as several runs gets each run's accession.",
+    "A classifier runs only when its run_<tool> flag is set AND the database sheet names a database for it. run_bracken needs run_kraken2: taxprofiler stops at validation otherwise.",
+    "Host removal (perform_*_hostremoval) needs hostremoval_reference, or taxprofiler stops at validation.",
+    "taxpasta_add_* need taxpasta_taxonomy_dir (a taxdump), which is not staged on Luria, so they are not offered.",
+    "No classification database is provisioned on Luria: every run uses databases the user names, until reference_bundles.json lists staged ones."
+  ],
+  "notes": "Recommended upstream: short and long reads in separate runs, each with its own database sheet (docs/usage.md). Bracken is skipped for long reads. sylph, melon and metacache profiles are not standardised by TAXPASTA.",
+  "sources": [
+    {"label": "nf-core/taxprofiler nextflow_schema.json @ 2.0.1", "url": "https://raw.githubusercontent.com/nf-core/taxprofiler/2.0.1/nextflow_schema.json", "notes": "input and databases required; every classifier is opt-in through run_<tool>."},
+    {"label": "nf-core/taxprofiler assets/schema_input.json @ 2.0.1", "url": "https://raw.githubusercontent.com/nf-core/taxprofiler/2.0.1/assets/schema_input.json", "notes": "sample, run_accession, instrument_platform required; gzipped FASTQ; uniqueEntries sample+run_accession."},
+    {"label": "nf-core/taxprofiler assets/schema_database.json @ 2.0.1", "url": "https://raw.githubusercontent.com/nf-core/taxprofiler/2.0.1/assets/schema_database.json", "notes": "tool, db_name, db_path required; db_params without quotes; db_type short/long/short;long."},
+    {"label": "nf-core/taxprofiler utils_nfcore_taxprofiler_pipeline main.nf @ 2.0.1", "url": "https://raw.githubusercontent.com/nf-core/taxprofiler/2.0.1/subworkflows/local/utils_nfcore_taxprofiler_pipeline/main.nf", "notes": "error()s on run_bracken without run_kraken2, host removal without a reference, taxpasta_add_* without a taxonomy dir."}
+  ],
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/taxprofiler sheet from a resolved D.SEQ cohort of shotgun metagenomic libraries.",
+    "workflow_role": "Selected for 'what organisms are in these samples' on shotgun (not amplicon) reads.",
+    "output_expectation": "CSV with header sample,run_accession,instrument_platform,fastq_1,fastq_2,fasta.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "instrument_platform from the leaf's data-driven verdict (resolve_samples data_driven_params).",
+      "Ask for the databases unless the curated list names some; say none is provisioned on Luria."
+    ],
+    "final_checks": [
+      "Every row has sample, run_accession and instrument_platform.",
+      "Every classifier that runs has a database in the sheet."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Loading a large Kraken2 database dominates and repeats per task.",
+    "setup_minutes": [10, 60],
+    "setup_label": "unpacking the classification databases (a .tar.gz database is unpacked in every run)",
+    "base_minutes": [20, 40],
+    "per_sample_minutes": [10, 40]
+  }
+}

@@ -10,10 +10,20 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables), `test_cutandrun_map.py`
 (cutandrun's group samplesheet, MultiQC folder, primary-caller QC and consensus parents) and
 `test_qc_completeness_dna.py` (the QC-completeness check for atacseq, chipseq, methylseq and cutandrun against every
-fixture that holds a run's MultiQC data), all under `NessieAI/tests/ns/reingest/`; and the link test
+fixture that holds a run's MultiQC data), `test_raredisease_map.py` (raredisease's case-level VCF parents) and
+`test_eager_dsl1_run.py` (eager's DSL1 run: TSV samplesheet, versions CSV, rules), all under `NessieAI/tests/ns/reingest/`; and the link test
 `NessieAI/tests/chat_nextseek/test_choosable_pipelines_have_maps.py` (a choosable pipeline has a map for its pinned release).
 
 ## What a map may contain
+
+- `applies_to_versions` — the release range the map was read at (a PEP 440 specifier). It
+  gates nothing: a run outside it still maps, with a warning.
+- `applies_to_commits` — for a pipeline pinned to a commit because it has no release (the
+  catalog's `default_revision` and the atlas `revision` are then a 40-hex SHA): the full,
+  lowercase SHAs the map was read at. A run reports its commit as nf-core's `-g<short sha>`
+  version suffix, and `maps.effective()` treats a run whose short commit starts a listed SHA
+  as checked. `PipelineMap.covers_revision()` is the link test's check: a release against the
+  range, a SHA against this list.
 
 - `harvest_globs` — extra files this pipeline needs, on top of the generic
   `pipeline_info/` and MultiQC allowlist in `reingest/harvest.py`.
@@ -278,10 +288,51 @@ What blocks each row:
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
+| eager | a sample's libraries merged after deduplication, `merged_bams/initial/<Sample_Name>_udg<udg>_libmerged_rmdup.bam`, and the BAMs that go into genotyping, `merged_bams/additional/` (with BAM trimming) | A.ALN | choice: whether a merged sample BAM replaces its libraries' rows. A Nessie launch writes one library per D.SEQ, so it never merges |
+| eager | the alignments before deduplication, `mapping/<mapper>/` and `samtools/filter/` (the only BAMs with `--skip_deduplication`; unconfirmed names) | A.ALN | ready: later candidates of the `aln` rule; check a real run |
+| eager | damage-processed BAMs: `trimmed_bam/` (`--run_trim_bam`), `pmdtools/` (`--run_pmdtools`), `damage_rescaling/` (`--run_mapdamage_rescaling`) | A.ALN | choice: companions of the `aln` row or rows of their own; inventory |
+| eager | damage and authentication: `damageprofiler/<library>/` (or `mapdamage/`) misincorporation and length tables, `preseq/`, `qualimap/<sample>/`, `endorspy/` | none | type: no sample type holds a damage profile. Their summary numbers (endogenous DNA, C-to-T at the first base, fragment length, duplication, coverage) are in MultiQC general stats, but no eager 2.5.3 MultiQC table was read, so no `qc_attributes` entry names a key |
+| eager | the metagenomic screen: `metagenomic_classification/{malt,kraken}/` and `maltextract/results/` (not offered in Luria launches: no database is staged) | A.TAXP | type: A.TAXP is in `context/sample_types.json` but on no instance and not in the attribute fixture; inventory |
+| eager | `sex_determination/` (Sex.DetERRmine), `nuclear_contamination/nuclear_contamination.txt`, `mtnucratio/` | none | type: no attribute holds genetic sex, contamination or the mt/nuclear ratio |
+| eager | pileupCaller's EIGENSTRAT and ANGSD's likelihood outputs under `genotyping/`, `consensus_sequence/`, `multivcfanalyzer/` | none | type: not VCFs; not offered in Luria launches |
+| eager | a run launched elsewhere: its samplesheet names reads in `R1`, which `uid_resolve` does not read (it reads `fastq_1`), so only a Nessie launch record parents its rows | D.SEQ | parent |
+| funcscan | the per-sample screening tables beside the run summaries: AMPcombi's `reports/ampcombi2/<sample>/<sample>_ampcombi.tsv` and comBGC's `reports/combgc/<sample>/combgc_summary.tsv` | A.FSCR | inventory, choice: a per-assembly row beside (or instead of) the run summary row |
+| funcscan | the taxonomy-merged summaries written instead of the plain ones with `--run_taxa_classification` (`*_complete_summary_taxonomy.tsv.gz` under `reports/ampcombi2/`, `reports/hamronization_summarize/`, `reports/combgc/`; unconfirmed names: output.md and the TABIX_BGZIP prefixes disagree) | A.FSCR | inventory; check a real run |
+| funcscan | each screening tool's own results (`amp/`, `arg/`, `bgc/` including antiSMASH's per-region GenBank files, `cazyme/dbcan/cgc/` and `substrate/`), argNorm's `arg/argnorm/<tool>/*.normalized.tsv`, MMseqs2's `taxonomic_classification/` | A.FSCR, none | inventory, choice: companions of the summary rows, or rows of their own |
+| funcscan | the annotation rows' folders (`annotation/<tool>/all/`) come from `conf/modules.config`'s `withName: PYRODIGAL`/`PRODIGAL` blocks, which the aliased `PYRODIGAL_GBK`/`PRODIGAL_GBK` processes may not match; no snapshot saves annotations (`--save_annotations`) | A.GANN | check a real run with `--save_annotations` |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | methylseq | Bismark's per-read, per-context calls `<aligner>/methylation_calls/methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz`, the targeted bedGraph `*.bedGraph.targeted.bedGraph` (with `--run_targeted_sequencing`), and `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`). The CpG coverage and bedGraph have rules (A.MSEQ); their MeanCpGMethylationPercent reads the general-stats column `bismark-percent_cpg_meth`, checked on `4.2.0-local-test` | A.MSEQ | choice: whether to register the per-read calls (large; summarised by the coverage file) and the genome-wide cytosine report, which would need a slot or Notes on A.MSEQ |
 | methylseq | `methyldackel/*_{CHG,CHH}.bedGraph` (with `--all_contexts`; `*_{CHG,CHH}.methylKit` with `--methyl_kit` as well), `methyldackel/*.targeted.bedGraph`, and Rastair's TAPS calls `rastair/{call,methylkit}/` (bwa-mem, or bwa-meth with `--taps`). MethylDackel's CpG calls have rules (A.MSEQ): `*_CpG.bedGraph`, or `*_CpG.methylKit`, which `--methyl_kit` writes instead of the bedGraph. With `--taps` and a Bismark aligner, Bismark still calls the reads as bisulfite data, so its calls come out inverted while the row's ConversionMethod says TAPS; methylseq only logs a recommendation to use bwa-mem (`workflows/methylseq/main.nf`) | A.MSEQ | inventory; choice: A.MSEQ has one secondary slot and no Notes for the non-CpG files; TAPS calls need their own DataType and Software; whether to refuse a TAPS run aligned with Bismark |
+| pangenome | odgi's graph statistics `odgi_stats/<input>.gfaffix.og.stats.yaml` as A.PANG's `GraphLengthBp`, `NodeCount`, `EdgeCount` (listed in the graph row's `Notes` today) | A.PANG | a reader for odgi's stats YAML (not a MultiQC general-stats table; no run seen) |
+| pangenome | `vg_deconstruct/<input>.gfaffix.*.vcf` and its `.decomposed.vcf` (with `--vcf_spec`): variants of the graph against one of its genomes, a companion of the graph row today | A.VCF? | type: A.VCF's parents are reads or alignments, not an assembly's graph; choice |
+| pangenome | the intermediate graphs (`seqwish/`, `smoothxg/`, `gfaffix/`, `odgi_build/`, `odgi_unchop/`), the alignments (`wfmash*/`) and the layouts and drawings (`odgi_layout/`, `odgi_viz/`, `odgi_draw/`) | none | choice: steps on the way to the final graph, not registered |
+| pangenome | each community's own graph with `--communities` (`FINAL_GFA/<input>.community.<n>.gfaffix.unchop.Ygs.view.gfa`): losing candidates of the graph row, named in its `Notes` | A.PANG | choice: one row per community, parented by the one A.ASM |
+| proteinfold | per-model confidence as A.PSTR's `MeanPLDDT`, `PTM`, `IPTM`: `<MODE>/<id>/<id>_plddt.tsv` (per residue, one column per rank), `<id>_ptm.tsv` and `<id>_iptm.tsv` (rank, value). The pLDDT file is the row's secondary file and the others are in `Notes` | A.PSTR | a reader for these layouts (a mean over a column; the rank_0 line); no MultiQC general-stats key is confirmed |
+| proteinfold | `<MODE>/<id>/paes/<id>_<rank>_pae.tsv` (predicted aligned error matrices), `<MODE>/<id>/<id>_<MODE>_msa.tsv`, the chainwise (i)pTM tables, `reports/<id>_<MODE>_report.html` and `compare/<id>_comparison_report.html` | A.PSTR | inventory, choice: companions of the model row |
+| proteinfold | the lower-ranked models (in `raw/` only with `--save_intermediates`) and `foldseek_easysearch/` hits (with `--skip_foldseek false`) | A.PSTR, none | choice; type for Foldseek's structural-similarity hits |
+| proteinfold | `DBs/<mode>/` (the databases or weights a run downloads when no `<mode>_db` is given) | none | ruled out in substance: reference data, not results; not inventoried |
+| oncoanalyser | germline calls and the normal's own files: `purple/<tumor>.purple.germline.vcf.gz`, `purple/<tumor>.purple.sv.germline.vcf.gz`, `pave/germline/`, `sage/germline/`, `linx/germline_annotations/`, `purple/<tumor>.purple.driver.catalog.germline.tsv`, `esvee/<tumor>.esvee.germline.vcf.gz` | A.VCF | parent: named after the tumour but holding the matched normal's calls, so a per_sample rule would file them under the tumour's D.SEQ; needs a pair-level rule (as sarek's somatic pairs) |
+| oncoanalyser | somatic rows parented by the tumour alone: every rule's file is the tumour/normal pair's result, but its row names only the tumour's D.SEQ | A.VCF, A.CNV, A.MUSP | choice: whether pair outputs name the normal too, the same ruling sarek's `*_vs_*` folders wait for |
+| oncoanalyser | `purple/<tumor>.purple.purity.tsv`, `purity.range.tsv`, `purple.qc` (purity, ploidy and the fit) | none | type: no attribute or sample type holds purity and ploidy; A.CNV has neither `File_SecondaryData` nor `Notes` to carry the file |
+| oncoanalyser | driver catalogues `purple/<tumor>.purple.driver.catalog.somatic.tsv`, `linx/somatic_annotations/<tumor>.linx.driver.catalog.tsv` | none | type, inventory |
+| oncoanalyser | fusions `linx/somatic_annotations/<tumor>.linx.fusion.tsv`, `isofox/<rna>.isf.pass_fusions.tsv` | A.FUS (assay Gene Fusion Detection exists; the sample type does not) | type, inventory |
+| oncoanalyser | `lilac/<tumor>.lilac.tsv` (HLA class I alleles and their tumour status) | A.HLA | inventory; a reader for LILAC's one-row-per-allele layout |
+| oncoanalyser | `orange/<tumor>.orange.pdf` and `.orange.json` (the summary report), `linx/<tumor>_linx.html`, `qsee/` | none | type |
+| oncoanalyser | `chord/` (HRD), `cuppa/` (tissue of origin), `teal/` (telomeres), `virusbreakend/` and `virusinterpreter/` (viral integration), `cider/` (IG/TCR CDR3), `neo/` (neoepitopes), `peach/` (pharmacogenomics), `wisp/` (`--mode purity_estimate`) | none | type, inventory |
+| oncoanalyser | MultiQC: `multiqc_report.html` sits at the run root, which no core inventory pattern reaches, and no general-stats key has been seen in a run | D.SEQ | inventory; QC keys need a real run (G-7) |
+| oncoanalyser | a run started from BAM or CRAM (launched elsewhere): the `filepath` column is not one of `uid_resolve._PATH_COLUMNS`, so only a launch record resolves its parents | D.SEQ, A.ALN | parent |
+| scdownstream | `10_reports/artifacts/concatenated.h5ad` (with `--qc_only`: the QC'd object, no clustering) and `02_quality_control/finalized/<sample>_qc.h5ad` (with `--save_intermediates`) | A.SCXP | type: A.SCXP's declared parents are D.SEQ, DNA and A.ALN, and the assay Single Cell Expression Analysis takes no A.SCXP parent |
+| scdownstream | integrated objects `03_combine/integrate/<tool>/*.h5ad`, cluster and UMAP objects under `05_cluster_dimred/`, cell-type annotations under `04_celltypes/` | A.SCCL | choice: each is an intermediate of `09_finalized/merged.h5ad`, which holds them all; registered only if a ruling wants them |
+| scdownstream | differential expression `06_per_group/**/differential_expression/**/*_results.parquet`, pseudobulk matrices, decoupler scores, LIANA and cell2cell plots | none | type, inventory, per contrast |
+| scdownstream | QC from `11_multiqc/` and `10_reports/qc-report.html` | A.SCXP | inventory; no MultiQC key has been seen in a run |
+| raredisease | `alignment/<sample>_sorted_md.cram` (with `--save_all_mapped_as_cram`, kept off in Luria launches) and `alignment/<sample>_sorted_md_primary_contigs.cram` (`--save_noalt_mapped_as_cram`) | A.ALN | ready: a second rule with `DataType` CRAM |
+| raredisease | annotated and ranked VCFs: `annotate_snv/genome/`, `annotate_snv/mitochondria/`, `annotate_sv/`, `rank_and_filter/<case>_{snv,sv,mt}_ranked_{clinical,research}.vcf.gz` (need the VEP cache, gnomAD, vcfanno resources and rank models, not staged) | A.VCF | choice: whether a ranked clinical or research VCF replaces the call set as a first candidate; annotation runs in no Luria launch |
+| raredisease | mobile elements: `call_mobile_elements/<case>_mobile_elements.vcf.gz`, `annotate_mobile_elements/` (skipped: `mobile_element_references` not staged) | A.VCF | choice |
+| raredisease | repeat expansions: `repeat_expansions/<case>_repeat_expansion_stranger.vcf.gz`, each sample's `_repeat_expansion.vcf` and `_exphunter_sorted.bam` (skipped: `variant_catalog` not staged) | none | type: an STR genotype is not an A.VCF of variant calls |
+| raredisease | mitochondrial deletions: `call_sv/<case>_saltshaker.vcf.gz`, `call_sv/<sample>.saltshaker*`, `call_sv/<sample>_mitochondria_deletions.txt` | none | type |
+| raredisease | `peddy/` (pedigree, sex and relatedness checks), `ngsbits_samplegender/` (inferred sex), `smncopynumbercaller/` (SMN1/SMN2 copy number), `gens/` (skipped) | none | type |
+| raredisease | MultiQC general-stats QC (mosdepth coverage, Picard alignment and duplication metrics, VerifyBamID contamination) | A.ALN, D.SEQ | the run fixture is an nf-test snapshot, which holds no MultiQC values, so no key is confirmed |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
 | riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
 | riboseq | `quantification/salmon/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
@@ -318,6 +369,11 @@ What blocks each row:
 | smrnaseq | `mirna_quant/edger_qc/{mature,hairpin}_normalized_CPM.txt` | A.GEX | inventory |
 | smrnaseq | `genome_quant/bam/*.bam`, `mirna_quant/bam/{hairpin,mature,seqcluster}/*.bam` (only with `--save_intermediates`; `.csi` index) | A.ALN | choice; the `.csi` is not inventoried |
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
+| taxprofiler | a second database of one classifier (two `kraken2/<db>/` folders): the per-sample rule takes one profile per sample, so the other is a candidate the curator chooses between | A.TAXP | choice: one row per sample per database |
+| taxprofiler | `ClassificationDatabase` on the per-sample rows: the database is the profile's folder name (`kraken2/<db_name>/`), which no token reads | A.TAXP | a token for the row file's folder |
+| taxprofiler | `<tool>/<tool>_<db>_combined_reports.txt` (each tool's own run-wide table) | A.TAXP | inventory, choice: the tool-native twin of the TAXPASTA table |
+| taxprofiler | MALT's `malt/<db>/<sample>_<n>.merged.txt.gz` and `.rma6` (named per read file), Melon's `melon/<db>/<sample>_<db>/*.tsv`, MetaCache's `metacache/<db>/<sample>_<db>.mapping.txt` (`*.abundances.txt` only with `--metacache_abundances`) | A.TAXP | inventory, choice: sample attribution and which file is the profile |
+| taxprofiler | `krona/<tool>_<db>.html` | none | type |
 | all | A.VCF rows link no assay where the house assay "Variant Call Filtering" does not exist; it is a pending `create_internal` in `context/assay_mappings.json` | A.VCF | a house assay to create |
 
 Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek, methylseq) lists its own ruled-out files in `unmapped_files`, each with its reason. atacseq and chipseq list theirs too, without `claims_every_file`: no fixture lists their files.
@@ -341,7 +397,74 @@ fixtures cover every rule's folder.
 atacseq 2.1.2 and chipseq 2.1.0 began this way and have left it: each release's broad- and
 narrow-peak `-profile test` runs (`<version>-local-test` and `<version>-local-narrow`, made
 with `scripts/reingest/make_fixture.sh --local`) match every pattern of every rule, so
-`DOC_ONLY` is empty and no map is listed here.
+neither is in `DOC_ONLY`. The maps written from the docs now:
+
+| Pipeline | Release | Evidence | Why no fixture |
+|---|---|---|---|
+| pangenome | 1.1.3 | pinned docs/output.md, checked against `conf/modules.config` and `subworkflows/local/pggb.nf` at the tag (output.md names the `FINAL_GFA/` graph `*.view.og`; the module writes `<input>.gfaffix.unchop.Ygs.view.gfa`) | the release has no pipeline-level nf-test snapshot; its AWS results were not read. A `-profile test` run (`DRB1-3123.fa.gz`, `n_haplotypes 12`) would replace this row |
+| oncoanalyser | 3.0.0 | pinned docs/output.md, checked against `subworkflows/local/prepare_outputs/main.nf` at the tag (each WiGiTS tool's folder is published as `<group_id>/<tool>/`; REDUX and Picard BAMs as `<group_id>/alignments/<sample_id>/`). Rules are per tumour (or RNA) sample, named by the file's `<tumor_dna_id>` prefix | its nf-test snapshot and AWS results were not read, and no run has been made; a `-profile test` run through Nessie (it downloads the Hartwig bundle) would replace this row |
+| scdownstream | commit d9264b35 | pinned docs/output.md at the commit (`09_finalized/merged.h5ad`, the final object) | no release, so no AWS results; a `-profile test` run at the commit would replace this row |
+
+### taxprofiler and funcscan: names from the nf-test snapshots
+
+Neither map is in `DOC_ONLY`: both releases' output.md disagree with `conf/modules.config` on
+folders (taxprofiler documents a `bracken/<db>/<db>/` folder; funcscan documents
+`reports/ampcombi/`, `prodigal/` and `comBGC/` where it publishes `reports/ampcombi2/`,
+`annotation/<tool>/<category>/` and `reports/combgc/`), and both name their database folders
+`<db_name>`, which `test_doc_only_maps.py` does not read as a placeholder. Their rules come
+from `conf/modules.config` at the tag, with every file name checked against the release's own
+nf-test snapshots (taxprofiler `default`, `test_motus`, `test_fastpnonpareilkrakenuniq`;
+funcscan `default` and `test_cazyme_pyrodigal`), and `test_taxprofiler_funcscan_maps.py` runs
+both maps over those names. No run fixture exists yet (G-7: `import_evidence.py snapshot` would
+make one), and no MultiQC key is mapped: taxprofiler's only QC entry is the report link.
+
+taxprofiler names a per-sample profile `<sample>_<db>.<tool>...` with `--perform_runmerging`
+and `<sample>_<run>_<db>.<tool>...` without; both start with the sample, so the harvest
+attributes either. Every rule is optional: a classifier runs only with its database and
+`--run_<tool>`, TAXPASTA only with `--run_profile_standardisation`. funcscan's A.GANN rules
+(one per `--annotation_tool`, one `alternative_group`) match only with `--save_annotations`;
+its run summaries are per_run A.FSCR rows parented by every assembly, and dbCAN's per-sample
+overview a per_sample one. A foreign funcscan run cannot resolve its parents by FASTA path
+(`uid_resolve._PATH_COLUMNS` has no `fasta`), so only a Nessie launch record parents its rows.
+
+### proteinfold: one rule per prediction mode
+
+The 2.0.0 map has one optional A.PSTR rule per `--mode` (esmfold, colabfold, alphafold2 under its
+`standard/` or `split_msa_prediction/` folder, boltz, rosettafold_all_atom, alphafold3, helixfold3,
+rosettafold2na): each sample's `<MODE>/top_ranked_structures/<id>.pdb`, with its pLDDT table as the
+secondary file. Predictions of two modes coexist (a run of `--mode esmfold,colabfold`, or a reused
+folder), so the rules share no `alternative_group`. Each rule is checked against the release's own
+nf-test snapshot of that mode (`2.0.0` is alphafold2 standard, `2.0.0-<mode>` the rest), imported with
+`import_evidence.py snapshot ... --variant <mode> --param mode=<mode>`. Those tests are stub runs:
+the paths are real, the files empty, and no MultiQC value exists, so the map reads no QC key. The
+samplesheet names a row's sequence `id` (`samplesheet_sample_column`).
+
+### raredisease: one VCF per family
+
+nf-core/raredisease 3.1.2 joint-genotypes each family: its SNV, mitochondrial and SV VCFs are named
+after the samplesheet's `case_id` (`call_snv/genome/<case>_snv.vcf.gz`,
+`call_snv/mitochondria/<case>_mitochondria.vcf.gz`, `call_sv/<case>_sv.vcf.gz`), so each is a
+`per_file` A.VCF row parented by every sample of that case (`parents_by_samplesheet: case_id`).
+The fixture `3.1.2` is the release's own nf-test snapshot (`tests/default.nf.test.snap`, a stub
+run of one trio), and it disagrees with output.md: the merged SV VCF is `call_sv/<case>_sv.vcf.gz`,
+not `call_sv/genome/<case>_sv_merge.vcf.gz`. The map claims every file; what it leaves out is in
+its `unmapped_files`, and `test_raredisease_map.py` checks the case rows' parents. Each sample's
+`alignment/<sample>_sorted_md.bam` is its A.ALN row.
+
+### eager: rules from main.nf, with no fixture
+
+nf-core/eager 2.5.3 is a DSL1 release with no nf-test, and its AWS results were not read, so no
+run fixture exists; its map is not in `DOC_ONLY` either, because output.md is stale where the
+`aln` rule reads (it documents `deduplication/dedup/<sample>/`, while main.nf's `dedup` and
+`markduplicates` publish `deduplication/<Library_ID>/<Library_ID>_rmdup.bam`). Its rules come from
+main.nf's `publishDir` and output names at the tag: that BAM per library (Library_ID is the
+sample's UID in a Nessie launch, so the harvest attributes the file to its sample) and each
+genotyper's `genotyping/<Sample_Name>.{unifiedgenotyper,haplotypecaller,freebayes}.vcf.gz`.
+Three harvest paths exist for this release alone, all checked by `test_eager_dsl1_run.py` on a
+synthetic run: the samplesheet is `samplesheet.tsv` (`Sample_Name`, read as a TSV after every CSV
+candidate), the software versions are `pipeline_info/software_versions.csv`, and run.sh launches
+it as `NXF_VER=22.10.8 nextflow run`, which `parsers.parse_launch_params` reads past. The QC entries
+are the report link and the genome only. A `-profile test` run (G-7) would replace this note.
 
 ### atacseq: every output is A.ATAC
 

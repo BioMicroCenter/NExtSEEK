@@ -259,6 +259,202 @@
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "Names a scrnaseq output artifact explicitly rather than the analysis."
       }
+    },
+    {
+      "id": "scdownstream-plain",
+      "question": "Which cell types are in these lung samples, clustering all the cells together?",
+      "cohort": "test::sc_matrices",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "scdownstream"
+        ]
+      ],
+      "must_not": [
+        "rnaseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (single-cell count matrices registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two mouse lung samples whose filtered and raw Cell Ranger matrices are already registered as A.SCXP records by an nf-core/scrnaseq run: the input scdownstream reads. Integration across samples, clustering and cell-type annotation from existing matrices is scdownstream. scrnaseq would only remake the matrices from reads and stop there."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "scdownstream-outcome",
+      "question": "We already have the Cell Ranger matrices. I want them QC'd, with ambient RNA and doublets removed, integrated across samples and annotated with cell types.",
+      "cohort": "test::sc_matrices",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "scdownstream"
+        ]
+      ],
+      "must_not": [
+        "scrnaseq",
+        "rnaseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "ambient_correction": "soupx"
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (single-cell count matrices registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two mouse lung samples whose filtered and raw Cell Ranger matrices are already registered as A.SCXP records by an nf-core/scrnaseq run: the input scdownstream reads. The user says the matrices exist and lists scdownstream's steps. Each sample has its raw matrix beside the filtered one, so upstream's ambient correction, soupx, can run. scrnaseq would redo what is already done."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "scdownstream-lookalike",
+      "question": "Profile expression cell by cell across these samples.",
+      "cohort": "test::sc_matrices",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "scdownstream"
+        ]
+      ],
+      "must_not": [
+        "rnaseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (single-cell count matrices registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two mouse lung samples whose filtered and raw Cell Ranger matrices are already registered as A.SCXP records by an nf-core/scrnaseq run: the input scdownstream reads. The wording is the scrnaseq story's (per-cell-expression), but these samples are matrices, not reads: the per-cell profiling is done, and the next step on them is scdownstream."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "scdownstream-named",
+      "question": "Run nf-core/scdownstream on these matrices with decontX for the ambient RNA.",
+      "cohort": "test::sc_matrices",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "scdownstream"
+        ]
+      ],
+      "must_not": [
+        "scrnaseq",
+        "rnaseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "ambient_correction": "decontx"
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (single-cell count matrices registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and an ambient_correction the release offers (decontx)."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "scdownstream-ambiguous",
+      "question": "Compare the naive and infected lungs.",
+      "cohort": "test::sc_matrices",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "scdownstream"
+        ]
+      ],
+      "must_not": [
+        "rnaseq"
+      ],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (single-cell count matrices registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two mouse lung samples whose filtered and raw Cell Ranger matrices are already registered as A.SCXP records by an nf-core/scrnaseq run: the input scdownstream reads. A comparison between conditions needs the name of the condition column inside each matrix, which NExtSEEK does not record, so the agent must ask for it before building."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "scrnaseq-reads-before-scdownstream",
+      "question": "Cluster the cells in these granuloma samples and annotate the cell types.",
+      "cohort": "221031SHA::A.SCXP",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ],
+        [
+          "scrnaseq",
+          "scdownstream"
+        ]
+      ],
+      "must_not": [
+        "rnaseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "221031SHA is granuloma single-cell sequencing (TIS.CFU recorded) whose cohort UIDs are its D.SEQ reads. Clustering and annotation is scdownstream's work, but scdownstream reads matrices, so from reads scrnaseq comes first; naming scdownstream as the step after is also right."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
     }
   ]
 }

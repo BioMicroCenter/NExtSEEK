@@ -1,0 +1,110 @@
+{
+  "name": "shotgun_metagenome",
+  "description": "Mouse gut shotgun metagenomes: stool DNA from a vancomycin-treated and an untreated mouse, untargeted tagmentation libraries (nf-core taxprofiler test data)",
+  "levels": [
+    {
+      "sample_type": "MUS",
+      "rows": [
+        {
+          "Name": "NTC-MG-mouse-untreated",
+          "Scientist": "Nessie Test",
+          "Strain": "C57BL/6J",
+          "Sex": "F",
+          "Study": "Gut microbiome after antibiotics",
+          "Treatment1": "none"
+        },
+        {
+          "Name": "NTC-MG-mouse-vanco",
+          "Scientist": "Nessie Test",
+          "Strain": "C57BL/6J",
+          "Sex": "F",
+          "Study": "Gut microbiome after antibiotics",
+          "Treatment1": "Vancomycin in drinking water, 7 days"
+        }
+      ]
+    },
+    {
+      "sample_type": "TIS",
+      "rows": [
+        {
+          "Name": "NTC-MG-untreated-stool",
+          "Parent": "NTC-MG-mouse-untreated",
+          "Scientist": "Nessie Test",
+          "Type": "Stool",
+          "Organ": "Colon",
+          "OrganDetail": "fresh fecal pellet",
+          "StorageType": "-80C"
+        },
+        {
+          "Name": "NTC-MG-vanco-stool",
+          "Parent": "NTC-MG-mouse-vanco",
+          "Scientist": "Nessie Test",
+          "Type": "Stool",
+          "Organ": "Colon",
+          "OrganDetail": "fresh fecal pellet",
+          "StorageType": "-80C"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-MG-untreated-lib",
+          "Parent": "NTC-MG-untreated-stool",
+          "Scientist": "Nessie Test",
+          "Protocol": "QIAamp PowerFecal Pro DNA extraction; Nextera XT shotgun library, no amplicon PCR",
+          "Lab": "Test Lab",
+          "Barcode": "ATGCATGC"
+        },
+        {
+          "Name": "NTC-MG-vanco-lib",
+          "Parent": "NTC-MG-vanco-stool",
+          "Scientist": "Nessie Test",
+          "Protocol": "QIAamp PowerFecal Pro DNA extraction; Nextera XT shotgun library, no amplicon PCR",
+          "Lab": "Test Lab",
+          "Barcode": "CGTACGTA"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-MG-untreated-shotgun",
+          "Parent": "NTC-MG-untreated-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-MG-untreated_R1.fastq.gz, NTC-MG-untreated_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/taxprofiler/data/fastq/",
+          "SequencingType": "shotgun metagenomics",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "METAGENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        },
+        {
+          "Name": "NTC-MG-vanco-shotgun",
+          "Parent": "NTC-MG-vanco-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-MG-vanco_R1.fastq.gz, NTC-MG-vanco_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/taxprofiler/data/fastq/",
+          "SequencingType": "Metagenome",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "METAGENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        }
+      ]
+    }
+  ]
+}

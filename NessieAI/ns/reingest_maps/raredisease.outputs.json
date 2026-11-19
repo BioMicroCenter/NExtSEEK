@@ -1,0 +1,120 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/raredisease",
+  "applies_to_versions": ">=3.1.2,<3.2",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "inventory_globs": [
+    "**/call_snv/genome/*_snv.vcf.gz.tbi", "**/call_snv/mitochondria/*_mitochondria.vcf.gz.tbi",
+    "**/call_sv/*_sv.vcf.gz.tbi"
+  ],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["alignment/*_sorted_md.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "alignment/*_sorted_md.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
+        "Software": "nf-core/raredisease"
+      }
+    },
+    {
+      "id": "vcf_snv",
+      "candidates": ["call_snv/genome/*_snv.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_file",
+      "parents_by_samplesheet": "case_id",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "call_snv/genome/*_snv.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "DeepVariant per sample, joint-genotyped across the case by GLnexus (nf-core/raredisease)",
+        "FilterMethod": "None beyond normalisation: bcftools norm, with mitochondrial calls moved to their own VCF (raredisease output docs). One VCF per case_id, holding every sample of the case"
+      }
+    },
+    {
+      "id": "vcf_mitochondria",
+      "optional": true,
+      "candidates": ["call_snv/mitochondria/*_mitochondria.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_file",
+      "parents_by_samplesheet": "case_id",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "call_snv/mitochondria/*_mitochondria.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "GATK Mutect2 in mitochondrial mode, on two alignments with opposite breakpoints (nf-core/raredisease)",
+        "FilterMethod": "None beyond normalisation: the GATK mitochondrial short-variant workflow's calls, normalised (raredisease output docs). One VCF per case_id. Written for wgs runs, and for wes only with run_mt_for_wes"
+      }
+    },
+    {
+      "id": "vcf_sv",
+      "optional": true,
+      "candidates": ["call_sv/*_sv.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_file",
+      "parents_by_samplesheet": "case_id",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "call_sv/*_sv.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "SVDB merge of Manta, TIDDIT and CNVnator calls, plus GATK GermlineCNVCaller unless skipped (nf-core/raredisease)",
+        "FilterMethod": "None: the structural-variant and copy-number calls merged by SVDB, including mitochondrial SVs. One VCF per case_id"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "ReferenceGenome": "$params.genome",
+    "Link_ReferenceGenome": "@genome_path"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": [],
+  "unmapped_files": [
+    {"glob": "alignment/*_mt_subsample.bam*", "why": "The mitochondrial reads of the registered alignment, subsampled for the MT deletion and visualisation steps: a subset of the registered BAM, not a second alignment."},
+    {"glob": "alignment/*_sorted_md.metrics.txt", "why": "Picard MarkDuplicates metrics for the registered alignment; their numbers are read through MultiQC."},
+    {"glob": "annotate_snv/*", "why": "rhocall, vcfanno, CADD and VEP annotated copies of the registered SNV and mitochondrial VCFs, with their ROH and UPD plots: snv_annotation and mt_annotation are skipped in Luria launches (VEP cache, gnomAD and vcfanno resources are not staged), and an annotated copy is not a second call set."},
+    {"glob": "annotate_sv/*", "why": "SVDB-query and VEP annotated copy of the registered SV VCF: sv_annotation is skipped in Luria launches (its databases and VEP cache are not staged), and a copy is not a second call set."},
+    {"glob": "annotate_mobile_elements/*", "why": "Annotated mobile-element calls: me_annotation is skipped in Luria launches (its SVDB databases and VEP cache are not staged). README lists them as an output with no rule."},
+    {"glob": "rank_and_filter/*", "why": "GENMOD-ranked clinical and research subsets of the annotated VCFs: they exist only when annotation runs, which Luria launches skip. README lists them as an output with no rule."},
+    {"glob": "call_mobile_elements/*", "why": "RetroSeq mobile-element insertion calls: me_calling is skipped in Luria launches (mobile_element_references is not staged). README lists them as an output with no rule."},
+    {"glob": "call_sv/*saltshaker*", "why": "MitoSAlt and Saltshaker mitochondrial deletion calls, plots and their per-case VCF: no sample type means mitochondrial deletion calls yet. README lists them."},
+    {"glob": "call_sv/*_mitochondria_deletions.txt", "why": "MitoSAlt's per-sample mitochondrial deletion table: no sample type means it yet. README lists it."},
+    {"glob": "fastqc/*", "why": "Per-read-file FastQC reports; their numbers are read through MultiQC."},
+    {"glob": "trimming/*", "why": "fastp reports and the trimmed FASTQs fastp writes before alignment: QC read through MultiQC, and reads that are an intermediate of the registered alignment."},
+    {"glob": "qc_bam/*", "why": "Per-sample alignment QC (mosdepth, Picard CollectMultipleMetrics, CollectWgsMetrics, CollectHsMetrics, TIDDIT coverage tracks and chromograph plots): their summary numbers are read through MultiQC, and coverage tracks have no sample type."},
+    {"glob": "ngsbits_samplegender/*", "why": "ngs-bits' sex inferred from each alignment, a check of the samplesheet's sex: D.SEQ has no inferred-sex attribute. README lists it."},
+    {"glob": "peddy/*", "why": "peddy's pedigree, sex and relatedness checks for the case: no sample type or attribute holds them yet. README lists them."},
+    {"glob": "pedigree/*", "why": "The PED file raredisease writes from the samplesheet's pedigree columns: the run's input restated, not a result."},
+    {"glob": "repeat_expansions/*", "why": "ExpansionHunter and Stranger repeat-expansion calls and BAMlets: repeat_calling is skipped in Luria launches (variant_catalog is not staged). README lists them."},
+    {"glob": "smncopynumbercaller/*", "why": "SMNCopyNumberCaller's SMN1 and SMN2 copy numbers for the case: no sample type means them yet. README lists them."},
+    {"glob": "vcf2cytosure/*", "why": "Per-sample CGH files for the CytoSure viewer, a rendering of the registered SV calls, not a call set of their own."}
+  ]
+}

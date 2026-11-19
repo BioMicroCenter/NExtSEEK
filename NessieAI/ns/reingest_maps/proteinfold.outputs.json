@@ -1,0 +1,294 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/proteinfold",
+  "applies_to_versions": ">=2.0.0,<2.1",
+  "accepts_parent_types": [
+    "D.PSEQ"
+  ],
+  "samplesheet_sample_column": "id",
+  "harvest_globs": [],
+  "inventory_globs": [
+    "**/top_ranked_structures/*.pdb",
+    "**/top_ranked_structures/*.cif",
+    "**/*_plddt.tsv",
+    "**/*_ptm.tsv",
+    "**/*_iptm.tsv"
+  ],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "esmfold",
+      "candidates": [
+        "esmfold/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "esmfold/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "esmfold/*/*_ptm.tsv"
+        },
+        {
+          "glob": "esmfold/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "ESMFold",
+        "PredictionMethod": "ESMFold",
+        "ModelRank": "1",
+        "Notes": "ESMFold top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode esmfold; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "colabfold",
+      "candidates": [
+        "colabfold/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "colabfold/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "colabfold/*/*_ptm.tsv"
+        },
+        {
+          "glob": "colabfold/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "ColabFold",
+        "PredictionMethod": "ColabFold",
+        "ModelRank": "1",
+        "Notes": "ColabFold top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode colabfold; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "alphafold2",
+      "candidates": [
+        "alphafold2/{standard,split_msa_prediction}/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "alphafold2/{standard,split_msa_prediction}/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "alphafold2/{standard,split_msa_prediction}/*/*_ptm.tsv"
+        },
+        {
+          "glob": "alphafold2/{standard,split_msa_prediction}/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "AlphaFold2",
+        "PredictionMethod": "AlphaFold2",
+        "ModelRank": "1",
+        "Notes": "AlphaFold2 top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode alphafold2; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "boltz",
+      "candidates": [
+        "boltz/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "boltz/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "boltz/*/*_ptm.tsv"
+        },
+        {
+          "glob": "boltz/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "Boltz",
+        "PredictionMethod": "Boltz",
+        "ModelRank": "1",
+        "Notes": "Boltz top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode boltz; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "rosettafold_all_atom",
+      "candidates": [
+        "rosettafold_all_atom/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "rosettafold_all_atom/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "rosettafold_all_atom/*/*_ptm.tsv"
+        },
+        {
+          "glob": "rosettafold_all_atom/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "RoseTTAFold All-Atom",
+        "PredictionMethod": "RoseTTAFold All-Atom",
+        "ModelRank": "1",
+        "Notes": "RoseTTAFold All-Atom top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode rosettafold_all_atom; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "alphafold3",
+      "candidates": [
+        "alphafold3/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "alphafold3/top_ranked_structures/*.cif"
+        },
+        {
+          "glob": "alphafold3/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "alphafold3/*/*_ptm.tsv"
+        },
+        {
+          "glob": "alphafold3/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "AlphaFold3",
+        "PredictionMethod": "AlphaFold3",
+        "ModelRank": "1",
+        "Notes": "AlphaFold3 top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode alphafold3; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "helixfold3",
+      "candidates": [
+        "helixfold3/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "helixfold3/top_ranked_structures/*.cif"
+        },
+        {
+          "glob": "helixfold3/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "helixfold3/*/*_ptm.tsv"
+        },
+        {
+          "glob": "helixfold3/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "HelixFold3",
+        "PredictionMethod": "HelixFold3",
+        "ModelRank": "1",
+        "Notes": "HelixFold3 top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode helixfold3; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    },
+    {
+      "id": "rosettafold2na",
+      "candidates": [
+        "rosettafold2na/top_ranked_structures/*.pdb"
+      ],
+      "sample_type": "A.PSTR",
+      "assay": "Protein Structure Prediction",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "rosettafold2na/*/*_plddt.tsv",
+          "slot": "File_SecondaryData"
+        },
+        {
+          "glob": "rosettafold2na/*/*_ptm.tsv"
+        },
+        {
+          "glob": "rosettafold2na/*/*_iptm.tsv"
+        }
+      ],
+      "attributes": {
+        "DataType": "PDB",
+        "Software": "RoseTTAFold2NA",
+        "PredictionMethod": "RoseTTAFold2NA",
+        "ModelRank": "1",
+        "Notes": "RoseTTAFold2NA top-ranked model (upstream's rank_0) from nf-core/proteinfold --mode rosettafold2na; per-residue pLDDT in the secondary file. A computational model, not an experimental structure."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version"
+  },
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

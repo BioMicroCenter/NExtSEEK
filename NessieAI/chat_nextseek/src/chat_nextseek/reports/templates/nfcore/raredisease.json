@@ -1,0 +1,95 @@
+{
+  "report_type": "NFCORE_RAREDISEASE_SAMPLESHEET",
+  "description": "nf-core/raredisease samplesheet context, aligned to the pinned 3.1.2 schema. Germline variant calling (SNV, SV, CNV, mitochondrial) for human rare-disease families or singletons from WGS or WES.",
+  "params": {
+    "analysis_type": {"type": "enum", "allowed": ["wgs", "wes"], "default": "wgs", "steerable": true,
+                      "help": "wgs for whole-genome libraries, wes for exome or targeted capture (then target_bed must name the kit's BED). Set from each library's LibraryStrategy by the param atlas; asked when the metadata does not say. mito (mitochondria only) is not offered."},
+    "target_bed": {"type": "string", "default": null, "steerable": true,
+                   "help": "the capture kit's target-region BED as a path on the cluster, for wes: calling, Manta and the coverage QC are limited to it. Asked when the libraries look like exome or capture."},
+    "aligner": {"type": "enum", "allowed": ["bwamem2", "bwa", "bwameme"], "default": "bwamem2", "steerable": true,
+                "help": "bwamem2 (upstream's default) builds its index from the FASTA on the first run; bwa when the study must match earlier BWA-MEM alignments; bwameme for faster alignment at a larger index. sentieon is not offered: it needs a licence."},
+    "skip_subworkflows": {"type": "string", "default": "repeat_calling,repeat_annotation,snv_annotation,sv_annotation,mt_annotation,me_calling,me_annotation,generate_clinical_set", "steerable": true,
+                          "help": "comma list of subworkflows not run. The default is the set whose references are not staged on Luria, and it must stay in: repeat_calling and repeat_annotation (variant_catalog), snv_annotation (vep_cache, gnomad_af, vcfanno_resources, the rank models), sv_annotation (svdb_query_dbs, vep_cache), mt_annotation (vep_cache, vcfanno_resources), me_calling and me_annotation (mobile_element_references, mobile_element_svdb_annotations), generate_clinical_set (vep_filters). Add mt_subsample, snv_calling or sv_calling when the question does not need them."},
+    "skip_tools": {"type": "string", "default": "gens,germlinecnvcaller", "steerable": true,
+                   "help": "comma list of tools not run. The default keeps out the two whose references are not staged: gens (its panels of normals) and germlinecnvcaller (a GATK ploidy model and gCNV models). Add peddy, smncopynumbercaller, vcf2cytosure, ngsbits, mitosalt, fastp or fastqc when the question does not need their check."},
+    "rmdup": {"type": "bool", "default": false, "steerable": true,
+              "help": "true when duplicates should be removed rather than only marked before calling, for PCR-heavy libraries (low-input capture) whose duplicates would skew allele balance."},
+    "run_mt_for_wes": {"type": "bool", "default": false, "steerable": true,
+                       "help": "true when an exome cohort's question also asks about mitochondrial variants (off-target mtDNA reads); wgs runs analyse mitochondria anyway."},
+    "concatenate_snv_calls": {"type": "bool", "default": false, "steerable": true,
+                              "help": "true when the question wants one VCF per case with nuclear and mitochondrial SNVs together, beside the separate ones."},
+    "exclude_alt": {"type": "bool", "default": false, "steerable": true,
+                    "help": "true when variants should be called on the primary chromosomes only (alignments to alt and unplaced contigs removed after alignment), e.g. to match a primary-assembly comparison set."},
+    "ngsbits_samplegender_method": {"type": "enum", "allowed": ["xy", "hetx", "sry"], "default": "xy", "steerable": true,
+                                    "help": "how the sex check infers each sample's sex from its reads, to catch a sex column or sample swap: xy (X/Y read ratio, upstream's default), hetx (X heterozygosity, for exomes with little Y coverage) or sry (reads on SRY)."},
+    "save_reference": {"type": "bool", "default": false, "steerable": true,
+                       "help": "true when later runs on the same reference should reuse the indexes this run builds (bwamem2, FASTA index, dictionary)."},
+    "save_all_mapped_as_cram": {"type": "bool", "default": false, "steerable": false,
+                                "help": "kept off: reingest registers raredisease's alignments as BAM (alignment/<sample>_sorted_md.bam) only, until its map has the CRAM rule listed in NessieAI/ns/reingest_maps/README.md."}
+  },
+  "reference_resources": ["fasta"],
+  "pipeline": {
+    "name": "nf-core/raredisease",
+    "repository": "https://github.com/nf-core/raredisease",
+    "documentation_url": "https://nf-co.re/raredisease/3.1.2/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "One row per FASTQ pair: sample, lane, fastq_1, fastq_2, then the pedigree: sex (1 male, 2 female, 0 or other unknown), phenotype (2 affected, 1 unaffected, 0 missing), paternal_id and maternal_id (a parent's own sample in this sheet, else blank) and case_id (one per family). Paired-end only; the schema also accepts spring and BAM inputs, but the supported path here is FASTQ.",
+    "required_columns": ["sample", "lane", "fastq_1", "fastq_2", "sex", "phenotype", "case_id"],
+    "optional_columns": ["paternal_id", "maternal_id"]
+  },
+  "samplesheet_template": [{"sample": null, "lane": null, "fastq_1": null, "fastq_2": null, "sex": null, "phenotype": null, "paternal_id": null, "maternal_id": null, "case_id": null}],
+  "examples": {
+    "trio_proband": {"sample": "D.SEQ-260711ENG-12-PUB", "lane": "1", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/p_L001_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/p_L001_R2.fastq.gz",
+                     "sex": "1", "phenotype": "2", "paternal_id": "D.SEQ-260711ENG-13-PUB", "maternal_id": "D.SEQ-260711ENG-14-PUB", "case_id": "PAT-260711ENG-3-PUB"}
+  },
+  "validation_rules": [
+    "The file is comma-separated (CSV); fastq_2 must be filled: raredisease takes no single-end Illumina data.",
+    "sex and phenotype come from each sample's param atlas verdict (Sex; Phenotype and Disease); when a verdict is absent or a conflict the user is asked. Never default them: they drive the inheritance models and the sex check.",
+    "case_id names the family: every sample of one family shares it, and a singleton gets its own. Take it from the metadata when it names a family; otherwise ask the user which samples form a family. Never invent one family for unrelated samples.",
+    "paternal_id and maternal_id name the parent's own sample (its D.SEQ UID) in this sheet, from the same case; blank when that parent is not sequenced. The father's sex must be 1 and the mother's 2. Never infer a parent from names alone.",
+    "Rows of one sample (lanes) must agree on sex, phenotype, case_id and parents.",
+    "For exome or capture data set analysis_type wes and give target_bed the kit's BED path on the cluster.",
+    "Keep the default skip_subworkflows and skip_tools entries: annotation and ranking (vep_cache, gnomad_af, vcfanno_resources, rank models, vep_filters), repeat expansions (variant_catalog), mobile elements, Gens and GermlineCNVCaller need references not staged on Luria. configure_run refuses a launch without them.",
+    "Say plainly that no variant is annotated or ranked, and why."
+  ],
+  "notes": "Human only: 3.1.2 takes genome GRCh37 or GRCh38, and only GRCh38's FASTA is staged on Luria (GENCODE primary assembly, chr-named, so the default mito_name chrM matches). NOT PROVISIONED, so the run cannot start yet: intervals_wgs and intervals_y, which the 3.1.2 schema requires (Picard interval lists of the genome and of chrY; usage.md says the pipeline's assets carry versions for GRCh37 and GRCh38, which must be staged under refs/ and passed). Not staged either, so their steps are skipped: vep_cache (and vep_plugin_files), gnomad_af, vcfanno_resources and vcfanno_toml, score_config_snv, score_config_sv and score_config_mt, variant_consequences_snv and variant_consequences_sv, svdb_query_dbs, variant_catalog, mobile_element_references and mobile_element_svdb_annotations, vep_filters, reduced_penetrance, the Gens panels and the GermlineCNVCaller models; verifybamid_svd_* (contamination), par_bed and sequence_dictionary are optional and not staged. Like rnafusion's genomes_base, reference_resources stays [fasta] because these are not a per-genome file bundle; configure_run reports the unset required params rather than implying the run is ready.",
+  "sources": [
+    {"label": "nf-core/raredisease usage docs @ 3.1.2", "url": "https://nf-co.re/raredisease/3.1.2/docs/usage/", "notes": "Samplesheet and pedigree columns, the reference files each subworkflow needs."},
+    {"label": "nf-core/raredisease nextflow_schema.json @ 3.1.2", "url": "https://raw.githubusercontent.com/nf-core/raredisease/3.1.2/nextflow_schema.json", "notes": "Authoritative param names, types, patterns and defaults for the pinned revision."},
+    {"label": "nf-core/raredisease assets/schema_input.json @ 3.1.2", "url": "https://raw.githubusercontent.com/nf-core/raredisease/3.1.2/assets/schema_input.json", "notes": "Authoritative samplesheet columns and allowed values."},
+    {"label": "nf-core/raredisease tests/default.nf.test.snap @ 3.1.2", "url": "https://raw.githubusercontent.com/nf-core/raredisease/3.1.2/tests/default.nf.test.snap", "notes": "The files a run publishes, the reingest fixture's evidence."}
+  ],
+  "schema": {"sections": {"samplesheet_columns": {
+    "description": "Column-level field dictionary for the nf-core/raredisease input samplesheet.",
+    "fields": {
+      "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample id; repeat across lanes of one sample.", "validation_hints": "The NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+      "lane": {"required": "required", "position_rule": "Column 2", "expected_value": "string", "allowed_values": "", "description": "Lane or run of this FASTQ pair.", "validation_hints": "The L00N token from the file name when present, else 1, 2, 3 in file order.", "example": "1"},
+      "fastq_1": {"required": "required", "position_rule": "Column 3", "expected_value": "path string", "allowed_values": ".fastq.gz or .fq.gz", "description": "Read 1 FASTQ.", "validation_hints": "Absolute Luria path from the sample's Link_PrimaryData / File_PrimaryData.", "example": "/net/bmc-pub10/data1/bmc/fastq/p_L001_R1.fastq.gz"},
+      "fastq_2": {"required": "required", "position_rule": "Column 4", "expected_value": "path string", "allowed_values": ".fastq.gz or .fq.gz", "description": "Read 2 FASTQ; raredisease is paired-end only.", "validation_hints": "Same source as fastq_1.", "example": "/net/bmc-pub10/data1/bmc/fastq/p_L001_R2.fastq.gz"},
+      "sex": {"required": "required", "position_rule": "Column 5", "expected_value": "integer or other", "allowed_values": "1, 2, 0, other", "description": "1 male, 2 female, 0 or other unknown.", "validation_hints": "From the param atlas verdict (the lineage's Sex, a PAT field); asked when absent.", "example": "1"},
+      "phenotype": {"required": "required", "position_rule": "Column 6", "expected_value": "integer", "allowed_values": "0, 1, 2", "description": "2 affected, 1 unaffected, 0 missing.", "validation_hints": "From the param atlas verdict (Phenotype, corroborated by Disease); asked when absent or unclear.", "example": "2"},
+      "paternal_id": {"required": "optional", "position_rule": "Column 7", "expected_value": "string", "allowed_values": "", "description": "The father's sample id in this sheet; blank when not sequenced.", "validation_hints": "The father's own D.SEQ UID, from metadata or the user; never inferred.", "example": "D.SEQ-260711ENG-13-PUB"},
+      "maternal_id": {"required": "optional", "position_rule": "Column 8", "expected_value": "string", "allowed_values": "", "description": "The mother's sample id in this sheet; blank when not sequenced.", "validation_hints": "The mother's own D.SEQ UID, from metadata or the user; never inferred.", "example": "D.SEQ-260711ENG-14-PUB"},
+      "case_id": {"required": "required", "position_rule": "Column 9", "expected_value": "string", "allowed_values": "", "description": "Family id; a case's samples are joint-genotyped into one VCF.", "validation_hints": "A family id the metadata names (the proband's PAT UID works for a trio), or the user's answer.", "example": "PAT-260711ENG-3-PUB"}
+    }}}},
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/raredisease samplesheet from a resolved NExtSEEK D.SEQ cohort of human germline DNA libraries in families or singletons.",
+    "workflow_role": "Selected for germline rare-disease calling in families (trios) with affected status. For germline or somatic calling without a pedigree use sarek; for RNA, rnavar.",
+    "output_expectation": "CSV with header sample,lane,fastq_1,fastq_2,sex,phenotype,paternal_id,maternal_id,case_id.",
+    "population_priority": [
+      "One row per FASTQ pair; sample = the D.SEQ UID.",
+      "sex and phenotype from each sample's data_driven_params verdict; ask when absent.",
+      "case_id and parents from the metadata or the user; never guessed.",
+      "Say plainly that annotation, ranking and repeat expansions are off and why."
+    ],
+    "final_checks": [
+      "Every row has fastq_2.",
+      "Each parent named is a sample of the same case, with the right sex."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. DeepVariant on a 30x genome dominates.",
+    "setup_minutes": [60, 180], "setup_label": "first run builds the bwamem2 index",
+    "base_minutes": [30, 90], "per_sample_minutes": [360, 960]
+  }
+}

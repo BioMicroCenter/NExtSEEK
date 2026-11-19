@@ -58,6 +58,8 @@ INPUTS: tuple[str, ...] = (
     _CHAT + "seqera/catalog.py",
     _CHAT + "seqera/nfcore_rna_atlas.json",
     _CHAT + "seqera/nfcore_dna_atlas.json",
+    _CHAT + "seqera/nfcore_other_atlas.json",
+    _CHAT + "seqera/input_kinds.py",
     _CHAT + "seqera/nfcore_param_atlas.json",
     # The code that builds the selection payload from the cohort's metadata, protocols and schemas.
     _CHAT + "pipeline/sample_digest.py",

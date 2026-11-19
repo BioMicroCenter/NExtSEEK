@@ -1,0 +1,126 @@
+[
+ {
+  "path": "alphafold3/T1024/T1024_alphafold3_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1024/T1024_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1024/T1024_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1024/T1024_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1024/paes/T1024_0_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1026/T1026_alphafold3_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1026/T1026_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1026/T1026_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1026/T1026_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/T1026/paes/T1026_0_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/top_ranked_structures/T1024.cif",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/top_ranked_structures/T1024.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/top_ranked_structures/T1026.cif",
+  "bytes": 0
+ },
+ {
+  "path": "alphafold3/top_ranked_structures/T1026.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "fasta/T1024.json",
+  "bytes": 0
+ },
+ {
+  "path": "fasta/T1026.json",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1024_ranked_1.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1024_ranked_2.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1024_ranked_3.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1024_ranked_4.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1024_ranked_5.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1026_ranked_1.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1026_ranked_2.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1026_ranked_3.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1026_ranked_4.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmcif2pdb/T1026_ranked_5.cif.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_proteinfold_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reports/test_alphafold2_report.html",
+  "bytes": 0
+ }
+]

@@ -1,4 +1,8 @@
-"""Load and validate the curated nf-core atlas: the RNA and DNA files, merged.
+"""Load and validate the curated nf-core atlas: the RNA, DNA and other files, merged.
+
+`nfcore_rna_atlas.json` holds host RNA pipelines, `nfcore_dna_atlas.json` host DNA ones, and
+`nfcore_other_atlas.json` the pipelines that are neither: metagenomic profiling, and the
+ones whose input is an assembly or protein sequences rather than reads.
 
 The atlas holds the judgement that no machine-readable schema carries: which
 pipeline to reach for when several accept the same reads, and what to ask a
@@ -18,8 +22,14 @@ from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
 
 ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_rna_atlas.json"
 DNA_ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_dna_atlas.json"
+OTHER_ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_other_atlas.json"
 #: Every file the default load merges. A pipeline key may appear in only one of them.
-ATLAS_PATHS: tuple[Path, ...] = (ATLAS_PATH, DNA_ATLAS_PATH)
+#: Adding a file here also means adding it to the pipeline-scenarios fingerprint INPUTS
+#: (NessieAI/tests/pipeline_scenarios/fingerprint.py); a test checks the two agree.
+ATLAS_PATHS: tuple[Path, ...] = (ATLAS_PATH, DNA_ATLAS_PATH, OTHER_ATLAS_PATH)
+#: Files that may hold no pipeline yet: the other atlas was added before its first entry.
+#: Its guidance still merges. Every other file, and the merged atlas, must name one.
+ATLAS_PATHS_ALLOWED_EMPTY: frozenset[Path] = frozenset({OTHER_ATLAS_PATH})
 
 
 class AtlasError(Exception):
@@ -35,8 +45,10 @@ def _read(target: Path) -> dict[str, Any]:
         raise AtlasError(f"Atlas file is not valid JSON: {target}: {exc}") from exc
     if not isinstance(payload, dict) or "pipelines" not in payload:
         raise AtlasError(f"Atlas must be an object with a 'pipelines' key: {target}")
-    if not isinstance(payload["pipelines"], dict) or not payload["pipelines"]:
-        raise AtlasError("Atlas 'pipelines' must be a non-empty object")
+    if not isinstance(payload["pipelines"], dict):
+        raise AtlasError(f"Atlas 'pipelines' must be a non-empty object: {target}")
+    if not payload["pipelines"] and Path(target) not in ATLAS_PATHS_ALLOWED_EMPTY:
+        raise AtlasError(f"Atlas 'pipelines' must be a non-empty object: {target}")
     return payload
 
 
@@ -53,6 +65,8 @@ def _merge(paths) -> dict[str, Any]:
         guidance = payload.get("guidance") or {}
         notes = list(merged["guidance"].get("notes") or []) + list(guidance.get("notes") or [])
         merged["guidance"] = {**guidance, **merged["guidance"], "notes": notes}
+    if not merged["pipelines"]:
+        raise AtlasError("Atlas 'pipelines' must be a non-empty object across all files")
     return merged
 
 

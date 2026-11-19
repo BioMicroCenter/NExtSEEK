@@ -369,7 +369,8 @@ def build_run_params(
     merged.update(ref_params)
     # agent overrides win
     merged.update(agent_params)
-    errors = _cross_param_errors(merged, pipeline_key)
+    from .pipeline_checks import param_errors  # combinations a pipeline refuses only mid-run
+    errors = _cross_param_errors(merged, pipeline_key) + param_errors(pipeline_key, merged)
     if errors:
         return {}, errors, "invalid"
     return merged, [], status

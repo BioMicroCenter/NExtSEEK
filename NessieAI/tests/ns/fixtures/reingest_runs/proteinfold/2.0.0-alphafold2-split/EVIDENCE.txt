@@ -1,0 +1,1 @@
+Evidence: GitHub nf-core/proteinfold tag 2.0.0, tests/alphafold2_split.nf.test.snap and conf/test.config, read 2026-11-19. Params the test sets, given by hand: alphafold2_mode=split_msa_prediction. File sizes are not in a snapshot, so every inventory entry has bytes 0. No MultiQC values: snapshots hold none.

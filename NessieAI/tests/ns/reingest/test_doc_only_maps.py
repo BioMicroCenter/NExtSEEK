@@ -33,7 +33,14 @@ README = maps.MAPS_DIR / "README.md"
 #: -profile test runs (`<version>-local-test`, `<version>-local-narrow`) match every pattern
 #: of every rule, and their snapshots now catch a rule whose folder is wrong. The checks stay
 #: for the next map written from docs alone (README "Maps written from the docs").
-DOC_ONLY: dict[str, str] = {}
+DOC_ONLY: dict[str, str] = {
+    # 1.1.3 has no pipeline-level nf-test snapshot (README "Maps written from the docs").
+    "pangenome": "pangenome.output.md",
+    # 3.0.0: nf-test snapshot and AWS results not read (README "Maps written from the docs").
+    "oncoanalyser": "oncoanalyser.output.md",
+    # no release: the pinned commit's docs (README "Maps written from the docs").
+    "scdownstream": "scdownstream.output.md",
+}
 
 #: Folders an output.md documents only by saying they mirror another, as {pipeline:
 #: {folder: (its documented twin, the sentence of the docs that says so, the subfolders
@@ -44,7 +51,9 @@ DOC_ONLY: dict[str, str] = {}
 #: analysis" section lists no files of its own.
 TWINS: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {}
 
-_PLACEHOLDER = re.compile(r"<[A-Z_]+>")
+#: A documented placeholder segment: `<ALIGNER>`, and oncoanalyser's lower-case `<group_id>`
+#: and `<tumor_dna_id|tumor_rna_id>`.
+_PLACEHOLDER = re.compile(r"<[A-Za-z_|]+>")
 
 
 def documented_folders(text: str) -> list[list[str]]:

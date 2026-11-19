@@ -10,6 +10,13 @@
     "smallrna": {"description": "Small-RNA libraries", "uids": ["D.SEQ-261026NA-19", "D.SEQ-261026NA-20"]},
     "riboseq": {"description": "Ribosome profiling", "uids": ["D.SEQ-261026NA-17", "D.SEQ-261026NA-18"]},
     "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": ["D.SEQ-261026NA-15", "D.SEQ-261026NA-16"]},
-    "cutandrun": {"description": "CUT&Tag for two histone marks with an IgG control, paired-end", "uids": ["D.SEQ-261116BMC-1", "D.SEQ-261116BMC-2", "D.SEQ-261116BMC-3", "D.SEQ-261116BMC-4"]}
+    "cutandrun": {"description": "CUT&Tag for two histone marks with an IgG control, paired-end", "uids": ["D.SEQ-261116BMC-1", "D.SEQ-261116BMC-2", "D.SEQ-261116BMC-3", "D.SEQ-261116BMC-4"]},
+    "ancient_dna": {"description": "Ancient human DNA from bone and tooth, half-UDG shotgun libraries", "uids": []},
+    "rare_disease_trio": {"description": "Human rare-disease trio: affected child and unaffected parents, WGS, with sex, affected status and relationship", "uids": []},
+    "sc_matrices": {"description": "Single-cell count matrices (A.SCXP, filtered and raw) already made by scrnaseq, two conditions", "uids": []},
+    "shotgun_metagenome": {"description": "Mouse stool shotgun metagenomes, antibiotic-treated and untreated", "uids": []},
+    "bacterial_assemblies": {"description": "Bacterial isolate genome assemblies (A.ASM), one FASTA per genome", "uids": []},
+    "combined_pangenome": {"description": "Eight bacterial genomes in one combined PanSN FASTA (one A.ASM)", "uids": []},
+    "protein_sequences": {"description": "Single-chain protein sequences (D.PSEQ FASTA)", "uids": []}
   }
 }

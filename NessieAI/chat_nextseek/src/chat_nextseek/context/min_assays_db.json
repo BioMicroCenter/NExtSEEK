@@ -723,5 +723,35 @@
     "Name": "Methylation Calling",
     "Description": "Methylation calling measures cytosine methylation from bisulfite, enzymatic (EM-seq) or TAPS sequencing. Reads are aligned to a converted reference (Bismark, bwa-meth or bwa-mem), duplicates are removed or marked, and the methylation state of each covered cytosine is read from the conversions in the reads (Bismark methylation extractor, MethylDackel), giving per-CpG methylation levels with their read counts. One result is produced per sequencing sample.",
     "Tags": "DNA methylation, methylation calling, bisulfite sequencing, WGBS, RRBS, EM-seq, TAPS, CpG methylation, Bismark, MethylDackel, nf-core/methylseq"
+  },
+  {
+    "Name": "Genome Assembly",
+    "Description": "Genome assembly reconstructs a genome de novo from sequencing reads. Short, long or hybrid reads are assembled into contigs and scaffolds (SPAdes, MEGAHIT, Flye, Unicycler, hifiasm), metagenomic contigs may be binned into metagenome-assembled genomes, and the result is assessed for contiguity (QUAST) and completeness (BUSCO, CheckM). One assembly is produced per isolate, bin or consensus and linked to the sequencing samples whose reads built it.",
+    "Tags": "genome assembly, de novo assembly, contigs, scaffolds, metagenome-assembled genome, binning, isolate assembly, SPAdes, MEGAHIT, Flye, QUAST, BUSCO, CheckM, nf-core/bacass, nf-core/mag, nf-core/genomeassembler"
+  },
+  {
+    "Name": "Taxonomic Profiling",
+    "Description": "Taxonomic profiling identifies the organisms present in a sample from its sequencing reads. Reads are quality-trimmed, host reads optionally removed, and each read or its markers classified against a reference database by one or more profilers (Kraken2 with Bracken, MetaPhlAn, Centrifuge, Kaiju, MALT, mOTUs), giving per-taxon counts or relative abundances that TAXPASTA standardises across tools. One profile is produced per sequencing sample and classifier.",
+    "Tags": "taxonomic profiling, metagenomic profiling, taxonomic classification, shotgun metagenomics, microbiome, pathogen screening, Kraken2, Bracken, MetaPhlAn, Centrifuge, Kaiju, MALT, TAXPASTA, nf-core/taxprofiler, nf-core/eager"
+  },
+  {
+    "Name": "Genome Annotation",
+    "Description": "Genome annotation predicts the genes and other features of a genome assembly. Coding sequences are called (Prodigal, Pyrodigal) and annotated with functions from reference databases (Prokka, Bakta), giving gene models with coordinates and protein translations. One annotation is produced per genome assembly.",
+    "Tags": "genome annotation, gene prediction, functional annotation, prokaryotic annotation, Prokka, Bakta, Prodigal, Pyrodigal, GFF, GenBank, nf-core/funcscan"
+  },
+  {
+    "Name": "Functional Gene Screening",
+    "Description": "Functional gene screening searches a genome assembly for genes of a chosen function: antimicrobial peptides (AMPlify, Macrel, ampir, hmmsearch, summarised by AMPcombi), antibiotic resistance genes (RGI, AMRFinderPlus, DeepARG, fARGene, ABRicate, summarised by hAMRonization), biosynthetic gene clusters (antiSMASH, DeepBGC, GECCO, summarised by comBGC) and carbohydrate-active enzymes. One result is produced per assembly and screening category, with a run-level summary.",
+    "Tags": "functional screening, antimicrobial peptide, antibiotic resistance gene, antimicrobial resistance, biosynthetic gene cluster, natural product discovery, CAZyme, antiSMASH, AMPcombi, hAMRonization, comBGC, nf-core/funcscan"
+  },
+  {
+    "Name": "Protein Structure Prediction",
+    "Description": "Protein structure prediction models the three-dimensional structure of a protein or complex from its amino acid sequence. A multiple sequence alignment of homologues is built (MMseqs2, JackHMMER) where the method uses one, and a deep-learning predictor (AlphaFold2, AlphaFold3, ColabFold, ESMFold, RoseTTAFold, Boltz) returns ranked models with per-residue and per-model confidence. One set of ranked models is produced per protein or complex.",
+    "Tags": "protein structure prediction, protein folding, structural modelling, AlphaFold, ColabFold, ESMFold, RoseTTAFold, Boltz, multiple sequence alignment, pLDDT, nf-core/proteinfold"
+  },
+  {
+    "Name": "Pangenome Graph Construction",
+    "Description": "Pangenome graph construction aligns several genomes of one species or clade all against all (wfmash), induces a variation graph from the alignments (seqwish), normalises and sorts it (smoothxg, GFAFix, odgi), and reports its statistics and visualisations; variants can then be called from the graph (vg deconstruct). One graph is produced per set of genome assemblies.",
+    "Tags": "pangenome, pangenome graph, variation graph, genome graph, PGGB, wfmash, seqwish, smoothxg, odgi, vg, comparative genomics, nf-core/pangenome"
   }
 ]

@@ -1,0 +1,118 @@
+[
+ {
+  "path": "boltz/A.csv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/B.csv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/T1024_boltz_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/T1024_chainwise_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/T1024_chainwise_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/T1024_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/T1024_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/T1024_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1024/paes/T1024_0_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/T1026_boltz_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/T1026_chainwise_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/T1026_chainwise_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/T1026_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/T1026_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/T1026_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/T1026/paes/T1026_0_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/output_fasta/T1024.fasta",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/output_fasta/T1026.fasta",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/top_ranked_structures/T1024.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "boltz/top_ranked_structures/T1026.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "mmseqs/results/T1024.a3m",
+  "bytes": 0
+ },
+ {
+  "path": "mmseqs/results/T1026.a3m",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_proteinfold_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reports/test_alphafold2_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "split/output_msa/A.csv",
+  "bytes": 0
+ },
+ {
+  "path": "split/output_msa/B.csv",
+  "bytes": 0
+ }
+]

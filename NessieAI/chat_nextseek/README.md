@@ -79,7 +79,9 @@ The catalog-driven E2E runner moved to the test tree: `NessieAI/tests/e2e/__main
 run as `python -m NessieAI.tests.e2e`. Its catalog is `NessieAI/tests/e2e/catalog.json`,
 whose variants carry a tag for the Playwright browser tier.
 
-The curated nf-core atlas the selection step reads is two files beside `seqera/nfcore_atlas.py`, `nfcore_rna_atlas.json` and `nfcore_dna_atlas.json`; `load_atlas()` merges them and refuses a pipeline key that is in both.
+The curated nf-core atlas the selection step reads is three files beside `seqera/nfcore_atlas.py` (`ATLAS_PATHS`): `nfcore_rna_atlas.json` (host RNA), `nfcore_dna_atlas.json` (host DNA) and `nfcore_other_atlas.json` (metagenomic profiling, and pipelines that take an assembly, combined genomes or protein FASTA instead of reads); `load_atlas()` merges them and refuses a pipeline key that is in two. Only a file in `ATLAS_PATHS_ALLOWED_EMPTY` may hold no pipeline. A new atlas file is also a pipeline-scenarios fingerprint input (`NessieAI/tests/pipeline_scenarios/fingerprint.py`).
+
+What a catalog entry takes as input is `samplesheet_input_kind`, a key of `seqera/input_kinds.py::INPUT_KINDS` (reads, BAM, accessions, a FASTA or matrix per sample, or one combined FASTA with no samplesheet); the emitter, write_samplesheet and the Luria submitter follow it, and `accepted_leaf_sample_types` says whose files those are.
 
 The hand-run nf-core selection evals are in `NessieAI/chat_nextseek/evals/README.md`; their outputs are built from production data and stay out of git.
 
