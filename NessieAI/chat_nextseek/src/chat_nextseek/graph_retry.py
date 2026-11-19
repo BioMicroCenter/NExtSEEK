@@ -119,7 +119,8 @@ def scope_repair_context(result: dict) -> str | None:
     )
 
 
-_COUNT_WORDS = re.compile(r"\bhow\s+many\b|\bnumber\s+of\b|\bcount(?:s|ed|ing)?\b|\bbreak(?:s|ing)?\s+(?:\w+\s+){0,4}?down\b"
+_COUNT_WORDS = re.compile(r"\bhow\s+many\b|\bnumber\s+of\b|^\W*count\b|\bcount\s+(?:of|the|all|every|each)\b"
+                          r"|\bbreak(?:s|ing)?\s+(?:\w+\s+){0,4}?down\b"
                           r"|\bbroken\s+down\b|\bbreakdown\b|\btally\b", re.I)
 _COUNT_CALL = re.compile(r"\bcount\s*\(", re.I)
 

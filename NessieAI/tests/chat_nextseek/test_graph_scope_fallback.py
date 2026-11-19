@@ -723,6 +723,8 @@ def test_a_members_how_many_question_makes_no_sample_search_call():
     ("which zebras", "MATCH (z:T_ZEB) WHERE z.title CONTAINS 'count(' RETURN z.uuid AS uid", False),
     ("list the zebras", "MATCH (z:T_ZEB) WHERE COUNT { (z)-[:DERIVED_FROM]->(:Sample) } > 1 RETURN z.uuid AS u",
      False),
+    ("zebras with a stripe count above 100", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", False),
+    ("Count the zebras", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", True),
 ])
 def test_what_counts_as_a_count(question, cypher, count):
     from chat_nextseek.graph_retry import asks_for_a_count

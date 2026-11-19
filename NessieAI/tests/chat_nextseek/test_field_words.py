@@ -45,12 +45,14 @@ def test_a_counted_word_finds_its_fields_on_every_type_that_has_one():
 
 
 def test_a_sibling_word_on_other_types_and_an_analysis_type():
-    found = _fields("number of tiers per project", ["tiers"])
+    found = _fields("number of tiers per project", [])
     assert found == [("A.ZEB", "Tier_Label"), ("ZEB", "Tier")]
 
 
 @pytest.mark.parametrize("question,keywords", [
     ("which samples have a band", ["band"]),          # not a count
+    ("How many quolls have a baseline band?", ["band"]),  # the field word is a filter, not what is counted
+    ("tissues with a band count above 100", ["band"]),    # "count" names a field here, not a count
     ("How many studies does Quill have?", ["studies"]),  # a container
     ("How many zebras are there?", ["zebra"]),          # a sample type's name
     ("How many quill samples?", ["Quill"]),             # nothing holds the word
@@ -104,3 +106,15 @@ def test_the_graph_step_is_handed_the_fields_before_it_writes_for_a_member_too(m
     assert fw.FIELDS_HEADING in blob
     assert "- QUO: `BaselineBand`" in blob
     assert ("- ZEB: `Stripe_Band` (12 samples)" if count else "- ZEB: `Stripe_Band`\n") in blob + "\n"
+
+
+def test_a_two_word_counted_phrase_skips_its_container_word():
+    assert _fields("How many study bands are there for Quill?", [], projects=["Quill"]) == [
+        ("QUO", "BaselineBand"), ("ZEB", "Stripe_Band")]
+
+
+def test_a_failing_lookup_costs_the_block_not_the_catalog(monkeypatch):
+    def broken(*a, **k):
+        raise RuntimeError("bad snapshot")
+    monkeypatch.setattr(fw, "fields_named", broken)
+    assert graph_mod._fields_block(MagicMock(), SNAPSHOT, "How many bands?", {}, {}) == ""

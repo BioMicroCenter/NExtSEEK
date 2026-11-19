@@ -2535,12 +2535,16 @@ def _fields_block(config, snapshot, user_query: str, plan_dict: dict, entity_dic
     word the question counts, from the snapshot every caller gets. Their filled counts only for a caller who sees
     every project: a member's catalog is redacted of counts on purpose."""
     from ..helpers import field_words
-    found = field_words.fields_named(snapshot, user_query, plan_dict, entity_dict)
-    counts: dict = {}
-    if found and graph_catalog.shows_committed_vocabulary(config):  # graph_scope.sees_all
-        for detail in graph_catalog.get_type_details(config, sorted({code for code, _ in found})):
-            counts.update({(detail.title, a.title): a.sample_count for a in detail.attributes})
-    return field_words.render_fields(found, counts)
+    try:  # a signal: its failure must never cost the turn the live catalog
+        found = field_words.fields_named(snapshot, user_query, plan_dict, entity_dict)
+        counts: dict = {}
+        if found and graph_catalog.shows_committed_vocabulary(config):  # graph_scope.sees_all
+            for detail in graph_catalog.get_type_details(config, sorted({code for code, _ in found})):
+                counts.update({(detail.title, a.title): a.sample_count for a in detail.attributes})
+        return field_words.render_fields(found, counts)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("FIELDS NAMED IN THIS QUESTION skipped: %s: %s", type(exc).__name__, exc)
+        return ""
 
 
 def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,

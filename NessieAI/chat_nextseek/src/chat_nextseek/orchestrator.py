@@ -1614,7 +1614,7 @@ def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any]
         config=config, session=session, user_text=user_text, entity_result=entity_result, plan=plan,
         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event, debug_payload=debug_payload,
         t_total_start=t_total_start, refine_context=refine, note_agent=note_agent, offer_suggestions=False,
-        graph_plan=graph_plan,
+        graph_plan=graph_plan, count_stop=False,
     )
     if isinstance(outcome, GraphScopeFallback):
         print("[DEBUG][SUGGEST] the clicked chip's statement was refused for this scope; running the full pipeline")
@@ -1715,8 +1715,12 @@ def _execute_graph_turn(
     note_agent: Callable[[str], None] | None = None,
     offer_suggestions: bool = True,
     graph_plan: GraphAgentPlan | None = None,
+    count_stop: bool = True,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
+
+    ``count_stop`` False (a chip click): a refused count goes back to the caller as a fallback, so the clicked text
+    runs the full pipeline, which applies the count rule itself.
 
     ``offer_suggestions`` is False on a turn that is itself a click on a chip: it offers no chip of its own.
 
@@ -1749,7 +1753,6 @@ def _execute_graph_turn(
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
 
-    chip_statement = graph_plan is not None  # a refused chip statement goes back to the full pipeline
     if graph_plan is None:
         print("\n[GRAPH] Running graph agent...")
         graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
@@ -1819,7 +1822,7 @@ def _execute_graph_turn(
             session["last_debug"] = debug_payload
             send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
             return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
-        if not chip_statement and asks_for_a_count(user_text, graph_plan.cypher):
+        if count_stop and asks_for_a_count(user_text, graph_plan.cypher):
             debug_payload["graph_plan"] = graph_plan.model_dump()
             debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
             debug_payload["graph_refusal"] = "scope refused a count; it is not answered by the sample search"
