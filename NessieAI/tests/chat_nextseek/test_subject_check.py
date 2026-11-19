@@ -293,3 +293,10 @@ def test_the_real_catalog_names_patients_and_animals_as_individuals_and_not_reag
     words = sc.subject_words(config)
     assert {"patient", "animal", "monkey", "mouse", "donor"} <= words
     assert not words & {"antibody", "study", "model", "visit", "cell", "lab"}
+
+
+def test_the_subject_is_the_keyword_the_question_asks_about_not_the_first_one():
+    """Review F10: "CD4 samples for patient XY-7" carries CD4 first; the subject is XY-7."""
+    check = sc.check_subject(_config(), "CD4 samples for patient XY-7", _plan(["CD4", "XY-7"]),
+                             run=fake_neo4j(_graph()))
+    assert check is not None and check.term == "XY-7" and [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]

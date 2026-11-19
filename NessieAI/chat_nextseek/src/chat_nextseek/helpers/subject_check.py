@@ -97,17 +97,23 @@ def _singular(word: str) -> str:
     return word[:-1] if word.endswith("s") and not word.endswith("ss") and len(word) > 3 else word
 
 
-def subject_term(plan: Any) -> str | None:
-    """The first identifier-shaped keyword of the plan that is not a UID (``graph_retry._id_runs``), or None.
+def subject_terms(plan: Any) -> list[str]:
+    """The identifier-shaped keywords of the plan that are not UIDs (``graph_retry._id_runs``), in order."""
+    filters = getattr(plan, "filters", None)
+    resolved = getattr(plan, "resolved", None)
+    terms = [t.strip() for t in list(getattr(filters, "keywords", None) or []) + list(getattr(resolved, "keywords",
+                                                                                            None) or [])
+             if isinstance(t, str) and not UID_RE.fullmatch(t.strip()) and _id_runs(t) is not None]
+    return list(dict.fromkeys(terms))
+
+
+def subject_term(plan: Any, question: str | None = None, words: frozenset[str] = frozenset()) -> str | None:
+    """The first of ``subject_terms`` the question asks about as a subject ("CD4 samples for patient XY-7" is about
+    XY-7, not CD4), or None.
 
     ponytail: one subject per turn; a question naming two subjects resolves the first and leaves the second to the
     graph agent as before."""
-    filters = getattr(plan, "filters", None)
-    resolved = getattr(plan, "resolved", None)
-    for term in list(getattr(filters, "keywords", None) or []) + list(getattr(resolved, "keywords", None) or []):
-        if isinstance(term, str) and not UID_RE.fullmatch(term.strip()) and _id_runs(term) is not None:
-            return term.strip()
-    return None
+    return next((t for t in subject_terms(plan) if asks_about_one_subject(question, t, words)), None)
 
 
 def _catalog_rows(config: Any) -> list[dict]:
@@ -165,8 +171,8 @@ def check_subject(config: Any, question: str | None, plan: Any, *,
                   run: Callable[..., dict]) -> SubjectCheck | None:
     """The lookup, or None when the turn is not about one named subject or a read failed (which claims nothing).
     ``run`` is ``tool_neo4j_query``, so the caller's graph scope applies."""
-    term = subject_term(plan)
-    if not term or not asks_about_one_subject(question, term, subject_words(config)):
+    term = subject_term(plan, question, subject_words(config))
+    if not term:
         return None
     types = subject_types(config, plan)
     if not types:
