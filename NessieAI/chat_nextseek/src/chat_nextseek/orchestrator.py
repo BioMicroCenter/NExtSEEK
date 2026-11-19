@@ -1749,6 +1749,7 @@ def _execute_graph_turn(
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
 
+    chip_statement = graph_plan is not None  # a refused chip statement goes back to the full pipeline
     if graph_plan is None:
         print("\n[GRAPH] Running graph agent...")
         graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
@@ -1818,7 +1819,7 @@ def _execute_graph_turn(
             session["last_debug"] = debug_payload
             send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
             return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
-        if asks_for_a_count(user_text, graph_plan.cypher):
+        if not chip_statement and asks_for_a_count(user_text, graph_plan.cypher):
             debug_payload["graph_plan"] = graph_plan.model_dump()
             debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
             debug_payload["graph_refusal"] = "scope refused a count; it is not answered by the sample search"
