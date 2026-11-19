@@ -5,13 +5,18 @@ record. 343 records mentioned the name; the reply walked all of their trees (708
 under another patient, and about half of the patient's own descendants were missing because they never repeat its
 name. The name was never looked up as the record it names. A UID gets that lookup (``uid_check.py``); a name did not.
 
-This is that lookup for a name. When a question asks for the tree, samples or data of a subject named by an
-identifier-shaped term that is not a UID, the term is matched in the identity fields (Name, ID and the UID) of the
-type the question names, or of the catalog's Source-clade types when it names none, with separators and case
-optional (``graph_retry._id_pattern``). Of several matches, those derived from another match drop out (a visit
-under its patient). One left: the plan carries its UID and no longer the term, so the graph agent anchors on it.
-Several: the reply lists them and asks. None: the reply says so before any text search. A failed lookup claims
-nothing. Every read goes through ``tool_neo4j_query``, so a member's lookup runs under the member's scope.
+This is that lookup for a name. A subject is an individual: a patient or an animal, which the catalog marks as a
+Source-clade type whose records carry a Sex field (``subject_types``); reagents, cells, microbes and environmental
+sources carry none. When a question asks for the tree, lineage or descendants of an identifier-shaped term that is
+not a UID, or for the samples, data or records of one written after a word that names an individual ("patient
+XY-7", "monkey 77-001", ``subject_words``), the term is matched in the identity fields (Name, ID and the UID) of the
+individual type the question names, or of every individual type when it names none, with separators and case
+optional (``graph_retry._id_pattern``). "Data for IL-6", "samples from COVID-19 patients" and "samples of CD4 T
+cells" put no individual's word before the term, so they run no lookup. Of several matches, those derived from
+another match drop out. One left: the plan carries its UID and no longer the term, so the graph agent anchors on it.
+Several: the reply lists them and asks. None: nothing is said and the turn runs as it would have (the name may be a
+cell line, a reagent or a free-text term). A failed lookup claims nothing. Every read goes through
+``tool_neo4j_query``, so a member's lookup runs under the member's scope.
 """
 from __future__ import annotations
 
@@ -23,11 +28,16 @@ from ..graph_retry import _id_pattern, _id_runs
 from ..uid_links import sample_url
 from .uid_check import UID_RE
 
-#: What belongs to one subject: its tree, lineage, derived samples or data, asked "of", "for", "from" or "under" it.
-_ASK = r"(?:trees?|lineage|derived|descendants?|child(?:ren)?|samples?|data|records?|everything)"
-#: The ask, then an article and at most one word ("the patient", "monkey"), then the name: "sample tree for XY-7", "data for patient
-#: XY-7". "Samples mentioning X", "stained for CD8" and "children with HIV-1" do not put the name there.
-_BEFORE_NAME = re.compile(_ASK + r"\s+(?:of|for|from|under)\s+(?:(?:the|a|an)\s+)?(?:[\w.'-]+\s+)?$", re.IGNORECASE)
+#: The tree of one subject, asked "of", "for", "from" or "under" it, then an article and at most one word, then the
+#: name: "sample tree for XY-7", "lineage of monkey 77-001". "Stained for CD8" and "children with HIV-1" do not put
+#: the name there.
+_BEFORE_TREE = re.compile(r"(?:trees?|lineage|derived|descendants?|child(?:ren)?)\s+(?:of|for|from|under)\s+"
+                          r"(?:(?:the|a|an)\s+)?(?:[\w.'-]+\s+)?$", re.IGNORECASE)
+#: The samples, data or records of one subject, which need the word right before the name to name an individual
+#: (``subject_words``): "data for patient XY-7", "samples that came from monkey 77-001". The word is captured.
+_BEFORE_ITEMS = re.compile(r"(?:samples?|data|records?|everything)(?:\s+(?:that|which))?"
+                           r"(?:\s+(?:came|come|comes|were|was|are|is|collected|taken|drawn|obtained))?"
+                           r"\s+(?:of|for|from|under)\s+(?:(?:the|a|an)\s+)?([A-Za-z]+)\s+$", re.IGNORECASE)
 #: Or the name, then its tree: "XY-7's sample tree", "XY-7 lineage".
 _AFTER_NAME = re.compile(r"^(?:'s)?\s+(?:sample\s*)?(?:trees?|lineage|descendants)\b", re.IGNORECASE)
 #: A turn that is only the tree page's name ("Sampletree"): the parser carried the subject from the previous question
@@ -64,17 +74,27 @@ class SubjectCheck:
     truncated: bool = False        # the lookup hit LOOKUP_CAP
 
 
-def asks_about_one_subject(question: str | None, term: str) -> bool:
-    """The question asks for the tree, lineage, samples or data of ``term`` (written with any separators), or is only
-    the tree page's name."""
+def asks_about_one_subject(question: str | None, term: str, words: frozenset[str] = frozenset()) -> bool:
+    """The question asks for the tree or lineage of ``term`` (written with any separators), or for the samples, data
+    or records of it written after one of ``words`` (``subject_words``), or is only the tree page's name."""
     q = question or ""
     if _TREE_ONLY.fullmatch(q):
         return True
-    runs = _id_runs(term) or []
+    runs = _id_runs(term)
+    if not runs:
+        return False
     for m in re.finditer(r"(?<![a-z0-9])" + r"[-._ /]?".join(map(re.escape, runs)) + r"(?![a-z0-9])", q, re.I):
-        if _BEFORE_NAME.search(q[:m.start()]) or _AFTER_NAME.match(q[m.end():]):
+        before = q[:m.start()]
+        if _BEFORE_TREE.search(before) or _AFTER_NAME.match(q[m.end():]):
+            return True
+        items = _BEFORE_ITEMS.search(before)
+        if items and _singular(items.group(1).lower()) in words:
             return True
     return False
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if word.endswith("s") and not word.endswith("ss") and len(word) > 3 else word
 
 
 def subject_term(plan: Any) -> str | None:
@@ -95,19 +115,50 @@ def _catalog_rows(config: Any) -> list[dict]:
     return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
 
 
+#: The field that marks an individual among the Source-clade types: a patient or an animal has a sex; an antibody, a
+#: chemical, a cell line, a microbe or a water sample has none.
+INDIVIDUAL_FIELD = "Sex"
+_METADATA_KEYS = ("Required Metadata", "Standard Metadata", "Possible Metadata Fields")
+
+
+def _individuals(config: Any) -> list[dict]:
+    """The catalog rows of the individual types: Source clade, with ``INDIVIDUAL_FIELD`` among their fields."""
+    return [r for r in _catalog_rows(config)
+            if r.get("SampleType") and str(r.get("Clade") or "").strip().lower() == "source"
+            and INDIVIDUAL_FIELD in {f.strip() for k in _METADATA_KEYS for f in str(r.get(k) or "").split(",")}]
+
+
+def _words(text: Any) -> set[str]:
+    return {w.lower() for w in re.findall(r"[A-Za-z]{3,}", str(text or ""))}
+
+
+def subject_words(config: Any) -> frozenset[str]:
+    """The words that name an individual before its name ("patient XY-7", "monkey 77-001", "animal 77-001"): every
+    word of an individual type's catalog name, and every word of its tags that no other type's name or tags uses
+    (so "study" in "study participant" and "model" in "animal model" are not one)."""
+    individuals = _individuals(config)
+    codes = {r["SampleType"] for r in individuals}
+    others: set[str] = set()
+    for r in _catalog_rows(config):
+        if r.get("SampleType") not in codes:
+            others |= _words(r.get("Name")) | _words(r.get("Tags"))
+    out: set[str] = set()
+    for r in individuals:
+        out |= _words(r.get("Name")) | (_words(r.get("Tags")) - others)
+    return frozenset(out)
+
+
 def subject_types(config: Any, plan: Any) -> list[str]:
-    """The Source-clade types the question names (the parser's sampletype_code and the resolved sample types), else
-    every Source-clade type of the catalog. A named type that is not a source ("D.SEQ data for patient X") is what
-    is asked for, not what the name names. Without a catalog, the named types."""
+    """The individual types the question names (the parser's sampletype_code and the resolved sample types), else
+    every individual type of the catalog. A named type that is not one ("D.SEQ data for patient X") is what is
+    asked for, not what the name names. No individual type in the catalog: none, so no lookup runs (never every
+    Source type, which would anchor "data for IL-6" on an antibody)."""
     named = [str(getattr(getattr(plan, "filters", None), "sampletype_code", None) or "")]
     named += [str(t.get("code") if isinstance(t, dict) else getattr(t, "code", "") or "")
               for t in getattr(getattr(plan, "resolved", None), "sampletypes", None) or []]
     named = list(dict.fromkeys(c for c in named if c))
-    source = [str(r["SampleType"]) for r in _catalog_rows(config)
-              if r.get("SampleType") and str(r.get("Clade") or "").strip().lower() == "source"]
-    if not source:
-        return named
-    return [c for c in named if c in source] or source
+    individuals = [str(r["SampleType"]) for r in _individuals(config)]
+    return [c for c in named if c in individuals] or individuals
 
 
 def check_subject(config: Any, question: str | None, plan: Any, *,
@@ -115,7 +166,7 @@ def check_subject(config: Any, question: str | None, plan: Any, *,
     """The lookup, or None when the turn is not about one named subject or a read failed (which claims nothing).
     ``run`` is ``tool_neo4j_query``, so the caller's graph scope applies."""
     term = subject_term(plan)
-    if not term or not asks_about_one_subject(question, term):
+    if not term or not asks_about_one_subject(question, term, subject_words(config)):
         return None
     types = subject_types(config, plan)
     if not types:
@@ -148,8 +199,9 @@ def _describe(root: dict) -> str:
 
 
 def subject_notes(check: SubjectCheck | None) -> tuple[str | None, list[str]]:
-    """``(note for the graph agent, notes for the reply)``; nothing when there was no check."""
-    if check is None:
+    """``(note for the graph agent, notes for the reply)``; nothing when there was no check or nothing matched (the
+    turn then runs as it would have: the name may be a cell line, a reagent or a free-text term)."""
+    if check is None or not check.roots:
         return None, []
     term, types = check.term, ", ".join(check.types)
     if len(check.roots) == 1:
@@ -160,18 +212,13 @@ def subject_notes(check: SubjectCheck | None) -> tuple[str | None, list[str]]:
                  f"types. Do not match '{term}' in search_text: records that only mention it are not this subject's.")
         reply = (f"'{term}' is the record {_describe(root)}; the answer is about that record and the samples "
                  f"derived from it. Give counts by sample type and link its tree page {sample_url(uid)}.")
-    elif check.roots:
+    else:
         shown = "; ".join(_describe(r) for r in check.roots[:LIST_MAX])
         more = f" and {len(check.roots) - LIST_MAX} more" if len(check.roots) > LIST_MAX else ""
         agent = (f"'{term}' names {len(check.roots)} separate {types} records: {shown}{more}. Return those records "
                  "by UID (s.uuid IN [...]) with their type, Name and ID; do not walk their trees.")
         reply = (f"'{term}' matches {len(check.roots)} separate records by Name, ID or UID: {shown}{more}. List "
                  "them and ask which one the user means before giving any tree.")
-    else:
-        agent = (f"No {types} record has '{term}' as its Name, ID or UID (separators and case ignored). Match "
-                 f"'{term}' in search_text: those are records that mention it, not one subject's tree.")
-        reply = (f"No {types} record is named or numbered '{term}' (separators and case ignored). Say that first; "
-                 "then give the result as records that mention it, labelled as a text search, not as its tree.")
     return "SUBJECT CHECK (run before your query):\n- " + agent, [reply]
 
 

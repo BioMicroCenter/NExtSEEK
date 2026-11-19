@@ -20,13 +20,24 @@ from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.graph import GraphAgentPlan
 from chat_nextseek.schemas.router import ParserPlan
 
-SOURCE_CATALOG = [{"SampleType": "PAT", "Clade": "Source"}, {"SampleType": "PAV", "Clade": "Source"},
-                  {"SampleType": "NHP", "Clade": "Source"}, {"SampleType": "TIS", "Clade": "Processed"}]
+#: Individuals (a Source type whose records carry a Sex field): PAT and NHP. PAV and the antibody AB are Source types
+#: that are not individuals; TIS is not a source.
+SOURCE_CATALOG = [
+    {"SampleType": "PAT", "Name": "Patient", "Clade": "Source", "Tags": "patient, human donor, study participant",
+     "Standard Metadata": "Name, Sex"},
+    {"SampleType": "PAV", "Name": "Patient Visit", "Clade": "Source", "Tags": "patient visit, study visit",
+     "Standard Metadata": "Name, VisitDate"},
+    {"SampleType": "NHP", "Name": "Non Human Primate", "Clade": "Source", "Tags": "monkey, macaque, animal model",
+     "Possible Metadata Fields": "ID, Sex"},
+    {"SampleType": "AB", "Name": "Antibody", "Clade": "Source", "Tags": "antibody, reagent",
+     "Standard Metadata": "Name, Target"},
+    {"SampleType": "TIS", "Name": "Tissue", "Clade": "Processed", "Tags": "tissue, organ", "Standard Metadata": "Sex"}]
 
 
 def _graph():
     """uuid -> (type, Name, ID, parent uuid)."""
     g = {"PAT-990101ZZZ-1": ("PAT", "AB1.XY7", None, None),
+         "AB-990101ZZZ-1": ("AB", "anti-XY7", "XY7", None),       # a reagent record named like the subject
          "PAV-990101ZZZ-1": ("PAV", "AB1.XY7 visit 1", None, "PAT-990101ZZZ-1"),
          "PAT-990101ZZZ-2": ("PAT", "AB1.XY8", None, None),
          "NHP-990101ZZZ-1": ("NHP", "Q9", "77001", None)}
@@ -89,8 +100,8 @@ def _config():
 def test_a_dashed_name_resolves_to_the_one_source_record_not_the_records_that_mention_it():
     check = sc.check_subject(_config(), "sample tree for XY-7", _plan(["XY-7"]), run=fake_neo4j(_graph()))
     assert check is not None
-    assert [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]   # the visit under it dropped out
-    assert check.types == ("PAT", "PAV", "NHP")                      # Source clade, from the catalog
+    assert [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]   # never the antibody named like it
+    assert check.types == ("PAT", "NHP")                             # the individuals, from the catalog
 
 
 def test_sibling_an_animal_number_written_with_a_dash_finds_the_number_stored_without_one():
@@ -128,12 +139,13 @@ def test_two_separate_records_are_listed_and_the_reply_asks():
     assert "PAT-990101ZZZ-1" in reply[0] and "PAT-990101ZZZ-3" in reply[0] and "ask which" in reply[0]
 
 
-def test_no_match_says_so_before_a_labelled_text_search():
-    check = sc.check_subject(_config(), "sample tree for QQ-404", _plan(["QQ-404"]), run=fake_neo4j(_graph()))
-    agent, reply = sc.subject_notes(check)
+def test_no_match_says_nothing_and_leaves_the_plan_as_it_was():
+    """A name no patient or animal holds may be a cell line, a reagent or a free-text term: the turn runs as before."""
+    plan = _plan(["QQ-404"])
+    check = sc.check_subject(_config(), "sample tree for QQ-404", plan, run=fake_neo4j(_graph()))
     assert check.roots == ()
-    assert "No PAT, PAV, NHP record" in reply[0] and "text search" in reply[0]
-    assert "search_text" in agent
+    assert sc.subject_notes(check) == (None, [])
+    assert sc.plan_with_subject(plan, check) is plan
 
 
 def test_a_failed_read_claims_nothing():
@@ -220,10 +232,64 @@ def test_marker_like_terms_in_ordinary_questions_run_no_lookup():
 def test_the_data_of_a_named_subject_looks_the_name_up_on_the_subject_type_not_the_data_type():
     plan = _plan(["XY-7"], code="D.SEQ")
     check = sc.check_subject(_config(), "D.SEQ data for patient XY-7", plan, run=fake_neo4j(_graph()))
-    assert check.types == ("PAT", "PAV", "NHP") and [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
+    assert check.types == ("PAT", "NHP") and [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
 
 
 def test_a_name_written_another_way_in_the_question_still_counts():
     check = sc.check_subject(_config(), "show the lineage of patient xy 7", _plan(["XY-7"]),
                              run=fake_neo4j(_graph()))
     assert [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
+
+
+# --- review F2: reagents, genes, diseases, cell types and dates are not subjects -------------------------------------
+
+def test_a_reagent_gene_disease_cell_type_or_date_runs_no_lookup():
+    run = fake_neo4j(_graph())
+    for question, term in (("Show me samples from COVID-19 patients", "COVID-19"),
+                           ("Give me the data for IL-6 in mouse serum", "IL-6"),
+                           ("How many samples of CD4 T cells are there?", "CD4"),
+                           ("List samples from H1N1 infected ferrets", "H1N1"),
+                           ("Show me data for BRCA1 mutation carriers", "BRCA1"),
+                           ("Samples for p53 knockout mice", "p53"),
+                           ("Show samples from 2023-2024", "2023-2024")):
+        assert sc.check_subject(_config(), question, _plan([term]), run=run) is None, question
+    assert run.calls == []
+
+
+def test_samples_that_came_from_a_named_patient_resolve_it():
+    for question in ("What samples came from patient XY-7?", "Show everything collected from patient XY-7",
+                     "list the records of monkey 77-001"):
+        term = "77-001" if "77" in question else "XY-7"
+        check = sc.check_subject(_config(), question, _plan([term]), run=fake_neo4j(_graph()))
+        assert check is not None and len(check.roots) == 1, question
+
+
+def test_samples_of_a_word_that_names_no_individual_run_no_lookup():
+    run = fake_neo4j(_graph())
+    for question in ("samples from study XY-7", "data for antibody XY-7", "records from visit XY-7"):
+        assert sc.check_subject(_config(), question, _plan(["XY-7"]), run=run) is None, question
+    assert run.calls == []
+
+
+def test_a_catalog_without_individuals_runs_no_lookup_rather_than_every_source_type():
+    config = _config()
+    config.FULL_SAMPLETYPES = [{**row, "Standard Metadata": "", "Possible Metadata Fields": ""}
+                               for row in SOURCE_CATALOG]
+    run = fake_neo4j(_graph())
+    assert sc.check_subject(config, "sample tree for XY-7", _plan(["XY-7"]), run=run) is None
+    assert run.calls == []
+
+
+def test_the_real_catalog_names_patients_and_animals_as_individuals_and_not_reagents():
+    import json
+    from pathlib import Path
+    import chat_nextseek
+    catalog = json.loads((Path(chat_nextseek.__file__).parent / "context" / "sampletypes_db.json").read_text())
+    config = _config()
+    config.FULL_SAMPLETYPES = catalog
+    individuals = set(sc.subject_types(config, _plan([])))
+    assert {"PAT", "MUS", "NHP"} <= individuals
+    assert not individuals & {"AB", "ABP", "CHM", "CEL", "BAC", "VIR", "WTR", "PAV"}
+    words = sc.subject_words(config)
+    assert {"patient", "animal", "monkey", "mouse", "donor"} <= words
+    assert not words & {"antibody", "study", "model", "visit", "cell", "lab"}
