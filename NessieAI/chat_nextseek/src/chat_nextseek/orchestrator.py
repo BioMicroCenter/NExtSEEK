@@ -88,6 +88,7 @@ from .helpers import (
     uids_from_last_search,
 )
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, asks_for_a_count, id_spelling_note, id_spelling_variant,
+                          scope_repair_note,
                           normalized_cypher, quoted_in, scope_repair_context, timed_out, timeout_retry_context,
                           zero_row_retry_context)
 from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_notes, lab_people, lab_people_notes
@@ -935,6 +936,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         }
         if run.changed_answer:
             payload["retry_note"] = run.spelling_note or RETRY_CHANGED_ANSWER_NOTE
+        if run.scope_repair_note:
+            payload["scope_repair_note"] = run.scope_repair_note
         return payload
 
     def _compute_artifact(payload: dict, review: GraphReview | None, *, where, group_by, code):
@@ -1191,6 +1194,8 @@ class GraphRun(NamedTuple):
     #: Set when that retry was the identifier-spelling one (graph_retry.id_spelling_variant): the reply's note says
     #: which spelling matched, in place of RETRY_CHANGED_ANSWER_NOTE.
     spelling_note: str | None = None
+    #: Set when a scope rewrite answered and its cure changes what the result covers (graph_retry.scope_repair_note).
+    scope_repair_note: str | None = None
 
 
 def _with_statement(graph_plan, cypher: str, parameters: dict):
@@ -1242,6 +1247,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
     scope_repair_used = False
+    repaired_codes: list = []  # the codes of the refusal the one scope rewrite answered
     # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
     timed_out_statements: set[str] = set()
     last_timeout = None  # (plan, result, parameters, ms) of the latest statement that timed out
@@ -1275,6 +1281,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
             if retry_ctx is None:
                 break
             scope_repair_used, reason = True, "scope_repair"
+            repaired_codes = list((graph_result.get("scope") or {}).get("codes") or ())
         elif not graph_result.get("ok"):
             neo4j_error = graph_result.get("error", "Unknown error")
             print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
@@ -1333,7 +1340,8 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
     return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,
                     parameters=parameters,
                     changed_answer=first_ok_empty and not matched_nothing(graph_result),
-                    spelling_note=spelling_note)
+                    spelling_note=spelling_note,
+                    scope_repair_note=scope_repair_note(repaired_codes) if graph_result.get("ok") else None)
 
 
 #: The chatter's note for a graph result the reviewer flagged (graph_review.py): the review's facts, to be stated
@@ -1903,6 +1911,8 @@ def _execute_graph_turn(
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(run.spelling_note or RETRY_CHANGED_ANSWER_NOTE)
+    if run.scope_repair_note:
+        query_notes.append(run.scope_repair_note)
     # A lab the question misspells resolves to no code, by design, and used to leave the
     # turn with a keyword and a confident zero ("There are no samples associated with the
     # Engleward lab", 2026-09-22). The near record is a note, so the reply can ask.

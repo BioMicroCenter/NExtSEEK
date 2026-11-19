@@ -521,12 +521,16 @@ class RetryTests(SimpleTestCase):
         fakes = Fakes({q: [bad, good]}, {"MATCH (st:Study)": [_refused(["unjoined_node"], [reason])],
                                          "T_NHP": [_ok([{"study": "Zeta", "n": 3}])]})
 
-        part = fakes.run(q)["parts"][0]
+        out = fakes.run(q)
+        part = out["parts"][0]
 
         self.assertEqual(len(fakes.graph_calls), 2)
         self.assertIn(reason, fakes.graph_calls[1]["retry_context"])
         self.assertEqual([a["reason"] for a in part["attempts"]], ["initial", "scope_repair"])
         self.assertEqual((part["status"], part["sum_of_group_counts"]), ("ok", 3))
+        from chat_nextseek.graph_retry import scope_repair_note
+        self.assertTrue(any(note.endswith(scope_repair_note(["unjoined_node"])) for note in out["notes"]),
+                        "review F4: the reply is told the studies are reached through visible samples")
 
     def test_a_hidden_property_refusal_is_rewritten_and_the_part_is_ok(self):
         q = "How many ZEB samples have a colour?"
@@ -543,6 +547,7 @@ class RetryTests(SimpleTestCase):
         self.assertIn("parent_titles is hidden", fakes.graph_calls[1]["retry_context"])
         self.assertIsNone(part["fallback"])
         fakes.rest.assert_not_called()
+        self.assertFalse(any("can see" in note for note in out["notes"]))
 
     def test_a_count_part_refused_after_its_rewrite_is_never_a_word_search_total(self):
         q = "Studies of NHP samples"

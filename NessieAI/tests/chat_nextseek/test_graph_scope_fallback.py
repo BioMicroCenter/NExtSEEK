@@ -665,6 +665,26 @@ def test_a_members_refused_study_count_is_rewritten_once_with_the_checks_reason(
     assert "IN_STUDY" in told
 
 
+def test_a_kept_rewrite_tells_the_reply_what_the_number_now_counts(monkeypatch, tmp_path):
+    """Review F4: the rewritten study count counts studies holding samples the member can see, which can be fewer
+    than the project's studies; the reply is told so it does not state it as the full count."""
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(STUDY_WALK_DOWN), _plan(STUDY_FROM_SAMPLES)],
+                      [_checked([{"n": 4}]), _checked([{"n": 4}])], user_text="How many studies does Quill have?")
+    notes = [n for k in run.chatter_kwargs for n in (k.get("query_notes") or [])]
+    from chat_nextseek.graph_retry import scope_repair_note
+    assert scope_repair_note(["unjoined_node"]) in notes, notes
+
+
+def test_a_rewrite_that_only_changes_how_the_statement_is_written_adds_no_note(monkeypatch, tmp_path):
+    dump = "MATCH (z:T_ZEB) RETURN properties(z) AS p"
+    named = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.Colour AS colour"
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(dump), _plan(named)],
+                      [_checked([{"uid": "ZEB-1", "colour": "red"}])] * 2, user_text="all metadata of the zebras")
+    notes = [n for k in run.chatter_kwargs for n in (k.get("query_notes") or [])]
+    assert run.cyphers == [dump, named]
+    assert not any("can see" in n for n in notes), notes
+
+
 def test_a_hidden_property_on_another_type_is_rewritten_the_same_way(monkeypatch, tmp_path):
     hidden = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.parent_titles AS parents"
     named = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.Colour AS colour"

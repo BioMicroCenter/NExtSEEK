@@ -551,6 +551,9 @@ class GraphAnswer:
     attempts: list = field(default_factory=list)
     retry_changed_answer: bool = False
     plan_source: str = "parser"
+    #: The reply's note when a scope rewrite answered and its cure changes what the result covers
+    #: (``graph_retry.scope_repair_note``).
+    scope_repair_note: str | None = None
 
 
 def _attempt(reason: str, result: dict) -> dict:
@@ -654,6 +657,7 @@ def run_graph_question(
     if retry is None:
         retry = _scope_retry(now, started, fallback_budget_s)
     changed = False
+    repair_note = None
     spec = retry(result, own_cypher) if retry is not None and own_cypher else None
     if spec:
         from chat_nextseek.helpers.tools.neo4j import matched_nothing
@@ -664,6 +668,9 @@ def run_graph_question(
         attempts.append({**_attempt(reason, again_result), "kept": keep})
         if keep:
             changed = matched_nothing(result)
+            if reason == "scope_repair":
+                from chat_nextseek.graph_retry import scope_repair_note
+                repair_note = scope_repair_note((result.get("scope") or {}).get("codes"))
             plan_dump, cypher, result = again_dump, again_cypher, again_result
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
     if is_scope_refusal(result):
@@ -676,7 +683,8 @@ def run_graph_question(
         hint = GRAPH_SCOPE_FALLBACK_HINT if fallback["ok"] else GRAPH_SCOPE_FALLBACK_RETRY_HINT
         result = {**result, "error": f"{result.get('error') or ''} {hint}".strip()}
         return GraphAnswer(plan_dump, result, fallback, parser_plan, cypher, attempts, changed, plan_source or "parser")
-    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
+    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser",
+                       repair_note)
 
 
 def _scope_retry(now, started, budget_s):
@@ -723,8 +731,9 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_
            "plan_source": answer.plan_source}
     if answer.fallback is not None:
         out["fallback"] = answer.fallback
-    if reply_notes:
-        out["notes"] = reply_notes
+    notes = list(reply_notes or []) + ([answer.scope_repair_note] if answer.scope_repair_note else [])
+    if notes:
+        out["notes"] = notes
     _add_type_names(out, config, (answer.result or {}).get("data"))
     return out
 

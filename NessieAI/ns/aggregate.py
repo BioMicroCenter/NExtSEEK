@@ -346,6 +346,8 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
                      "null_group cover those groups only.")
     if answer.retry_changed_answer:
         notes.append(f"{label}{RETRY_CHANGED_ANSWER_NOTE}")
+    if getattr(answer, "scope_repair_note", None):
+        notes.append(f"{label}{answer.scope_repair_note}")
     return part, notes
 
 

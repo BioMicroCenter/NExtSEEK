@@ -209,6 +209,23 @@ _SCOPE_REPAIR_HINTS = {
 }
 
 
+#: Told to the reply when a rewrite the check accepted answered, for each refusal code whose cure changes what the
+#: result covers (review F4). A member's study count walked down from the project was refused; its rewrite counts the
+#: studies reached from the samples (or projects) the member can see, which can be fewer than the project's studies.
+#: The other codes are about how the statement is written and change nothing the reply must say.
+_SCOPE_REPAIR_NOTES = {
+    "unjoined_node": (
+        "This result reaches studies, investigations and people only through the samples and projects the user can "
+        "see, so one reached through none of them is not in it. Say so in one short clause with the answer (for "
+        "example 'studies holding samples you can see'), without describing how the query was written."),
+}
+
+
+def scope_repair_note(codes) -> str | None:
+    """The reply's note for a kept rewrite of a statement refused for ``codes``; None when no code changes meaning."""
+    return " ".join(_SCOPE_REPAIR_NOTES[c] for c in dict.fromkeys(codes or ()) if c in _SCOPE_REPAIR_NOTES) or None
+
+
 def scope_repair_context(result: dict) -> str | None:
     """The one rewrite a scope-refused statement gets, told the check's own reasons; None when the result is not a
     refusal or any of its codes is one a rewrite cannot cure (``SCOPE_REPAIR_CODES``)."""

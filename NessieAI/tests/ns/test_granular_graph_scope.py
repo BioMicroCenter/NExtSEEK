@@ -285,6 +285,7 @@ class GraphOpRewriteTests(SimpleTestCase):
         self.assertNotIn("fallback", out)
         self.assertIn("parent_titles is hidden", self.contexts[1])
         self.rest.assert_not_called()
+        self.assertNotIn("notes", out, "a hidden property's rewrite changes no meaning: no note")
 
     def test_a_properties_dump_on_another_type_is_rewritten_the_same_way(self):
         dump = "MATCH (q:T_QUO) RETURN properties(q) AS p"
@@ -294,6 +295,17 @@ class GraphOpRewriteTests(SimpleTestCase):
         self.assertEqual(executed, [dump, named])
         self.assertTrue(out["result"]["ok"])
         self.assertIn("properties()", self.contexts[1])
+
+    def test_a_kept_study_rewrite_tells_the_reply_what_it_counts(self):
+        """Review F4: the CC graph op's notes say the rewritten count reaches studies through visible samples."""
+        from chat_nextseek.graph_retry import scope_repair_note
+        walk = ("MATCH (st:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(p:Project) "
+                "WHERE p.title = 'Quill' RETURN count(DISTINCT st) AS n")
+        from_samples = ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'Quill' "
+                        "MATCH (s)-[:IN_STUDY]->(st:Study) RETURN count(DISTINCT st) AS n")
+        out, executed = self._run("How many studies does Quill have?", [walk, from_samples])
+        self.assertEqual(executed, [walk, from_samples])
+        self.assertIn(scope_repair_note(["unjoined_node"]), out.get("notes") or [])
 
     def test_a_tree_with_a_count_column_refused_for_good_still_gets_the_word_search(self):
         """Review F3: the count rule reads the question (or a RETURN of aggregates only), not a count column."""
