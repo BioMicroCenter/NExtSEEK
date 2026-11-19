@@ -87,12 +87,14 @@ from .helpers import (
     tool_neo4j_query,
     uids_from_last_search,
 )
-from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
+from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, id_spelling_note, id_spelling_variant, normalized_cypher,
+                          quoted_in, timed_out, timeout_retry_context,
                           zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
+from .helpers.subject_check import check_subject, plan_with_subject, subject_notes
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -932,7 +934,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "review": as_debug(review),
         }
         if run.changed_answer:
-            payload["retry_note"] = RETRY_CHANGED_ANSWER_NOTE
+            payload["retry_note"] = run.spelling_note or RETRY_CHANGED_ANSWER_NOTE
         return payload
 
     def _compute_artifact(payload: dict, review: GraphReview | None, *, where, group_by, code):
@@ -1186,6 +1188,20 @@ class GraphRun(NamedTuple):
     elapsed_ms: int       # the Neo4j time of the kept result, never a discarded retry's
     parameters: Any       # what the kept statement ran with
     changed_answer: bool  # the first query matched nothing and a retry found something
+    #: Set when that retry was the identifier-spelling one (graph_retry.id_spelling_variant): the reply's note says
+    #: which spelling matched, in place of RETRY_CHANGED_ANSWER_NOTE.
+    spelling_note: str | None = None
+
+
+def _with_statement(graph_plan, cypher: str, parameters: dict):
+    """``graph_plan`` with another statement and parameters (a GraphAgentPlan copy, or any object with those two
+    attributes)."""
+    if hasattr(graph_plan, "model_copy"):
+        return graph_plan.model_copy(update={"cypher": cypher, "parameters": parameters})
+    import copy
+    plan = copy.copy(graph_plan)
+    plan.cypher, plan.parameters = cypher, parameters
+    return plan
 
 
 def _bind_parameters(graph_plan, parameters_extra: dict | None):
@@ -1230,6 +1246,22 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
     if timed_out(graph_result):
         timed_out_statements.add(normalized_cypher(graph_plan.cypher))
         last_timeout = (graph_plan, graph_result, parameters, kept_ms)
+
+    # A zero on a free-text match of an identifier is re-run once with the separators optional (QXRT-4 finds QXRT4),
+    # by code and before the agent's retry, whose call this used to be (graph_retry.py "identifier spellings"). A
+    # quoted identifier asks for that spelling only. It is not one of the GRAPH_MAX_TRIES agent statements.
+    spelling_note = None
+    if graph_result.get("ok") and matched_nothing(graph_result) and not is_scope_refusal(graph_result):
+        variant = id_spelling_variant(graph_plan.cypher, parameters)
+        if variant is not None and not quoted_in(question, variant.term):
+            t_query = time.perf_counter()
+            spelled = tool_neo4j_query(config, variant.cypher, variant.parameters)
+            spelled_ms = _ms_since(t_query)
+            attempts.append(_graph_attempt(variant.cypher, spelled, "id_spelling", elapsed_ms=spelled_ms))
+            if spelled.get("ok") and not matched_nothing(spelled):
+                graph_plan = _with_statement(graph_plan, variant.cypher, variant.parameters)
+                graph_result, parameters, kept_ms = spelled, variant.parameters, spelled_ms
+                spelling_note = id_spelling_note(variant)
 
     for _ in range(GRAPH_MAX_TRIES - 1):
         if len(timed_out_statements) >= 2:
@@ -1295,7 +1327,8 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
 
     return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,
                     parameters=parameters,
-                    changed_answer=first_ok_empty and not matched_nothing(graph_result))
+                    changed_answer=first_ok_empty and not matched_nothing(graph_result),
+                    spelling_note=spelling_note)
 
 
 #: The chatter's note for a graph result the reviewer flagged (graph_review.py): the review's facts, to be stated
@@ -1687,6 +1720,19 @@ def _fall_back_to_graph_search(plan: ParserPlan) -> tuple[ParserPlan, str, list[
     return plan, "new_search", [SCOPE_FALLBACK_NOTE]
 
 
+def _subject_check(config, user_text: str, plan, debug_payload: dict, *, skip: bool = False):
+    """``(note for the graph agent, notes for the reply, plan)`` for a question about one named subject that is not a
+    UID (``helpers/subject_check.py``): the name is resolved to its record before the agent writes a query, and the
+    plan is anchored on the record's UID. Nothing, and the same plan, for any other turn or a chip's own statement."""
+    check = None if skip else check_subject(config, user_text, plan, run=tool_neo4j_query)
+    if check is None:
+        return None, [], plan
+    debug_payload["subject_check"] = {"term": check.term, "types": list(check.types),
+                                      "roots": [r["uuid"] for r in check.roots], "truncated": check.truncated}
+    agent_note, reply_notes = subject_notes(check)
+    return agent_note, reply_notes, plan_with_subject(plan, check)
+
+
 def _execute_graph_turn(
     *,
     config: ChatConfig,
@@ -1735,7 +1781,10 @@ def _execute_graph_turn(
     plan = plan_with_stored_uids(plan, uid_checks)  # R4: the parser's filters.uids carry the stored spelling
     if uid_agent_note:
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
-    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
+    subject_agent_note, subject_reply_notes, plan = _subject_check(config, user_text, plan, debug_payload,
+                                                                   skip=graph_plan is not None)
+    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note, subject_agent_note)
+                                if part) or None
 
     if graph_plan is None:
         print("\n[GRAPH] Running graph agent...")
@@ -1819,10 +1868,10 @@ def _execute_graph_turn(
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
-    query_notes: list[str] = list(uid_reply_notes) + catalog_notes
+    query_notes: list[str] = list(uid_reply_notes) + subject_reply_notes + catalog_notes
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
-        query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
+        query_notes.append(run.spelling_note or RETRY_CHANGED_ANSWER_NOTE)
     # A lab the question misspells resolves to no code, by design, and used to leave the
     # turn with a keyword and a confident zero ("There are no samples associated with the
     # Engleward lab", 2026-09-22). The near record is a note, so the reply can ask.

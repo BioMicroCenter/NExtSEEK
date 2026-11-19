@@ -9,6 +9,7 @@ the same words.
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 _TIMED_OUT = re.compile(r"TransactionTimedOut|25N14|not completed within")
 
@@ -75,3 +76,110 @@ RETRY_CHANGED_ANSWER_NOTE = (
     "the name, or it is truncated or capped. Then say what the result covers, not how it "
     "was reached."
 )
+
+
+# ---------------------------------------------------------------- identifier spellings ----------------------------
+# Production 2026-11-16: "sample tree for patient QXRT-4" found 0 because the patient is stored as ZZ1.QXRT4, and the
+# zero-row retry (the graph agent, above) kept 'QXRT-4' because a UID that matches nothing reads as a real zero. A day
+# later a reworded question made the agent add 'QXRT4' itself and found 343. Whether the other spelling was tried was
+# the model's call; this makes it code. On a zero, a free-text match on an identifier is re-run once with the
+# separators optional, before the agent's retry, and the reply is told which spelling matched.
+
+#: The separators an identifier may be written with, or without.
+_ID_SEP = r"[-._ /]"
+#: ``<var>.search_text ... CONTAINS <term>``: the free-text match this rewrites (a property or a literal term, with
+#: the agent's usual toLower( / trim( around it).
+_ID_CONTAINS = re.compile(r"\b\w+\.search_text\s*\)*\s*(CONTAINS\s+((?:toLower\(\s*)?(?:trim\(\s*)?)(\$\w+|'[^']*'))",
+                          re.I)
+#: The parameter the rewritten statement binds its pattern to.
+ID_SPELLING_PARAM = "id_spelling"
+
+
+class IdSpelling(NamedTuple):
+    cypher: str       # the statement with that match as a separator-tolerant regular expression
+    parameters: dict  # the original parameters plus ``id_spelling``
+    term: str         # the identifier as the statement had it
+    joined: str       # the same identifier written another way, for the reply ("QXRT4" for "QXRT-4")
+
+
+def _id_runs(term: str) -> list[str] | None:
+    """The letter and digit runs of an identifier-like term, or None when the term is not one.
+
+    An identifier mixes letters and digits ("QXRT-4", "QXRT4", "PAT-990101QXR-4"), or is two digit groups of two or
+    more joined by one separator ("71-305"). Words, a single number, a date ("2026-11-12") and a decimal ("0.5") are
+    not: a looser match on those finds other values, not other spellings."""
+    t = term.strip()
+    if not 2 <= len(t) <= 40 or re.search(r"[^A-Za-z0-9\-._ /]", t):
+        return None
+    runs = re.findall(r"[A-Za-z]+|[0-9]+", t)
+    if not 2 <= len(runs) <= 6:
+        return None
+    has_letters = any(r.isalpha() for r in runs)
+    has_digits = any(r.isdigit() for r in runs)
+    if has_letters and has_digits:
+        return runs
+    seps = re.findall(r"[-._ /]+", t)
+    if not has_letters and len(runs) == 2 and all(len(r) >= 2 for r in runs) and seps == ["-"]:
+        return runs
+    return None
+
+
+def _id_pattern(runs: list[str]) -> str:
+    """A whole-string (Neo4j ``=~``) case-insensitive pattern: the runs in order with an optional separator between
+    them, and no letter or digit of the same kind glued on either end (QXRT-4 finds QXRT4 and ZZ1.QXRT4, never
+    QXRT40, QXRT 4.5 or XQXRT4)."""
+    body = (_ID_SEP + "?").join(re.escape(r.lower()) for r in runs)
+    before = r"(?<![0-9])" if runs[0][0].isdigit() else r"(?<![a-z])"
+    after = r"(?![0-9]|[.,][0-9])" if runs[-1][-1].isdigit() else r"(?![a-z])"
+    return "(?is).*" + before + body + after + ".*"
+
+
+def id_spelling_variant(cypher: str | None, parameters: dict | None) -> IdSpelling | None:
+    """The statement with its free-text matches on an identifier made separator-tolerant, or None.
+
+    ``toLower(s.search_text) CONTAINS toLower($term)`` becomes ``toLower(s.search_text) =~ $id_spelling``; the rest
+    of the statement (its scope, its RETURN, its LIMIT) is unchanged and runs through the same tool and prover. Every
+    match on the same term is rewritten, so each arm of a UNION (the matches, their ancestors, their descendants)
+    reads the same spelling; a match on another term is left alone."""
+    cy, params = cypher or "", dict(parameters or {})
+    hits, first = [], None
+    for m in _ID_CONTAINS.finditer(cy):
+        tok = m.group(3)
+        value = params.get(tok[1:]) if tok.startswith("$") else tok[1:-1]
+        if not isinstance(value, str):
+            continue
+        if first is None:
+            runs = _id_runs(value)
+            if runs is None:
+                continue
+            first = value
+        elif value.strip().lower() != first.strip().lower():
+            continue
+        end = m.end(3)
+        for _ in range(m.group(2).count("(")):        # close the toLower( / trim( the term was wrapped in
+            close = re.match(r"\s*\)", cy[end:])
+            if close is None:
+                break
+            end += close.end()
+        hits.append((m.start(1), end))
+    if first is None:
+        return None
+    for start, end in reversed(hits):                 # right to left, so earlier offsets stay valid
+        cy = cy[:start] + f"=~ ${ID_SPELLING_PARAM}" + cy[end:]
+    params[ID_SPELLING_PARAM] = _id_pattern(runs)
+    joined = "".join(runs) if re.search(_ID_SEP, first) else "-".join(runs)
+    return IdSpelling(cy, params, first, joined)
+
+
+def quoted_in(question: str | None, term: str) -> bool:
+    """The question writes the identifier in quotes: it asks for exactly that spelling, so nothing else is tried."""
+    q = question or ""
+    return bool(re.search(r"[\"'‘’“”]\s*" + re.escape(term.strip()) + r"\s*[\"'‘’“”]",
+                          q, re.I))
+
+
+def id_spelling_note(v: IdSpelling) -> str:
+    """Told to the reply when the separator-tolerant match found what the exact one did not."""
+    return (f"No record contains '{v.term}' exactly as written; this result matches it written with other "
+            f"separators or none (for example '{v.joined}'). Say that in one short clause after the answer, so the "
+            "user knows which spelling matched.")
