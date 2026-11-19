@@ -109,9 +109,16 @@
      "evidence": "member-login cases were not run (admin only, his call 11-19)",
      "prod_sha": "35a3a5e3",
      "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    },
+    {
+     "date": "2026-11-19",
+     "status": "came back",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119-member (member login, IMPAcTb member)",
+     "evidence": "uq.member_count_refused.1: studies and cohorts refused by the member scope check (unjoined_node on Study->Investigation->Project) and answered by a text search; study arms hit a provider outage. uq.member_count_refused.2: mostly fixed, consistent CFU and barcode answers. uq.member_count_refused.s1: fixed."
     }
    ],
-   "status": "not run"
+   "status": "came back"
   },
   "missing_data_say_what_exists": {
    "name": "Data that is not there: say so and say what is",
