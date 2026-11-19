@@ -87,8 +87,8 @@ from .helpers import (
     tool_neo4j_query,
     uids_from_last_search,
 )
-from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
-                          zero_row_retry_context)
+from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, asks_for_a_count, normalized_cypher, scope_repair_context,
+                          timed_out, timeout_retry_context, zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
@@ -1206,8 +1206,9 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
     (the follow-up's ``$uids``), bound into every attempt whose Cypher names them.
 
     Each attempt is timed around ``tool_neo4j_query`` alone, and ``elapsed_ms`` is the kept attempt's, so the
-    reviewer times the statement the caller keeps, never a retry it threw away. A scope refusal is final at once:
-    another statement would be refused the same way, and the graph turn falls back to graph_search.
+    reviewer times the statement the caller keeps, never a retry it threw away. A scope refusal whose every code a
+    rewrite can cure (``graph_retry.SCOPE_REPAIR_CODES``) gets one rewrite told the check's own reasons; any other
+    refusal, or a second one, is final.
     """
     parameters = _bind_parameters(graph_plan, parameters_extra)
     t_query = time.perf_counter()
@@ -1224,6 +1225,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
+    scope_repair_used = False
     # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
     timed_out_statements: set[str] = set()
     last_timeout = None  # (plan, result, parameters, ms) of the latest statement that timed out
@@ -1235,10 +1237,13 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         if len(timed_out_statements) >= 2:
             break
         if is_scope_refusal(graph_result):
-            # Final: another model call can only write another query the prover cannot
-            # prove. The graph turn falls back to graph_search.
-            break
-        if not graph_result.get("ok"):
+            # One rewrite, told the check's own reasons, when every code is about how the statement is written
+            # (who-asked-2, R1: a member's study count walked down from the project). Anything else is final.
+            retry_ctx = None if scope_repair_used else scope_repair_context(graph_result)
+            if retry_ctx is None:
+                break
+            scope_repair_used, reason = True, "scope_repair"
+        elif not graph_result.get("ok"):
             neo4j_error = graph_result.get("error", "Unknown error")
             print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
             if timed_out(graph_result):
@@ -1624,6 +1629,13 @@ CATALOG_SCOPE_REPLY = (
     "I can't read the attribute catalog for your account. Ask about one sample type by name and I can list its "
     "attributes."
 )
+#: A count or breakdown the scope refused, after its one rewrite when it had one (who-asked-2, R1). Never the sample
+#: search: it counts the records that mention a word, which is another number.
+COUNT_SCOPE_REPLY = (
+    "I could not count that: the graph query for it could not be confirmed to stay within your projects, so it was "
+    "not run, and a word search would count something else. Asking about the samples that hold what you want "
+    "counted may work."
+)
 #: Ruling 7, review F3: a member's "which sample types have samples" is answered from the samples in their own
 #: projects; the member scope wraps this statement like any other.
 MEMBER_TYPES_CYPHER = "MATCH (s:Sample) RETURN s.type AS type, count(*) AS samples ORDER BY samples DESC, type"
@@ -1806,6 +1818,13 @@ def _execute_graph_turn(
             session["last_debug"] = debug_payload
             send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
             return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
+        if asks_for_a_count(user_text, graph_plan.cypher):
+            debug_payload["graph_plan"] = graph_plan.model_dump()
+            debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+            debug_payload["graph_refusal"] = "scope refused a count; it is not answered by the sample search"
+            session["last_debug"] = debug_payload
+            send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
+            return _emit_query_complete(send_event, COUNT_SCOPE_REPLY, debug_payload, None)
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
     # Nothing used to inspect a graph result that ran, so confidently wrong numbers reached the reply (98
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
