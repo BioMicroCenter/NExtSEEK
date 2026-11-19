@@ -1,0 +1,225 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/funcscan",
+  "applies_to_versions": ">=4.0.0,<4.1",
+  "accepts_parent_types": [
+    "A.ASM"
+  ],
+  "harvest_globs": [],
+  "inventory_globs": [
+    "**/annotation/bakta/all/*_bakta.gff3",
+    "**/annotation/bakta/all/*_bakta.faa",
+    "**/annotation/bakta/all/*_bakta.gbff",
+    "**/annotation/prokka/all/*/*_prokka.gff",
+    "**/annotation/prokka/all/*/*_prokka.faa",
+    "**/annotation/prokka/all/*/*_prokka.gbk",
+    "**/annotation/pyrodigal/all/*_pyrodigal.gbk.gz",
+    "**/annotation/pyrodigal/all/*_pyrodigal.faa.gz",
+    "**/annotation/prodigal/all/*.gbk.gz",
+    "**/annotation/prodigal/all/*.faa.gz",
+    "**/reports/ampcombi2/Ampcombi_summary.tsv",
+    "**/reports/ampcombi2/Ampcombi_summary_cluster.tsv",
+    "**/reports/ampcombi2/Ampcombi_summary_cluster_representative_seq.tsv",
+    "**/reports/hamronization_summarize/hamronization_combined_report.tsv",
+    "**/reports/combgc/combgc_complete_summary.tsv",
+    "**/cazyme/dbcan/cazyme_annotation/*/*_overview.tsv"
+  ],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "annotation_bakta",
+      "candidates": [
+        "annotation/bakta/all/*_bakta.gff3"
+      ],
+      "sample_type": "A.GANN",
+      "assay": "Genome Annotation",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "alternative_group": "annotation",
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "annotation/bakta/all/*_bakta.faa"
+        },
+        {
+          "glob": "annotation/bakta/all/*_bakta.gbff"
+        }
+      ],
+      "attributes": {
+        "AnnotationTool": "Bakta",
+        "Software": "Bakta",
+        "DataType": "GFF3"
+      }
+    },
+    {
+      "id": "annotation_prokka",
+      "candidates": [
+        "annotation/prokka/all/*/*_prokka.gff"
+      ],
+      "sample_type": "A.GANN",
+      "assay": "Genome Annotation",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "alternative_group": "annotation",
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "annotation/prokka/all/*/*_prokka.faa"
+        },
+        {
+          "glob": "annotation/prokka/all/*/*_prokka.gbk"
+        }
+      ],
+      "attributes": {
+        "AnnotationTool": "Prokka",
+        "Software": "Prokka",
+        "DataType": "GFF3"
+      }
+    },
+    {
+      "id": "annotation_pyrodigal",
+      "candidates": [
+        "annotation/pyrodigal/all/*_pyrodigal.gbk.gz"
+      ],
+      "sample_type": "A.GANN",
+      "assay": "Genome Annotation",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "alternative_group": "annotation",
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "annotation/pyrodigal/all/*_pyrodigal.faa.gz"
+        }
+      ],
+      "attributes": {
+        "AnnotationTool": "Pyrodigal",
+        "Software": "Pyrodigal",
+        "DataType": "GBK"
+      }
+    },
+    {
+      "id": "annotation_prodigal",
+      "candidates": [
+        "annotation/prodigal/all/*.gbk.gz"
+      ],
+      "sample_type": "A.GANN",
+      "assay": "Genome Annotation",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "alternative_group": "annotation",
+      "include_provenance": true,
+      "companions": [
+        {
+          "glob": "annotation/prodigal/all/*.faa.gz"
+        }
+      ],
+      "attributes": {
+        "AnnotationTool": "Prodigal",
+        "Software": "Prodigal",
+        "DataType": "GBK"
+      }
+    },
+    {
+      "id": "amp_summary",
+      "candidates": [
+        "reports/ampcombi2/Ampcombi_summary.tsv"
+      ],
+      "sample_type": "A.FSCR",
+      "assay": "Functional Gene Screening",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "ScreeningCategory": "AMP",
+        "Software": "AMPcombi",
+        "DataType": "TSV",
+        "Notes": "Antimicrobial peptide hits of every assembly in the run, from the AMP tools that ran (ampir, AMPlify, Macrel, hmmsearch), summarised and filtered by AMPcombi."
+      },
+      "companions": [
+        {
+          "glob": "reports/ampcombi2/Ampcombi_summary_cluster.tsv"
+        },
+        {
+          "glob": "reports/ampcombi2/Ampcombi_summary_cluster_representative_seq.tsv"
+        }
+      ]
+    },
+    {
+      "id": "arg_summary",
+      "candidates": [
+        "reports/hamronization_summarize/hamronization_combined_report.tsv"
+      ],
+      "sample_type": "A.FSCR",
+      "assay": "Functional Gene Screening",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "ScreeningCategory": "ARG",
+        "Software": "hAMRonization",
+        "DataType": "TSV",
+        "Notes": "Antibiotic resistance gene hits of every assembly in the run, from the ARG tools that ran (ABRicate, AMRFinderPlus, DeepARG, fARGene, RGI), in hAMRonization's common format."
+      }
+    },
+    {
+      "id": "bgc_summary",
+      "candidates": [
+        "reports/combgc/combgc_complete_summary.tsv"
+      ],
+      "sample_type": "A.FSCR",
+      "assay": "Functional Gene Screening",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "ScreeningCategory": "BGC",
+        "Software": "comBGC",
+        "DataType": "TSV",
+        "Notes": "Biosynthetic gene clusters of every assembly in the run, from the BGC tools that ran (antiSMASH, DeepBGC, GECCO), summarised by comBGC."
+      }
+    },
+    {
+      "id": "cazyme",
+      "candidates": [
+        "cazyme/dbcan/cazyme_annotation/*/*_overview.tsv"
+      ],
+      "sample_type": "A.FSCR",
+      "assay": "Functional Gene Screening",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "ScreeningCategory": "CAZyme",
+        "Software": "run_dbcan",
+        "DataType": "TSV",
+        "Notes": "Carbohydrate-active enzymes found in this assembly by run_dbcan (its overview of the HMM, subfamily and DIAMOND calls)."
+      },
+      "skip_samples_without_file": true
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version"
+  },
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

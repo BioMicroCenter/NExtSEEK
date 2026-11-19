@@ -5,6 +5,7 @@ import re
 import pytest
 
 from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+from chat_nextseek.seqera.input_kinds import INPUT_KINDS, SAMPLESHEET_FORMATS
 
 
 NEW_FIELDS = (
@@ -14,7 +15,9 @@ NEW_FIELDS = (
     "pipeline_kind_description",
 )
 
-VALID_INPUT_KINDS = {"fastq", "bam", "accession"}
+# The registry is the source of truth, so a new kind is valid the day it is registered
+# and a catalog entry naming anything else still fails here.
+VALID_INPUT_KINDS = set(INPUT_KINDS)
 
 
 @pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
@@ -26,6 +29,47 @@ def test_every_entry_has_new_fields(key, entry):
 @pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
 def test_input_kind_is_valid(key, entry):
     assert entry["samplesheet_input_kind"] in VALID_INPUT_KINDS, key
+
+
+@pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
+def test_input_extensions_narrow_the_kinds_own(key, entry):
+    own = entry.get("input_extensions")
+    if own is None:
+        return
+    allowed = set(INPUT_KINDS[entry["samplesheet_input_kind"]].extensions)
+    assert own and set(own) <= allowed, (key, sorted(set(own) - allowed))
+
+
+@pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
+def test_samplesheet_format_is_valid(key, entry):
+    assert entry.get("samplesheet_format", "csv") in SAMPLESHEET_FORMATS, key
+
+
+@pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
+def test_a_file_input_pipeline_names_the_sample_types_its_files_belong_to(key, entry):
+    """The kind says which file; accepted_leaf_sample_types says whose. A file kind with no
+    sample types would resolve no leaves and build an empty sheet."""
+    if INPUT_KINDS[entry["samplesheet_input_kind"]].path_column:
+        assert entry["accepted_leaf_sample_types"], key
+
+
+@pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
+def test_nextflow_version_when_set_is_a_release_number(key, entry):
+    from chat_nextseek.luria.run_script import validate_nextflow_version
+    if "nextflow_version" in entry:
+        validate_nextflow_version(entry["nextflow_version"])
+
+
+@pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))
+def test_default_revision_is_a_release_or_a_full_commit_sha(key, entry):
+    from packaging.version import InvalidVersion, Version
+    rev = entry["default_revision"]
+    if re.fullmatch(r"[0-9a-f]{40}", rev):
+        return
+    try:
+        Version(rev)
+    except InvalidVersion:
+        pytest.fail(f"{key}: default_revision {rev!r} is neither a release nor a 40-hex commit")
 
 
 @pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))

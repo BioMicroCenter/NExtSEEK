@@ -1,0 +1,118 @@
+{
+  "name": "sc_matrices",
+  "description": "Mouse lung single-cell count matrices already made by nf-core/scrnaseq (A.SCXP, filtered and raw), naive and infected (nf-core scdownstream test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-SCX-naive-lung",
+          "Scientist": "Nessie Test",
+          "Species": "Mus musculus",
+          "Type": "Lung single-cell suspension",
+          "Tissue": "Lung",
+          "Source": "Naive C57BL/6J mouse",
+          "Treatment1": "none"
+        },
+        {
+          "Name": "NTC-SCX-infected-lung",
+          "Scientist": "Nessie Test",
+          "Species": "mouse",
+          "Type": "lung single-cell suspension",
+          "Tissue": "lung",
+          "Source": "C57BL/6J mouse, 4 weeks after aerosol infection",
+          "Treatment1": "Influenza A PR8"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-SCX-naive-lib",
+          "Parent": "NTC-SCX-naive-lung",
+          "Scientist": "Nessie Test",
+          "Type": "10x Genomics Chromium 3' v3.1 library",
+          "Protocol": "Chromium Next GEM Single Cell 3' v3.1, 10,000 cells targeted",
+          "Lab": "Test Lab",
+          "Barcode": "SI-TT-A1"
+        },
+        {
+          "Name": "NTC-SCX-infected-lib",
+          "Parent": "NTC-SCX-infected-lung",
+          "Scientist": "Nessie Test",
+          "Type": "10x Genomics Chromium 3' v3.1 library",
+          "Protocol": "Chromium Next GEM Single Cell 3' v3.1, 10,000 cells targeted",
+          "Lab": "Test Lab",
+          "Barcode": "SI-TT-B1"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-SCX-naive-seq",
+          "Parent": "NTC-SCX-naive-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-SCX-naive_S1_L001_R1_001.fastq.gz, NTC-SCX-naive_S1_L001_R2_001.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/scrnaseq/testdata/cellranger/",
+          "SequencingType": "Single Cell RNA Sequencing",
+          "LibraryStrategy": "RNA-Seq",
+          "LibrarySource": "TRANSCRIPTOMIC SINGLE CELL",
+          "LibrarySelection": "cDNA",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "polyA RNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 28,
+          "R_bp": 90
+        },
+        {
+          "Name": "NTC-SCX-infected-seq",
+          "Parent": "NTC-SCX-infected-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-SCX-infected_S1_L001_R1_001.fastq.gz, NTC-SCX-infected_S1_L001_R2_001.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/scrnaseq/testdata/cellranger/",
+          "SequencingType": "Single Cell RNA Sequencing",
+          "LibraryStrategy": "RNA-Seq",
+          "LibrarySource": "TRANSCRIPTOMIC SINGLE CELL",
+          "LibrarySelection": "cDNA",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "polyA RNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 28,
+          "R_bp": 90
+        }
+      ]
+    },
+    {
+      "sample_type": "A.SCXP",
+      "rows": [
+        {
+          "Name": "NTC-SCX-naive-matrix",
+          "Parent": "NTC-SCX-naive-seq",
+          "Scientist": "Nessie Test",
+          "DataType": "h5",
+          "File_PrimaryData": "NTC-SCX-naive_filtered_feature_bc_matrix.h5; NTC-SCX-naive_raw_feature_bc_matrix.h5",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/scdownstream/samples/",
+          "Pipeline": "nf-core/scrnaseq 2.7.1 (cellranger)",
+          "ReferenceGenome": "GRCm39",
+          "Protocol": "Cell Ranger count, filtered and raw feature-barcode matrices"
+        },
+        {
+          "Name": "NTC-SCX-infected-matrix",
+          "Parent": "NTC-SCX-infected-seq",
+          "Scientist": "Nessie Test",
+          "DataType": "h5",
+          "File_PrimaryData": "NTC-SCX-infected_filtered_feature_bc_matrix.h5; NTC-SCX-infected_raw_feature_bc_matrix.h5",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/scdownstream/samples/",
+          "Pipeline": "nf-core/scrnaseq 2.7.1 (cellranger)",
+          "ReferenceGenome": "GRCm39",
+          "Protocol": "Cell Ranger count, filtered and raw feature-barcode matrices"
+        }
+      ]
+    }
+  ]
+}

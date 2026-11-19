@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import shlex
 
 import yaml
@@ -28,6 +29,8 @@ def parse_params(text: str) -> dict:
 _NEXTFLOW_VALUE_OPTIONS = {"-profile", "-c", "-config", "-params-file", "-w", "-work-dir",
                            "-r", "-revision", "-name", "-with-report", "-with-trace",
                            "-with-timeline", "-with-dag"}
+# Environment assignments that may open a command line: `NXF_VER=22.10.8 nextflow run ...`.
+_ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+")
 
 
 def parse_launch_params(params_yml: str | None, run_sh: str | None) -> dict:
@@ -68,11 +71,13 @@ def parse_launch_params(params_yml: str | None, run_sh: str | None) -> dict:
 
 def _nextflow_run_commands(script: str) -> list[list[str]]:
     """Each `nextflow run ...` command of a shell script, its backslash
-    continuations joined, split into words after `run`."""
+    continuations joined, split into words after `run`. A command may open with
+    environment assignments (`NXF_VER=22.10.8 nextflow run ...`, the catalog's
+    `nextflow_version` for nf-core/eager 2.5.3); they are dropped."""
     commands = []
     lines = iter(script.splitlines())
     for line in lines:
-        text = line.strip()
+        text = _ENV_PREFIX.sub("", line.strip(), count=1)
         if not text.startswith("nextflow run "):
             continue
         while text.endswith("\\"):
@@ -168,9 +173,33 @@ def software_version_conflicts(text: str) -> dict[str, list[str]]:
     return {tool: versions for tool, versions in seen.items() if len(versions) > 1}
 
 
-def parse_samplesheet(text: str) -> list[dict[str, str]]:
-    """samplesheet.valid.csv -> one dict per row, keys as spelled in the header."""
-    return [dict(row) for row in csv.DictReader(io.StringIO(text))]
+def parse_samplesheet(text: str, delimiter: str = ",") -> list[dict[str, str]]:
+    """samplesheet.valid.csv -> one dict per row, keys as spelled in the header.
+    `delimiter` is a tab for a TSV sheet (nf-core/eager 2.5.3's samplesheet.tsv)."""
+    return [dict(row) for row in csv.DictReader(io.StringIO(text), delimiter=delimiter)]
+
+
+def parse_dsl1_software_versions(text: str) -> dict[str, dict[str, str]]:
+    """A DSL1 nf-core release's pipeline_info/software_versions.csv -> {process: {tool: version}},
+    shaped like `parse_software_versions_by_process`.
+
+    The DSL1 template's bin/scrape_software_versions.py (nf-core/eager 2.5.3) writes one
+    `name<TAB>version` line per tool, the pipeline's own as `nf-core/<name>`. Those two lines, the
+    pipeline and Nextflow, become the "Workflow" block; every other tool is its own one-entry
+    block. A tool the run did not use keeps the script's HTML "N/A" placeholder, which is not a
+    version and is dropped."""
+    workflow: dict[str, str] = {}
+    tools: dict[str, dict[str, str]] = {}
+    for line in text.splitlines():
+        name, sep, version = line.partition("\t")
+        name, version = _version_field(name), _version_field(version)
+        if not sep or not name or not version or "<" in version:
+            continue
+        if name.startswith("nf-core/") or name == "Nextflow":
+            workflow[name] = version
+        else:
+            tools[name] = {name: version}
+    return {"Workflow": workflow, **tools} if workflow else tools
 
 
 _CONTRAST_FIELDS = ("variable", "reference", "target", "blocking")

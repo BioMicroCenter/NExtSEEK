@@ -1,0 +1,206 @@
+{
+  "family": "metagenomics",
+  "stories": [
+    {
+      "id": "taxprofiler-plain",
+      "question": "Which bacteria are in these stool samples, and how much of each?",
+      "cohort": "test::shotgun_metagenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "taxprofiler"
+        ]
+      ],
+      "must_not": [
+        "ampliseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [
+        "Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder.",
+        "Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder."
+      ],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Mouse stool DNA from an untreated and a vancomycin-treated mouse, untargeted Nextera XT shotgun libraries (LibraryStrategy WGS, LibrarySource METAGENOMIC): reads of a whole community, which taxprofiler profiles. ampliseq is for 16S or ITS amplicons, and these libraries are untargeted. taxprofiler ships no database and none is staged on Luria, so the agent asks for one; the story scripts the answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "taxprofiler-outcome",
+      "question": "I want a species-level relative abundance table for each sample, from Kraken2 with Bracken.",
+      "cohort": "test::shotgun_metagenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "taxprofiler"
+        ]
+      ],
+      "must_not": [
+        "ampliseq",
+        "mag"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "run_kraken2": true,
+          "run_bracken": true
+        }
+      },
+      "history": [],
+      "replies": [
+        "Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder.",
+        "Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder."
+      ],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Mouse stool DNA from an untreated and a vancomycin-treated mouse, untargeted Nextera XT shotgun libraries (LibraryStrategy WGS, LibrarySource METAGENOMIC): reads of a whole community, which taxprofiler profiles. Kraken2 with Bracken abundance is a taxprofiler profile, so run_kraken2 and run_bracken are on. mag assembles genomes and bins, not a per-read abundance table; ampliseq is for amplicons. taxprofiler ships no database and none is staged on Luria, so the agent asks for one; the story scripts the answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "taxprofiler-lookalike",
+      "question": "Give me a 16S-style breakdown of the microbiome in each of these samples.",
+      "cohort": "test::shotgun_metagenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "taxprofiler"
+        ]
+      ],
+      "must_not": [
+        "ampliseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [
+        "Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder.",
+        "Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder."
+      ],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Mouse stool DNA from an untreated and a vancomycin-treated mouse, untargeted Nextera XT shotgun libraries (LibraryStrategy WGS, LibrarySource METAGENOMIC): reads of a whole community, which taxprofiler profiles. '16S-style' points at ampliseq, but nothing was amplified: the libraries are shotgun, and ampliseq on them finds no primers. A community breakdown from shotgun reads is taxprofiler. taxprofiler ships no database and none is staged on Luria, so the agent asks for one; the story scripts the answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "taxprofiler-named",
+      "question": "Run nf-core/taxprofiler with MetaPhlAn on these stool metagenomes.",
+      "cohort": "test::shotgun_metagenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "taxprofiler"
+        ]
+      ],
+      "must_not": [
+        "ampliseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "run_metaphlan": true
+        }
+      },
+      "history": [],
+      "replies": [
+        "Yes, build it. The MetaPhlAn database is on the cluster at /RUN/refs/metaphlan/mpa_vJun23_CHOCOPhlAnSGB_202403.",
+        "Yes, build it. The MetaPhlAn database is on the cluster at /RUN/refs/metaphlan/mpa_vJun23_CHOCOPhlAnSGB_202403."
+      ],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and the classifier, so run_metaphlan is on. taxprofiler ships no database and none is staged on Luria, so the agent asks for one; the story scripts the answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "taxprofiler-ambiguous",
+      "question": "What changed in these mice's gut after the vancomycin?",
+      "cohort": "test::shotgun_metagenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "taxprofiler"
+        ]
+      ],
+      "must_not": [
+        "ampliseq"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [
+        "Which organisms are there and how their abundance changed. Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder.",
+        "Which organisms are there and how their abundance changed. Yes, build it. The Kraken2 standard 8 GB database is on the cluster at /RUN/refs/kraken2/k2_standard_08gb, and its Bracken files are in the same folder."
+      ],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Mouse stool DNA from an untreated and a vancomycin-treated mouse, untargeted Nextera XT shotgun libraries (LibraryStrategy WGS, LibrarySource METAGENOMIC): reads of a whole community, which taxprofiler profiles. The question could mean organisms or functional genes, but funcscan needs assemblies and these are reads, so the one analysis the data supports is taxprofiler's profile; asking first is fine, and the scripted reply answers it. taxprofiler ships no database and none is staged on Luria, so the agent asks for one; the story scripts the answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "funcscan-needs-assemblies",
+      "question": "Which antibiotic resistance genes are in these stool metagenomes?",
+      "cohort": "test::shotgun_metagenome",
+      "route": "nextseek_query",
+      "acceptable": [],
+      "must_not": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Mouse stool DNA from an untreated and a vancomycin-treated mouse, untargeted Nextera XT shotgun libraries (LibraryStrategy WGS, LibrarySource METAGENOMIC): reads of a whole community, which taxprofiler profiles. Resistance genes are a funcscan screen, but funcscan reads assemblies (A.ASM) and these are reads only: they must be assembled first (nf-core/mag for a metagenome), so the reply says so and builds nothing. Offering funcscan on the reads, or taxprofiler (which names organisms, not genes), is wrong."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    }
+  ]
+}

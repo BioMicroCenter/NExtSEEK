@@ -91,7 +91,19 @@ def expand_braces(pattern: str) -> list[str]:
 _RULE_ID = re.compile(r"[a-z][a-z0-9_]*")
 
 # nf-core's "-g<short commit>" version suffix; see effective().
-_COMMIT_SUFFIX = re.compile(r"-g[0-9a-f]{7,40}$")
+_COMMIT_SUFFIX = re.compile(r"-g([0-9a-f]{7,40})$")
+# A pinned commit: the full SHA, as a map's applies_to_commits and a catalog pin write it.
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def is_commit_sha(revision: str) -> bool:
+    """True for a full 40-hex commit SHA, the pin of a pipeline with no release."""
+    return bool(_FULL_SHA.fullmatch(str(revision or "")))
+
+
+def _commit_of(match) -> str:
+    """The short commit of a `-g<sha>` version suffix match, or ''."""
+    return match.group(1) if match else ""
 
 
 class Companion(BaseModel):
@@ -336,6 +348,26 @@ class PipelineMap(BaseModel):
     map_version: int = 1
     pipeline: str
     applies_to_versions: str = ""
+    #: The full 40-hex commits this map was read at, for a pipeline pinned to a commit
+    #: because it has no release yet (nf-core/scdownstream). A run reports its commit as
+    #: nf-core's `-g<short sha>` version suffix; see effective() and covers_revision().
+    applies_to_commits: list[str] = Field(default_factory=list)
+
+    def covers_revision(self, revision: str) -> bool:
+        """True when this map was checked for a pinned `revision`: a release number inside
+        `applies_to_versions`, or a full commit SHA listed in `applies_to_commits`."""
+        from packaging.version import InvalidVersion, Version
+
+        text = str(revision or "").strip()
+        if is_commit_sha(text):
+            return text in self.applies_to_commits
+        if not self.applies_to_versions:
+            return False
+        try:
+            return _specifier(self.applies_to_versions).contains(
+                Version(text.lstrip("vV")), prereleases=True)
+        except InvalidVersion:
+            return False
     harvest_globs: list[str] = Field(default_factory=list)
     #: MultiQC data folders below the run root, as run-relative globs ending in "/", for a
     #: release that does not publish MultiQC in a top-level `multiqc*/` folder (cutandrun:
@@ -510,6 +542,10 @@ class PipelineMap(BaseModel):
                              "needs two or more")
         for spec in [self.applies_to_versions] if self.applies_to_versions else []:
             _specifier(spec)
+        bad_commits = [c for c in self.applies_to_commits if not _FULL_SHA.fullmatch(c)]
+        if bad_commits:
+            raise ValueError(f"applies_to_commits takes full lowercase 40-hex commit SHAs, "
+                             f"got {bad_commits}")
         known = set(ids)
         for override in self.versions:
             _specifier(override.range)
@@ -570,11 +606,15 @@ def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, lis
 
     A trailing ``-g<commit>`` is dropped first: nf-core appends the short
     commit to its version string for a run launched from a git checkout
-    ("v4.1.0-gf7bf36d"), and PEP 440 has no reading of it.
+    ("v4.1.0-gf7bf36d"), and PEP 440 has no reading of it. For a pipeline pinned to a
+    commit, that suffix is the check: a run whose short commit starts one of the map's
+    ``applies_to_commits`` is checked, whatever its (dev) version number says.
     """
     from packaging.version import InvalidVersion, Version
 
-    text = _COMMIT_SUFFIX.sub("", str(version or "").strip()).lstrip("vV")
+    raw = str(version or "").strip()
+    short = _COMMIT_SUFFIX.search(raw)
+    text = _COMMIT_SUFFIX.sub("", raw).lstrip("vV")
     try:
         parsed = Version(text) if text else None
     except InvalidVersion:
@@ -589,8 +629,12 @@ def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, lis
 
     override = next((o for o in pipeline_map.versions if contains(o.range)), None)
     checked = pipeline_map.applies_to_versions
+    # A run of a commit-pinned pipeline names its commit only in the -g<short sha> suffix.
+    commit = _commit_of(short)
+    from_listed_commit = bool(commit) and any(c.startswith(commit)
+                                              for c in pipeline_map.applies_to_commits)
     warnings: list[str] = []
-    if override is None and not (checked and contains(checked)):
+    if override is None and not from_listed_commit and not (checked and contains(checked)):
         warnings.append(f"{name} {text} is outside the checked range "
                         f"{checked or '(none)'}; rules applied unchecked")
     if override is None:

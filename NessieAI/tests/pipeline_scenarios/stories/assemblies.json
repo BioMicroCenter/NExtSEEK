@@ -1,0 +1,335 @@
+{
+  "family": "assemblies",
+  "stories": [
+    {
+      "id": "funcscan-plain",
+      "question": "Which antibiotic resistance genes do these Klebsiella isolates carry?",
+      "cohort": "test::bacterial_assemblies",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "funcscan"
+        ]
+      ],
+      "must_not": [
+        "taxprofiler"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "run_arg_screening": true
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Three Klebsiella pneumoniae isolates, each with its own bacass assembly registered as an A.ASM FASTA: assemblies, which funcscan screens. Resistance genes are the ARG screen, so run_arg_screening is on. taxprofiler profiles raw reads for organisms and does not read assemblies."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "funcscan-outcome",
+      "question": "I want a table of antimicrobial peptide and biosynthetic gene cluster hits for each genome.",
+      "cohort": "test::bacterial_assemblies",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "funcscan"
+        ]
+      ],
+      "must_not": [
+        "taxprofiler"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "run_amp_screening": true,
+          "run_bgc_screening": true
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Three Klebsiella pneumoniae isolates, each with its own bacass assembly registered as an A.ASM FASTA: assemblies, which funcscan screens. Antimicrobial peptides and biosynthetic gene clusters are funcscan's AMP and BGC screens, both on."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "funcscan-lookalike",
+      "question": "Profile the resistome of these samples.",
+      "cohort": "test::bacterial_assemblies",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "funcscan"
+        ]
+      ],
+      "must_not": [
+        "taxprofiler"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "run_arg_screening": true
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Three Klebsiella pneumoniae isolates, each with its own bacass assembly registered as an A.ASM FASTA: assemblies, which funcscan screens. 'Profile' reads like taxprofiler, but the resistome is the set of resistance genes and the samples are assemblies: funcscan's ARG screen."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "funcscan-named",
+      "question": "Run nf-core/funcscan with the CAZyme screen on these assemblies.",
+      "cohort": "test::bacterial_assemblies",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "funcscan"
+        ]
+      ],
+      "must_not": [
+        "taxprofiler"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "run_cazyme_screening": true
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and the screen (run_cazyme_screening)."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "funcscan-ambiguous",
+      "question": "What's interesting in these genomes?",
+      "cohort": "test::bacterial_assemblies",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "funcscan"
+        ]
+      ],
+      "must_not": [
+        "taxprofiler"
+      ],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Three Klebsiella pneumoniae isolates, each with its own bacass assembly registered as an A.ASM FASTA: assemblies, which funcscan screens. funcscan runs only the screens the question asks about, and this one names none, so the agent asks which (resistance genes, antimicrobial peptides, gene clusters, CAZymes)."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "pangenome-plain",
+      "question": "How do these eight E. coli strains differ from one another across their whole genomes?",
+      "cohort": "test::combined_pangenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "pangenome"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "n_haplotypes": 8
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One A.ASM sample whose file is eight E. coli strain genomes in one bgzipped, PanSN-named FASTA (GenomeCount 8): pangenome's input, with n_haplotypes 8 read from GenomeCount. Whole-genome differences among strains of one species, shared and variable sequence and structural variation, is a variation graph. sarek reads short reads against one human reference and cannot read assemblies."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "pangenome-outcome",
+      "question": "I want one variation graph that holds all eight genomes, showing what they share and where they vary.",
+      "cohort": "test::combined_pangenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "pangenome"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "n_haplotypes": 8
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One A.ASM sample whose file is eight E. coli strain genomes in one bgzipped, PanSN-named FASTA (GenomeCount 8): pangenome's input, with n_haplotypes 8 read from GenomeCount. A single graph of every genome is exactly the pipeline's output (PGGB's graph)."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "pangenome-lookalike",
+      "question": "Call the structural variants between these strains.",
+      "cohort": "test::combined_pangenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "pangenome"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "n_haplotypes": 8
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One A.ASM sample whose file is eight E. coli strain genomes in one bgzipped, PanSN-named FASTA (GenomeCount 8): pangenome's input, with n_haplotypes 8 read from GenomeCount. 'Call structural variants' reads like sarek, but the input is assembled genomes in one FASTA, not reads, and the variation between them is what the graph holds."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "pangenome-named",
+      "question": "Build a graph with nf-core/pangenome from this combined FASTA, mapping at 95% identity since the strains are close.",
+      "cohort": "test::combined_pangenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "pangenome"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "n_haplotypes": 8,
+          "wfmash_map_pct_id": 95
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and wfmash's identity threshold (wfmash_map_pct_id 95, within upstream's advice for close genomes); n_haplotypes comes from GenomeCount."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "pangenome-ambiguous",
+      "question": "Compare these genomes.",
+      "cohort": "test::combined_pangenome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "pangenome"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "n_haplotypes": 8
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (genome assemblies registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One A.ASM sample whose file is eight E. coli strain genomes in one bgzipped, PanSN-named FASTA (GenomeCount 8): pangenome's input, with n_haplotypes 8 read from GenomeCount. A vague comparison, but the cohort is one combined multi-genome FASTA and no other pipeline reads it."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    }
+  ]
+}

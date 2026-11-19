@@ -1,0 +1,163 @@
+{
+  "name": "rare_disease_trio",
+  "description": "Human rare-disease trio: an affected child and both unaffected parents, whole genome, each person a patient with sex, affected status and relationship (nf-core raredisease test data)",
+  "levels": [
+    {
+      "sample_type": "PAT",
+      "rows": [
+        {
+          "Name": "NTC-TRIO-proband",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-RD01-1",
+          "Sex": "M",
+          "Age": "6",
+          "Age_Units": "years",
+          "Phenotype": "affected",
+          "Relationship": "proband",
+          "Household": "Family RD01",
+          "Disease": "Congenital myopathy",
+          "Notes": "Hypotonia from birth; parents unaffected and not related"
+        },
+        {
+          "Name": "NTC-TRIO-father",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-RD01-2",
+          "Sex": "male",
+          "Age": "38",
+          "Age_Units": "years",
+          "Phenotype": "unaffected",
+          "Relationship": "father of NTC-TRIO-proband",
+          "Household": "Family RD01"
+        },
+        {
+          "Name": "NTC-TRIO-mother",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-RD01-3",
+          "Sex": "F",
+          "Age": "36",
+          "Age_Units": "years",
+          "Phenotype": "unaffected",
+          "Relationship": "mother of NTC-TRIO-proband",
+          "Household": "Family RD01"
+        }
+      ]
+    },
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-TRIO-proband-blood",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TRIO-proband",
+          "Type": "Whole blood",
+          "Tissue": "Blood",
+          "Source": "Clinical genetics blood draw"
+        },
+        {
+          "Name": "NTC-TRIO-father-blood",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TRIO-father",
+          "Type": "Whole blood",
+          "Tissue": "Blood",
+          "Source": "Clinical genetics blood draw"
+        },
+        {
+          "Name": "NTC-TRIO-mother-blood",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TRIO-mother",
+          "Type": "Whole blood",
+          "Tissue": "Blood",
+          "Source": "Clinical genetics blood draw"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-TRIO-proband-lib",
+          "Parent": "NTC-TRIO-proband-blood",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA PCR-Free Prep, 450 bp insert",
+          "Lab": "Test Lab",
+          "Barcode": "AACCGGTT"
+        },
+        {
+          "Name": "NTC-TRIO-father-lib",
+          "Parent": "NTC-TRIO-father-blood",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA PCR-Free Prep, 450 bp insert",
+          "Lab": "Test Lab",
+          "Barcode": "CCGGTTAA"
+        },
+        {
+          "Name": "NTC-TRIO-mother-lib",
+          "Parent": "NTC-TRIO-mother-blood",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA PCR-Free Prep, 450 bp insert",
+          "Lab": "Test Lab",
+          "Barcode": "GGTTAACC"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-TRIO-proband-WGS",
+          "Parent": "NTC-TRIO-proband-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-TRIO-proband_R1.fastq.gz, NTC-TRIO-proband_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/raredisease/testdata/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq X Plus",
+          "F_bp": 150,
+          "R_bp": 150
+        },
+        {
+          "Name": "NTC-TRIO-father-WGS",
+          "Parent": "NTC-TRIO-father-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-TRIO-father_R1.fastq.gz, NTC-TRIO-father_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/raredisease/testdata/",
+          "SequencingType": "whole genome",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq X Plus",
+          "F_bp": 150,
+          "R_bp": 150
+        },
+        {
+          "Name": "NTC-TRIO-mother-WGS",
+          "Parent": "NTC-TRIO-mother-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-TRIO-mother_R1.fastq.gz, NTC-TRIO-mother_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/raredisease/testdata/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq X Plus",
+          "F_bp": 150,
+          "R_bp": 150
+        }
+      ]
+    }
+  ]
+}

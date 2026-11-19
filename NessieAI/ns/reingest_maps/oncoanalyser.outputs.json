@@ -1,0 +1,163 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/oncoanalyser",
+  "applies_to_versions": ">=3.0,<3.1",
+  "accepts_parent_types": ["D.SEQ", "A.ALN"],
+  "samplesheet_sample_column": "sample_id",
+  "inventory_globs": [
+    "**/purple/*.vcf.gz.tbi",
+    "**/pave/*/*.vcf.gz.tbi",
+    "**/sage/*/*.vcf.gz.tbi",
+    "**/esvee/*.vcf.gz.tbi",
+    "**/purple/*.purple.cnv.somatic.tsv",
+    "**/purple/*.purple.cnv.gene.tsv",
+    "**/sigs/*.sig.allocation.tsv",
+    "**/sigs/*.sig.snv_counts.csv",
+    "**/isofox/*.isf.gene_data.tsv",
+    "**/isofox/*.isf.transcript_data.tsv"
+  ],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "aln",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "*/alignments/*/*.redux.bam",
+        "*/alignments/*/*.md.bam"
+      ],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "*/alignments/*/*.redux.bam.bai"},
+        {"glob": "*/alignments/*/*.md.bam.bai"}
+      ],
+      "attributes": {
+        "DataType": "BAM",
+        "Genome": "$params.genome",
+        "Software": "nf-core/oncoanalyser (BWA-MEM2 and REDUX for DNA; STAR and Picard MarkDuplicates for RNA)"
+      }
+    },
+    {
+      "id": "vcf_somatic",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "*/purple/*.purple.somatic.vcf.gz",
+        "*/pave/somatic/*.pave.somatic.vcf.gz",
+        "*/sage/somatic/*.sage.somatic.vcf.gz"
+      ],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [
+        {"glob": "*/purple/*.purple.somatic.vcf.gz.tbi"},
+        {"glob": "*/pave/somatic/*.pave.somatic.vcf.gz.tbi"},
+        {"glob": "*/sage/somatic/*.sage.somatic.vcf.gz.tbi"}
+      ],
+      "attributes": {
+        "Type": "somatic SNVs, MNVs and indels",
+        "Software": "SAGE, PAVE and PURPLE (Hartwig WiGiTS)",
+        "FilterMethod": "SAGE's somatic filters against the matched normal (or tumour-only mode), annotated by PAVE and with copy number and clonality by PURPLE"
+      }
+    },
+    {
+      "id": "vcf_sv",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "*/purple/*.purple.sv.vcf.gz",
+        "*/esvee/*.esvee.somatic.vcf.gz"
+      ],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [
+        {"glob": "*/purple/*.purple.sv.vcf.gz.tbi"},
+        {"glob": "*/esvee/*.esvee.somatic.vcf.gz.tbi"}
+      ],
+      "attributes": {
+        "Type": "somatic structural variants",
+        "Software": "ESVEE and PURPLE (Hartwig WiGiTS)",
+        "FilterMethod": "ESVEE's somatic breakend filters, annotated with copy number by PURPLE"
+      }
+    },
+    {
+      "id": "cnv",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "*/purple/*.purple.cnv.somatic.tsv"
+      ],
+      "sample_type": "A.CNV",
+      "assay": "Copy Number Variation Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "*/purple/*.purple.cnv.gene.tsv"}
+      ],
+      "attributes": {
+        "CNV_Detector": "PURPLE (with AMBER B-allele frequencies and COBALT read-depth ratios)",
+        "ReferenceGenome": "$params.genome"
+      }
+    },
+    {
+      "id": "signatures",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "*/sigs/*.sig.allocation.tsv"
+      ],
+      "sample_type": "A.MUSP",
+      "assay": "Mutational Spectra Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "*/sigs/*.sig.snv_counts.csv"}
+      ],
+      "attributes": {
+        "Type": "COSMIC SBS signature allocation (Sigs)"
+      }
+    },
+    {
+      "id": "gex",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "*/isofox/*.isf.gene_data.tsv"
+      ],
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [
+        {"glob": "*/isofox/*.isf.transcript_data.tsv"}
+      ],
+      "attributes": {
+        "DataType": "TSV",
+        "Software": "Isofox (Hartwig WiGiTS)"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "ReferenceGenome": "$params.genome"
+  },
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

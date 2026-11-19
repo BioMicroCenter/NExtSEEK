@@ -188,15 +188,28 @@ def test_ampliseq_sample_ids_are_sanitised_and_traceable(tmp_path):
     assert row[SAMPLE_ID_PROVENANCE_COLUMN] == uid
 
 
+_ID_RULES_CONFIRMED_BY_HAND = {"ampliseq"}
+
+
 def test_only_pipelines_that_need_it_get_their_ids_rewritten(tmp_path):
     """Mangling an id that did not need mangling loses traceability for no gain.
     Every other catalogued pipeline declares ^\\S+$, which a UID already satisfies."""
     import csv
+    import re as _re
     from chat_nextseek.seqera.emitter import PIPELINE_SAMPLE_ID_RULES, emit_nfcore_artifacts
 
-    assert set(PIPELINE_SAMPLE_ID_RULES) == {"ampliseq"}, (
-        "a new id rule was added — confirm the pipeline really constrains the format")
     uid = "D.SEQ-230512FOR-287-PUB"
+    for key, rule in PIPELINE_SAMPLE_ID_RULES.items():
+        # A rule must be needed: a NExtSEEK UID breaks the pipeline's own id pattern ...
+        assert not _re.fullmatch(rule["pattern"], uid), f"{key}'s id rule would rewrite nothing"
+        # ... and that pattern is the pinned schema's, read off its committed fixture
+        # (ampliseq's rule predates the fixtures and was confirmed by hand).
+        if key in _ID_RULES_CONFIRMED_BY_HAND:
+            continue
+        fixture = FIXTURES / f"{key}.schema_input.json"
+        assert fixture.exists(), f"{key}: commit its pinned schema_input.json fixture to prove its id rule"
+        declared = json.loads(fixture.read_text())["items"]["properties"][rule["column"]]["pattern"]
+        assert declared == rule["pattern"], (key, declared, rule["pattern"])
     for key in ("rnaseq", "detaxizer", "seqinspector"):
         out = tmp_path / key
         emit_nfcore_artifacts(
@@ -453,6 +466,9 @@ def test_sarek_bam_output_is_not_steerable():
 
 PINS = {"atacseq": "2.1.2", "chipseq": "2.1.0", "methylseq": "4.2.0",  # Task 3 Step 2, owner-approved
         "cutandrun": "3.2.2"}  # owner-approved 2026-11-12
+# proteinfold 2.0.0 and pangenome 1.1.3 (no genome, so launched()'s GRCh38 bundle does not apply;
+# pangenome's required n_haplotypes comes from the param atlas) are checked the same way in
+# test_proteinfold_pangenome.py.
 
 
 @pytest.mark.parametrize("key", sorted(PINS))
@@ -482,8 +498,12 @@ def test_new_choosable_pipelines_defaults_pass_the_pinned_schema(key):
 
 PINNED_SCHEMAS = sorted(p.name.split(".")[0] for p in FIXTURES.glob("*.nextflow_schema.json"))
 #: Required params NExtSEEK has no way to set today. rnafusion's prebuilt reference bundle
-#: (genomes_base) is not provisioned, so a launch would abort at nf-schema.
-UNSET_REQUIRED = {"rnafusion": ["genomes_base"]}
+#: (genomes_base) is not provisioned, so a launch would abort at nf-schema. pangenome's
+#: n_haplotypes is set at configure_run by the param atlas (from the assembly's GenomeCount, or
+#: asked), which launched() does not run.
+UNSET_REQUIRED = {"rnafusion": ["genomes_base"], "pangenome": ["n_haplotypes"],
+                  # raredisease 3.1.2's interval lists of the genome and of chrY: not staged.
+                  "raredisease": ["intervals_wgs", "intervals_y"]}
 
 
 @pytest.mark.parametrize("key", PINNED_SCHEMAS)

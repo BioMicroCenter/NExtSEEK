@@ -6,6 +6,111 @@
     ]
   },
   "pipelines": {
+    "pangenome": {
+      "params": {
+        "n_haplotypes": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "integer",
+          "range": [2, 100000],
+          "derive_from": {"signal": "GenomeCount", "number": "exact"},
+          "ask": {
+            "definition": "The number of haplotypes in the combined FASTA: the distinct PanSN sample#haplotype prefixes of its sequence names (HG002#1 and HG002#2 are two; a haploid bacterial genome is one). pangenome 1.1.3 requires it and has no default; smoothxg and wfmash scale by it, so a wrong count gives a wrong graph without an error.",
+            "on_conflict": "The genome counts recorded for this file disagree. How many distinct sample#haplotype prefixes do its sequence names have?",
+            "on_absent": "Nothing in this assembly's metadata says how many genomes the combined FASTA holds. How many distinct PanSN sample#haplotype prefixes (sample#haplotype#contig) do its sequence names have?"
+          }
+        }
+      }
+    },
+    "proteinfold": {
+      "params": {
+        "esmfold_model_preset": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "string",
+          "allowed": ["monomer", "multimer"],
+          "on_absent": "use_default",
+          "default": "monomer",
+          "derive_from": {"signal": "ChainCount", "number": "bands", "bands": [[1, "monomer"], [2, "multimer"]]},
+          "ask": {
+            "definition": "Whether ESMFold folds the FASTA's chains together as one complex (multimer) or one at a time (monomer); a D.PSEQ with ChainCount 2 or more is a complex.",
+            "on_conflict": "The chain counts recorded for these sequences disagree. Is each FASTA one complex to fold together, or single chains?",
+            "on_absent": "not used: with no recorded chain count ESMFold keeps upstream's monomer default"
+          }
+        },
+        "colabfold_model_preset": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "string",
+          "allowed": ["alphafold2_ptm", "alphafold2_multimer_v3"],
+          "on_absent": "use_default",
+          "default": "alphafold2_ptm",
+          "derive_from": {"signal": "ChainCount", "number": "bands", "bands": [[1, "alphafold2_ptm"], [2, "alphafold2_multimer_v3"]]},
+          "ask": {
+            "definition": "Whether ColabFold folds the FASTA's chains together as one complex (alphafold2_multimer_v3) or one at a time (alphafold2_ptm); a D.PSEQ with ChainCount 2 or more is a complex.",
+            "on_conflict": "The chain counts recorded for these sequences disagree. Is each FASTA one complex to fold together, or single chains?",
+            "on_absent": "not used: with no recorded chain count ColabFold keeps upstream's alphafold2_ptm default"
+          }
+        },
+        "alphafold2_model_preset": {
+          "target": "run_param",
+          "scope": "run",
+          "value_type": "string",
+          "allowed": ["monomer_ptm", "multimer"],
+          "on_absent": "use_default",
+          "default": "monomer_ptm",
+          "derive_from": {"signal": "ChainCount", "number": "bands", "bands": [[1, "monomer_ptm"], [2, "multimer"]]},
+          "ask": {
+            "definition": "Whether AlphaFold2 folds the FASTA's chains together as one complex (multimer) or one at a time (monomer_ptm); a D.PSEQ with ChainCount 2 or more is a complex.",
+            "on_conflict": "The chain counts recorded for these sequences disagree. Is each FASTA one complex to fold together, or single chains?",
+            "on_absent": "not used: with no recorded chain count AlphaFold2 keeps upstream's monomer_ptm default"
+          }
+        }
+      }
+    },
+    "taxprofiler": {
+      "params": {
+        "instrument_platform": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": ["ABI_SOLID", "BGISEQ", "CAPILLARY", "COMPLETE_GENOMICS", "DNBSEQ", "HELICOS", "ILLUMINA", "ION_TORRENT", "LS454", "OXFORD_NANOPORE", "PACBIO_SMRT"],
+          "derive_from": {
+            "signal": "Sequencer",
+            "map": {
+              "ILLUMINA": ["illumina", "novaseq", "nextseq", "miseq", "hiseq", "miniseq", "iseq 100", "genome analyzer", "hiscansq"],
+              "OXFORD_NANOPORE": ["nanopore", "minion", "gridion", "promethion", "prometheon", "p2 solo"],
+              "PACBIO_SMRT": ["pacbio", "sequel", "revio"],
+              "BGISEQ": ["bgiseq", "mgiseq"],
+              "DNBSEQ": ["dnbseq"],
+              "ION_TORRENT": ["ion torrent", "ion genestudio", "ion proton", "ion pgm", "ion s5"],
+              "LS454": ["454 gs", "roche 454"],
+              "ABI_SOLID": ["solid", "ab 5500"],
+              "CAPILLARY": ["ab 3730", "ab 3130", "ab 3500", "ab 310 ", "sanger"],
+              "HELICOS": ["helicos", "heliscope"],
+              "COMPLETE_GENOMICS": ["complete genomics"]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "FlowCellType",
+              "OXFORD_NANOPORE_markers": ["flo-", "r9.4", "r10.4"],
+              "PACBIO_SMRT_markers": ["smrt cell", "smrtcell"]
+            },
+            {
+              "signal": "Protocol",
+              "ILLUMINA_markers": ["illumina", "nextera", "truseq"],
+              "OXFORD_NANOPORE_markers": ["nanopore", "ligation sequencing kit", "rapid sequencing kit", "native barcoding"],
+              "PACBIO_SMRT_markers": ["pacbio", "smrtbell", "hifi"]
+            }
+          ],
+          "ask": {
+            "definition": "The platform each library was sequenced on, a required samplesheet column (ENA's instrument_platform vocabulary). taxprofiler uses it to tell long reads (OXFORD_NANOPORE, PACBIO_SMRT) from short reads (every other value), which decides their preprocessing and which databases they meet. A short-read instrument outside the list (Element AVITI, Ultima, Singular, PacBio Onso) is profiled as short reads under ILLUMINA.",
+            "on_conflict": "This library's sequencer, flow cell and protocol disagree about the platform it was sequenced on. Which is it?",
+            "on_absent": "Nothing in this library's metadata names a sequencing platform taxprofiler knows. Which was it sequenced on?"
+          }
+        }
+      }
+    },
     "hlatyping": {
       "params": {
         "seq_type": {
@@ -131,6 +236,17 @@
         }
       }
     },
+    "eager": {"params": {
+      "Colour_Chemistry": {"target": "row_column", "scope": "sample", "allowed": ["2", "4"], "on_absent": "use_default", "default": "4", "derive_from": {"signal": "Sequencer", "map": {"2": ["nextseq", "novaseq", "iseq 100", "miniseq"], "4": ["hiseq", "miseq", "genome analyzer", "gaiix"]}}, "ask": {"definition": "The Illumina chemistry each library was sequenced with: 2 (NextSeq, NovaSeq) or 4 (HiSeq, MiSeq). eager trims poly-G tails only on 2-colour data.", "on_conflict": "The sequencer recorded for these libraries reads both as a 2-colour and a 4-colour instrument. Which was it?", "on_absent": "not asked: with no instrument recorded eager's own default, 4 (no poly-G trimming), is used"}},
+      "UDG_Treatment": {"target": "row_column", "scope": "sample", "allowed": ["none", "half", "full"], "derive_from": {"signal": "LibraryType", "map": {"full": ["full udg", "full-udg", "fully udg"], "half": ["half udg", "half-udg", "partial udg", "partial-udg"], "none": ["non-udg", "no udg", "without udg", "udg-free", "untreated"]}}, "corroborate_with": [{"signal": "Protocol", "full_markers": ["full udg", "full-udg", "fully udg"], "half_markers": ["half udg", "half-udg", "partial udg", "partial-udg"], "none_markers": ["non-udg", "no udg", "without udg", "udg-free"]}], "ask": {"definition": "Whether each library was treated with UDG (USER enzyme) to remove deamination damage: full, half (damage left only at the terminal bases) or none. It decides how eager trims and authenticates the reads.", "on_conflict": "The library type and the protocol disagree about UDG treatment. Was it full, half or none?", "on_absent": "Nothing in these libraries' metadata says whether they were UDG treated. Was the treatment full, half or none?"}},
+      "Strandedness": {"target": "row_column", "scope": "sample", "allowed": ["single", "double"], "on_absent": "use_default", "default": "double", "derive_from": {"signal": "LibraryType", "map": {"single": ["single-stranded", "single stranded", "ssdna library", "ss library", "sslib"], "double": ["double-stranded", "double stranded", "dsdna library", "ds library", "dslib"]}}, "corroborate_with": [{"signal": "Protocol", "single_markers": ["single-stranded", "single stranded"], "double_markers": ["double-stranded", "double stranded"]}], "ask": {"definition": "Whether each library was built single-stranded or double-stranded; the damage pattern, and so eager's authentication and trimming, differ.", "on_conflict": "The library type and the protocol disagree about single- or double-stranded library preparation. Which was it?", "on_absent": "not asked: with nothing recorded the library is double-stranded, eager's own default"}}
+    }},
+    "raredisease": {"params": {
+      "sex": {"target": "row_column", "scope": "sample", "allowed": ["1", "2", "0"], "match": "word", "derive_from": {"signal": "Sex", "map": {"1": ["male", "m", "man", "boy", "xy"], "2": ["female", "f", "woman", "girl", "xx"], "0": ["unknown", "undetermined", "not recorded"]}}, "corroborate_with": [{"signal": "Name", "1_markers": ["male", "xy"], "2_markers": ["female", "xx"]}], "ask": {"definition": "Each sample's sex as raredisease's pedigree wants it: 1 male, 2 female, 0 unknown. It drives the X-linked inheritance models and the sex check.", "on_conflict": "These samples' metadata reads both ways about sex (the Sex field and the sample name disagree). Which is right?", "on_absent": "Nothing in these samples' metadata records sex. What is each one's sex (male, female or unknown)?"}},
+      "phenotype": {"target": "row_column", "scope": "sample", "allowed": ["2", "1", "0"], "match": "word", "ambiguous_markers": ["carrier", "suspected", "possibly", "probable", "mildly"], "derive_from": {"signal": "Phenotype", "map": {"2": ["affected", "proband", "patient", "case", "symptomatic", "diseased"], "1": ["unaffected", "healthy", "control", "normal", "asymptomatic"], "0": ["unknown", "missing", "not assessed"]}}, "corroborate_with": [{"signal": "Disease", "2_markers": ["affected", "proband"], "1_markers": ["unaffected", "healthy", "none", "control"]}], "ask": {"definition": "Whether each sample's person is affected by the disease studied: 2 affected, 1 unaffected, 0 not known. raredisease models inheritance from it.", "on_conflict": "These samples' metadata reads both ways about affected status (for example a carrier, or a Phenotype and a Disease field that disagree). Is each one affected, unaffected or not known?", "on_absent": "Nothing in these samples' metadata says who is affected. Which samples are affected, and which unaffected?"}},
+      "analysis_type": {"target": "run_param", "scope": "run", "allowed": ["wgs", "wes"], "derive_from": {"signal": "LibraryStrategy", "map": {"wgs": ["WGS", "whole genome", "whole-genome"], "wes": ["WXS", "WES", "exome", "Targeted-Capture", "Targeted Capture", "capture", "panel"]}}, "corroborate_with": [{"signal": "SequencingType", "wgs_markers": ["WGS", "whole genome", "whole-genome"], "wes_markers": ["WES", "exome", "capture", "panel"]}], "ask": {"definition": "Whether the libraries are whole genome (wgs) or exome / targeted capture (wes); raredisease limits calling and QC to the kit's targets for wes.", "on_conflict": "These libraries' metadata reads both as whole genome and as exome or capture. Which are they?", "on_absent": "Nothing in these libraries' metadata says whole genome or exome. Which are they?"}},
+      "target_bed": {"target": "run_param", "scope": "run", "detect_only": true, "detect": {"signal": "LibraryStrategy", "markers": ["WXS", "WES", "exome", "Targeted-Capture", "capture", "panel"]}, "corroborate_with": [{"signal": "SequencingType", "markers": ["WES", "exome", "capture", "panel"]}], "ask": {"definition": "The capture kit's target-region BED, as a path on the cluster. raredisease calls variants and reports coverage only inside it for wes.", "on_detect": "These look like exome or targeted-capture libraries. Which BED file of the kit's target regions should raredisease use? Give its path on the cluster."}}
+    }},
     "sarek": {"params": {
       "status": {
         "target": "row_column", "scope": "sample", "allowed": ["0", "1"],
@@ -154,6 +270,48 @@
         "ask": {
           "definition": "The capture kit's target-region BED, as a path on the cluster. sarek calls variants only inside it; set wes=true with it.",
           "on_detect": "These look like exome or targeted-capture libraries. Which BED file of the kit's target regions should sarek use? Give its path on the cluster."}
+      }
+    }},
+    "oncoanalyser": {"params": {
+      "sample_type": {
+        "target": "row_column", "scope": "sample", "allowed": ["tumor", "normal"],
+        "confirm_in": "pairing_table",
+        "ambiguous_markers": ["non-tumor", "non-tumour", "nontumor", "nontumour", "non-malignant", "nonmalignant", "non-cancer", "noncancer", "abnormal", "adjacent",
+          "non-neoplastic", "nonneoplastic", "tumor-free", "tumour-free", "tumor free", "tumour free", "non tumor", "non tumour"],
+        "derive_from": {"signal": "Type", "map": {
+          "tumor": ["tumor", "tumour", "cancer", "carcinoma", "malignan", "metasta", "neoplas"],
+          "normal": ["normal", "healthy", "germline", "blood", "pbmc", "buffy"]}},
+        "corroborate_with": [
+          {"signal": "Name", "tumor_markers": ["tumor", "tumour"], "normal_markers": ["normal", "germline", "blood"]}],
+        "ask": {
+          "definition": "Whether each library is from the tumour or from the patient's matched normal; oncoanalyser subtracts the normal's germline variants from the tumour's.",
+          "on_conflict": "The sample's metadata reads both ways about tumour vs normal: a field says something like \"non-tumour\" or \"adjacent\", or its tissue type and its own name disagree. I won't guess, which is right?",
+          "on_absent": "Nothing in these samples' metadata says tumour or normal. Which are tumour?"}
+      },
+      "sequence_type": {
+        "target": "row_column", "scope": "sample", "allowed": ["dna", "rna"],
+        "derive_from": {"signal": "SequencingType", "map": {
+          "rna": ["RNA", "TRANSCRIPTOM", "WTS"],
+          "dna": ["WGS", "WES", "EXOME", "GENOMIC"]}},
+        "corroborate_with": [
+          {"signal": "LibrarySource", "rna_markers": ["TRANSCRIPTOMIC"], "dna_markers": ["GENOMIC"]},
+          {"signal": "LibraryStrategy", "rna_markers": ["RNA-Seq"], "dna_markers": ["WGS", "WXS", "WES"]}],
+        "ask": {
+          "definition": "Whether each library is DNA (whole genome) or RNA (whole transcriptome); oncoanalyser aligns and analyses the two differently, and reads RNA from the tumour only.",
+          "on_conflict": "The sequencing-type label and the library source or strategy disagree about DNA vs RNA. I won't guess, which is right?",
+          "on_absent": "Nothing in these samples' metadata says whether they are DNA or RNA libraries. Which are they?"}
+      },
+      "mode": {
+        "target": "run_param", "scope": "run", "allowed": ["wgts", "targeted"], "on_absent": "ask",
+        "derive_from": {"signal": "LibraryStrategy", "map": {
+          "wgts": ["WGS", "RNA-Seq"],
+          "targeted": ["Targeted-Capture"]}},
+        "corroborate_with": [
+          {"signal": "SequencingType", "wgts_markers": ["WGS", "whole genome", "WTS"], "targeted_markers": ["panel", "TSO500", "targeted"]}],
+        "ask": {
+          "definition": "oncoanalyser's mode: wgts for whole-genome DNA and/or whole-transcriptome RNA, targeted for a panel. It has no exome mode, and targeted needs panel resources no run here has.",
+          "on_conflict": "These libraries' strategy and sequencing type disagree about whole genome vs panel. Which are they?",
+          "on_absent": "Nothing in these samples' metadata says whole genome, transcriptome or panel. oncoanalyser runs whole-genome/transcriptome (wgts) or a supported panel (targeted), and cannot analyse exome libraries. Which are these?"}
       }
     }},
     "rnafusion": {

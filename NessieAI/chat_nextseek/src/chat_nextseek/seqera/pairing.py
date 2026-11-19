@@ -1,4 +1,5 @@
-"""Tumour/normal pairing for nf-core/sarek.
+"""Tumour/normal pairing for nf-core/sarek, and the same confirmation for nf-core/oncoanalyser
+(``group_pairing_question``, below).
 
 Tools that need a tumour and its matched normal run only when every patient in the run has
 both. A status is confirmed when the sample's own metadata decided it (a decisive param-atlas
@@ -86,5 +87,83 @@ def pairing_question(tools, rows: list[dict], evidence: dict, *,
             lines.append(f"| {patient} | {sample} | {_LABEL.get(status, status)}"
                          f"{_note(sample, verdicts[sample], undecided)} |")
         lines += ["", "A wrong status makes sarek call germline variants as somatic, or the reverse."]
+        return TABLE, "\n".join(lines)
+    return OK, ""
+
+
+# --- nf-core/oncoanalyser: groups of a tumour, an optional normal and optional tumour RNA -------
+
+#: The (sample_type, sequence_type) slots oncoanalyser 3.0.0 reads per group
+#: (lib/Utils.groovy validateInput); donor and tumor_normal rows are not built here.
+_GROUP_SLOTS = {("tumor", "dna"), ("tumor", "rna"), ("normal", "dna")}
+
+
+def _group_refusals(rows: list[dict]) -> list[str]:
+    """What oncoanalyser 3.0.0's own input checks would abort on, one line each."""
+    problems: list[str] = []
+    groups: dict[str, dict] = {}
+    for row in rows:
+        group = str(row.get("group_id") or "").strip() or "?"
+        sample = str(row.get("sample_id") or "").strip() or "?"
+        stype = str(row.get("sample_type") or "").strip()
+        seq = str(row.get("sequence_type") or "").strip()
+        g = groups.setdefault(group, {"subjects": set(), "slots": {}})
+        g["subjects"].add(str(row.get("subject_id") or "").strip())
+        if stype not in ("tumor", "normal"):
+            problems.append(f"{sample}: sample_type is {stype!r}; it must be tumor or normal.")
+            continue
+        if seq not in ("dna", "rna"):
+            problems.append(f"{sample}: sequence_type is {seq!r}; it must be dna or rna.")
+            continue
+        if (stype, seq) not in _GROUP_SLOTS:
+            problems.append(f"{sample}: a normal RNA library is not an oncoanalyser input; "
+                            "only tumour RNA is read.")
+            continue
+        g["slots"].setdefault((stype, seq), set()).add(sample)
+    for group, g in sorted(groups.items()):
+        if len(g["subjects"]) > 1:
+            problems.append(f"group {group}: its rows name more than one subject_id "
+                            f"({', '.join(sorted(g['subjects']))}).")
+        slots = g["slots"]
+        for (stype, seq), samples in sorted(slots.items()):
+            if len(samples) > 1:
+                problems.append(f"group {group}: more than one {stype} {seq.upper()} sample "
+                                f"({', '.join(sorted(samples))}); run each in its own group.")
+        if slots and not any(stype == "tumor" for stype, _ in slots):
+            problems.append(f"group {group}: no tumour sample; oncoanalyser does not run on a "
+                            "normal alone.")
+        elif ("normal", "dna") in slots and ("tumor", "dna") not in slots:
+            problems.append(f"group {group}: a normal DNA sample needs the tumour DNA it is "
+                            "matched to in the same group.")
+    return problems
+
+
+def group_pairing_question(rows: list[dict], evidence: dict, *,
+                           confirmed: bool = False) -> tuple[str, str]:
+    """oncoanalyser's tumour/normal check on its written (long-format) sheet: (OK, "") to go
+    ahead, (REFUSAL, text) for a group the pipeline would abort on, or (TABLE, text) when the
+    metadata did not decide some sample's sample_type and the user has not confirmed it."""
+    problems = _group_refusals(rows)
+    if problems:
+        return REFUSAL, "\n".join(
+            ["oncoanalyser cannot run these groups as they stand:", ""]
+            + [f"- {p}" for p in problems]
+            + ["", "Fix sample_type, sequence_type or group_id and rebuild the samplesheet."])
+    samples: dict[str, tuple[str, str, str]] = {}
+    for row in rows:
+        samples.setdefault(str(row.get("sample_id") or "?"),
+                           (str(row.get("group_id") or "?"), str(row.get("sequence_type") or ""),
+                            str(row.get("sample_type") or "")))
+    verdicts = {s: (((evidence or {}).get(s) or {}).get("sample_type") or {}) for s in samples}
+    undecided = {s for s, v in verdicts.items() if v.get("verdict") not in _DECIDED}
+    if undecided and not confirmed:
+        lines = ["Please confirm which samples are tumour and which are normal; the metadata "
+                 "did not decide every one:", "",
+                 "| group | sample | sequence | type |", "|---|---|---|---|"]
+        for sample, (group, seq, stype) in sorted(samples.items(), key=lambda kv: (kv[1][0], kv[0])):
+            lines.append(f"| {group} | {sample} | {seq} | {stype}"
+                         f"{_note(sample, verdicts[sample], undecided)} |")
+        lines += ["", "A wrong type makes oncoanalyser read the normal's germline variants as "
+                      "somatic, or subtract the tumour's own mutations."]
         return TABLE, "\n".join(lines)
     return OK, ""

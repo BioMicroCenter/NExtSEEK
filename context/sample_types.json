@@ -126,6 +126,23 @@
     "sampletype_file_link": null
   },
   {
+    "sample_type": "A.ASM",
+    "sampletype_id": null,
+    "name": "Genome Assembly",
+    "clade": "Analyzed",
+    "description": "A genome assembly file contains the contigs or scaffolds reconstructed de novo from the sequencing reads of one organism, one metagenome-assembled genome (bin) or one viral consensus, as nucleotide sequences. It represents a genome built without, or checked against, a reference, used for gene annotation, functional screening and pangenome construction. Each file typically holds one genome; a combined file holds several genomes, each named in its sequence headers, as pangenome graph construction takes them.\nTypical file types: .fasta, .fa, .fna, .fasta.gz, .fna.gz",
+    "Tags": "genome assembly, de novo assembly, contigs, scaffolds, draft genome, metagenome-assembled genome, MAG, genome bin, isolate assembly, consensus genome, SPAdes, MEGAHIT, Flye, Unicycler, hifiasm, nf-core/bacass, nf-core/mag, nf-core/genomeassembler, A.ASM",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, DataType, Assembler, Organism, ContigCount, AssemblyLengthBp, N50, GCPercent",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, GenomeCount, CompletenessPercent, ContaminationPercent, Repository, Accession, RepositoryLink",
+    "parent_sampletypes": "D.SEQ",
+    "child_sampletypes": "A.GANN, A.FSCR, A.PANG",
+    "associated_assay_parents": "Genome Assembly",
+    "associated_assay_children": "Genome Annotation, Functional Gene Screening, Pangenome Graph Construction",
+    "repository_attributes": null,
+    "sampletype_file_link": null
+  },
+  {
     "sample_type": "A.CCE",
     "sampletype_id": 85,
     "name": "Cancer Cell Extravasation Assay Analysis",
@@ -383,6 +400,40 @@
     "sampletype_file_link": null
   },
   {
+    "sample_type": "A.FSCR",
+    "sampletype_id": null,
+    "name": "Functional Gene Screening",
+    "clade": "Analyzed",
+    "description": "A functional gene screening file contains the genes of a genome assembly found to encode a screened function: antimicrobial peptides, antibiotic resistance genes, biosynthetic gene clusters or carbohydrate-active enzymes, each hit with the tool, database and score behind it. It represents the screen of one assembly for one category of function, summarised across the detection tools used. Each file typically corresponds to a single genome assembly, or a run's summary across its assemblies.\nTypical file types: .tsv, .gbk, .json",
+    "Tags": "functional screening, antimicrobial peptide, AMP, antibiotic resistance gene, ARG, antimicrobial resistance, AMR, biosynthetic gene cluster, BGC, natural products, CAZyme, antiSMASH, AMPcombi, hAMRonization, comBGC, RGI, AMRFinderPlus, DeepBGC, nf-core/funcscan, A.FSCR",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, DataType, ScreeningCategory, DetectionTools, ScreeningDatabase, HitCount",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, ScreeningDatabaseVersion",
+    "parent_sampletypes": "A.ASM, A.GANN",
+    "child_sampletypes": null,
+    "associated_assay_parents": "Functional Gene Screening",
+    "associated_assay_children": null,
+    "repository_attributes": null,
+    "sampletype_file_link": null
+  },
+  {
+    "sample_type": "A.GANN",
+    "sampletype_id": null,
+    "name": "Genome Annotation",
+    "clade": "Analyzed",
+    "description": "A genome annotation file contains the genes, coding sequences and other features predicted on a genome assembly, with their coordinates, protein translations and functional descriptions. It represents one annotation tool's gene models for one assembly, used for functional screening and comparative genomics. Each file typically corresponds to a single genome assembly.\nTypical file types: .gff, .gff3, .gbk, .gbff, .faa",
+    "Tags": "genome annotation, gene prediction, gene models, coding sequences, CDS, protein translations, GFF, GenBank, Prokka, Bakta, Prodigal, Pyrodigal, prokaryotic annotation, nf-core/funcscan, A.GANN",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, DataType, AnnotationTool, AnnotationDatabase, GeneCount, CDSCount",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, AnnotationDatabaseVersion, File_TertiaryData, Link_TertiaryData, Checksum_TertiaryData",
+    "parent_sampletypes": "A.ASM",
+    "child_sampletypes": "A.FSCR",
+    "associated_assay_parents": "Genome Annotation",
+    "associated_assay_children": "Functional Gene Screening",
+    "repository_attributes": null,
+    "sampletype_file_link": null
+  },
+  {
     "sample_type": "A.GEX",
     "sampletype_id": 100,
     "name": "Gene Expression Analysis",
@@ -612,6 +663,23 @@
     "sampletype_file_link": null
   },
   {
+    "sample_type": "A.PANG",
+    "sampletype_id": null,
+    "name": "Pangenome Graph",
+    "clade": "Analyzed",
+    "description": "A pangenome graph file contains a variation graph built from several genomes of one species or clade aligned all against all, whose paths each spell one input genome. It represents the shared and variable sequence of those genomes in one structure, used for variant discovery, comparative genomics and graph-based read mapping. Each file typically corresponds to the set of genomes of one pangenome run.\nTypical file types: .gfa, .og, .vg",
+    "Tags": "pangenome, pangenome graph, variation graph, genome graph, GFA, odgi, PGGB, wfmash, seqwish, smoothxg, vg, comparative genomics, nf-core/pangenome, A.PANG",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, DataType, GraphBuilder, GenomeCount, GraphLengthBp, NodeCount, EdgeCount",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, ReferenceGenome",
+    "parent_sampletypes": "A.ASM",
+    "child_sampletypes": null,
+    "associated_assay_parents": "Pangenome Graph Construction",
+    "associated_assay_children": null,
+    "repository_attributes": null,
+    "sampletype_file_link": null
+  },
+  {
     "sample_type": "A.PERM",
     "sampletype_id": 86,
     "name": "Permeability Assay Analysis",
@@ -651,6 +719,23 @@
         "pubmed_id": "A.PHP::PMID"
       }
     },
+    "sampletype_file_link": null
+  },
+  {
+    "sample_type": "A.PSTR",
+    "sampletype_id": null,
+    "name": "Protein Structure Prediction",
+    "clade": "Analyzed",
+    "description": "A protein structure prediction file contains the three-dimensional atomic model predicted for a protein or complex from its amino acid sequence, with the predictor's per-residue and per-model confidence (pLDDT, predicted aligned error, pTM and ipTM). It represents a computational structure model, not an experimental structure, used to study fold, binding interfaces and design. Each file typically corresponds to one ranked model of a single protein or complex.\nTypical file types: .pdb, .cif, .mmcif",
+    "Tags": "protein structure prediction, predicted structure, structural model, AlphaFold, AlphaFold2, AlphaFold3, ColabFold, ESMFold, RoseTTAFold, Boltz, HelixFold, pLDDT, PAE, pTM, ipTM, PDB, mmCIF, nf-core/proteinfold, A.PSTR",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, DataType, PredictionMethod, ModelRank, MeanPLDDT, PTM, IPTM",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, MSAMethod, ModelCount, TemplateDatabase",
+    "parent_sampletypes": "D.PSEQ",
+    "child_sampletypes": null,
+    "associated_assay_parents": "Protein Structure Prediction",
+    "associated_assay_children": null,
+    "repository_attributes": null,
     "sampletype_file_link": null
   },
   {
@@ -734,6 +819,23 @@
         "genome build/assembly": "A.SPTX::Link_Genome"
       }
     },
+    "sampletype_file_link": null
+  },
+  {
+    "sample_type": "A.TAXP",
+    "sampletype_id": null,
+    "name": "Taxonomic Profile",
+    "clade": "Analyzed",
+    "description": "A taxonomic profile file contains the organisms detected in the sequencing reads of one sample, with each taxon's read count or relative abundance, as classified against a reference database. It represents the composition of a microbial or mixed community, or the contaminants and pathogens screened for in a host sample. Each file typically corresponds to one sample and one classifier, or a merged table of a run's samples.\nTypical file types: .tsv, .txt, .kreport, .biom",
+    "Tags": "taxonomic profile, taxonomic classification, metagenomic profiling, shotgun metagenomics, microbiome composition, relative abundance, species abundance, read classification, Kraken2, Bracken, MetaPhlAn, Centrifuge, Kaiju, MALT, mOTUs, ganon, sylph, TAXPASTA, nf-core/taxprofiler, A.TAXP",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "Software, Pipeline, PipelineVersion, DataType, Classifier, ClassificationDatabase, TaxonomicRank, ClassifiedReadsPercent, TaxonCount",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, ClassificationDatabaseVersion",
+    "parent_sampletypes": "D.SEQ",
+    "child_sampletypes": null,
+    "associated_assay_parents": "Taxonomic Profiling",
+    "associated_assay_children": null,
+    "repository_attributes": null,
     "sampletype_file_link": null
   },
   {
@@ -1536,6 +1638,23 @@
     "child_sampletypes": null,
     "associated_assay_parents": "Electron Paramagnetic Resonance (EPR) Spectroscopy",
     "associated_assay_children": null,
+    "repository_attributes": null,
+    "sampletype_file_link": null
+  },
+  {
+    "sample_type": "D.PSEQ",
+    "sampletype_id": null,
+    "name": "Protein Sequence Data",
+    "clade": "Raw",
+    "description": "A protein sequence data file contains the amino acid sequences of one protein or one complex, one sequence per chain. It represents the primary structure of a protein of interest, such as an antibody's heavy and light chains, used as the input of structure prediction. Each file typically corresponds to a single protein or complex.\nTypical file types: .fasta, .fa, .faa",
+    "Tags": "protein sequence, amino acid sequence, primary structure, polypeptide, protein chains, antibody sequence, heavy chain, light chain, protein complex, FASTA, D.PSEQ",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "standard_metadata": "DataType, ChainCount, SequenceLength, Organism",
+    "possible_metadata_fields": "Name, SampleCreationDate, Lab, Protocol, Notes, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Checksum_PrimaryType, Checksum_SecondaryType, Publish_uri, DOI, PMID, UniProtAccession, Source",
+    "parent_sampletypes": "AB, CHM",
+    "child_sampletypes": "A.PSTR",
+    "associated_assay_parents": null,
+    "associated_assay_children": "Protein Structure Prediction",
     "repository_attributes": null,
     "sampletype_file_link": null
   },

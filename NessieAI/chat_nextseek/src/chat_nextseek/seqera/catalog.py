@@ -4,6 +4,23 @@ Each entry describes the pipeline well enough for the emitter to assemble
 launch.yml + params.yml. Pipeline keys here must match the
 `reports/templates/nfcore/<key>.json` context files (curated params +
 reference_resources), which `seqera/pipeline_params.py` loads by key.
+
+Input and launch fields beyond the obvious ones:
+
+- `samplesheet_input_kind`: a key of `seqera.input_kinds.INPUT_KINDS` (`fastq`, `bam`,
+  `accession`, `fasta`, `protein_fasta`, `matrix`, `combined_fasta`): which file each row
+  points at, and whether the run reads a samplesheet at all.
+- `accepted_leaf_sample_types`: the sample types those files belong to; resolve_samples
+  walks the lineage to these.
+- `input_extensions` (optional): the file endings the pipeline's input schema accepts, a
+  subset of its kind's.
+- `samplesheet_format` (optional): `csv` (default) or `tsv`.
+- `default_revision`: a release number, or a full 40-hex commit SHA for a pipeline with no
+  release (its atlas `revision` is the same SHA, and its reingest map lists it in
+  `applies_to_commits`).
+- `nextflow_version` (optional): the Nextflow release the run needs when the launcher's
+  own cannot run it (a DSL1 pipeline), rendered as `NXF_VER=<x.y.z>` before `nextflow run`
+  (`luria.run_script.validate_nextflow_version`).
 """
 from __future__ import annotations
 
@@ -91,6 +108,39 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "pipeline_kind_description": (
             "Single-cell RNA-seq. Needs 10x/dropseq/smartseq FASTQ pairs "
             "with expected cell counts."
+        ),
+    },
+    "scdownstream": {
+        "repo": "https://github.com/nf-core/scdownstream",
+        # No release yet: pinned to a dev commit (the atlas revision and the reingest map's
+        # applies_to_commits name the same SHA).
+        "default_revision": "d9264b35ed88b648baf157d76bd9b261344fb585",
+        # The pinned nextflow.config declares nextflowVersion '!>=26.04.6' and main.nf a typed
+        # params block (strict syntax). Luria runs 26.04, patch unknown: UNVERIFIED there.
+        "nextflow_version": "26.04.6",
+        "description": ("Single-cell downstream analysis from count matrices: QC, ambient RNA and "
+                        "doublet handling, integration, clustering and cell-type annotation."),
+        "common_assays": ["scRNA-seq", "single cell", "single-cell", "single cell expression matrix"],
+        # Works from matrices: no genome, and no genome/fasta/gtf param at the pinned commit.
+        "default_genome": None,
+        "default_profile": "singularity",
+        "reference_cli_flags": [],
+        # Post-alias: the matrix kind's path column is renamed to `filtered`. schema_input.json
+        # requires only `sample` and anyOf filtered/unfiltered; the emitter always writes
+        # filtered, and unfiltered when the sample also has a raw matrix.
+        "required_columns": ["sample", "filtered"],
+        "samplesheet_input_kind": "matrix",
+        # A.SCXP: the per-run h5ad an nf-core/scrnaseq run registers, or an imported matrix.
+        "accepted_leaf_sample_types": ["A.SCXP"],
+        "input_extensions": [".h5ad", ".h5", ".rds", ".csv"],
+        "accepted_assay_patterns": [
+            r"^single[- ]cell[- ]expression([- ]matrix)?([- ]analysis)?$",
+            r"^scRNA[-_ ]?seq$",
+        ],
+        "pipeline_kind_description": (
+            "Single-cell analysis that starts from count matrices already in NExtSEEK (A.SCXP, "
+            "e.g. from scrnaseq), not from reads: QC, ambient RNA removal, doublets, "
+            "integration across samples, clustering and cell-type annotation."
         ),
     },
     "atacseq": {
@@ -186,6 +236,42 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "per patient; variant annotation is off because its caches are not staged."
         ),
     },
+    "oncoanalyser": {
+        "repo": "https://github.com/nf-core/oncoanalyser",
+        "default_revision": "3.0.0",
+        "description": ("Cancer genome and transcriptome analysis with the Hartwig WiGiTS tools: "
+                        "purity and ploidy, somatic SNVs/indels, SVs, copy number, drivers, "
+                        "fusions, signatures and a summary report."),
+        "common_assays": ["WGS", "WTS", "RNA-seq", "tumour/normal", "cancer genomics",
+                          "whole genome"],
+        # Its own key for the Hartwig GRCh38 bundle; on Luria the launcher maps the
+        # species-resolved GRCh38 to it (run_script.LURIA_PIPELINE_LAUNCH genome_alias).
+        "default_genome": "GRCh38_hmf",
+        "default_profile": "singularity",
+        # 3.0.0 declares genome but no fasta or gtf (its own ref_data_genome_* params).
+        "reference_cli_flags": ["genome"],
+        # Post-alias names: assets/schema_input.json at 3.0.0 requires all seven. The sheet is
+        # long format (one row per file); the emitter's oncoanalyser row builder writes
+        # filetype, info and filepath from the sample's FASTQ pair.
+        "required_columns": ["group_id", "subject_id", "sample_id", "sample_type",
+                             "sequence_type", "filetype", "filepath"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Only gzipped, paired FASTQ (usage.md "FASTQ").
+        "input_extensions": [".fastq.gz", ".fq.gz"],
+        "accepted_assay_patterns": [
+            r"^WGS$",
+            r"^WTS$",
+            r"^whole[-_ ]genome([-_ ]seq(uencing)?)?$",
+            r"\btumou?r[-_ /]normal\b",
+        ],
+        "pipeline_kind_description": (
+            "Full cancer analysis of a human tumour, with or without a matched normal and an "
+            "optional tumour RNA library: purity/ploidy, somatic small variants, SVs, copy "
+            "number, drivers, fusions, HLA and a report. Paired-end FASTQ only. The Hartwig "
+            "reference bundle is not staged on Luria, so each run downloads it."
+        ),
+    },
     "methylseq": {
         "repo": "https://github.com/nf-core/methylseq",
         "default_revision": "4.2.0",
@@ -206,6 +292,72 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "pipeline_kind_description": (
             "Bisulfite / methylation sequencing analysis. Needs WGBS / RRBS / "
             "EM-seq FASTQ inputs."
+        ),
+    },
+    "eager": {
+        "repo": "https://github.com/nf-core/eager",
+        "default_revision": "2.5.3",
+        "description": "Ancient DNA: damage-aware mapping, deduplication, damage and authentication, "
+                       "contamination, sex and genotyping.",
+        "common_assays": ["ancient DNA", "aDNA", "paleogenomics", "archaeogenetics",
+                          "shotgun", "capture"],
+        "default_genome": "GRCh38",
+        "default_profile": "singularity",
+        # 2.5.3 declares genome and fasta, and no gtf.
+        "reference_cli_flags": ["genome", "fasta"],
+        # The TSV header main.nf's extract_data requires, in order, post-alias (the emitter renames
+        # sample, fastq_1 and fastq_2). It refuses any other column count, and an empty cell.
+        "required_columns": ["Sample_Name", "Library_ID", "Lane", "Colour_Chemistry", "SeqType",
+                             "Organism", "Strandedness", "UDG_Treatment", "R1", "R2", "BAM"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # eager reads its --input as a TSV only when the name ends in .tsv.
+        "samplesheet_format": "tsv",
+        # DSL1: the last Nextflow release that runs it (UNVERIFIED on Luria).
+        "nextflow_version": "22.10.8",
+        "accepted_assay_patterns": [
+            r"\bancient\b",
+            r"^aDNA$",
+            r"paleo|palaeo",
+            r"archaeo",
+        ],
+        "pipeline_kind_description": (
+            "Ancient DNA from short-read Illumina libraries (shotgun or capture): mapping tuned "
+            "for short damaged reads, deduplication, DNA damage profiles, authentication and "
+            "contamination estimates, genetic sex and optional genotyping. Needs each library's "
+            "UDG treatment and single/double-stranded build from its metadata. Modern DNA "
+            "belongs to sarek."
+        ),
+    },
+    "raredisease": {
+        "repo": "https://github.com/nf-core/raredisease",
+        "default_revision": "3.1.2",
+        "description": "Germline rare-disease variant calling for human families (trios) or "
+                       "singletons from WGS or WES.",
+        "common_assays": ["WGS", "WES", "rare disease", "trio", "germline", "clinical genetics"],
+        # 3.1.2's genome enum is GRCh37 or GRCh38 only.
+        "default_genome": "GRCh38",
+        "default_profile": "singularity",
+        "reference_cli_flags": ["genome", "fasta"],
+        # schema_input.json requires sample, sex, phenotype and case_id; lane, fastq_1 and
+        # fastq_2 are what the FASTQ input this catalog supports needs (usage.md: no
+        # single-end Illumina data). paternal_id and maternal_id are optional pedigree columns.
+        "required_columns": ["sample", "lane", "fastq_1", "fastq_2", "sex", "phenotype",
+                             "case_id"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^WGS$",
+            r"^WES$",
+            r"^WXS$",
+            r"rare[-_ ]?disease",
+            r"\btrio\b",
+        ],
+        "pipeline_kind_description": (
+            "Germline variant calling for rare-disease families: a family (case) is called "
+            "together, with each sample's sex, affected status and parents in the samplesheet. "
+            "Human only (GRCh37/GRCh38). Variant annotation and ranking, repeat expansions and "
+            "mobile elements need references not staged on Luria."
         ),
     },
     "ampliseq": {
@@ -424,6 +576,61 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "De novo metagenome assembly and binning. Needs short-read FASTQ and a "
             "co-assembly grouping. Bin QC and GTDB-Tk are off by default — both want "
             "databases that are not provisioned on Luria."
+        ),
+    },
+    "taxprofiler": {
+        "repo": "https://github.com/nf-core/taxprofiler",
+        "default_revision": "2.0.1",
+        "description": ("Taxonomic classification and profiling of shotgun metagenomic reads "
+                        "(short or long) with several classifiers and databases at once."),
+        "common_assays": ["shotgun metagenomics", "metagenomics", "metagenome", "microbiome",
+                          "taxonomic profiling", "metagenomic profiling"],
+        # Classifies against its own databases (the --databases sheet), never a genome.
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "default_profile": "singularity",
+        # assets/schema_input.json at 2.0.1 requires sample, run_accession and
+        # instrument_platform; the emitter opens the sheet with all six documented columns
+        # (PIPELINE_HEADER_PREFIX) and fills run_accession (PIPELINE_COLUMN_FILLS).
+        "required_columns": ["sample", "run_accession", "instrument_platform", "fastq_1", "fastq_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Its FASTQ pattern is ^\S+\.f(ast)?q\.gz$: gzipped only.
+        "input_extensions": [".fastq.gz", ".fq.gz"],
+        "accepted_assay_patterns": [
+            r"^meta[-_ ]?genom(e|ics)$", r"^shotgun[-_ ]metagenom.*$", r"^microbiome$",
+            r"^(taxonomic|metagenomic)[-_ ]profil",
+        ],
+        "pipeline_kind_description": (
+            "Who is in a metagenomic sample: taxonomic classification and abundance profiles "
+            "of shotgun reads (Illumina or long reads) against classification databases "
+            "(Kraken2/Bracken, MetaPhlAn, mOTUs and others). Needs a databases sheet; none is "
+            "provisioned on Luria, so the user names the databases. Not for 16S/ITS amplicons "
+            "(ampliseq) and not for assembling genomes (mag)."
+        ),
+    },
+    "funcscan": {
+        "repo": "https://github.com/nf-core/funcscan",
+        "default_revision": "4.0.0",
+        "description": ("Screen assembled genomes or contigs for antimicrobial peptides, "
+                        "antibiotic resistance genes, biosynthetic gene clusters and CAZymes."),
+        "common_assays": ["functional screening", "AMR screening", "antimicrobial resistance",
+                          "biosynthetic gene cluster", "antimicrobial peptide", "CAZyme",
+                          "genome assembly", "metagenome assembly"],
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "default_profile": "singularity",
+        # assets/schema_input.json at 4.0.0: sample and fasta required; protein, gbk and gff
+        # optional (protein and gbk together). fasta is the generic FASTA path column.
+        "required_columns": ["sample", "fasta"],
+        "samplesheet_input_kind": "fasta",
+        "accepted_leaf_sample_types": ["A.ASM"],
+        "accepted_assay_patterns": [r"assembl"],
+        "pipeline_kind_description": (
+            "Functional screening of ASSEMBLED sequence (one A.ASM genome or contig FASTA per "
+            "sample) for antimicrobial peptides, resistance genes, biosynthetic gene clusters "
+            "and CAZymes. A cohort with only reads must be assembled first (mag for "
+            "metagenomes, bacass for isolates)."
         ),
     },
     # --- Added 2026-08-05 after the full schema census. -----------------------------
@@ -732,6 +939,67 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "the CRAM was compressed against; a BAM cohort needs no reference."
         ),
     },
+    # --- Other atlas, non-read inputs (nfcore_other_atlas.json), 2026-11-19 -----------------
+    "proteinfold": {
+        "repo": "https://github.com/nf-core/proteinfold",
+        "default_revision": "2.0.0",
+        "description": "Protein 3D structure prediction from amino acid sequences (ESMFold, ColabFold, AlphaFold2, Boltz and others).",
+        "common_assays": ["protein structure prediction", "protein folding", "structural modelling",
+                          "AlphaFold", "ColabFold", "ESMFold"],
+        "default_genome": None,
+        "reference_cli_flags": [],
+        # assets/schema_input.json 2.0.0 requires only `fasta`, plus `id` or `sequence`: the
+        # emitter always writes `id` (the D.PSEQ UID, renamed from `sample` by
+        # PIPELINE_COLUMN_ALIASES).
+        "required_columns": ["fasta"],
+        "samplesheet_input_kind": "protein_fasta",
+        "accepted_leaf_sample_types": ["D.PSEQ"],
+        # The schema's fasta pattern is ^\S+\.(fa(sta)?|faa|yaml|yml|json)$: no .gz. The YAML/JSON
+        # inputs (ligands, nucleic acids for the all-atom modes) are not a D.PSEQ file.
+        "input_extensions": [".fasta", ".fa", ".faa"],
+        # nextflow.config manifest: nextflowVersion = '!>=25.10.2', a hard minimum the shared
+        # launcher env (>= 25.04.8 per docs/nfcore-capability-expansion.md) may not meet. 25.10.4
+        # is the release nf-core's own 2.0.0 nf-test snapshots ran on.
+        "nextflow_version": "25.10.4",
+        "accepted_assay_patterns": [
+            r"^protein[-_ ]structure[-_ ]prediction$", r"^protein[-_ ]folding$",
+            r"^structure[-_ ]prediction$",
+        ],
+        "pipeline_kind_description": (
+            "Predicts the 3D structure of each protein or complex from its amino acid sequence, "
+            "one protein FASTA (D.PSEQ) per row, one sequence per chain. The prediction method "
+            "(mode) follows the question: ESMFold is fast and needs no database; ColabFold and "
+            "AlphaFold2 are more accurate but need multi-hundred-GB to TB databases that are not "
+            "staged on Luria, and Luria GPU partitions are not confirmed. NExtSEEK holds no "
+            "D.PSEQ samples yet."
+        ),
+    },
+    "pangenome": {
+        "repo": "https://github.com/nf-core/pangenome",
+        "default_revision": "1.1.3",
+        "description": "Pangenome variation graph (PGGB: wfmash, seqwish, smoothxg, odgi) from several genomes in one combined FASTA.",
+        "common_assays": ["pangenome", "pangenome graph", "comparative genomics", "genome assembly"],
+        "default_genome": None,
+        "reference_cli_flags": [],
+        # No samplesheet: --input is ONE bgzipped FASTA holding every genome (PanSN headers).
+        # The emitter still writes a one-row sheet beside it so the launch record names the
+        # A.ASM sample; the submitter passes that row's path to --input.
+        "required_columns": ["sample", "fasta"],
+        "samplesheet_input_kind": "combined_fasta",
+        "accepted_leaf_sample_types": ["A.ASM"],
+        # docs/usage.md 1.1.3: the input must be bgzipped. The schema pattern
+        # ^\S+\.fn?a(sta)?(\.gz)?$ has no .fas, and input_check.nf's uncompressed branch calls
+        # the non-existent String.endswith for a .fasta or .fna name.
+        "input_extensions": [".fa.gz", ".fna.gz", ".fasta.gz"],
+        "accepted_assay_patterns": [r"^pangenome([-_ ]graph)?([-_ ]construction)?$", r"^PGGB$"],
+        "pipeline_kind_description": (
+            "Builds one pangenome variation graph from several genomes of one species or clade. "
+            "Input is ONE bgzipped FASTA already holding every genome, sequence names in PanSN "
+            "form (sample#haplotype#contig), registered as one A.ASM sample. Combining several "
+            "A.ASM samples' FASTAs into one is not supported yet. Needs the number of haplotypes "
+            "in the file (n_haplotypes)."
+        ),
+    },
     "seqinspector": {
         "repo": "https://github.com/nf-core/seqinspector",
         "default_revision": "1.1.0",
@@ -784,10 +1052,16 @@ def catalog_for_prompt() -> str:
     would resolve a D.SEQ cohort, get zero leaves back, and have no way to tell
     why.
     """
+    from .input_kinds import input_kind
+
     lines = []
     for key, entry in NFCORE_PIPELINE_CATALOG.items():
         leaves = entry.get("accepted_leaf_sample_types") or []
         inputs = f"input samples: {', '.join(leaves)}" if leaves else "input: raw archive accessions"
+        kind = input_kind(entry)
+        if kind.path_column:
+            # Only the file kinds say so: every line that predates them reads as it did.
+            inputs += f", each {kind.summary}"
         lines.append(
             f"- {key}: {entry['description']} "
             f"({inputs}; common assays: {', '.join(entry.get('common_assays') or []) or 'n/a'})"

@@ -1,0 +1,71 @@
+{
+  "name": "combined_pangenome",
+  "description": "Eight Escherichia coli strain genomes in ONE combined, bgzipped, PanSN-named FASTA, registered as one A.ASM sample (nf-core pangenome test data)",
+  "levels": [
+    {
+      "sample_type": "BAC",
+      "rows": [
+        {
+          "Name": "NTC-PANG-ecoli-panel",
+          "Scientist": "Nessie Test",
+          "Species": "Escherichia coli",
+          "Strain": "8-strain panel (K-12 MG1655, O157:H7 Sakai, CFT073, UTI89, and four ST131 isolates)",
+          "Source": "Lab strain collection"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-PANG-panel-lib",
+          "Parent": "NTC-PANG-ecoli-panel",
+          "Scientist": "Nessie Test",
+          "Protocol": "PacBio SMRTbell prep, 8 strains multiplexed with barcoded adapters",
+          "Lab": "Test Lab",
+          "Barcode": "bc2001-bc2008"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-PANG-panel-hifi",
+          "Parent": "NTC-PANG-panel-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "BAM",
+          "File_PrimaryData": "NTC-PANG-panel.hifi_reads.bam",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/pangenome/",
+          "SequencingType": "PacBio HiFi",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Single",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "PacBio Revio"
+        }
+      ]
+    },
+    {
+      "sample_type": "A.ASM",
+      "rows": [
+        {
+          "Name": "NTC-PANG-ecoli8-combined",
+          "Parent": "NTC-PANG-panel-hifi",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTA",
+          "File_PrimaryData": "NTC-PANG-ecoli8.pansn.fa.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/pangenome/data/",
+          "Pipeline": "hifiasm, then combined",
+          "Assembler": "hifiasm",
+          "Organism": "Escherichia coli",
+          "GenomeCount": 8,
+          "ContigCount": 19,
+          "AssemblyLengthBp": 41203877,
+          "Notes": "All eight strain assemblies in one bgzipped FASTA, sequence names sample#1#contig (PanSN)"
+        }
+      ]
+    }
+  ]
+}

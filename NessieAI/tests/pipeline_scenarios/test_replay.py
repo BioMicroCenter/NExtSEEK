@@ -17,6 +17,7 @@ from NessieAI.tests.pipeline_scenarios.record import RECORDED, STORY_FIELDS
 from NessieAI.tests.pipeline_scenarios.scorer import score
 from NessieAI.tests.pipeline_scenarios.stories import story_by_id
 from NessieAI.tests.pipeline_scenarios.tape import ReplayClient, Tape, TapeMismatch
+from chat_nextseek.pipeline.selection_context import RICH_PIPELINES
 
 FIXTURES = sorted(RECORDED.glob("*.json"))
 REGENERATE = "re-record with a paid run (NessieAI/tests/pipeline_scenarios/README.md)"
@@ -154,12 +155,18 @@ def synthetic(tmp_path, monkeypatch):
 
 
 FETCHED = []
+#: Documents the pinned release does not ship, so upstream answers 404 and the fixtures hold no
+#: copy: eager 2.5.3 (DSL1) and pangenome 1.1.3 have no assets/schema_input.json.
+UPSTREAM_ABSENT = {"eager.schema_input.json", "pangenome.schema_input.json"}
 
 
 @pytest.fixture()
 def synthetic_real_context(tmp_path, monkeypatch):
     """The same run, but select_pipeline builds the REAL selection context, which fetches the
-    nf-core schemas of every rich pipeline through the taped fetcher. The model picks one pipeline."""
+    nf-core schemas of every rich pipeline through the taped fetcher. The model picks one pipeline.
+    A document upstream lacks answers 404 as raw.githubusercontent.com does; sarek's
+    schema_input.json is made to 404 too, though it exists, to put one error on the tape. Any other
+    missing fixture still raises, so a rich pipeline added without its fixtures fails here."""
     import requests
     from chat_nextseek.seqera import nfcore_schema as ns
     fixtures = Path(__file__).resolve().parents[1] / "chat_nextseek" / "fixtures" / "nfcore"
@@ -169,7 +176,8 @@ def synthetic_real_context(tmp_path, monkeypatch):
         FETCHED.append(url)
         pipeline, _revision, *rest = url.split("/nf-core/")[1].split("/")
         name = f"{pipeline}.{rest[-1]}"
-        if pipeline == "sarek" and name.endswith("schema_input.json"):
+        if name in UPSTREAM_ABSENT or (pipeline == "sarek" and name.endswith("schema_input.json")):
+            assert name == "sarek.schema_input.json" or not (fixtures / name).exists(), name
             raise requests.HTTPError(f"404 Client Error: Not Found for url: {url}",
                                      response=SimpleNamespace(status_code=404))
         data = (fixtures / name).read_bytes()
@@ -308,10 +316,11 @@ def test_the_fixture_keeps_the_family_and_the_agent_model(tmp_path, monkeypatch)
 def test_a_run_that_builds_the_real_selection_context_replays_clean(synthetic_real_context, tmp_path, monkeypatch):
     fx = synthetic_real_context
     schemas = fx["tape"]["entries"]["schemas"]
-    # 14 rich pipelines, two documents each, every one fetched by the real context build
-    assert len(schemas) == len(FETCHED) == 28
+    # 20 rich pipelines, two documents each, every one fetched by the real context build
+    assert len(schemas) == len(FETCHED) == 2 * len(RICH_PIPELINES) == 40
     kinds = [("fixture" if "fixture" in a else "bytes" if "__bytes__" in a else "error") for a in schemas.values()]
-    assert kinds.count("fixture") == 26 and kinds.count("bytes") == 1 and kinds.count("error") == 1
+    # the errors: sarek's made-up 404 and the two schema_input.json files upstream lacks
+    assert kinds.count("fixture") == 36 and kinds.count("bytes") == 1 and kinds.count("error") == 3
     assert "https://" not in json.dumps(fx)
     assert fx["outcome"]["selection"] == {"verdict": "chosen", "pipelines": ["rnaseq"],
                                           "reason": "bulk or single-cell is not stated"}

@@ -1414,6 +1414,44 @@ _OLD_INVENTORY = {
     "**/*.macs2_peaks.narrowPeak", "**/*.macs2_peaks.broadPeak",
     "**/05_consensus_peaks/*.consensus.peaks.awk.bed",
     "**/05_consensus_peaks/*.consensus.peak_counts.bed",
+    # eager.outputs.json: the deduplicated BAM's CSI index (--large_ref)
+    "**/deduplication/*/*_rmdup.bam.csi",
+    # raredisease.outputs.json: the indexes of the case-level SNV, MT and SV VCFs
+    "**/call_snv/genome/*_snv.vcf.gz.tbi", "**/call_snv/mitochondria/*_mitochondria.vcf.gz.tbi",
+    "**/call_sv/*_sv.vcf.gz.tbi",
+    # oncoanalyser.outputs.json: VCF indexes, PURPLE copy number, Sigs, Isofox
+    "**/purple/*.vcf.gz.tbi", "**/pave/*/*.vcf.gz.tbi", "**/sage/*/*.vcf.gz.tbi",
+    "**/esvee/*.vcf.gz.tbi",
+    "**/purple/*.purple.cnv.somatic.tsv", "**/purple/*.purple.cnv.gene.tsv",
+    "**/sigs/*.sig.allocation.tsv", "**/sigs/*.sig.snv_counts.csv",
+    "**/isofox/*.isf.gene_data.tsv", "**/isofox/*.isf.transcript_data.tsv",
+    # scdownstream.outputs.json: the final object's metadata table
+    "**/09_finalized/merged_metadata.csv",
+    # proteinfold.outputs.json: each mode's top-ranked model and its confidence tables
+    "**/top_ranked_structures/*.pdb", "**/top_ranked_structures/*.cif",
+    "**/*_plddt.tsv", "**/*_ptm.tsv", "**/*_iptm.tsv",
+    # pangenome.outputs.json: the final graph (GFA and ODGI) and odgi's statistics
+    "**/FINAL_GFA/*.gfa", "**/FINAL_ODGI/*.og", "**/odgi_stats/*.og.stats.yaml",
+    # taxprofiler.outputs.json: each classifier's per-sample profile and the TAXPASTA tables
+    "**/bracken/*/*.bracken.kraken2.report_bracken.txt", "**/bracken/*/*.bracken.tsv",
+    "**/centrifuge/*/*.centrifuge.report.txt", "**/centrifuge/*/*.centrifuge.txt",
+    "**/diamond/*/*.diamond.tsv", "**/ganon/*/*.ganon_report.tre", "**/kaiju/*/*.kaijutable.txt",
+    "**/kmcp/*/*.kmcp.profile", "**/kraken2/*/*.kraken2.kraken2.report.txt",
+    "**/krakenuniq/*/*.krakenuniq.report.txt", "**/metaphlan/*/*.metaphlan.biom",
+    "**/metaphlan/*/*.metaphlan_profile.txt", "**/motus/*/*.out", "**/sylph/*/*.sylph.tsv",
+    "**/sylph/*/*.sylphmpa", "**/taxpasta/*.tsv",
+    # funcscan.outputs.json: the annotations and the screening summaries
+    "**/annotation/bakta/all/*_bakta.faa", "**/annotation/bakta/all/*_bakta.gbff",
+    "**/annotation/bakta/all/*_bakta.gff3", "**/annotation/prodigal/all/*.faa.gz",
+    "**/annotation/prodigal/all/*.gbk.gz", "**/annotation/prokka/all/*/*_prokka.faa",
+    "**/annotation/prokka/all/*/*_prokka.gbk", "**/annotation/prokka/all/*/*_prokka.gff",
+    "**/annotation/pyrodigal/all/*_pyrodigal.faa.gz",
+    "**/annotation/pyrodigal/all/*_pyrodigal.gbk.gz",
+    "**/cazyme/dbcan/cazyme_annotation/*/*_overview.tsv",
+    "**/reports/ampcombi2/Ampcombi_summary.tsv", "**/reports/ampcombi2/Ampcombi_summary_cluster.tsv",
+    "**/reports/ampcombi2/Ampcombi_summary_cluster_representative_seq.tsv",
+    "**/reports/combgc/combgc_complete_summary.tsv",
+    "**/reports/hamronization_summarize/hamronization_combined_report.tsv",
 }
 
 

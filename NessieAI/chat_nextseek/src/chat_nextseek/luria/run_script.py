@@ -76,6 +76,30 @@ def validate_revision(revision: str) -> str:
     return str(revision)
 
 
+# A Nextflow release a catalog entry may require (`nextflow_version`). It lands in run.sh as
+# `NXF_VER=<x.y.z>`, so it is a plain three-part release number and nothing else: no `v`,
+# no `-edge`, no trailing newline.
+_NEXTFLOW_VERSION_RE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{1,2}")
+# process.resourceLimits arrived in Nextflow 24.04.0. Older releases get the nf-core
+# max_cpus / max_memory / max_time params their own check_max() reads instead.
+_RESOURCE_LIMITS_SINCE = (24, 4)
+
+
+def validate_nextflow_version(version: str) -> str:
+    """Allow-list a Nextflow release number ('22.10.8'); raise ValueError on anything else."""
+    if not version or not _NEXTFLOW_VERSION_RE.fullmatch(str(version)):
+        raise ValueError(f"invalid nextflow_version {version!r}")
+    return str(version)
+
+
+def nextflow_supports_resource_limits(version: str | None) -> bool:
+    """True for the launcher's own Nextflow (None) and any release from 24.04 on."""
+    if version is None:
+        return True
+    major, minor, _patch = (int(p) for p in validate_nextflow_version(version).split("."))
+    return (major, minor) >= _RESOURCE_LIMITS_SINCE
+
+
 def validate_pipeline(pipeline: str) -> str:
     """Allow-list a pipeline name/URL; raise ValueError on anything shell-unsafe (fail-closed)."""
     if not pipeline or not _PIPELINE_RE.fullmatch(str(pipeline)):
@@ -300,6 +324,15 @@ LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
             "bwa": "bwa",
         },
     },
+    # nf-core/oncoanalyser 3.0.0 (NOT yet run on Luria). Its key for the Hartwig GRCh38 bundle
+    # is GRCh38_hmf (lib/Constants.groovy GENOMES_SUPPORTED). That bundle (FASTA, BWA-MEM2,
+    # GRIDSS and STAR indexes, WiGiTS resources) is NOT staged under refs/: without
+    # ref_data_* paths the run downloads it from data.oncoanalyser.com into its work folder,
+    # which needs outbound HTTPS from the compute node (usage.md "Staging reference data").
+    "nf-core/oncoanalyser": {"genome_alias": {"GRCh38": "GRCh38_hmf"}},
+    # nf-core/scdownstream at its pinned dev commit (NOT yet run on Luria): main.nf declares a
+    # typed params block, which only the strict (v2) parser reads.
+    "nf-core/scdownstream": {"syntax_parser": "v2"},
 }
 
 
@@ -321,8 +354,16 @@ def luria_params_overrides(pipeline: str | None, genome: str | None) -> dict:
     """Params the launcher adds to params.yml. Under the v2 parser a bare boolean CLI flag
     reaches nf-schema as the string "true" ("Value is [string] but should be [boolean]";
     VERIFIED on Luria with rnavar), so igenomes_ignore goes in params.yml as a YAML boolean
-    whenever local refs replace iGenomes. Under v1 it stays on the CLI, as it always was."""
-    if luria_launch_profile(pipeline)["syntax_parser"] == "v2" and has_local_luria_ref(genome):
+    whenever local refs replace iGenomes. Under v1 it stays on the CLI, as it always was.
+    A pipeline that is passed no local fasta or gtf (its catalog reference_cli_flags name
+    neither, as nf-core/scdownstream's) replaces nothing, and gets nothing: igenomes_ignore may
+    not even be one of its params."""
+    from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+    flags = (NFCORE_PIPELINE_CATALOG.get(pipeline_catalog_key(pipeline)) or {}).get(
+        "reference_cli_flags")
+    takes_local_refs = flags is None or bool({"fasta", "gtf"} & set(flags))
+    if (luria_launch_profile(pipeline)["syntax_parser"] == "v2" and takes_local_refs
+            and has_local_luria_ref(genome)):
         return {"igenomes_ignore": True}
     return {}
 
@@ -348,10 +389,13 @@ def luria_resource_params(pipeline: str | None, genome: str | None, refs_root: s
             if kind in staged and supplied.get(param) in (None, "")}
 
 
-def render_luria_config(refs_root: str, resources: dict | None = None) -> str:
+def render_luria_config(refs_root: str, resources: dict | None = None,
+                        nextflow_version: str | None = None) -> str:
     """Generate luria.config (the local reference-genomes map) from LURIA_GENOMES, plus the
     executor limits for `resources` (the same dict run.sh's #SBATCH lines are filled from).
-    `refs_root` (:= <LURIA_WORKING_PATH>/refs) is trusted config, path-validated fail-closed."""
+    `refs_root` (:= <LURIA_WORKING_PATH>/refs) is trusted config, path-validated fail-closed.
+    `nextflow_version` is the catalog entry's required release, None for the launcher's own;
+    it decides how the limits are written (render_executor_config)."""
     if not refs_root or not _REFS_ROOT_RE.fullmatch(str(refs_root)):
         raise ValueError(f"invalid refs_root {refs_root!r}")
     root = str(refs_root).rstrip("/")
@@ -367,8 +411,10 @@ def render_luria_config(refs_root: str, resources: dict | None = None) -> str:
     # `.command.run` as a program and every task exits 126 ("Permission denied"; VERIFIED on
     # Luria). A -c config outranks the pipeline's own, and this list form is what fetchngs
     # 1.12 sets and runs with in the same job.
+    # The list form is also what Nextflow 22.10 documents for process.shell (UNVERIFIED on
+    # Luria under 22.10).
     lines += ["process.shell = ['/bin/bash', '-euo', 'pipefail']", ""]
-    return "\n".join(lines) + render_executor_config(resources)
+    return "\n".join(lines) + render_executor_config(resources, nextflow_version=nextflow_version)
 
 
 _PROC_NAME_RE = re.compile(r"[A-Za-z0-9_]{1,64}")
@@ -447,7 +493,14 @@ def nextflow_executor_limits(resources: dict | None) -> dict:
     return {"cpus": int(res["cpus"]), "memory_gb": mem_gb - reserve}
 
 
-def render_executor_config(resources: dict | None) -> str:
+def _nextflow_duration(slurm_time: str) -> str:
+    """A validated SLURM time ('48:00:00') as a Nextflow duration ('48h', or minutes)."""
+    hours, minutes, seconds = (int(p) for p in slurm_time.split(":"))
+    total_min = hours * 60 + minutes + (1 if seconds else 0)
+    return f"{hours}h" if not (minutes or seconds) else f"{total_min}m"
+
+
+def render_executor_config(resources: dict | None, nextflow_version: str | None = None) -> str:
     """The luria.config block that holds Nextflow to the job's SLURM allocation.
 
     The whole run is one SLURM job with the local executor, which otherwise sizes itself to the
@@ -457,13 +510,24 @@ def render_executor_config(resources: dict | None) -> str:
     2026-10-20). resourceLimits clamps each task to the same numbers, because the local
     executor refuses a task that asks for more than it has ("Process requirement exceeds
     available CPUs"): a 200 GB process_high_memory label, or an nf-core retry asking
-    attempt x CPUs, would otherwise end the run."""
+    attempt x CPUs, would otherwise end the run.
+
+    `nextflow_version` older than 24.04 (an entry that requires one, nf-core/eager 2.5.3 on
+    22.10.8) has no resourceLimits; the clamp is then written as the nf-core params
+    max_cpus / max_memory / max_time that such a pipeline's check_max() reads. The executor
+    block is the same in both. UNVERIFIED on Luria under 22.10."""
     lim = nextflow_executor_limits(resources)
     cpus, mem = lim["cpus"], f"'{lim['memory_gb']} GB'"
-    return ("\n// The SLURM allocation run.sh requests (#SBATCH -n / --mem), less Nextflow's own\n"
-            "// memory. Without it the local executor takes the whole node.\n"
-            f"executor {{\n    cpus = {cpus}\n    memory = {mem}\n}}\n"
-            f"process.resourceLimits = [cpus: {cpus}, memory: {mem}]\n")
+    out = ("\n// The SLURM allocation run.sh requests (#SBATCH -n / --mem), less Nextflow's own\n"
+           "// memory. Without it the local executor takes the whole node.\n"
+           f"executor {{\n    cpus = {cpus}\n    memory = {mem}\n}}\n")
+    if nextflow_supports_resource_limits(nextflow_version):
+        return out + f"process.resourceLimits = [cpus: {cpus}, memory: {mem}]\n"
+    max_time = _nextflow_duration(validate_resources(resources)["time"])
+    return (out + "// Nextflow before 24.04 has no process.resourceLimits: the pipeline's own\n"
+            "// check_max() clamps each task to these.\n"
+            f"params {{\n    max_cpus = {cpus}\n    max_memory = {mem}\n"
+            f"    max_time = '{max_time}'\n}}\n")
 
 
 # nf-core/fetchngs 1.12.0's download processes, read from its modules at that tag: SRA_FASTQ_FTP
@@ -556,7 +620,9 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
                       aligner: str | None = None, working: str | None = None,
                       needs_fetch: bool = False, fastq_cache: str | None = None,
                       fetchngs_revision: str = "1.12.0",
-                      reference_cli_flags: Sequence[str] | None = None) -> str:
+                      reference_cli_flags: Sequence[str] | None = None,
+                      input_arg: str = "samplesheet.csv",
+                      nextflow_version: str | None = None) -> str:
     """Substitute the validated slots into the fixed run.sh template. When `refs_root` is given
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
@@ -569,7 +635,19 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     emitted: nf-schema rejects or warns on an unrecognised param, depending on the
     pipeline's validation settings, so --gtf is never passed to sarek or methylseq, and
     ampliseq declares none of the three. None keeps all three, for callers that predate
-    the field."""
+    the field.
+
+    `input_arg` is what follows `--input`: the staged sheet's name (samplesheet.csv or
+    samplesheet.tsv), or for a single-file input kind the one absolute path
+    (seqera.input_kinds.run_input), validated for the shell either way.
+
+    `nextflow_version` (the catalog field) prefixes the pipeline's own `nextflow run` with
+    `NXF_VER=<x.y.z>`, so the launcher fetches and runs that release; it is not exported, so
+    the fetchngs pre-stage keeps the launcher's version. `revision` may be a 40-hex commit
+    SHA (a pipeline with no release), which `-r` takes as it is."""
+    from ..seqera.input_kinds import validate_input_arg
+    input_arg = validate_input_arg(input_arg)
+    nxf_prefix = f"NXF_VER={validate_nextflow_version(nextflow_version)} " if nextflow_version else ""
     revision = validate_revision(revision)
     pipeline = validate_pipeline(pipeline)
     genome = validate_genome(genome)
@@ -616,6 +694,10 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
         "RUN_DIR": run_dir,
         "PIPELINE": source,
         "REVISION_FLAG": revision_flag,
+        # Both render so that a default run.sh is byte-identical to the one before they
+        # existed (the goldens in test_luria_run_script.py): '' and samplesheet.csv.
+        "NXF_VER_PREFIX": nxf_prefix,
+        "INPUT": input_arg,
         "GENOME": genome,
         "SYNTAX_PARSER": profile["syntax_parser"],
         "REFS_FLAGS": refs_flags,

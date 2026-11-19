@@ -1,0 +1,11 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile - default",
+ "genome": "GRCh37",
+ "igenomes_ignore": true,
+ "input": "/RUN/samplesheet.csv",
+ "mito_name": "MT",
+ "outdir": "/RUN",
+ "skip_tools": "germlinecnvcaller,gens",
+ "vep_cache_version": 107
+}

@@ -1,0 +1,96 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/eager",
+  "applies_to_versions": ">=2.5.3,<2.6",
+  "accepts_parent_types": ["D.SEQ"],
+  "samplesheet_sample_column": "Sample_Name",
+  "inventory_globs": ["**/deduplication/*/*_rmdup.bam.csi"],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["deduplication/*/*_rmdup.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "deduplication/*/*_rmdup.bam.bai"},
+                     {"glob": "deduplication/*/*_rmdup.bam.csi"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.mapper",
+        "Genome": "$params.genome",
+        "Software": "nf-core/eager"
+      }
+    },
+    {
+      "id": "vcf_unifiedgenotyper",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": ["genotyping/*.unifiedgenotyper.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "GATK 3.5 UnifiedGenotyper (nf-core/eager --genotyping_tool ug)",
+        "FilterMethod": "None after calling: UnifiedGenotyper's own call confidence threshold (the run's gatk_call_conf), as nf-core/eager writes it"
+      }
+    },
+    {
+      "id": "vcf_haplotypecaller",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": ["genotyping/*.haplotypecaller.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "GATK4 HaplotypeCaller (nf-core/eager --genotyping_tool hc)",
+        "FilterMethod": "None after calling: HaplotypeCaller's own call confidence threshold (the run's gatk_call_conf), as nf-core/eager writes it"
+      }
+    },
+    {
+      "id": "vcf_freebayes",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": ["genotyping/*.freebayes.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "FreeBayes (nf-core/eager --genotyping_tool freebayes)",
+        "FilterMethod": "None after calling: FreeBayes' minimum supporting observations (the run's freebayes_C), as nf-core/eager writes it"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "ReferenceGenome": "$params.genome",
+    "Link_ReferenceGenome": "@genome_path"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}

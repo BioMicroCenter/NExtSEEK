@@ -1,0 +1,86 @@
+{
+  "report_type": "NFCORE_SCDOWNSTREAM_SAMPLESHEET",
+  "description": "nf-core/scdownstream samplesheet context, aligned to the schema at pinned dev commit d9264b35ed88b648baf157d76bd9b261344fb585 (no release yet). Single-cell QC, ambient RNA and doublet handling, integration, clustering and cell-type annotation, starting from count matrices.",
+  "params": {
+    "species": {"type": "string", "default": "human", "steerable": true,
+                "help": "Set from the cohort's organism: configure_run fills human or mouse from the samples' detected species and asks when none is detected. It picks the bundled cell-cycle gene lists and the gene-symbol lookups. Another species needs cell_cycle_scoring false (no bundled lists). Upstream's fallback is human."},
+    "cell_cycle_scoring": {"type": "bool", "default": true, "steerable": true,
+                           "help": "Scores S and G2M phase per cell, which integration can use as a covariate when cycling cells would otherwise split clusters. Needs species human or mouse; false for any other species, or when the question rules cell-cycle effects out. Upstream scores them."},
+    "ambient_correction": {"type": "enum", "allowed": ["none", "decontx", "cellbender", "soupx", "scar"], "default": "soupx", "steerable": true,
+                           "help": "Set from the matrices the samples have: soupx (upstream's default) needs each sample's unfiltered (raw) matrix and configure_run refuses it without one; decontx works from the filtered matrix alone; none when the matrices were already corrected (an nf-core/scrnaseq CellBender matrix, *cellbender_filter_matrix.h5ad); cellbender or scar when the researcher asks for that model."},
+    "doublet_removal": {"type": "bool", "default": false, "steerable": true,
+                        "help": "true when the question needs doublets gone before clustering, e.g. rare populations or cell counts per cluster; false keeps every cell and only scores doublets in the object for inspection, upstream's default."},
+    "integration_methods": {"type": "string", "default": "scvi", "steerable": true,
+                            "help": "Comma list from scvi, scanvi, symphony, bbknn, combat, seurat, scimilarity, pca, expimap, scanorama. Set from the design: scvi (upstream's default) corrects batch effects between samples; scanvi also needs cell labels in each matrix's label_col; pca alone when the samples share one batch. scimilarity downloads its model from Zenodo at run time."},
+    "clustering_resolutions": {"type": "string", "default": "0.25,0.5,1.0", "steerable": true,
+                               "help": "Comma list of Leiden resolutions. Higher values give finer clusters: add one when the question is about subtypes, drop to coarse ones for broad lineages. Upstream's three are the fallback."},
+    "celltypist_model": {"type": "string", "default": null, "steerable": true,
+                         "help": "Comma list of CellTypist models matching the tissue (e.g. Immune_All_Low for immune cells) when the question asks for cell-type labels. Models are downloaded by name at run time, which needs outbound HTTPS from the compute node. Upstream's fallback skips CellTypist."},
+    "skip_liana": {"type": "bool", "default": null, "steerable": true,
+                   "help": "true when cell-cell communication is not part of the question, or for a large dataset, since LIANA can run out of memory. Upstream's fallback runs LIANA."},
+    "memory_scale": {"type": "integer", "default": 1, "steerable": true,
+                     "help": "Multiplies every process's memory request: raise it (2, 4) for large cell counts, as upstream advises. Upstream's fallback is 1."},
+    "tords": {"type": "bool", "default": null, "steerable": true,
+              "help": "true when the researcher works in R (Seurat, Bioconductor): also writes the final object as an RDS SingleCellExperiment. Upstream's fallback writes the H5AD only."}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/scdownstream",
+    "repository": "https://github.com/nf-core/scdownstream",
+    "documentation_url": "https://nf-co.re/scdownstream/dev/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "One row per sample: sample, and filtered and/or unfiltered matrix paths (h5ad, h5, rds or csv). NExtSEEK writes one row per A.SCXP: its cell-filtered matrix in filtered, and its raw matrix, when the record has one, in unfiltered. Further per-sample columns name obs columns inside each matrix (batch_col, label_col, condition_col, donor_col) or override QC thresholds.",
+    "required_columns": ["sample", "filtered"],
+    "optional_columns": ["unfiltered", "batch_col", "label_col", "condition_col", "donor_col", "unknown_label", "symbol_col", "geneid_col", "expected_cells", "doublet_rate"]
+  },
+  "samplesheet_template": [{"sample": null, "filtered": null, "unfiltered": null}],
+  "examples": {
+    "scrnaseq_matrix": {"sample": "A.SCXP-260711ENG-1-PUB",
+                        "filtered": "/net/bmc-pub10/data1/bmc/runs/r/alevin/mtx_conversions/combined_filtered_matrix.h5ad",
+                        "unfiltered": "/net/bmc-pub10/data1/bmc/runs/r/alevin/mtx_conversions/combined_raw_matrix.h5ad"}
+  },
+  "validation_rules": [
+    "Write one row per A.SCXP with sample (its UID). The emitter fills filtered and unfiltered from the record's own files: a name with raw or unfiltered in it is the unfiltered matrix.",
+    "sample must be unique; a NExtSEEK UID satisfies the pinned pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$.",
+    "batch_col, label_col, condition_col and donor_col name columns inside each matrix's obs table. NExtSEEK does not record a matrix's columns, so set one only when the user names it; never guess. An nf-core/scrnaseq combined matrix holds several samples in one file.",
+    "Leave the per-sample QC threshold columns out: the schema's sc-best-practices defaults apply. Set one only when the researcher asks for a specific cutoff.",
+    "ambient_correction soupx needs an unfiltered matrix on every row; configure_run refuses it otherwise.",
+    "The pipeline has no release: it runs the pinned dev commit with Nextflow 26.04.6 and the strict syntax parser."
+  ],
+  "notes": "Starts from matrices, not reads: no genome or reference is passed. The pinned commit's nextflow.config demands Nextflow >=26.04.6 (NXF_VER=26.04.6 on Luria, whose exact 26.04 patch is not recorded) and its main.nf declares a typed params block, so runs use the v2 parser. CellTypist models, scimilarity's model, Azimuth weights and decoupler's Omnipath resources are downloaded at run time when those steps are chosen.",
+  "sources": [
+    {"label": "nf-core/scdownstream docs/usage.md @ d9264b35", "url": "https://raw.githubusercontent.com/nf-core/scdownstream/d9264b35ed88b648baf157d76bd9b261344fb585/docs/usage.md", "notes": "Filtered vs unfiltered matrices, samplesheet columns, ambient correction, annotation."},
+    {"label": "nf-core/scdownstream nextflow_schema.json @ d9264b35", "url": "https://raw.githubusercontent.com/nf-core/scdownstream/d9264b35ed88b648baf157d76bd9b261344fb585/nextflow_schema.json", "notes": "Authoritative param names, types, enums and defaults for the pinned commit."},
+    {"label": "nf-core/scdownstream assets/schema_input.json @ d9264b35", "url": "https://raw.githubusercontent.com/nf-core/scdownstream/d9264b35ed88b648baf157d76bd9b261344fb585/assets/schema_input.json", "notes": "Samplesheet columns: sample required, anyOf filtered/unfiltered."}
+  ],
+  "schema": {"sections": {"samplesheet_columns": {
+    "description": "Column-level field dictionary for the nf-core/scdownstream input samplesheet (post-alias names).",
+    "fields": {
+      "sample": {"required": "required", "position_rule": "any", "expected_value": "string", "allowed_values": "", "description": "Unique sample id; added to the output objects as obs['sample'].", "validation_hints": "The A.SCXP UID.", "example": "A.SCXP-260711ENG-1-PUB"},
+      "filtered": {"required": "required here (schema: filtered or unfiltered)", "position_rule": "any", "expected_value": "path", "allowed_values": ".h5ad, .h5, .rds, .csv", "description": "The cell-filtered matrix (empty droplets removed).", "validation_hints": "Written by the emitter from the record's files.", "example": "/net/bmc-pub10/x/combined_filtered_matrix.h5ad"},
+      "unfiltered": {"required": "optional", "position_rule": "any", "expected_value": "path", "allowed_values": ".h5ad, .h5, .rds, .csv", "description": "The raw matrix with empty droplets; SoupX needs it.", "validation_hints": "Written by the emitter when the record has a raw matrix.", "example": "/net/bmc-pub10/x/combined_raw_matrix.h5ad"},
+      "batch_col": {"required": "optional", "position_rule": "any", "expected_value": "obs column name", "allowed_values": "", "description": "obs column holding batch; without it the whole matrix is one batch.", "validation_hints": "Only a column the user names.", "example": "batch"},
+      "label_col": {"required": "optional", "position_rule": "any", "expected_value": "obs column name", "allowed_values": "", "description": "obs column holding existing cell-type labels (scanvi needs them).", "validation_hints": "Only a column the user names.", "example": "cell_type"},
+      "condition_col": {"required": "optional", "position_rule": "any", "expected_value": "obs column name", "allowed_values": "", "description": "obs column holding condition (disease state, treatment) for differential expression.", "validation_hints": "Only a column the user names.", "example": "condition"},
+      "donor_col": {"required": "optional", "position_rule": "any", "expected_value": "obs column name", "allowed_values": "", "description": "obs column holding the donor or biological replicate; pseudobulk needs it.", "validation_hints": "Only a column the user names.", "example": "donor"}
+    }}}},
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/scdownstream samplesheet from a resolved NExtSEEK A.SCXP cohort (count matrices, e.g. from an nf-core/scrnaseq run).",
+    "workflow_role": "Selected when the matrices exist and the question needs QC, integration across samples, clusters or cell-type labels. From FASTQ, scrnaseq comes first.",
+    "output_expectation": "CSV with header sample,filtered,unfiltered (and any obs-column fields the user named).",
+    "population_priority": [
+      "One row per A.SCXP; sample = its UID.",
+      "Set ambient_correction from whether every row has an unfiltered matrix.",
+      "Ask the user for obs column names before setting batch_col, label_col, condition_col or donor_col."
+    ],
+    "final_checks": [
+      "Every row has a filtered or unfiltered path.",
+      "soupx only when every row has unfiltered."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node (Nessie's default submit), CPU only (scVI trains on CPU); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [10, 40], "setup_label": "Nextflow 26.04.6 and the containers are fetched on the first run",
+    "base_minutes": [60, 240], "per_sample_minutes": [10, 45]
+  }
+}

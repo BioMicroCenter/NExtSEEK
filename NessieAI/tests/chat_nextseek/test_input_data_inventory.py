@@ -186,3 +186,18 @@ def test_inventory_precedes_the_metadata_summary_in_the_digest():
     )
     keys = list(out)
     assert keys.index("input_data_inventory") < keys.index("metadata_summary")
+
+
+def test_assembly_and_protein_fastas_are_counted_as_sequence_files_not_derived_products():
+    """A cohort with no reads can still run a pipeline that takes a FASTA (the other atlas),
+    so its FASTA records are counted under their own heading."""
+    index = dict([
+        _record("A.ASM-1", "A.ASM", File_PrimaryData="isolate1.contigs.fna.gz"),
+        _record("A.ASM-2", "A.ASM", Link_PrimaryData="/net/bmc/lab/isolate2.fasta"),
+        _record("A.PRT-1", "A.PRT", File_PrimaryData="proteins.faa"),
+        _record("A.SCXP-1", "A.SCXP", File_PrimaryData="S1.h5ad"),
+    ])
+    inventory = build_input_inventory(index, [])
+    assert inventory["sequence_files"]["by_sample_type"] == {"A.ASM": 2, "A.PRT": 1}
+    assert inventory["raw_reads"]["n_records"] == 0
+    assert inventory["derived_products"]["by_sample_type"] == {"A.SCXP": 1}

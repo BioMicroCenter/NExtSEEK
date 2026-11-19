@@ -7,9 +7,9 @@ those runs leave on Luria's shared storage from piling up.
 
 | Module | What it does |
 |---|---|
-| `submitter.py` | `submit_luria`: renders `run.sh`, stages it with `luria.config`, `params.yml`, the samplesheet (and `fetchngs_helpers.py` when the run downloads), and `sbatch`es it. Afterwards, best-effort, it writes the run's `nessie_status/` labels (`launched.txt` first, then `README.txt`) and, independently of those writes, copies `cleanup.py` to `<working path>/bin/nessie_cleanup.py` |
+| `submitter.py` | `submit_luria`: renders `run.sh`, stages it with `luria.config`, `params.yml`, the samplesheet, any file `configure_run` wrote that the run reads by name (rnasplice's `contrasts.csv`, taxprofiler's `databases.csv`; `agent_tools._staged_extra_files`) (and `fetchngs_helpers.py` when the run downloads), and `sbatch`es it. Afterwards, best-effort, it writes the run's `nessie_status/` labels (`launched.txt` first, then `README.txt`) and, independently of those writes, copies `cleanup.py` to `<working path>/bin/nessie_cleanup.py` |
 | `run_script.py` | renders `run.sh` from `templates/run.sh.tmpl`; `render_status_block` is the part that writes `finished.txt` on every exit |
-| `fetchngs_helpers.py` | staged beside `run.sh`: `ids`, `fill` and `cached` for the SRA download, `claim` and `release` for the cleanup |
+| `fetchngs_helpers.py` | staged beside `run.sh`: `ids`, `fill` and `cached` for the SRA download, `claim` and `release` for the cleanup. When `fill` turns one accession into several runs and the sheet has a `run_accession` column (taxprofiler), each run's row gets its own run accession |
 | `status_labels.py` | the label text, and `write_saved_label`, which upload-reingest calls |
 | `cleanup.py` | the weekly cleanup script, run by an admin on Luria |
 | `ssh.py` | the `ssh`/`scp` wrappers |
@@ -171,6 +171,24 @@ progress". Leftover `work/.nessie-deleting-*` folders are work folders and are n
 `--delete` deletes nothing if `squeue` cannot be read, and skips downloads if the lock cannot
 be taken.
 
+## What a catalog entry changes in `run.sh`
+
+The submitter reads the pipeline's entry in `seqera/catalog.py` (`NFCORE_PIPELINE_CATALOG`):
+
+| Field | Effect on the run |
+|---|---|
+| `samplesheet_input_kind` | `--input` is the staged sheet, or, for `combined_fasta`, the one FASTA path in the sheet's single row (`seqera/input_kinds.py::run_input`, validated for the shell). Only a `fastq` sheet's blank rows start the fetchngs pre-stage. |
+| `samplesheet_format` | `tsv` stages the sheet as `samplesheet.tsv` and passes that name. A TSV sheet that needs a download is refused, because `fetchngs_helpers.py fill` edits `samplesheet.csv` only. |
+| `default_revision` | may be a 40-hex commit SHA for a pipeline with no release; `-r` takes it as it is. |
+| `nextflow_version` | `x.y.z` only (`validate_nextflow_version`). The pipeline's own command becomes `NXF_VER=x.y.z nextflow run ...`; it is not exported, so the fetchngs pre-stage keeps the launcher's version. Below 24.04, `luria.config` writes the job's limits as `params.max_cpus`, `max_memory` and `max_time` instead of `process.resourceLimits`, which those releases lack. |
+| `reference_cli_flags` | which of `--genome`, `--fasta`, `--gtf` run.sh passes. Under the v2 parser `igenomes_ignore: true` goes into params.yml only for a pipeline given a local `--fasta` or `--gtf` (`luria_params_overrides`); one given neither (nf-core/scdownstream) may not declare that param. |
+
+`NXF_VER` makes the Nextflow launcher download that release into `$NXF_HOME` the first time
+(from GitHub releases), so a compute node needs outbound HTTPS, or the release must be fetched
+once on a login node first (`NXF_VER=x.y.z nextflow info`). That release must also run on the
+conda env's Java. None of this has been run on Luria: UNVERIFIED there, as is how Nextflow
+22.10 treats the generated `luria.config` and `NXF_SYNTAX_PARSER` (which it should ignore).
+
 ## Invariants
 
 - `cleanup.py` is standard library only, Python 3.6 compatible, and staged verbatim.
@@ -194,7 +212,7 @@ be taken.
 
 In `NessieAI/tests/chat_nextseek/`: `test_luria_cleanup.py` (decisions, the delete pass, and
 the real `run.sh` status block and `fetchngs_helpers` claims read back by the cleanup),
-`test_luria_run_script.py`, `test_fetchngs_helpers.py`, `test_luria_submitter.py` and
-`test_luria_status_labels.py`. In `NessieAI/tests/ns/reingest/`:
+`test_luria_run_script.py`, `test_luria_nextflow_version.py`, `test_input_kinds.py`,
+`test_fetchngs_helpers.py`, `test_luria_submitter.py` and `test_luria_status_labels.py`. In `NessieAI/tests/ns/reingest/`:
 `test_saved_label_on_upload.py` and `test_harvest_ignores_status_labels.py`. Commands are in
 `NessieAI/tests/README.md` ("Django lane").

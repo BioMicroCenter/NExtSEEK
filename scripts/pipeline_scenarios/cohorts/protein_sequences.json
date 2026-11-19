@@ -1,0 +1,54 @@
+{
+  "name": "protein_sequences",
+  "description": "Two single-chain PET hydrolase variants as protein FASTA (D.PSEQ), one sequence each (nf-core proteinfold test data)",
+  "levels": [
+    {
+      "sample_type": "CHM",
+      "rows": [
+        {
+          "Name": "NTC-PSEQ-PETase-WT",
+          "Scientist": "Nessie Test",
+          "Type": "Recombinant protein",
+          "Protocol": "Expressed in E. coli BL21(DE3), His-tag purified",
+          "Notes": "Wild-type Ideonella sakaiensis PETase, mature chain"
+        },
+        {
+          "Name": "NTC-PSEQ-PETase-DM",
+          "Scientist": "Nessie Test",
+          "Type": "Recombinant protein",
+          "Protocol": "Expressed in E. coli BL21(DE3), His-tag purified",
+          "Notes": "Double mutant S238F/W159H"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.PSEQ",
+      "rows": [
+        {
+          "Name": "NTC-PSEQ-PETase-WT-seq",
+          "Parent": "NTC-PSEQ-PETase-WT",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTA",
+          "File_PrimaryData": "NTC-PSEQ-PETase-WT.fasta",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/proteinfold/testdata/sequences/",
+          "ChainCount": 1,
+          "SequenceLength": 264,
+          "Organism": "Ideonella sakaiensis",
+          "UniProtAccession": "A0A0K8P6T7"
+        },
+        {
+          "Name": "NTC-PSEQ-PETase-DM-seq",
+          "Parent": "NTC-PSEQ-PETase-DM",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTA",
+          "File_PrimaryData": "NTC-PSEQ-PETase-DM.fasta",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/proteinfold/testdata/sequences/",
+          "ChainCount": 1,
+          "SequenceLength": 264,
+          "Organism": "Ideonella sakaiensis",
+          "UniProtAccession": "A0A0K8P6T7"
+        }
+      ]
+    }
+  ]
+}

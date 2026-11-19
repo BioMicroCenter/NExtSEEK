@@ -1,0 +1,87 @@
+{
+  "report_type": "NFCORE_PANGENOME_INPUT",
+  "description": "nf-core/pangenome context, aligned to the pinned 1.1.3 schema. One pangenome variation graph from ONE combined, bgzipped multi-genome FASTA (an A.ASM sample); the pipeline reads no samplesheet.",
+  "params": {
+    "n_haplotypes": {
+      "type": "integer",
+      "default": null,
+      "steerable": true,
+      "help": "Required, no upstream default: the number of haplotypes in the combined FASTA, which is the number of distinct PanSN sample#haplotype prefixes in its sequence names (a haploid genome is one; a phased diploid assembly is two). Set from the A.ASM sample's GenomeCount by the parameter atlas, and asked for when that is not recorded. A wrong count does not error: smoothxg and wfmash scale their work by it."
+    },
+    "wfmash_map_pct_id": {
+      "type": "number",
+      "default": 90,
+      "steerable": true,
+      "help": "Minimum percent identity for wfmash's mappings. Lower (for example 80, or 70 for genomes of different species of one genus) when the genomes are divergent, so distant ones still align; raise toward 95-98 for very close genomes (one species' strains or human haplotypes) to keep paralogues apart. Upstream's default 90 is the fallback."
+    },
+    "wfmash_segment_length": {
+      "type": "string",
+      "default": "5000",
+      "steerable": true,
+      "help": "wfmash segment length. Shorter (for example 1000-3000) for small or highly rearranged genomes such as bacteria or a single locus, so short homologous segments are found; longer (10000 or more) for large, repeat-rich eukaryotic genomes, to avoid spurious repeat alignments. Upstream's default 5000 is the fallback."
+    },
+    "communities": {
+      "type": "bool",
+      "default": null,
+      "steerable": true,
+      "help": "true for large, many-chromosome genomes (eukaryotes): the genomes are split into communities (roughly one per chromosome) and a graph is built for each, then squeezed into one. Left unset (upstream's default, one graph for the whole set) for bacteria, organelles or a single locus."
+    },
+    "vcf_spec": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "When the question asks for variants against one of the genomes, the PanSN prefix of that reference path (REF[:LEN], for example sample1#1), and vg deconstruct writes a VCF of the graph's variation relative to it. Left unset (upstream's default) no VCF is written."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Title for the MultiQC report, when the user names the study."
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/pangenome",
+    "repository": "https://github.com/nf-core/pangenome",
+    "documentation_url": "https://nf-co.re/pangenome/1.1.3/docs/usage/",
+    "input_file_type": "fasta",
+    "core_rule": "No samplesheet: --input is ONE bgzip-compressed FASTA holding every genome, sequence names in PanSN form (sample#haplotype#contig). Nessie writes a one-row sheet (sample, fasta) beside it only to record which A.ASM sample the file is; the submitter passes that row's path as --input. Combining several A.ASM samples' FASTAs into one is not supported yet, so the cohort must be exactly one sample whose file is already the combined FASTA.",
+    "required_columns": ["sample", "fasta"],
+    "optional_columns": [],
+    "reference_requirement": "No reference genome or database: the graph is built from the genomes in the input alone."
+  },
+  "samplesheet_template": [
+    {"sample": null, "fasta": null}
+  ],
+  "validation_rules": [
+    "Exactly one sample: its file is the combined FASTA. Two or more A.ASM samples are refused until a combine step exists.",
+    "The FASTA must be bgzip-compressed (.fa.gz, .fna.gz or .fasta.gz); plain gzip fails samtools faidx inside the pipeline.",
+    "Sequence names must follow PanSN (sample#haplotype#contig), or vg deconstruct's output is wrong or missing.",
+    "n_haplotypes must equal the number of distinct sample#haplotype prefixes in the file."
+  ],
+  "notes": "For a cohort of several genomes of one species or clade (bacterial strains, a crop's cultivars, phased human haplotypes) that someone has already combined into one PanSN-named FASTA. NExtSEEK holds no A.ASM samples yet. The step that would combine several A.ASM samples into one renamed, bgzipped FASTA (with n_haplotypes from the row count) is not built yet.",
+  "sources": [
+    {"label": "nf-core/pangenome nextflow_schema.json @ 1.1.3", "url": "https://raw.githubusercontent.com/nf-core/pangenome/1.1.3/nextflow_schema.json", "notes": "Authoritative: input (pattern ^\\S+\\.fn?a(sta)?(\\.gz)?$) and n_haplotypes are required; no assets/schema_input.json exists."},
+    {"label": "nf-core/pangenome docs/usage.md @ 1.1.3", "url": "https://github.com/nf-core/pangenome/blob/1.1.3/docs/usage.md", "notes": "PanSN naming and bgzip are required of the input."}
+  ],
+  "report_writer_guidance": {
+    "purpose": "Launch nf-core/pangenome on one A.ASM sample whose file is a combined, PanSN-named, bgzipped multi-genome FASTA.",
+    "workflow_role": "Selected when the user asks how several genomes of one species differ structurally, or for a pangenome or variation graph.",
+    "output_expectation": "A one-row sheet with header sample,fasta; --input is the fasta path.",
+    "population_priority": [
+      "The one A.ASM sample holding the combined FASTA.",
+      "n_haplotypes from its GenomeCount, or ask."
+    ],
+    "final_checks": [
+      "One row only.",
+      "The file ends .fa.gz, .fna.gz or .fasta.gz."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess from typical PGGB runs on one 16-CPU Luria node (Nessie's default submit); not measured on Luria. The one graph dominates: tens of bacterial genomes take about an hour, while large eukaryotic genomes can take days and need communities. Refine from real runs.",
+    "setup_minutes": [0, 0],
+    "setup_label": "",
+    "base_minutes": [30, 720],
+    "per_sample_minutes": [0, 0]
+  }
+}

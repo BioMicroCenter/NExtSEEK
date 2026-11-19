@@ -1,5 +1,9 @@
 {
   "store_root": null,
+  "taxprofiler_databases": {
+    "note": "Classification databases staged on Luria for nf-core/taxprofiler, as rows of its --databases sheet: {tool, db_name, db_params, db_path[, db_type]}, db_path absolute. configure_run uses them when the user names none (seqera/taxprofiler_databases.py). None is staged today, so the list is empty and every taxprofiler run asks the user for its databases.",
+    "databases": []
+  },
   "species_to_bundle": {
     "homo sapiens": "GRCh38", "human": "GRCh38",
     "mus musculus": "GRCm39", "mouse": "GRCm39",

@@ -1,10 +1,11 @@
-"""Every pipeline Nessie can choose can also have its results brought back (spec §5)."""
-import json
+"""Every pipeline Nessie can choose can also have its results brought back (spec §5).
 
+The pinned revision is a release number or, for a pipeline with no release yet, a 40-hex
+commit SHA; `PipelineMap.covers_revision` reads the first against the map's
+`applies_to_versions` and the second against its `applies_to_commits`."""
 import pytest
-from packaging.specifiers import SpecifierSet
-from packaging.version import Version
 
+from NessieAI.ns.reingest import maps
 from NessieAI.paths import NESSIE_ROOT
 from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
 from chat_nextseek.seqera.nfcore_atlas import load_atlas
@@ -23,8 +24,10 @@ def test_a_choosable_pipeline_is_in_the_catalog(key):
 def test_a_choosable_pipeline_has_a_map_for_its_pinned_release(key):
     path = MAPS / f"{key}.outputs.json"
     assert path.exists(), f"{key} is choosable but has no reingest map"
-    spec = SpecifierSet(json.loads(path.read_text())["applies_to_versions"])
-    assert Version(ATLAS[key]["revision"]) in spec, (key, ATLAS[key]["revision"], str(spec))
+    pipeline_map = maps.load(key)
+    revision = ATLAS[key]["revision"]
+    assert pipeline_map.covers_revision(revision), (
+        key, revision, pipeline_map.applies_to_versions, pipeline_map.applies_to_commits)
 
 
 def test_an_unlaunchable_atlas_pipeline_is_marked_so():

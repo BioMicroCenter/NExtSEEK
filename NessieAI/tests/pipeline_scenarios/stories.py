@@ -18,7 +18,7 @@ TEST_COHORTS = HERE / "test_cohorts.json"
 GROUNDTRUTH = HERE.parents[1] / "chat_nextseek" / "evals" / "groundtruth_cohorts.json"
 
 FAMILIES = ("bulk_rna", "single_cell", "small_rna", "dna_variants", "hla", "chromatin",
-            "methylation", "not_yet", "off_topic")
+            "methylation", "metagenomics", "assemblies", "protein_structure", "not_yet", "off_topic")
 ROUTES = ("nextseek_query", "container_cc", "unrelated")
 EXPECTS = ("not_yet", "ask", "refuse")
 PHRASINGS = ("plain", "named", "outcome", "ambiguous", "lookalike", "migrated", "off_topic")

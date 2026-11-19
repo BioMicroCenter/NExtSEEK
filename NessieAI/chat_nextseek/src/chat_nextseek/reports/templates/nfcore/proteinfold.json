@@ -1,0 +1,220 @@
+{
+  "report_type": "NFCORE_PROTEINFOLD_SAMPLESHEET",
+  "description": "nf-core/proteinfold samplesheet context, aligned to the pinned 2.0.0 schemas. Protein 3D structure prediction from one protein FASTA (D.PSEQ) per row.",
+  "params": {
+    "mode": {
+      "type": "enum",
+      "allowed": ["esmfold", "colabfold", "alphafold2", "boltz", "rosettafold_all_atom", "alphafold3", "helixfold3", "rosettafold2na"],
+      "default": "esmfold",
+      "steerable": true,
+      "help": "Prediction method, set from the question. Speed, a quick look, or many sequences: esmfold (a protein language model, no MSA and no database; least accurate, worst on orphan or designed proteins). Accuracy for a single chain or a complex: colabfold (AlphaFold2 weights with a fast MMseqs2 MSA) or alphafold2 (the reference method, slowest). A complex works in esmfold, colabfold and alphafold2 through their multimer presets. A ligand, cofactor, nucleic acid or modified residue needs an all-atom method (boltz, rosettafold_all_atom, alphafold3, helixfold3; rosettafold2na for protein-nucleic acid) AND a YAML or JSON input describing those molecules, which a D.PSEQ FASTA does not hold: such a question cannot be run from NExtSEEK today. Every mode but esmfold needs its database path (asked for before launch; none is staged on Luria). One mode per run. The fallback is esmfold, not upstream's default alphafold2, because alphafold2 with no staged database downloads about 2 TB into the run folder; esmfold downloads about 8 GB of weights."
+    },
+    "esmfold_model_preset": {
+      "type": "enum",
+      "allowed": ["monomer", "multimer"],
+      "default": "monomer",
+      "steerable": true,
+      "help": "ESMFold: multimer when the FASTA holds a complex (several chains to fold together: the D.PSEQ ChainCount is 2 or more, or the question asks about an interface or assembly); monomer for a single chain, or to fold several sequences one at a time. Set from ChainCount by the parameter atlas; upstream's default monomer is the fallback."
+    },
+    "colabfold_model_preset": {
+      "type": "enum",
+      "allowed": ["alphafold2_ptm", "alphafold2_multimer_v1", "alphafold2_multimer_v2", "alphafold2_multimer_v3"],
+      "default": "alphafold2_ptm",
+      "steerable": true,
+      "help": "ColabFold: alphafold2_multimer_v3 when the FASTA holds a complex (ChainCount 2 or more, or an interface question); alphafold2_ptm for a single chain. Set from ChainCount by the parameter atlas; upstream's default alphafold2_ptm is the fallback."
+    },
+    "alphafold2_model_preset": {
+      "type": "enum",
+      "allowed": ["monomer", "monomer_casp14", "monomer_ptm", "multimer"],
+      "default": "monomer_ptm",
+      "steerable": true,
+      "help": "AlphaFold2: multimer when the FASTA holds a complex (ChainCount 2 or more, or an interface question); monomer_ptm for a single chain (it also reports pTM and PAE); monomer_casp14 when the question asks for the most accurate single-chain model and runtime does not matter (8x the ensembling). Set from ChainCount by the parameter atlas; upstream's default monomer_ptm is the fallback."
+    },
+    "esmfold_num_recycles": {
+      "type": "integer",
+      "default": 4,
+      "steerable": true,
+      "help": "ESMFold refinement passes. More (for example 8 to 12) for a hard target: a large or multi-domain protein, or one whose earlier model had low confidence. Upstream's default 4 is the fallback."
+    },
+    "colabfold_num_recycles": {
+      "type": "integer",
+      "default": 3,
+      "steerable": true,
+      "help": "ColabFold refinement passes. More (for example 6 to 12) for a hard target or a complex whose interface came out with low confidence. Upstream's default 3 is the fallback."
+    },
+    "colabfold_use_amber": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "ColabFold: Amber relaxation of the models removes steric clashes, which docking or other physics-based use of the structure needs; false when only the fold or the confidence is wanted and speed matters. Upstream's default true is the fallback."
+    },
+    "colabfold_use_templates": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "ColabFold: true when the question wants the model guided by known structures of close homologues (PDB templates); false for a de novo prediction. Upstream's default false is the fallback."
+    },
+    "split_fasta": {
+      "type": "bool",
+      "default": null,
+      "steerable": true,
+      "help": "true when one FASTA holds several independent proteins to fold one by one (a list of variants or a family), not one complex; left unset (upstream's default) a multi-sequence FASTA is one entry, folded as a complex only with a multimer preset."
+    },
+    "use_gpu": {
+      "type": "bool",
+      "default": null,
+      "steerable": false,
+      "help": "Run the predictors on a GPU. Not steerable: Luria GPU partitions are not confirmed and run.sh requests no GPU, so every run uses upstream's CPU default. ESMFold on CPU takes minutes per sequence; the MSA-based modes take far longer."
+    },
+    "use_msa_server": {
+      "type": "bool",
+      "default": null,
+      "steerable": false,
+      "help": "Use the public ColabFold MMseqs2 server for MSAs instead of local databases. Not steerable: it sends the sequences to a server outside MIT, which needs the owner's ruling. Upstream's default (off, local databases) stands."
+    },
+    "esmfold_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Path on Luria to staged ESMFold weights (<path>/params/esmfold_3B_v1.pt and the two esm2 files). Not staged yet (not confirmed on Luria); left unset, each run downloads them (about 8 GB) into its DBs/ folder."
+    },
+    "colabfold_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "colabfold mode only: path on Luria to the ColabFold databases (colabfold_envdb, colabfold_uniref30, params). Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "alphafold2_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "alphafold2 mode only: path on Luria to the AlphaFold2 databases and parameters (about 2 TB). Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "boltz_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "boltz mode only: path on Luria to the Boltz weights and CCD file. Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "rosettafold_all_atom_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "rosettafold_all_atom mode only: path on Luria to its databases (UniRef30, BFD, PDB100) and weights. Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "alphafold3_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "alphafold3 mode only: path on Luria to the AlphaFold3 databases. Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "alphafold3_params_path": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "alphafold3 mode only: path on Luria to the AlphaFold3 model parameters, which Google releases only under its own licence and which cannot be downloaded by the pipeline. Supplied by the user (see required_user_params)."
+    },
+    "helixfold3_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "helixfold3 mode only: path on Luria to the HelixFold3 databases and weights. Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "rosettafold2na_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "rosettafold2na mode only: path on Luria to the RoseTTAFold2NA databases and weights. Supplied by the user (see required_user_params); not staged on Luria."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Title for the MultiQC report, when the user names the study."
+    }
+  },
+  "required_user_params": [
+    {"name": "colabfold_db", "scope": "run", "required_when": {"mode": "colabfold"},
+     "definition": "Absolute path on Luria to the staged ColabFold databases (colabfold_envdb, colabfold_uniref30 and params). None is staged on Luria; without a path the pipeline downloads several hundred GB into the run folder, which a launch must not do.",
+     "example": "/net/bmc-lab/db/proteinfold/colabfold", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "alphafold2_db", "scope": "run", "required_when": {"mode": "alphafold2"},
+     "definition": "Absolute path on Luria to the staged AlphaFold2 databases and parameters (about 2 TB). None is staged on Luria; without a path the pipeline downloads them into the run folder, which a launch must not do.",
+     "example": "/net/bmc-lab/db/proteinfold/alphafold2", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "boltz_db", "scope": "run", "required_when": {"mode": "boltz"},
+     "definition": "Absolute path on Luria to the staged Boltz weights and CCD file. None is staged on Luria.",
+     "example": "/net/bmc-lab/db/proteinfold/boltz", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "rosettafold_all_atom_db", "scope": "run", "required_when": {"mode": "rosettafold_all_atom"},
+     "definition": "Absolute path on Luria to the staged RoseTTAFold All-Atom databases (UniRef30, BFD, PDB100) and weights. None is staged on Luria.",
+     "example": "/net/bmc-lab/db/proteinfold/rfaa", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "alphafold3_db", "scope": "run", "required_when": {"mode": "alphafold3"},
+     "definition": "Absolute path on Luria to the staged AlphaFold3 databases. None is staged on Luria.",
+     "example": "/net/bmc-lab/db/proteinfold/alphafold3", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "alphafold3_params_path", "scope": "run", "required_when": {"mode": "alphafold3"},
+     "definition": "Absolute path on Luria to the AlphaFold3 model parameters, which Google grants under its own licence; the pipeline cannot download them.",
+     "example": "/net/bmc-lab/db/proteinfold/af3/af3.bin", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "helixfold3_db", "scope": "run", "required_when": {"mode": "helixfold3"},
+     "definition": "Absolute path on Luria to the staged HelixFold3 databases and weights. None is staged on Luria.",
+     "example": "/net/bmc-lab/db/proteinfold/helixfold3", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"},
+    {"name": "rosettafold2na_db", "scope": "run", "required_when": {"mode": "rosettafold2na"},
+     "definition": "Absolute path on Luria to the staged RoseTTAFold2NA databases and weights. None is staged on Luria.",
+     "example": "/net/bmc-lab/db/proteinfold/rf2na", "pattern": "^/\\S+$", "pattern_hint": "an absolute path with no spaces"}
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/proteinfold",
+    "repository": "https://github.com/nf-core/proteinfold",
+    "documentation_url": "https://nf-co.re/proteinfold/2.0.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are id and fasta. fasta is required, with id or sequence beside it; Nessie writes id (the D.PSEQ UID). One protein or complex per row, one sequence per chain in its FASTA. The FASTA must be uncompressed (.fasta, .fa or .faa).",
+    "required_columns": ["fasta"],
+    "optional_columns": ["id", "sequence"],
+    "reference_requirement": "No genome. Each mode but esmfold needs its own database (ColabFold several hundred GB; AlphaFold2 about 2 TB; the all-atom modes similar), and none is staged on Luria: the path is asked for before launch. ESMFold downloads about 8 GB of weights per run unless esmfold_db names a staged copy. Luria GPU partitions are not confirmed, so runs are CPU-only."
+  },
+  "samplesheet_template": [
+    {"id": null, "fasta": null}
+  ],
+  "validation_rules": [
+    "The samplesheet must be a CSV named .csv (the input pattern is ^\\S+\\.csv$).",
+    "fasta must end .fasta, .fa or .faa; a gzipped FASTA is refused by the pinned schema.",
+    "A FASTA with several sequences is folded as ONE complex only with a multimer preset for the chosen mode; with split_fasta each sequence is folded on its own.",
+    "Every mode but esmfold needs its database path; never launch it without one, or the pipeline downloads the databases into the run folder.",
+    "Ligands, cofactors, nucleic acids and modified residues need a YAML or JSON input that NExtSEEK cannot build from a D.PSEQ FASTA: say so rather than folding the protein alone."
+  ],
+  "notes": "NExtSEEK holds no D.PSEQ samples yet, and no assay produces them: the pipeline is catalogued so the capability exists when protein sequences are registered. Luria GPU partitions and the prediction databases are not confirmed; until they are, only esmfold runs without the user supplying a database path, and it runs on CPU.",
+  "sources": [
+    {"label": "nf-core/proteinfold nextflow_schema.json @ 2.0.0", "url": "https://raw.githubusercontent.com/nf-core/proteinfold/2.0.0/nextflow_schema.json", "notes": "Authoritative: mode defaults to alphafold2; every *_db path defaults to null (the pipeline downloads)."},
+    {"label": "nf-core/proteinfold assets/schema_input.json @ 2.0.0", "url": "https://raw.githubusercontent.com/nf-core/proteinfold/2.0.0/assets/schema_input.json", "notes": "fasta required, plus id or sequence; fasta pattern ^\\S+\\.(fa(sta)?|faa|yaml|yml|json)$."},
+    {"label": "nf-core/proteinfold docs/usage.md and docs/usage/<mode>.md @ 2.0.0", "url": "https://github.com/nf-core/proteinfold/tree/2.0.0/docs/usage", "notes": "Database layouts per mode; 'Omitting the --db flag will allow the pipeline to download the reference data'."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/proteinfold input samplesheet.",
+        "fields": {
+          "id": {"required": "required (or sequence)", "position_rule": "any", "expected_value": "string, no spaces", "allowed_values": "", "description": "Sequence name; names the output files.", "validation_hints": "The D.PSEQ UID.", "example": "D.PSEQ-261101ABC-1"},
+          "fasta": {"required": "required", "position_rule": "any", "expected_value": "path", "allowed_values": ".fasta, .fa, .faa", "description": "The protein FASTA, one sequence per chain.", "validation_hints": "Absolute Luria path, uncompressed.", "example": "/net/bmc-lab/proteins/antibody_hc_lc.fasta"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/proteinfold sheet from resolved D.PSEQ samples.",
+    "workflow_role": "Selected when the user asks for the 3D structure of a protein or complex whose sequence is registered.",
+    "output_expectation": "CSV with header id,fasta.",
+    "population_priority": [
+      "One row per D.PSEQ leaf, id = its UID, fasta = its FASTA path.",
+      "Choose the mode from the question (speed vs accuracy, single chain vs complex) and the preset from ChainCount."
+    ],
+    "final_checks": [
+      "No gzipped FASTA.",
+      "A non-esmfold mode carries its database path."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for ESMFold on one 16-CPU Luria node with no GPU (Nessie's default submit); not measured on Luria. Setup is the ~8 GB weight download when esmfold_db is unset. The MSA-based modes take far longer on CPU (hours per sequence) and are not covered by these numbers. Refine from real runs.",
+    "setup_minutes": [15, 60],
+    "setup_label": "downloading the ESMFold weights (about 8 GB)",
+    "base_minutes": [10, 20],
+    "per_sample_minutes": [10, 60]
+  }
+}

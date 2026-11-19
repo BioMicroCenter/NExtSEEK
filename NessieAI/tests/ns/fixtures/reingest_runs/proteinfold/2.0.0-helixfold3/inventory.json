@@ -1,0 +1,118 @@
+[
+ {
+  "path": "fasta2json/T1024.json",
+  "bytes": 0
+ },
+ {
+  "path": "fasta2json/T1026.json",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/T1024_helixfold3_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/T1024_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/T1024_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/T1024_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/paes/T1024_1_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/paes/T1024_2_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/paes/T1024_3_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/paes/T1024_4_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1024/paes/T1024_5_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/T1026_helixfold3_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/T1026_iptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/T1026_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/T1026_ptm.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/paes/T1026_1_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/paes/T1026_2_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/paes/T1026_3_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/paes/T1026_4_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/T1026/paes/T1026_5_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/top_ranked_structures/T1024.cif",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/top_ranked_structures/T1024.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/top_ranked_structures/T1026.cif",
+  "bytes": 0
+ },
+ {
+  "path": "helixfold3/top_ranked_structures/T1026.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_proteinfold_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reports/test_alphafold2_report.html",
+  "bytes": 0
+ }
+]

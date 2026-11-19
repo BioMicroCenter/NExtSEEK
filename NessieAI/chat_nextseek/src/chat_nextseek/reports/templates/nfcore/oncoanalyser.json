@@ -1,0 +1,79 @@
+{
+  "report_type": "NFCORE_ONCOANALYSER_SAMPLESHEET",
+  "description": "nf-core/oncoanalyser samplesheet context, aligned to the pinned 3.0.0 schema. Cancer genome and transcriptome analysis of human tumours with the Hartwig WiGiTS tools.",
+  "params": {
+    "mode": {"type": "enum", "allowed": ["wgts", "targeted"], "default": "wgts", "steerable": true,
+             "help": "Set from the libraries, through the param atlas: wgts for whole-genome DNA and/or whole-transcriptome RNA libraries; targeted only for a panel whose resources are configured (built in only for TSO500, on GRCh37), which no run here has, so configure_run refuses it. Upstream has no default and stops without one. oncoanalyser has no exome mode."},
+    "processes_exclude": {"type": "string", "default": null, "steerable": true,
+                          "help": "Comma list of WiGiTS components to skip when the researcher's question does not need them, e.g. virusinterpreter (viral integration; its GRIDSS index is another large download), lilac (HLA typing), cuppa (tissue of origin), neo (neoepitopes), orange (the summary report). Upstream's fallback runs every component the data allows."},
+    "umi_type": {"type": "enum", "allowed": ["kapa", "msk", "tso500", "twist"], "default": null, "steerable": true,
+                 "help": "Set from the library kit when its reads carry UMIs (Twist, KAPA, MSK-IMPACT or TSO500 UMI adapters), so fastp and REDUX collapse duplicates by UMI. Upstream's fallback is no UMI processing, right for libraries without UMIs."},
+    "sequencing_platform": {"type": "enum", "allowed": ["illumina", "sbx", "ultima"], "default": null, "steerable": true,
+                            "help": "Set from the instrument in the D.SEQ metadata: sbx for Roche SBX, ultima for Ultima Genomics. Upstream's fallback is Illumina, which needs nothing set."}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/oncoanalyser",
+    "repository": "https://github.com/nf-core/oncoanalyser",
+    "documentation_url": "https://nf-co.re/oncoanalyser/3.0.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Long format, one row per input file: group_id, subject_id, sample_id, sample_type (tumor or normal), sequence_type (dna or rna), filetype, info, filepath. NExtSEEK writes one row per D.SEQ: filetype fastq, both reads in filepath separated by ';', and library_id and lane in info. Paired-end gzipped FASTQ only. The schema also takes BAM, CRAM and earlier WiGiTS outputs; those are not built here.",
+    "required_columns": ["group_id", "subject_id", "sample_id", "sample_type", "sequence_type", "filetype", "filepath"],
+    "optional_columns": ["info"]
+  },
+  "samplesheet_template": [{"group_id": null, "subject_id": null, "sample_id": null, "sample_type": null, "sequence_type": null}],
+  "examples": {
+    "tumour_normal_with_rna": [
+      {"sample": "D.SEQ-260711ENG-12-PUB", "group_id": "PAT-260711ENG-3-PUB", "sample_type": "tumor", "sequence_type": "dna"},
+      {"sample": "D.SEQ-260711ENG-13-PUB", "group_id": "PAT-260711ENG-3-PUB", "sample_type": "normal", "sequence_type": "dna"},
+      {"sample": "D.SEQ-260711ENG-14-PUB", "group_id": "PAT-260711ENG-3-PUB", "sample_type": "tumor", "sequence_type": "rna"}
+    ]
+  },
+  "validation_rules": [
+    "Write one row per D.SEQ with sample, group_id, sample_type and sequence_type (and subject_id when it differs from group_id). The emitter renames sample to sample_id and writes filetype, info and filepath from the sample's own FASTQ pair; leave those three out.",
+    "group_id: one analysis per patient. The UID of the PAT sample in the leaf's lineage; with no PAT, the topmost ancestor's UID. Never invent a shared id to make a pair.",
+    "A group holds at most one tumour DNA, one normal DNA and one tumour RNA sample, and always a tumour: tumour-only, tumour with matched normal, and either with tumour RNA are valid; a normal alone is not.",
+    "sample_type and sequence_type come from the param atlas verdicts. sample_type is never guessed from a name alone: configure_run shows the user a tumour/normal table for any sample the metadata did not decide.",
+    "sample_type here is tumor or normal (the American spelling the schema enums), never the NExtSEEK sample type (D.SEQ).",
+    "Single-end samples and samples with no local FASTQ are refused: oncoanalyser aligns paired-end FASTQ only, and an archive download cannot fill a long-format row.",
+    "Human only: the run uses the Hartwig GRCh38 bundle (GRCh38_hmf)."
+  ],
+  "notes": "The Hartwig reference bundle for GRCh38 (GRCh38_hmf FASTA with its indexes, the BWA-MEM2 index, the GRIDSS index for virus calling, the STAR index for RNA, and the WiGiTS resource files) is not staged on Luria. With no ref_data_* paths set, every run downloads the parts it needs from data.oncoanalyser.com into its Nextflow work folder (tens of GB), which needs outbound HTTPS from the compute node. Staging it once (--mode prepare_reference) and passing the paths is the fix; until then the runtime estimate includes the download.",
+  "sources": [
+    {"label": "nf-core/oncoanalyser usage docs @ 3.0.0", "url": "https://nf-co.re/oncoanalyser/3.0.0/docs/usage/", "notes": "Samplesheet, FASTQ info field, sample setups, reference staging."},
+    {"label": "nf-core/oncoanalyser nextflow_schema.json @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/oncoanalyser/3.0.0/nextflow_schema.json", "notes": "Authoritative param names, types and enums for the pinned revision."},
+    {"label": "nf-core/oncoanalyser assets/schema_input.json @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/oncoanalyser/3.0.0/assets/schema_input.json", "notes": "Samplesheet columns and allowed values."},
+    {"label": "nf-core/oncoanalyser lib/Utils.groovy @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/oncoanalyser/3.0.0/lib/Utils.groovy", "notes": "parseInput and validateInput: library_id and lane required for FASTQ, one sample per type per group, no normal-only group."}
+  ],
+  "schema": {"sections": {"samplesheet_columns": {
+    "description": "Column-level field dictionary for the nf-core/oncoanalyser input samplesheet (post-alias names).",
+    "fields": {
+      "group_id": {"required": "required", "position_rule": "Column 1", "expected_value": "string, no spaces", "allowed_values": "", "description": "Groups a patient's samples into one analysis.", "validation_hints": "The PAT UID in the lineage; with no PAT, the topmost ancestor's UID.", "example": "PAT-260711ENG-3-PUB"},
+      "subject_id": {"required": "required", "position_rule": "Column 2", "expected_value": "string, no spaces", "allowed_values": "", "description": "Subject or patient id; the same on every row of a group.", "validation_hints": "Left blank, the emitter copies group_id.", "example": "PAT-260711ENG-3-PUB"},
+      "sample_id": {"required": "required", "position_rule": "Column 3", "expected_value": "string, no spaces", "allowed_values": "", "description": "Sample id; output files are named after it.", "validation_hints": "The NExtSEEK D.SEQ UID (the row's `sample`), so results map back to the record.", "example": "D.SEQ-260711ENG-12-PUB"},
+      "sample_type": {"required": "required", "position_rule": "Column 4", "expected_value": "tumor or normal", "allowed_values": "tumor, normal", "description": "Whether the library is from the tumour or the matched normal.", "validation_hints": "From the param atlas verdict; confirmed with the user in configure_run's table when the metadata does not decide it.", "example": "tumor"},
+      "sequence_type": {"required": "required", "position_rule": "Column 5", "expected_value": "dna or rna", "allowed_values": "dna, rna", "description": "DNA (WGS) or RNA (WTS) library.", "validation_hints": "From the param atlas verdict. Only tumour samples may be RNA.", "example": "dna"},
+      "filetype": {"required": "required", "position_rule": "Column 6", "expected_value": "fastq", "allowed_values": "fastq", "description": "The kind of file in filepath.", "validation_hints": "Written by the emitter.", "example": "fastq"},
+      "info": {"required": "optional", "position_rule": "Column 7", "expected_value": "key:value;key:value", "allowed_values": "", "description": "For FASTQ: library_id and lane, both required by the pipeline.", "validation_hints": "Written by the emitter: library_id is the sample UID, lane the L00N token of the read-1 name or 001.", "example": "library_id:D.SEQ-260711ENG-12-PUB;lane:001"},
+      "filepath": {"required": "required", "position_rule": "Column 8", "expected_value": "R1 path;R2 path", "allowed_values": ".fastq.gz or .fq.gz", "description": "Absolute paths of read 1 and read 2, separated by ';'.", "validation_hints": "Written by the emitter from the sample's metadata.", "example": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R1.fastq.gz;/net/bmc-pub10/data1/bmc/fastq/s_L001_R2.fastq.gz"}
+    }}}},
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/oncoanalyser samplesheet from a resolved NExtSEEK D.SEQ cohort of human tumour (and matched normal) libraries.",
+    "workflow_role": "Selected for a full cancer report: purity and ploidy, somatic SNVs/indels, SVs, copy number, drivers, signatures, HLA, and from tumour RNA, expression and fusions. For general germline or somatic variant calling use sarek.",
+    "output_expectation": "CSV with header group_id,subject_id,sample_id,sample_type,sequence_type,filetype,info,filepath.",
+    "population_priority": [
+      "One agent row per D.SEQ: sample (its UID), group_id (the PAT UID), sample_type and sequence_type from the param atlas verdicts.",
+      "Where sample_type's verdict is conflict or absent, write your best reading and leave it to the tumour/normal table configure_run shows the user.",
+      "Say plainly that each run downloads the Hartwig reference bundle, so the first hours are a download."
+    ],
+    "final_checks": [
+      "Every group has a tumour sample, and at most one sample of each kind.",
+      "No single-end sample."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node (Nessie's default submit) on 30-100x WGS; not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [60, 240], "setup_label": "downloading the Hartwig reference bundle into the work folder (every run repeats it until the bundle is staged on Luria)",
+    "base_minutes": [30, 90], "per_sample_minutes": [360, 1440]
+  }
+}
