@@ -26,7 +26,7 @@ SNAPSHOT = gcat.CatalogSnapshot(
     catalog_hash="h", synced_at=None, has_usage=False,
     index=(_row("ZEB", "Zebra"), _row("QUO", "Quoll"), _row("A.ZEB", "Zebra Analysis"), _row("TIS", "Tissue")),
     guard=MappingProxyType({
-        "T_ZEB": frozenset({"Stripe_Band", "Colour", "Tier"}),
+        "T_ZEB": frozenset({"Stripe_Band", "Colour", "Tier", "Protocol", "Dataset", "Test_Result", "BackLeg_Height"}),
         "T_QUO": frozenset({"BaselineBand", "Shade"}),
         "T_A_ZEB": frozenset({"Tier_Label"}),
         "T_TIS": frozenset({"Organ", "Bandage"}),
@@ -56,9 +56,27 @@ def test_a_sibling_word_on_other_types_and_an_analysis_type():
     ("How many studies does Quill have?", ["studies"]),  # a container
     ("How many zebras are there?", ["zebra"]),          # a sample type's name
     ("How many quill samples?", ["Quill"]),             # nothing holds the word
+    # F1 (review 2026-11-19): ordinary questions whose counted phrase holds a field word that is not what is counted
+    ("how many zebra band tissue samples are in the database?", []),       # the head noun is a type word
+    ("How many protocols are registered for the Quill investigation?", []),  # a protocol is a record
+    ("How many imaging datasets are in the Quill investigation?", []),     # so is a dataset
+    ("How many results came back from that last search?", []),            # a result of the last search
+    ("How many results did that return", []),
+    ("How many big old stripe zebra bands live here?", []),                # no phrase end in reach: head unknown
 ])
 def test_no_block_when_the_word_is_not_a_counted_field(question, keywords):
     assert _fields(question, keywords) == []
+
+
+def test_the_counted_word_is_the_head_of_the_counted_phrase():
+    """Only the phrase's last word is what is counted: "stripe bands" counts bands, "band tissues" counts tissues."""
+    assert _fields("How many stripe colours are there for Quill?", [], projects=["Quill"]) == [("ZEB", "Colour")]
+    assert _fields("How many band colours are there?", []) == [("ZEB", "Colour")]
+
+
+def test_the_heading_asks_for_distinct_values_only_when_the_question_counts_them():
+    assert "when the question counts that field's values" in fw.FIELDS_HEADING
+    assert "such a word is a field of the samples" not in fw.FIELDS_HEADING
 
 
 def test_the_block_names_type_and_title_and_a_count_only_when_given():
