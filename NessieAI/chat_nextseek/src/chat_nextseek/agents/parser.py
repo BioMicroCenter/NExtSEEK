@@ -845,10 +845,47 @@ def _without_kind_keywords(plan):
     return plan.model_copy(update=update) if update else plan
 
 
+#: NExtSEEK page names a user may type on their own, as the user docs (``themes/NextSeek/docs``) name them
+#: (``test_page_words.py`` holds each to the docs). Sidebar words that are also data ("Projects", "Home") are left out.
+#: ponytail: a short hand list checked against the docs; read it from the docs when pages are added often.
+PAGE_NAMES = ("sample tree", "sample page", "sample info", "sample search", "advanced sample search",
+              "search by uid", "data entry", "data query", "assay sheet upload", "data file query", "protocol query")
+_PAGE_KEYS = frozenset(re.sub(r"[\W_]+", "", n) for n in PAGE_NAMES)
+PAGE_WORD_NOTE = "a turn that is only a page name is never searched as data"
+
+
+def _page_key(text) -> str:
+    return re.sub(r"[\W_]+", "", str(text or "").lower())
+
+
+def _page_word_turn(q: str, plan, resolved):
+    """A turn that is only a NExtSEEK page name ("Sampletree", "sample search"): the name leaves the keywords. With a
+    subject left in the plan (the parser read the turn with the previous question) it is that subject's graph
+    question; with none it is a how-to about the page. Production 2026-11-16: the word stayed a keyword and the graph
+    step searched every record for "Sampletree". None for any other turn."""
+    if _page_key(q) not in _PAGE_KEYS or plan.mode not in ("new_search", "graph_query", "system_question"):
+        return None
+    filters = plan.filters
+    kept = [k for k in filters.keywords or [] if _page_key(k) not in _PAGE_KEYS]
+    update = {"filters": filters.model_copy(update={"keywords": kept})}
+    holder = getattr(plan, "resolved", None)  # a ParserCandidate has none
+    if holder is not None:
+        update["resolved"] = holder.model_copy(update={
+            "keywords": [k for k in holder.keywords or [] if _page_key(k) not in _PAGE_KEYS]})
+    subject = (kept or filters.uids or filters.sampletype_code or filters.lab_codes
+               or getattr(resolved, "projects", None))
+    if subject:
+        return _to(plan, "graph_query", f"{PAGE_WORD_NOTE}: the previous subject's question", **update)
+    return _to(plan, "system_question", f"{PAGE_WORD_NOTE}: a how-to about the page", **update)
+
+
 def _route_by_kind_steps(user_query, plan, config, resolved):
     from ..graph_scope import sees_all
 
     q = user_query or ""
+    page = _page_word_turn(q, plan, resolved)
+    if page is not None:
+        return page
     has_sample = bool(_SAMPLE_WORD.search(q))
     filters = plan.filters
     projects = list(getattr(resolved, "projects", None) or [])

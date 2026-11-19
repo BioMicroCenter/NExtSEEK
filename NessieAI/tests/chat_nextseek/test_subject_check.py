@@ -197,3 +197,9 @@ def test_a_turn_without_a_named_subject_runs_no_lookup(monkeypatch, tmp_path):
     debug, seen = _turn(monkeypatch, tmp_path, user_text="How many samples mention lung?", plan=_plan(["lung"]),
                         g=_graph())
     assert "subject_check" not in debug and seen["context"] is None
+
+
+def test_a_page_word_turn_carrying_the_previous_subject_resolves_it():
+    """"Sampletree" typed alone after a question about a subject (the parser keeps the subject, test_page_words.py)."""
+    check = sc.check_subject(_config(), "Sampletree", _plan(["XY-7"]), run=fake_neo4j(_graph()))
+    assert [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
