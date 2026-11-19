@@ -55,7 +55,7 @@ trap 'exit 143' TERM
 # the species-resolved genome. REFS_FLAGS carries only the reference flags this
 # pipeline's schema declares: nf-schema rejects or warns on an unrecognised param,
 # depending on the pipeline's validation settings.
-nextflow run /net/x/pipelines/scrnaseq-2.7.1-star-patched -profile singularity \
+nextflow run /net/x/pipelines/scrnaseq-4.2.0-star-patched -profile singularity \
     -c luria.config \
     -params-file params.yml \
     --input samplesheet.csv \

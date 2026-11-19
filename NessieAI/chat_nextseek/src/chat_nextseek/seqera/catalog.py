@@ -54,7 +54,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
     },
     "rnasplice": {
         "repo": "https://github.com/nf-core/rnasplice",
-        "default_revision": "1.0.4",
+        "default_revision": "2.0.0",
         "description": "Differential splicing / isoform usage between two named groups of samples.",
         "common_assays": ["RNA-seq", "splicing", "isoform", "alternative splicing"],
         "default_genome": "GRCh38",
@@ -68,12 +68,13 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         ],
         "pipeline_kind_description": (
             "Differential splicing between two defined groups. Needs a 'condition' column "
-            "grouping samples and a contrasts file naming the comparison."
+            "grouping samples (each an R name: a letter first, then letters, digits, '.' "
+            "or '_') and a contrasts file naming the comparison."
         ),
     },
     "scrnaseq": {
         "repo": "https://github.com/nf-core/scrnaseq",
-        "default_revision": "2.7.1",
+        "default_revision": "4.2.0",
         "description": "Single-cell RNA-seq (10x, dropseq, smartseq).",
         "common_assays": ["scRNA-seq", "single cell", "single-cell"],
         "default_genome": "GRCh38",
@@ -267,7 +268,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
     },
     "riboseq": {
         "repo": "https://github.com/nf-core/riboseq",
-        "default_revision": "1.2.0",
+        "default_revision": "2.0.0",
         "description": "Ribosome profiling (Ribo-seq) analysis.",
         "common_assays": ["Ribo-seq", "riboseq", "ribosome profiling", "ribosome footprinting"],
         "default_genome": "GRCh38",

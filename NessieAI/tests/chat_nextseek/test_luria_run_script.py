@@ -174,7 +174,7 @@ def test_render_luria_config_rejects_bad_refs_root():
 
 
 def test_render_run_script_injects_fasta_gtf_for_known_genome():
-    s = render_run_script(job_name="j", pipeline="nf-core/scrnaseq", revision="2.7.1",
+    s = render_run_script(job_name="j", pipeline="nf-core/scrnaseq", revision="4.2.0",
                           run_dir="/r", work_dir="/w", singularity_cache="/c", genome="Mfas6.0",
                           resources={}, refs_root="/net/x/refs")
     assert "--fasta /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz" in s
@@ -225,8 +225,8 @@ def test_render_process_config():
 def test_resolve_pipeline_source_star_uses_vendored_clone_no_revision():
     from chat_nextseek.luria.run_script import resolve_pipeline_source
     source, flag = resolve_pipeline_source(
-        "nf-core/scrnaseq", "star", "2.7.1", "/net/bmc-pub10/data1/bmc/pipeline_cd")
-    assert source == "/net/bmc-pub10/data1/bmc/pipeline_cd/pipelines/scrnaseq-2.7.1-star-patched"
+        "nf-core/scrnaseq", "star", "4.2.0", "/net/bmc-pub10/data1/bmc/pipeline_cd")
+    assert source == "/net/bmc-pub10/data1/bmc/pipeline_cd/pipelines/scrnaseq-4.2.0-star-patched"
     # a `-r <tag>` on a local git clone would checkout the tag and WIPE the patches
     assert flag == ""
 
@@ -234,44 +234,71 @@ def test_resolve_pipeline_source_star_uses_vendored_clone_no_revision():
 def test_resolve_pipeline_source_stock_when_aligner_not_registered():
     from chat_nextseek.luria.run_script import resolve_pipeline_source
     source, flag = resolve_pipeline_source(
-        "nf-core/scrnaseq", "alevin", "2.7.1", "/net/bmc-pub10/data1/bmc/pipeline_cd")
+        "nf-core/scrnaseq", "simpleaf", "4.2.0", "/net/bmc-pub10/data1/bmc/pipeline_cd")
     assert source == "nf-core/scrnaseq"
-    assert flag == "-r 2.7.1"
+    assert flag == "-r 4.2.0"
+
+
+def test_resolve_pipeline_source_stock_when_the_run_pins_another_release():
+    # The clone is one tag. A run pinned to another release keeps the stock pipeline at that
+    # release: its params were checked against that release's schema, not the clone's.
+    from chat_nextseek.luria.run_script import resolve_pipeline_source
+    source, flag = resolve_pipeline_source("nf-core/scrnaseq", "star", "2.7.1", "/net/x")
+    assert source == "nf-core/scrnaseq" and flag == "-r 2.7.1"
+
+
+def test_the_scrnaseq_star_clone_is_the_pinned_release():
+    from chat_nextseek.luria.run_script import LURIA_VENDORED_PIPELINES
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    entry = LURIA_VENDORED_PIPELINES[("nf-core/scrnaseq", "star")]
+    assert entry["revision"] == NFCORE_PIPELINE_CATALOG["scrnaseq"]["default_revision"]
+    assert entry["path"] == "{WORKING}/pipelines/scrnaseq-" + entry["revision"] + "-star-patched"
+
+
+def test_the_star_clone_provision_script_builds_the_registered_clone():
+    from chat_nextseek.luria.run_script import LURIA_VENDORED_PIPELINES
+    rev = LURIA_VENDORED_PIPELINES[("nf-core/scrnaseq", "star")]["revision"]
+    folder = (Path(run_script_module.__file__).parent / "pipelines"
+              / ("scrnaseq_" + rev.replace(".", "_") + "_star"))
+    script = (folder / "provision.sh").read_text()
+    assert f"\nTAG={rev}\n" in script
+    assert "/pipelines/scrnaseq-${TAG}-star-patched" in script
+    assert (folder / "README.md").exists()
 
 
 def test_resolve_pipeline_source_normalizes_github_url():
     from chat_nextseek.luria.run_script import resolve_pipeline_source
     for pipeline in ("https://github.com/nf-core/scrnaseq", "https://github.com/nf-core/scrnaseq.git"):
-        source, flag = resolve_pipeline_source(pipeline, "star", "2.7.1", "/net/x")
-        assert source == "/net/x/pipelines/scrnaseq-2.7.1-star-patched"
+        source, flag = resolve_pipeline_source(pipeline, "star", "4.2.0", "/net/x")
+        assert source == "/net/x/pipelines/scrnaseq-4.2.0-star-patched"
         assert flag == ""
 
 
 def test_resolve_pipeline_source_stock_when_no_working():
     # without a working path we cannot build the clone path -> fall back to stock
     from chat_nextseek.luria.run_script import resolve_pipeline_source
-    source, flag = resolve_pipeline_source("nf-core/scrnaseq", "star", "2.7.1", None)
-    assert source == "nf-core/scrnaseq" and flag == "-r 2.7.1"
+    source, flag = resolve_pipeline_source("nf-core/scrnaseq", "star", "4.2.0", None)
+    assert source == "nf-core/scrnaseq" and flag == "-r 4.2.0"
 
 
 def test_render_run_script_star_points_at_vendored_clone_no_r():
-    s = render_run_script(job_name="j", pipeline="nf-core/scrnaseq", revision="2.7.1",
+    s = render_run_script(job_name="j", pipeline="nf-core/scrnaseq", revision="4.2.0",
                           run_dir="/r", work_dir="/w", singularity_cache="/c", genome="Mfas6.0",
                           resources={}, refs_root="/net/x/refs", aligner="star",
                           working="/net/bmc-pub10/data1/bmc/pipeline_cd")
-    assert ("nextflow run /net/bmc-pub10/data1/bmc/pipeline_cd/pipelines/scrnaseq-2.7.1-star-patched "
+    assert ("nextflow run /net/bmc-pub10/data1/bmc/pipeline_cd/pipelines/scrnaseq-4.2.0-star-patched "
             "-profile singularity") in s
-    assert "-r 2.7.1" not in s          # local clone: NO -r (would wipe the patches)
+    assert "-r 4.2.0" not in s          # local clone: NO -r (would wipe the patches)
     assert "{{" not in s and "}}" not in s
 
 
-def test_render_run_script_alevin_uses_stock_remote_with_r():
-    s = render_run_script(job_name="j", pipeline="nf-core/scrnaseq", revision="2.7.1",
+def test_render_run_script_simpleaf_uses_stock_remote_with_r():
+    s = render_run_script(job_name="j", pipeline="nf-core/scrnaseq", revision="4.2.0",
                           run_dir="/r", work_dir="/w", singularity_cache="/c", genome="Mfas6.0",
-                          resources={}, refs_root="/net/x/refs", aligner="alevin",
+                          resources={}, refs_root="/net/x/refs", aligner="simpleaf",
                           working="/net/bmc-pub10/data1/bmc/pipeline_cd")
-    assert "nextflow run nf-core/scrnaseq -r 2.7.1 -profile singularity" in s
-    assert "/pipelines/scrnaseq-2.7.1-star-patched" not in s
+    assert "nextflow run nf-core/scrnaseq -r 4.2.0 -profile singularity" in s
+    assert "-star-patched" not in s
 
 
 # --- operator-specific slots (mail user / conda env) -------------------------
@@ -498,7 +525,7 @@ def test_rnavar_profile_matches_github_url_and_bare_key():
 
 
 def test_rnaseq_and_scrnaseq_launch_unchanged():
-    for pipeline, rev in (("nf-core/rnaseq", "3.22.2"), ("nf-core/scrnaseq", "2.7.1")):
+    for pipeline, rev in (("nf-core/rnaseq", "3.22.2"), ("nf-core/scrnaseq", "4.2.0")):
         s = _rnavar(pipeline=pipeline, revision=rev)
         assert "export NXF_SYNTAX_PARSER=v1" in s
         assert ("--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz "
@@ -617,7 +644,7 @@ def _golden_kwargs():
                                 revision="3.22.2", genome="GRCm39", needs_fetch=True,
                                 fastq_cache=f"{w}/fastq_cache"),
         "scrnaseq_star": dict(common, job_name="run", pipeline="nf-core/scrnaseq",
-                              revision="2.7.1", genome="Mfas6.0", aligner="star"),
+                              revision="4.2.0", genome="Mfas6.0", aligner="star"),
         "rnavar": dict(common, job_name="run", pipeline="nf-core/rnavar", revision="1.3.0",
                        genome="GRCh38", aligner="star"),
     }

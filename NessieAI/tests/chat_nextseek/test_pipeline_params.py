@@ -26,10 +26,18 @@ def test_rnaseq_has_curated_params_and_reference_resources():
 def test_scrnaseq_has_curated_params_and_reference_resources():
     doc = _load("scrnaseq")
     params = doc["params"]
-    assert "alevin" in params["aligner"]["allowed"]
+    # 4.0.0 renamed the alevin backend to simpleaf; 4.2.0 refuses "alevin".
+    assert params["aligner"]["default"] == "simpleaf"
+    assert "alevin" not in params["aligner"]["allowed"]
     assert params["protocol"]["default"] == "auto"
     assert "expected_cells" not in params
-    assert doc["reference_resources"] == ["fasta", "gtf", "salmon_index", "star_index", "txp2gene"]
+    # 3.0.0 replaced emptydrops with cellbender; 4.2.0 deprecates skip_emptydrops.
+    assert "skip_emptydrops" not in params and "skip_cellbender" in params
+    # salmon_index is not a 4.2.0 param (simpleaf_index replaced it, and a salmon index is not one).
+    assert doc["reference_resources"] == ["fasta", "gtf", "star_index", "txp2gene"]
+    # Every preset names an aligner the menu offers.
+    presets = {k: v for k, v in doc["protocol_presets"].items() if isinstance(v, dict)}
+    assert presets and all(p["aligner"] in params["aligner"]["allowed"] for p in presets.values())
 
 
 ALL_PIPELINES = ["rnaseq", "scrnaseq", "atacseq", "chipseq", "cutandrun", "sarek", "methylseq", "ampliseq", "fetchngs"]
@@ -219,12 +227,12 @@ def test_every_catalog_pipeline_has_a_loadable_template():
 _TIER1_BATCH = {
     # key: (revision, reference_cli_flags, required samplesheet columns)
     "smrnaseq":  ("2.4.1", ["genome", "fasta"], ["sample", "fastq_1"]),
-    "riboseq":   ("1.2.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "strandedness", "type"]),
+    "riboseq":   ("2.0.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "strandedness", "type"]),
     "hlatyping": ("2.2.0", ["genome"], ["sample", "seq_type"]),
     "hic":       ("2.1.0", ["genome", "fasta"], ["sample", "fastq_1"]),
     "rnavar":    ("1.3.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1"]),
     "rnafusion":  ("4.1.3", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "fastq_2", "strandedness"]),
-    "rnasplice":  ("1.0.4", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "fastq_2", "strandedness", "condition"]),
+    "rnasplice":  ("2.0.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "fastq_2", "strandedness", "condition"]),
     "sarek": ("3.10.0", ["genome", "fasta"], ["patient", "sample", "lane", "fastq_1"]),
 }
 
@@ -273,6 +281,27 @@ def test_enum_constrained_columns_are_documented_with_their_allowed_values():
     assert "forward" in ribo["strandedness"]["allowed_values"]
     hla = _load("hlatyping")["schema"]["sections"]["samplesheet_columns"]["fields"]
     assert hla["seq_type"]["allowed_values"] == "dna | rna"
+
+
+def test_riboseq_menu_offers_ribotricer_now_that_2_0_0_makes_it_opt_in():
+    """riboseq 2.0.0 (#163) replaced --skip_ribotricer (default false) with --run_ribotricer
+    (default false), so a 1.x run's Ribotricer ORF calls now need asking for: the menu offers
+    the switch at the pinned default. It also names the optional with_umi and trim_length
+    columns the pinned assets/schema_input.json added."""
+    from pathlib import Path
+    fixtures = Path(__file__).parent / "fixtures" / "nfcore"
+    schema = json.loads((fixtures / "riboseq.nextflow_schema.json").read_text())
+    props = {k: v for g in schema["$defs"].values() for k, v in g["properties"].items()}
+    columns = json.loads((fixtures / "riboseq.schema_input.json").read_text())["items"]["properties"]
+    doc = _load("riboseq")
+    ribotricer = doc["params"]["run_ribotricer"]
+    assert ribotricer["type"] == "bool" and ribotricer["default"] is False
+    assert ribotricer["steerable"] is True
+    assert "run_ribotricer" in props and "skip_ribotricer" not in props
+    for column in ("with_umi", "trim_length", "pair"):
+        assert column in columns and column in doc["pipeline"]["optional_columns"], column
+    assert "2.0.0" in doc["description"]
+    assert all("@ 2.0.0" in s["label"] for s in doc["sources"] if "@" in s["label"])
 
 
 def test_rnavar_defaults_to_skipping_bqsr():
@@ -387,14 +416,26 @@ def test_rnasplice_catalog_menu_and_contrasts_ask():
     from chat_nextseek.seqera.pipeline_params import build_run_params, load_pipeline_context
     from chat_nextseek.seqera.user_params import required_user_params, missing_user_params
     e = get_pipeline_entry("rnasplice")
-    assert e["default_revision"] == "1.0.4"
+    assert e["default_revision"] == "2.0.0"
     assert e["required_columns"] == ["sample", "fastq_1", "fastq_2", "strandedness", "condition"]
     menu = load_pipeline_context("rnasplice")["params"]
     assert set(menu) >= {"aligner", "suppa", "rmats", "contrasts"}
     merged, errors, _ = build_run_params("rnasplice", {}, None)
     assert errors == []
-    assert merged["aligner"] == "star"
-    assert merged["suppa"] is True          # schema default is true
+    # The analyses are chosen from the researcher's question and data, never pinned to keep an
+    # older release's behaviour: with nothing steered, each falls back to the 2.0.0 default.
+    from pathlib import Path
+    schema = json.loads((Path(__file__).parent / "fixtures" / "nfcore"
+                         / "rnasplice.nextflow_schema.json").read_text())
+    declared = {k: v for g in schema["$defs"].values() for k, v in g.get("properties", {}).items()}
+    analyses = ("aligner", "suppa", "rmats", "dexseq_exon", "edger_exon", "dexseq_dtu",
+                "sashimi_plot", "isoformswitchanalyzer", "leafcutter")
+    for name in analyses:
+        # leafcutter declares no schema default; nextflow.config sets it false.
+        assert merged[name] == declared[name].get("default", False), name
+        assert menu[name].get("steerable") is True, name
+        assert "set it from the question" in menu[name]["help"].lower() \
+            or "set from the question" in menu[name]["help"].lower(), name
     # contrasts is a required-always must-ask (name must also be a menu key)
     assert [s["name"] for s in required_user_params("rnasplice")] == ["contrasts"]
     assert [s["name"] for s in missing_user_params("rnasplice", {})] == ["contrasts"]
