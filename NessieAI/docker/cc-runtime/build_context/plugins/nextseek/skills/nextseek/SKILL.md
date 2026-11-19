@@ -172,10 +172,9 @@ nextseek-aggregate --query "How many samples have no parent at all, and how many
   samples as well as a breakdown, ask it as its own part. For a `count` part it is that one number.
 - **Relay every line of `notes`.** They carry what the user must be told: a UID stored under another
   spelling, a changed filter, a truncated table, a part that could not be answered.
-- **`status`.** `ok` and `empty` are answers (an empty part is a real zero). `fallback` means the
-  breakdown could not be confirmed to stay inside the user's projects: `sum_of_group_counts` is the
-  project-scoped sample search's total (a number of samples), and there is no breakdown; say so.
-  `refused` and `error` mean that part has no answer. `timed_out` means the op answered before that part
+- **`status`.** `ok` and `empty` are answers (an empty part is a real zero). `refused` and `error`
+  mean that part has no answer: say it could not be counted, and never give a number from a sample
+  search in its place. `timed_out` means the op answered before that part
   finished (`complete` is false): say it did not finish and never estimate it.
 - **Charts and spellings.** Draw a chart or cluster spellings in `/data/scratch` from `groups` only,
   and say the counts are per stored spelling: "rhesus", "Rhesus" and "Macaca mulatta" are separate

@@ -5,7 +5,7 @@ language (``parts``; without them the question is the one part). The op resolves
 question and every part, so each part reads the same terms. The op has one plan (T1): the agent's ``plan``, else the
 turn's, else one parser call on the whole question; a part's own filters replace the plan's for that part. Then each part runs the graph op's own chain
 (``granular.run_graph_question``) on a small thread pool: the graph agent with ``AGGREGATE_BRIEF``,
-the Neo4j tool, at most one retry, and the graph_search fallback on a scope refusal. What comes back is a small
+the Neo4j tool and at most one retry, never the graph_search fallback. What comes back is a small
 table per part (``groups``, ``sum_of_group_counts``, ``groups_may_overlap``, ``null_group``), never sample records:
 the agent charts or clusters it.
 
@@ -17,13 +17,14 @@ more; a total is asked as its own part.
 Scope. The handler takes the request's config as the view built it and hands that same config to every call.
 It builds no config and takes no Cypher and no project list from the caller: the request model forbids those
 fields, and parts are plain language. Every statement, a retry's too, runs through the scoped Neo4j tool, which
-runs a superuser's statement as written and holds anyone else's to their projects or refuses it; a refusal is
-answered through graph_search, which applies the caller's projects on the server and returns a total, so a
-refused breakdown comes back as that total with a note saying the breakdown could not be computed.
+runs a superuser's statement as written and holds anyone else's to their projects or refuses it. A refusal a rewrite
+can cure gets one (``_retry_for``); a part still refused comes back ``refused`` with a note saying it could not be
+counted. It is never answered by graph_search: that counts the records matching a word, which is another number
+(who-asked-2, R1).
 
 Time. ``run_op`` hands the op its limit (``NessieAI/ns/op_limits.py``: 90 s, capped by the turn). The op answers
 ``ANSWER_MARGIN_S`` before it (``op_deadline_s``: 85 s of 90) with whatever has finished and names the other parts
-``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a fallback starts
+``timed_out``; work already started finishes in the background, as the graph op's does. A retry starts
 only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into every model call,
 Neo4j statement and REST call, so each is cut to fit it and none starts after it; a part (or the vocabulary) that ran
 out of time that way is ``timed_out`` too. Each task (the vocabulary step
@@ -41,12 +42,12 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any, Callable
 
-from NessieAI.ns.granular import (GRAPH_SCOPE_FALLBACK_NOTE, OpValidationError, _vocabulary_model, op_plan,
-                                  parse_agent_filters, parse_agent_plan, plan_filters, run_graph_question)
+from NessieAI.ns.granular import (OpValidationError, _vocabulary_model, op_plan, parse_agent_filters, parse_agent_plan,
+                                  plan_filters, run_graph_question)
 
 #: The op answers this long before its limit, so its reply is on the wire before the limit passes.
 ANSWER_MARGIN_S = 5.0
-#: A retry or a graph_search fallback starts only while at least this much of the deadline is left.
+#: A retry starts only while at least this much of the deadline is left.
 MIN_REMAINING_S = 15.0
 MAX_PARTS = 4
 MAX_PART_CHARS = 2000
@@ -171,22 +172,28 @@ def shape_repair_context(reasons: list[str]) -> str:
 
 
 def _retry_for(result: dict, cypher: str, deadline: float) -> tuple[str, str] | None:
-    """At most one more statement: after zero rows, or after a refusal a rewrite can cure; never late."""
-    from chat_nextseek.graph_retry import zero_row_retry_context
+    """At most one more statement: after zero rows, or after a refusal a rewrite can cure (a subquery or UNION
+    shape, or ``graph_retry.SCOPE_REPAIR_CODES``, told the check's reasons); never late."""
+    from chat_nextseek.graph_retry import scope_repair_context, zero_row_retry_context
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal, matched_nothing
 
     scope = result.get("scope") if isinstance(result.get("scope"), dict) else {}
     codes = set(scope.get("codes") or ())
+    repair = scope_repair_context(result)
     if matched_nothing(result):
         reason = "zero_rows"
     elif is_scope_refusal(result) and codes & SHAPE_CODES and codes <= SHAPE_CODES | SHAPE_FOLLOW_ON_CODES:
         reason = "shape_repair"
+    elif repair:
+        reason = "scope_repair"
     else:
         return None
     if deadline - _clock() < MIN_REMAINING_S:
         return None
     if reason == "zero_rows":
         return reason, zero_row_retry_context(cypher)
+    if reason == "scope_repair":
+        return reason, repair
     return reason, shape_repair_context(list(scope.get("reasons") or ()))
 
 
@@ -252,13 +259,31 @@ def _scope_summary(result: dict) -> dict | None:
     return out
 
 
-def _fallback_summary(fallback: dict) -> dict:
-    """The graph_search answer without its page of sample rows: a total is all a breakdown can use."""
-    out = {key: fallback.get(key) for key in ("ok", "ran", "endpoint", "note", "codes", "reasons", "error",
-                                               "parser_plan", "status_code") if key in fallback}
-    data = fallback.get("data")
-    if isinstance(data, dict):
-        out.update({key: data[key] for key in ("total", "rows_missing", "sample_types") if key in data})
+_COUNT_ITEM_RE = re.compile(r"\bcount\s*\(\s*(?:DISTINCT\s+)?([A-Za-z_]\w*)[^)]*\)\s+AS\s+([A-Za-z_]\w*)", re.I)
+_TYPED_NODE_RE = re.compile(r"\(\s*([A-Za-z_]\w*)\s*:\s*(T_\w+)")
+
+
+def column_units(cypher: str | None, columns: list[str]) -> dict[str, str]:
+    """``{column: "<type> samples"}`` for each column that counts nodes of one sample type: ``count(DISTINCT v) AS
+    column`` where ``v`` is bound as ``(v:T_<code>)``. A column whose thing cannot be read from the statement gets no
+    entry: no guess. The code is read back from the label (``T_A_DBMM`` is ``A.DBMM``: the first ``_`` after a
+    one-letter prefix is the catalog's dot)."""
+    from chat_nextseek.cypher_text import mask_cypher
+
+    text = cypher or ""
+    masked = mask_cypher(text)
+    labels = {}
+    for m in _TYPED_NODE_RE.finditer(masked):
+        labels.setdefault(m.group(1), m.group(2))
+    out = {}
+    for m in _COUNT_ITEM_RE.finditer(masked):
+        var, column = m.group(1), m.group(2)
+        label = labels.get(var)
+        if column in columns and label:
+            code = label[2:]
+            # ponytail: label-to-code by the catalog's one-letter-dot convention; read SampleType.label if a code breaks it
+            code = f"{code[0]}.{code[2:]}" if re.fullmatch(r"[A-Za-z]_\w+", code) else code
+            out[column] = f"{code} samples"
     return out
 
 
@@ -272,26 +297,11 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
     part = _blank_part(k, text, "ok")
     part.update(cypher=result.get("submitted_cypher") or answer.cypher, scope=_scope_summary(result),
                 attempts=answer.attempts)
-    if answer.fallback is not None:
-        summary = _fallback_summary(answer.fallback)
-        part["fallback"] = summary
-        if answer.fallback.get("ok") and isinstance(summary.get("total"), int):
-            total = summary["total"]
-            # graph_search counts each matching sample once: one group, which cannot overlap.
-            part.update(status="fallback", kind="count", sum_of_group_counts=total, groups_may_overlap=False)
-            notes.append(
-                f"{label}{GRAPH_SCOPE_FALLBACK_NOTE} That search counted {total:,} matching samples inside the "
-                "user's projects, but the count could not be broken down: report the total and say the "
-                "breakdown could not be computed."
-            )
-        else:
-            error = summary.get("error") or "the project-scoped sample search gave no total"
-            part.update(status="refused", error=error)
-            notes.append(
-                f"{label}this part could not be answered: its graph query could not be confirmed to stay within "
-                f"the user's projects, and the project-scoped sample search did not answer ({error}). Say so; "
-                "never estimate it."
-            )
+    if isinstance(result.get("scope"), dict) and result["scope"].get("decision") == "refused":
+        part.update(status="refused", error=str(result.get("error") or "")[:500])
+        notes.append(f"{label}this part could not be counted: its graph query could not be confirmed to stay within "
+                     "the user's projects. Say it could not be counted; never estimate it, and never give a number "
+                     "from a word search in its place.")
         return part, notes
     if not result.get("ok"):
         refused = isinstance(result.get("scope"), dict) and result["scope"].get("decision") == "not_checked"
@@ -310,6 +320,13 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
         one = len(columns) == 1
         part.update(group_count=1, sum_of_group_counts=rows[0][columns[0]] if one else None,
                     groups_may_overlap=False if one else None)
+        units = column_units(answer.cypher, columns)
+        part["column_units"] = units
+        if len(units) > 1 and len(set(units.values())) > 1:
+            told = ", ".join(f"{c} = {rows[0][c]:,} ({units[c]})" if c in units else f"{c} = {rows[0][c]:,}"
+                             for c in columns)
+            notes.append(f"{label}this row's columns count different things: {told}. Report each number with "
+                         "what it counts; they are not two answers to one question and do not disagree.")
     elif kind == "breakdown":
         count = columns[-1] if columns else None
         part.update(
@@ -334,7 +351,7 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
 
 def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, config: Any, session: Any,
               write_gate: Callable, exec_fn: Callable, entity_out: Any, uid_note: str | None, started: float,
-              deadline: float, fallback_budget_s: float,
+              deadline: float,
               parser_plan: Any = None, plan_source: str | None = None) -> tuple[dict, list[str], Any]:
     """One part through the graph op's chain; never raises (a failure is an ``error`` part)."""
     try:
@@ -342,7 +359,7 @@ def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, conf
             text, config=config, session=session, write_gate=write_gate, neo4j_exec=exec_fn,
             entity_out=entity_out, refine_context=_brief(question, multi, uid_note), prepare_cypher=cap_rows,
             retry=lambda result, cypher: _retry_for(result, cypher, deadline),
-            started=started, clock=_clock, fallback_budget_s=fallback_budget_s,
+            started=started, clock=_clock, text_fallback=False,
             parser_plan=parser_plan, plan_source=plan_source,
         )
         part, notes = _shape_part(k, text, answer, label)
@@ -504,7 +521,6 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
                             label=f"Part {k}: " if multi else "", question=question,
                             multi=multi, config=config, session=session, write_gate=write_gate, exec_fn=exec_fn,
                             entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline,
-                            fallback_budget_s=deadline_s - MIN_REMAINING_S,
                             parser_plan=part_plans[k - 1], plan_source=plan_source): k
                 for k, text in enumerate(parts, 1)
             }
