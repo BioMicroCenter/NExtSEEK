@@ -703,17 +703,22 @@ LAB_PEOPLE_CYPHER = (
     "RETURN s.Scientist AS scientist, count(*) AS n ORDER BY n DESC LIMIT $top"
 )
 
+#: The person is what is asked: a question that opens with "who", a full name, an investigator or PI, a lab head,
+#: what a code stands for, the scientist or person behind it. A relative "who"/"whose" inside a filter ("patients
+#: who are positive") and bare words such as "people" or "principal" do not count.
 _PERSON_ASK = re.compile(
-    r"\b(?:who|whose|full\s+name|name\s+(?:of|the)|investigators?|pis?|principal|scientists?|person|people"
-    r"|lab\s+head|head\s+of)\b",
+    r"^\W*who\b|\bfull\s+names?\b|\binvestigators?\b|\blab\s+heads?\b|\bheads?\s+of\s+(?:the\s+)?lab\b"
+    r"|\bstands?\s+for\b|\b(?:scientists?|person|people|names?)\s+behind\b",
     re.IGNORECASE,
 )
+_PI_ASK = re.compile(r"\bP\.?I\.?s?\b")  # capitals only: "pi values" is not a PI
+
 _CODE = re.compile(r"[A-Z]{3}")
 
 
 def asks_lab_person(question: str) -> bool:
     """True when the question asks for a person or a lab's identity (who, a name, an investigator, a PI)."""
-    return bool(_PERSON_ASK.search(question or ""))
+    return bool(_PERSON_ASK.search(question or "") or _PI_ASK.search(question or ""))
 
 
 def lab_people(config: Any, codes: Any, *, run: Any, top: int = 5, max_codes: int = 3) -> dict | None:

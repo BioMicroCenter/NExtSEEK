@@ -37,7 +37,11 @@ def test_person_questions_about_a_code_are_recognised():
 
 
 def test_a_lab_scoped_count_is_not_a_person_question():
-    for q in ("How many tissue samples does the QQZ lab have?", "List RNA samples from ZRV with RIN above 8"):
+    for q in ("How many tissue samples does the QQZ lab have?", "List RNA samples from ZRV with RIN above 8",
+              "patients who are HIV positive from the QQZ lab", "RNA from the QQZ lab whose tissue came from a mouse",
+              "samples from people with asthma in the ZRV lab", "name the protocol the QQZ lab used",
+              "principal component scores for ZRV samples", "head of the femur samples from QQZ",
+              "pi values in the QQZ lab"):
         assert not lab_code.asks_lab_person(q), q
 
 
@@ -151,3 +155,12 @@ def test_a_lab_scoped_count_runs_no_extra_read(monkeypatch, tmp_path):
     assert calls["neo4j"] == 1
     assert calls["agent_contexts"] == [None]
     assert "lab_people" not in debug
+
+
+def test_a_filter_with_a_relative_who_runs_no_extra_read(monkeypatch, tmp_path):
+    _, calls = _turn(
+        monkeypatch, tmp_path, user_text="Show patients who are HIV positive from the QQZ lab",
+        lab_codes=["QQZ"], neo4j_results=[_rows({"type": "PAT", "n": 3})],
+    )
+
+    assert calls["neo4j"] == 1 and calls["agent_contexts"] == [None]
