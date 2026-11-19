@@ -295,6 +295,14 @@ class GraphOpRewriteTests(SimpleTestCase):
         self.assertTrue(out["result"]["ok"])
         self.assertIn("properties()", self.contexts[1])
 
+    def test_a_tree_with_a_count_column_refused_for_good_still_gets_the_word_search(self):
+        """Review F3: the count rule reads the question (or a RETURN of aggregates only), not a count column."""
+        walk = "MATCH (z:T_ZEB)-[:OF_TYPE]->(t:SampleType) RETURN t.title AS type, count(z) AS n"  # not curable
+        out, executed = self._run("show me the zebra tree", [walk])
+        self.assertEqual(executed, [walk])
+        self.assertIn("fallback", out)
+        self.rest.assert_called_once()
+
     def test_a_count_refused_after_its_rewrite_makes_no_word_search(self):
         walk = ("MATCH (st:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(p:Project) "
                 "WHERE p.title = 'Quill' RETURN count(DISTINCT st) AS n")

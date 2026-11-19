@@ -1665,9 +1665,8 @@ CATALOG_SCOPE_REPLY = (
 #: A count or breakdown the scope refused, after its one rewrite when it had one (who-asked-2, R1). Never the sample
 #: search: it counts the records that mention a word, which is another number.
 COUNT_SCOPE_REPLY = (
-    "I could not count that: the graph query for it could not be confirmed to stay within your projects, so it was "
-    "not run, and a word search would count something else. Asking about the samples that hold what you want "
-    "counted may work."
+    "I could not count that within your projects, so I have no number for it. Asking about the samples that hold "
+    "what you want counted may work."
 )
 #: Ruling 7, review F3: a member's "which sample types have samples" is answered from the samples in their own
 #: projects; the member scope wraps this statement like any other.

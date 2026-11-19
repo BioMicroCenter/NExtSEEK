@@ -230,17 +230,20 @@ def scope_repair_context(result: dict) -> str | None:
 _COUNT_WORDS = re.compile(r"\bhow\s+many\b|\bnumber\s+of\b|^\W*count\b|\bcount\s+(?:of|the|all|every|each)\b"
                           r"|\bbreak(?:s|ing)?\s+(?:\w+\s+){0,4}?down\b"
                           r"|\bbroken\s+down\b|\bbreakdown\b|\btally\b", re.I)
-_COUNT_CALL = re.compile(r"\bcount\s*\(", re.I)
 
 
 def asks_for_a_count(question: str | None, cypher: str | None) -> bool:
-    """Is this a count or a breakdown: the question asks for one, or the statement written for it counts?
+    """Is this a count or a breakdown: the question asks for one, or the statement written for it returns nothing
+    but counts or sums?
 
     A refused count is never answered by the word search (who-asked-2, R1): that search counts the records that
-    mention a word, which is another number. The statement is read masked, so a ``count(`` inside a string or a
-    comment is not a count, and a ``COUNT { }`` subquery is a filter, not one.
+    mention a word, which is another number. A tree or list statement with a count column ("its samples, with counts
+    by type") is not a count the user asked for, so it keeps the labelled word search (review F3). The statement is
+    read masked, so a ``count(`` inside a string or a comment is not a count, and a ``COUNT { }`` subquery is a
+    filter, not one.
     """
     if _COUNT_WORDS.search(question or ""):
         return True
     from .cypher_text import mask_cypher
-    return bool(_COUNT_CALL.search(mask_cypher(cypher or "")))
+    from .graph_review import _is_count_only
+    return _is_count_only(mask_cypher(cypher or ""))

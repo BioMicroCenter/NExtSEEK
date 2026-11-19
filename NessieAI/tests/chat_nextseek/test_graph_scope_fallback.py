@@ -697,6 +697,15 @@ def test_a_count_refused_for_a_code_no_rewrite_cures_stops_without_a_rewrite(mon
     assert run.calls["agent"] == 1
 
 
+def test_a_tree_with_a_count_column_refused_for_good_keeps_the_text_search(monkeypatch, tmp_path):
+    """Review F3: a member's refused tree statement that counts its rows by type is not a count the user asked
+    for; it gets the labelled text search as before, never "I could not count that"."""
+    walk = "MATCH (z:T_ZEB)-[:OF_TYPE]->(t:SampleType) RETURN t.title AS type, count(z) AS n"  # not curable
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(walk), _plan("NEVER")], [_checked([])],
+                      user_text="show me the zebra tree")
+    assert isinstance(run.out, orch.GraphScopeFallback)
+
+
 def test_a_list_refused_after_its_rewrite_still_falls_back(monkeypatch, tmp_path):
     hidden = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.parent_titles AS parents"
     run = _graph_turn(monkeypatch, tmp_path, [_plan(hidden), _plan(hidden)], [_checked([]), _checked([])],
@@ -725,6 +734,11 @@ def test_a_members_how_many_question_makes_no_sample_search_call():
      False),
     ("zebras with a stripe count above 100", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", False),
     ("Count the zebras", "MATCH (z:T_ZEB) RETURN z.uuid AS uid", True),
+    # Review F3: a tree or list statement with a count column is not a count the user asked for.
+    ("show me the sample tree for XY-7", "MATCH (d:Sample)-[:DERIVED_FROM*1..12]->(r:Sample {uuid: $uid}) "
+     "RETURN d.type AS type, count(DISTINCT d) AS n", False),
+    ("which zebras", "MATCH (z:T_ZEB) RETURN z.Colour AS colour, count(z) AS n ORDER BY n DESC", False),
+    ("which zebras", "MATCH (z:T_ZEB) RETURN count(DISTINCT z) AS zebras, sum(z.Legs) AS legs", True),
 ])
 def test_what_counts_as_a_count(question, cypher, count):
     from chat_nextseek.graph_retry import asks_for_a_count
