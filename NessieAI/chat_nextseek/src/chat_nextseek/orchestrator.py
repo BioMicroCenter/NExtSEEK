@@ -1247,7 +1247,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         timed_out_statements.add(normalized_cypher(graph_plan.cypher))
         last_timeout = (graph_plan, graph_result, parameters, kept_ms)
 
-    # A zero on a free-text match of an identifier is re-run once with the separators optional (DFCI-4 finds DFCI4),
+    # A zero on a free-text match of an identifier is re-run once with the separators optional (QXRT-4 finds QXRT4),
     # by code and before the agent's retry, whose call this used to be (graph_retry.py "identifier spellings"). A
     # quoted identifier asks for that spelling only. It is not one of the GRAPH_MAX_TRIES agent statements.
     spelling_note = None

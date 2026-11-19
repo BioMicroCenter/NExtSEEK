@@ -114,7 +114,7 @@ def test_a_mention_search_is_not_a_subject_and_runs_no_lookup():
 
 def test_a_word_or_a_single_number_is_not_a_subject_name():
     run = fake_neo4j(_graph())
-    assert sc.check_subject(_config(), "sample tree for monkey 16619", _plan(["16619"]), run=run) is None
+    assert sc.check_subject(_config(), "sample tree for monkey 45512", _plan(["45512"]), run=run) is None
     assert sc.check_subject(_config(), "lineage of lung tissue", _plan(["lung"]), run=run) is None
     assert run.calls == []
 
