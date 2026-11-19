@@ -125,13 +125,19 @@ def _catalog_rows(config: Any) -> list[dict]:
 #: chemical, a cell line, a microbe or a water sample has none.
 INDIVIDUAL_FIELD = "Sex"
 _METADATA_KEYS = ("Required Metadata", "Standard Metadata", "Possible Metadata Fields")
+#: The word parts of an attribute title (``BaselineCohort`` holds ``cohort``), as ``field_words`` splits them.
+_TITLE_PART = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
+
+
+def _fields(row: dict) -> set[str]:
+    return {f.strip() for k in _METADATA_KEYS for f in str(row.get(k) or "").split(",") if f.strip()}
 
 
 def _individuals(config: Any) -> list[dict]:
     """The catalog rows of the individual types: Source clade, with ``INDIVIDUAL_FIELD`` among their fields."""
     return [r for r in _catalog_rows(config)
             if r.get("SampleType") and str(r.get("Clade") or "").strip().lower() == "source"
-            and INDIVIDUAL_FIELD in {f.strip() for k in _METADATA_KEYS for f in str(r.get(k) or "").split(",")}]
+            and INDIVIDUAL_FIELD in _fields(r)]
 
 
 def _words(text: Any) -> set[str]:
@@ -140,17 +146,21 @@ def _words(text: Any) -> set[str]:
 
 def subject_words(config: Any) -> frozenset[str]:
     """The words that name an individual before its name ("patient XY-7", "monkey 77-001", "animal 77-001"): every
-    word of an individual type's catalog name, and every word of its tags that no other type's name or tags uses
-    (so "study" in "study participant" and "model" in "animal model" are not one)."""
+    word of an individual type's catalog name, and every word of its tags that no other type's name or tags uses and
+    no attribute title holds as a word part. So "study" in "study participant" and "model" in "animal model" are not
+    one, nor "cohort" or "trial": a field's value ("cohort C-2") is not an individual's name."""
+    rows = _catalog_rows(config)
     individuals = _individuals(config)
     codes = {r["SampleType"] for r in individuals}
     others: set[str] = set()
-    for r in _catalog_rows(config):
+    for r in rows:
+        others |= {_singular(p.lower()) for f in _fields(r) for p in _TITLE_PART.findall(f)}
         if r.get("SampleType") not in codes:
             others |= _words(r.get("Name")) | _words(r.get("Tags"))
     out: set[str] = set()
     for r in individuals:
-        out |= _words(r.get("Name")) | (_words(r.get("Tags")) - others)
+        out |= _words(r.get("Name")) | {w for w in _words(r.get("Tags")) if w not in others
+                                        and _singular(w) not in others}
     return frozenset(out)
 
 

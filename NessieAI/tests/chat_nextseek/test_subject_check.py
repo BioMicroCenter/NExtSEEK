@@ -23,8 +23,8 @@ from chat_nextseek.schemas.router import ParserPlan
 #: Individuals (a Source type whose records carry a Sex field): PAT and NHP. PAV and the antibody AB are Source types
 #: that are not individuals; TIS is not a source.
 SOURCE_CATALOG = [
-    {"SampleType": "PAT", "Name": "Patient", "Clade": "Source", "Tags": "patient, human donor, study participant",
-     "Standard Metadata": "Name, Sex"},
+    {"SampleType": "PAT", "Name": "Patient", "Clade": "Source",
+     "Tags": "patient, human donor, study participant, trial cohort member", "Standard Metadata": "Name, Sex, Cohort, TrialArm"},
     {"SampleType": "PAV", "Name": "Patient Visit", "Clade": "Source", "Tags": "patient visit, study visit",
      "Standard Metadata": "Name, VisitDate"},
     {"SampleType": "NHP", "Name": "Non Human Primate", "Clade": "Source", "Tags": "monkey, macaque, animal model",
@@ -266,7 +266,8 @@ def test_samples_that_came_from_a_named_patient_resolve_it():
 
 def test_samples_of_a_word_that_names_no_individual_run_no_lookup():
     run = fake_neo4j(_graph())
-    for question in ("samples from study XY-7", "data for antibody XY-7", "records from visit XY-7"):
+    for question in ("samples from study XY-7", "data for antibody XY-7", "records from visit XY-7",
+                     "samples from cohort XY-7", "data for trial XY-7"):
         assert sc.check_subject(_config(), question, _plan(["XY-7"]), run=run) is None, question
     assert run.calls == []
 
@@ -292,7 +293,7 @@ def test_the_real_catalog_names_patients_and_animals_as_individuals_and_not_reag
     assert not individuals & {"AB", "ABP", "CHM", "CEL", "BAC", "VIR", "WTR", "PAV"}
     words = sc.subject_words(config)
     assert {"patient", "animal", "monkey", "mouse", "donor"} <= words
-    assert not words & {"antibody", "study", "model", "visit", "cell", "lab"}
+    assert not words & {"antibody", "study", "model", "visit", "cell", "lab", "cohort", "trial"}
 
 
 def test_the_subject_is_the_keyword_the_question_asks_about_not_the_first_one():
