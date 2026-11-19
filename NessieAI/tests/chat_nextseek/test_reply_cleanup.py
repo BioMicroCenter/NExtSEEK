@@ -45,6 +45,32 @@ def test_the_label_list_comes_from_the_prompt_files():
         assert want in labels
 
 
+def test_the_block_headings_built_in_code_are_labels_too():
+    """Review F5: headings the code builds (not only those the prompt files name) are internal labels."""
+    from chat_nextseek.helpers.field_words import FIELDS_HEADING
+    labels = chatter_mod.internal_labels()
+    for want in ("FIELDS NAMED IN THIS QUESTION", "LAB CODE PEOPLE", "SUBJECT CHECK", "GRAPH VOCABULARY",
+                 "PARSER PLAN", "RESOLVED ENTITIES", "STEP RESULTS"):
+        assert want in labels, want
+    assert any(FIELDS_HEADING.startswith(label) for label in labels)
+    assert not {"OPTIONAL MATCH", "PUBLIC API"} & set(labels), "a Cypher clause or a docstring is not a block"
+
+
+def test_a_new_heading_added_in_code_is_covered(tmp_path):
+    module = tmp_path / "new_block.py"
+    module.write_text('"""PRIVATE NOTES: a docstring, not a block."""\n'
+                      'HEADING = "BRAND NEW BLOCK (read before your query):\\n"\n'
+                      'def f(x):\n    return f"intro\\nSECOND NEW BLOCK: {x}"\n'
+                      'CY = "OPTIONAL MATCH (s:Sample)"\n')
+    assert chatter_mod.code_headings([module]) == {"BRAND NEW BLOCK", "SECOND NEW BLOCK"}
+
+
+def test_an_unreadable_module_costs_its_headings_only(tmp_path):
+    bad = tmp_path / "broken.py"
+    bad.write_text("def (:\n")
+    assert chatter_mod.code_headings([bad, tmp_path / "missing.py"]) == set()
+
+
 def test_a_reply_with_labels_is_rewritten_once(monkeypatch):
     body, n = _answer(monkeypatch, ["There is no NOT APPLIED line, so all 7 were counted. The Executed query ran.",
                                     "All the conditions you gave were used, and 7 samples matched."])

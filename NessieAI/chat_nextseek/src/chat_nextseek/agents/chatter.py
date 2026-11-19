@@ -285,6 +285,44 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
 
 
 _PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
+_PACKAGE = Path(__file__).resolve().parent.parent
+#: The modules that build the blocks the graph step and the chatter read under a heading (UID CHECK, SUBJECT CHECK,
+#: LAB CODE PEOPLE, FIELDS NAMED IN THIS QUESTION, GRAPH VOCABULARY, PARSER PLAN, STEP RESULTS, ...).
+_BLOCK_MODULES = ("agents/graph.py", "agents/chatter.py", "graph_context.py", "helpers")
+#: A heading built in code: a line of a string that opens with two or more ALL-CAPS words, then " (" or ":".
+_CODE_HEADING = re.compile(r"(?m)^[ \t]*([A-Z]{2,}(?: [A-Z]{2,})+)(?: \(|:)")
+#: A Cypher statement in a string opens the same way ("OPTIONAL MATCH (s:Sample)"); it is not a block.
+_CYPHER_CLAUSES = frozenset({"MATCH", "OPTIONAL", "WITH", "RETURN", "UNWIND", "WHERE", "CALL", "ORDER", "MERGE",
+                             "CREATE", "DETACH", "UNION", "SET", "DELETE", "LIMIT", "SKIP"})
+
+
+def code_headings(paths=None) -> set[str]:
+    """The block headings built in code (review F5): every string line in ``paths`` (default: the
+    ``_BLOCK_MODULES``) that opens with two or more ALL-CAPS words and then " (" or ":", docstrings and Cypher left
+    out. A heading written another way, or built in another module, is not found. A module that cannot be read or
+    parsed adds nothing."""
+    import ast
+    if paths is None:
+        paths = [p for name in _BLOCK_MODULES for p in
+                 (sorted((_PACKAGE / name).rglob("*.py")) if (_PACKAGE / name).is_dir() else [_PACKAGE / name])]
+    found: set[str] = set()
+    for path in paths:
+        try:
+            tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError) as exc:
+            print(f"[CHATTER] block headings of {path} not read: {type(exc).__name__}")
+            continue
+        docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                      if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                      and node.body and isinstance(node.body[0], ast.Expr)
+                      and isinstance(node.body[0].value, ast.Constant)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                found.update(m.group(1) for m in _CODE_HEADING.finditer(node.value)
+                             if m.group(1).split()[0] not in _CYPHER_CLAUSES)
+    return found
+
+
 #: An ALL-CAPS block name: in backticks in the chatter prompt, or before "block" or "line" in any prompt.
 _CAPS_LABEL = re.compile(r"`([A-Z][A-Z ]{3,58}[A-Z])`")
 _CAPS_BLOCK = re.compile(r"\b((?:[A-Z]{2,} ){1,6}[A-Z]{2,}) (?:block|line)\b")
@@ -294,8 +332,9 @@ _MIXED_LABEL = re.compile(r"`([A-Z][a-z]+(?: [A-Za-z]+)+)`")
 @lru_cache(maxsize=1)
 def internal_labels() -> tuple[str, ...]:
     """The names of the blocks the prompts hand the model (NOT APPLIED, UID CHECK, Constrained by, ...), read from the
-    prompt files so a new block heading is covered. A reply that holds one has leaked it: the user cannot know it."""
-    found: set[str] = set()
+    prompt files, and the block headings built in code (``code_headings``), so a new block heading is covered. A
+    reply that holds one has leaked it: the user cannot know it."""
+    found: set[str] = code_headings()
     for f in sorted(_PROMPTS.glob("*.txt")):
         text = f.read_text(encoding="utf-8")
         found.update(m.group(1) for m in _CAPS_BLOCK.finditer(text))
