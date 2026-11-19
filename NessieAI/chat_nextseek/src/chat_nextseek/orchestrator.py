@@ -94,6 +94,7 @@ from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
+from .helpers.subject_check import check_subject, plan_with_subject, subject_notes
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -1719,6 +1720,19 @@ def _fall_back_to_graph_search(plan: ParserPlan) -> tuple[ParserPlan, str, list[
     return plan, "new_search", [SCOPE_FALLBACK_NOTE]
 
 
+def _subject_check(config, user_text: str, plan, debug_payload: dict, *, skip: bool = False):
+    """``(note for the graph agent, notes for the reply, plan)`` for a question about one named subject that is not a
+    UID (``helpers/subject_check.py``): the name is resolved to its record before the agent writes a query, and the
+    plan is anchored on the record's UID. Nothing, and the same plan, for any other turn or a chip's own statement."""
+    check = None if skip else check_subject(config, user_text, plan, run=tool_neo4j_query)
+    if check is None:
+        return None, [], plan
+    debug_payload["subject_check"] = {"term": check.term, "types": list(check.types),
+                                      "roots": [r["uuid"] for r in check.roots], "truncated": check.truncated}
+    agent_note, reply_notes = subject_notes(check)
+    return agent_note, reply_notes, plan_with_subject(plan, check)
+
+
 def _execute_graph_turn(
     *,
     config: ChatConfig,
@@ -1767,7 +1781,10 @@ def _execute_graph_turn(
     plan = plan_with_stored_uids(plan, uid_checks)  # R4: the parser's filters.uids carry the stored spelling
     if uid_agent_note:
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
-    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
+    subject_agent_note, subject_reply_notes, plan = _subject_check(config, user_text, plan, debug_payload,
+                                                                   skip=graph_plan is not None)
+    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note, subject_agent_note)
+                                if part) or None
 
     if graph_plan is None:
         print("\n[GRAPH] Running graph agent...")
@@ -1851,7 +1868,7 @@ def _execute_graph_turn(
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
-    query_notes: list[str] = list(uid_reply_notes) + catalog_notes
+    query_notes: list[str] = list(uid_reply_notes) + subject_reply_notes + catalog_notes
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(run.spelling_note or RETRY_CHANGED_ANSWER_NOTE)
