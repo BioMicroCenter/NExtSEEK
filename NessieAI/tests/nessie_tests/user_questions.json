@@ -12,7 +12,17 @@
    "run2": [
     "uq.one_patient_every_mention.1",
     "uq.one_patient_every_mention.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "came back",
+     "evidence": "uq.one_patient_every_mention.1: came back: \"sample tree for DFCI-4\": every record mentioning DFCI-4 (708, 7,987 rows) instead of the patient PAT-241113DFC-4 and its tree. | uq.one_patient_every_mention.s1: fixed: \"sample tree for monkey 16619\" resolved the animal and gave its 62-sample tree.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "came back"
   },
   "id_written_another_way": {
    "name": "An ID written another way found nothing",
@@ -24,7 +34,17 @@
    "run2": [
     "uq.id_written_another_way.1",
     "uq.id_written_another_way.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "came back",
+     "evidence": "uq.id_written_another_way.1: came back: The user's chain: \"DFCI-4\" finds 0 again (no spelling retry on prod), \"Sampletree\" alone searched as data, and the reply says \"There is no NOT APPLIED line\" (internals). | uq.id_written_another_way.s1: fixed: \"patient DFCI 5\" found PAT-241113DFC-5 (GBM1.DFCI5).",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "came back"
   },
   "navigation_word_searched": {
    "name": "A navigation word (\"Sampletree\") searched as data",
@@ -36,7 +56,17 @@
    "run2": [
     "uq.id_written_another_way.1",
     "uq.navigation_word_searched.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "came back",
+     "evidence": "uq.id_written_another_way.1: came back: The user's chain: \"DFCI-4\" finds 0 again (no spelling retry on prod), \"Sampletree\" alone searched as data, and the reply says \"There is no NOT APPLIED line\" (internals). | uq.navigation_word_searched.s1: fixed: \"Sampletree\" after a patient turn explains the tree page and links that patient.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "came back"
   },
   "reply_explains_internals": {
    "name": "The reply explains Nessie's internals",
@@ -48,7 +78,17 @@
    "run2": [
     "uq.reply_explains_internals.1",
     "uq.reply_explains_internals.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "came back",
+     "evidence": "uq.reply_explains_internals.1: fixed: the user's A.CNV and tumor-fraction questions answered with no internal wording this time. | uq.reply_explains_internals.s1: fixed: Ploidy field question answered plainly. | uq.id_written_another_way.1 (turn 1754): \"There is no NOT APPLIED line, so all constraints were applied.\" The leak is intermittent.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "came back"
   },
   "member_count_refused": {
    "name": "Member's project count refused",
@@ -61,7 +101,17 @@
    "run2": [
     "uq.member_count_refused.1",
     "uq.member_count_refused.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "not run",
+     "evidence": "member-login cases were not run (admin only, his call 11-19)",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "not run"
   },
   "missing_data_say_what_exists": {
    "name": "Data that is not there: say so and say what is",
@@ -73,7 +123,17 @@
    "run2": [
     "uq.member_count_refused.2",
     "uq.missing_data_say_what_exists.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.missing_data_say_what_exists.s1: fixed: No flow data for NHP 16619, and lists what it does have. | member_count_refused.2 (member login) not run.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "sheet_for_uid_list": {
    "name": "Sheet for a pasted list of UIDs: wrong columns, many rounds",
@@ -86,7 +146,17 @@
    "run2": [
     "uq.sheet_for_uid_list.2",
     "uq.sheet_for_uid_list.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.sheet_for_uid_list.2: fixed: the user's 4-round sheet: asks for the UIDs, then 50 rows with every column filled, protocols, NHP fix, software versions. Same as on Nov 6. | uq.sheet_for_uid_list.s1: fixed: Excel of tissue counts for 5 patients, right rows and columns. | The 32-tissue sheet case was not among the two picks; untested.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "export_full_list": {
    "name": "Spreadsheet export broke / stopped at 20 rows",
@@ -98,7 +168,17 @@
    "run2": [
     "uq.export_full_list.1",
     "uq.export_full_list.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.export_full_list.1: fixed: 727 single-cell D.SEQ listed, then exported: xlsx with all 727 rows, 43 filled columns. | uq.export_full_list.s1: fixed: Behar mice listed, then CSV of all 1,027 with 46 filled columns.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "cc_stopped_nothing_back": {
    "name": "File request ran out of time, nothing handed back",
@@ -111,7 +191,17 @@
    "run2": [
     "artifact.csv_of_cc_mice_with_transcriptomics",
     "uq.cc_stopped_nothing_back.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "artifact.csv_of_cc_mice_with_transcriptomics: fixed: CSV written: 105 CC mice, 273 rows, 7 filled columns; says why not 91. | uq.cc_stopped_nothing_back.s1: fixed: CSV of 100 barcoded macaques with species, study, CFU flag.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "asked_for_file_got_none": {
    "name": "Asked for a file, got no file",
@@ -125,7 +215,17 @@
    "run2": [
     "file.flow_file_for_a_patient",
     "uq.asked_for_file_got_none.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "file.flow_file_for_a_patient: fixed: The two flow files and their ImmPort study. | uq.asked_for_file_got_none.s1: partly: Gives the file name and the internal lab path, no download; unchanged by design (download link is an open ruling).",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "scientist_name_search": {
    "name": "Couldn't find samples by a scientist's name",
@@ -141,7 +241,17 @@
    "run2": [
     "person.scientist_patients_in_project",
     "person.scientist_by_first_name"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "person.scientist_patients_in_project: fixed: Kate Bridges: 304 IMPAcTb patients (was 0 on 11-12). | person.scientist_by_first_name: fixed: \"generated by Abiola\": 7,769 samples by Scientist.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "lab_or_pi_name": {
    "name": "A lab code or PI name not tied to the lab",
@@ -157,7 +267,17 @@
    "run2": [
     "person.lab_code_full_name",
     "person.beh_lab_show"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "person.lab_code_full_name: partly: BOO named as the Boom lab by surname only; the data has Scientist \"Henry Boom\" on 774 samples, so the full name was there. | person.beh_lab_show: fixed: Behar lab samples by lab code, cap disclosed.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "files_read_as_dfile": {
    "name": "\"Files\" read as the D.FILE sample type",
@@ -170,7 +290,17 @@
    "run2": [
     "person.lau_lab_files",
     "uq.files_read_as_dfile.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "person.lau_lab_files: fixed: Lauffenburger lab files: 596 records with files, locations given. | uq.files_read_as_dfile.s1: fixed: \"files\" for the Behar lab read as data records with files (2,706), not the D.FILE type.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "cc_mice_not_found": {
    "name": "Couldn't find Collaborative Cross mice",
@@ -184,7 +314,17 @@
    "run2": [
     "search.collaborative_cross_mice",
     "uq.cc_mice_not_found.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "search.collaborative_cross_mice: fixed: 745 CC mice found by genotype code (23 spellings), not a word search for \"cross\". | uq.cc_mice_not_found.s1: fixed: IFN gamma receptor knockout mice found by genotype spellings (41).",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "condition_dropped": {
    "name": "A condition in the question was dropped",
@@ -200,7 +340,17 @@
    "run2": [
     "uq.condition_dropped.3",
     "uq.condition_dropped.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "uq.condition_dropped.3: partly: Lung filter kept now (not 6,417), but \"biopsy\" was added as a text condition and returned 0; prod has 10 D.SEQ from 14 human lung tissues. | uq.condition_dropped.s1: partly: Mouse liver RNA-seq answered (913 mice, 993 D.SEQ) but \"liver\" also matched anywhere in related text.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "data_kind_in_project": {
    "name": "Asked if a project has a kind of data: 0, or a word-match guess",
@@ -213,7 +363,17 @@
    "run2": [
     "uq.data_kind_in_project.2",
     "uq.data_kind_in_project.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "uq.data_kind_in_project.2: partly: TCR: still opens \"Yes, but only as free-text mentions\"; the follow-up does say the 4 D.SEQ are single-cell RNA-seq. | uq.data_kind_in_project.s1: fixed: Spatial transcriptomics in BTC: 434 A.SPTX.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "plain_words_condition": {
    "name": "A clinical status asked in plain words",
@@ -225,7 +385,17 @@
    "run2": [
     "search.mtb_converters",
     "uq.plain_words_condition.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "search.mtb_converters: fixed: 32 converters found in the patients' converter field, separated from 57 non-converters. | uq.plain_words_condition.s1: partly: \"HIV positive\": guessed spellings, 0 found, and could not see the field's values (StatusHIV is filled on 494 patients).",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "paper_by_doi": {
    "name": "Couldn't find a paper's samples from its DOI",
@@ -237,7 +407,17 @@
    "run2": [
     "pub.doi_url_form",
     "pub.pmid_bare"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "pub.doi_url_form: fixed: 184 samples from the DOI. | pub.pmid_bare: fixed: 631 samples for the PMID.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "followup_only_preview": {
    "name": "Follow-up only saw the preview",
@@ -254,7 +434,17 @@
    "run2": [
     "uq.followup_only_preview.1",
     "uq.followup_only_preview.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.followup_only_preview.1: fixed: \"which labs are those mouse samples from?\" re-queried all 6,479 mice by lab. | uq.followup_only_preview.s1: fixed: Follow-up on 704 macaques re-queried species for all of them.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "two_counts_same_thing": {
    "name": "Two different counts for the same thing",
@@ -267,7 +457,17 @@
    "run2": [
     "fu.investigators_of_those_patients",
     "uq.two_counts_same_thing.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "fu.investigators_of_those_patients: partly: Right counts (1,441 patients by 13 scientists), but opens with a false \"this search did not reproduce that number\". | uq.two_counts_same_thing.s1: partly: Right counts (2,294 mice by lab) but the reply says \"did not reproduce that number\" and then that it matches.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "by_lab_breakdown": {
    "name": "Counts by lab: the Lab field is empty",
@@ -280,7 +480,17 @@
    "run2": [
     "uq.by_lab_breakdown.1",
     "uq.by_lab_breakdown.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.by_lab_breakdown.1: fixed: D.SEQ per project, then per lab code with single-cell vs DNA flags, then the fields list: the whole user chain works. | uq.by_lab_breakdown.s1: fixed: Patients per lab code in IMPAcTb.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "field_values_across_set": {
    "name": "What values are recorded across a project or study",
@@ -293,7 +503,17 @@
    "run2": [
     "uq.field_values_across_set.1",
     "uq.field_values_across_set.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.field_values_across_set.1: fixed: Species in IMPACT by type, spellings merged and said so. | uq.field_values_across_set.s1: fixed: Sequencing types in IMPAcTb as entered, overlaps noted.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "wrong_data_type_named": {
    "name": "The reply names the wrong data type",
@@ -305,7 +525,17 @@
    "run2": [
     "graph.project_samples_with_flow_or_cytof",
     "graph.impact_monkeys_with_sequencing_stays_dseq"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "partly",
+     "evidence": "graph.project_samples_with_flow_or_cytof: partly: Lists the flow data records (capped 5,000) instead of the samples; cannot split D.CYTOF. | graph.impact_monkeys_with_sequencing_stays_dseq: fixed: 351 monkeys with sequencing data.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "partly"
   },
   "howto_developer_docs": {
    "name": "How-to answered with developer docs",
@@ -322,7 +552,17 @@
    "run2": [
     "uq.howto_developer_docs.2",
     "uq.howto_developer_docs.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.howto_developer_docs.2: fixed: How-to answered with Sample Retrieval steps and an offer to do it, no REST docs. | uq.howto_developer_docs.s1: fixed: Flow files for one patient: UI steps, no REST docs.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "suggested_sentence_sent_back": {
    "name": "Nessie's own suggested sentence, sent back",
@@ -335,7 +575,17 @@
    "run2": [
     "uq.suggested_sentence_sent_back.1",
     "uq.suggested_sentence_sent_back.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.suggested_sentence_sent_back.1: fixed: The user's quoted sentence returns the model's metadata. | uq.suggested_sentence_sent_back.s1: fixed: A quoted \"Retrieve metadata for ...\" sentence ran and answered.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "share_chat_with_team": {
    "name": "Asked how to send the chat to the team: told no way",
@@ -347,7 +597,17 @@
    "run2": [
     "export.session_to_the_developers",
     "uq.share_chat_with_team.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "export.session_to_the_developers: fixed: Tells the user to download the chat zip (All files) and send it. | uq.share_chat_with_team.s1: fixed: Explains the All files zip for sending the chat.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "no_answer_at_all": {
    "name": "No answer at all",
@@ -360,7 +620,17 @@
    "run2": [
     "uq.no_answer_at_all.1",
     "uq.no_answer_at_all.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.no_answer_at_all.1: fixed: Answered: MDL-250912LAU-1 has no macaques upstream (right; it is the mouse-human model). | uq.no_answer_at_all.s1: fixed: MDL-250912LAU-2: none of its macaques has D.FLOW (right).",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "record_by_uid": {
    "name": "One record by its UID (worked)",
@@ -373,7 +643,17 @@
    "run2": [
     "uq.record_by_uid.1",
     "uq.record_by_uid.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.record_by_uid.1: fixed: NHP-250905FLY-1: 10 derived records listed; investigator question answered from the Scientist field. | uq.record_by_uid.s1: fixed: NHP-221109FLY-5 data types.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "project_totals_overview": {
    "name": "Project totals and overview (worked)",
@@ -387,7 +667,17 @@
    "run2": [
     "uq.project_totals_overview.1",
     "uq.project_totals_overview.s1"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.project_totals_overview.1: fixed: IMPAcTb 85,892 samples. | uq.project_totals_overview.s1: fixed: CSBC 4,272 samples (count moved since the pin).",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   },
   "plain_keyword_search": {
    "name": "A plain keyword question (worked)",
@@ -399,7 +689,17 @@
    "run2": [
     "uq.plain_keyword_search.1",
     "entity.how_many_pbmc_samples_do_we_have"
-   ]
+   ],
+   "history": [
+    {
+     "date": "2026-11-19",
+     "status": "fixed",
+     "evidence": "uq.plain_keyword_search.1: fixed: \"Where are BAL Cells?\" read as storage location: 2,825 BAL tissues, storage mostly not recorded. | entity.how_many_pbmc_samples_do_we_have: fixed: PBMC text matches split by recorded type; clearest 1,826.",
+     "prod_sha": "35a3a5e3",
+     "run": "userq-20261119 (2 per issue, admin login, behaviour-graded)"
+    }
+   ],
+   "status": "fixed"
   }
  },
  "include_ids": [
