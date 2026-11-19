@@ -203,3 +203,27 @@ def test_a_page_word_turn_carrying_the_previous_subject_resolves_it():
     """"Sampletree" typed alone after a question about a subject (the parser keeps the subject, test_page_words.py)."""
     check = sc.check_subject(_config(), "Sampletree", _plan(["XY-7"]), run=fake_neo4j(_graph()))
     assert [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
+
+
+# --- what is not a named subject (marker-like terms in ordinary questions) -------------------------------------------
+
+def test_marker_like_terms_in_ordinary_questions_run_no_lookup():
+    run = fake_neo4j(_graph())
+    for question, term in (("samples from children with HIV-1", "HIV-1"),
+                           ("monocyte-derived samples stained for CD8", "CD8"),
+                           ("which tissues are derived from mice treated with IL-6", "IL-6")):
+        plan = _plan([term])
+        assert sc.check_subject(_config(), question, plan, run=run) is None, question
+    assert run.calls == []
+
+
+def test_the_data_of_a_named_subject_looks_the_name_up_on_the_subject_type_not_the_data_type():
+    plan = _plan(["XY-7"], code="D.SEQ")
+    check = sc.check_subject(_config(), "D.SEQ data for patient XY-7", plan, run=fake_neo4j(_graph()))
+    assert check.types == ("PAT", "PAV", "NHP") and [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
+
+
+def test_a_name_written_another_way_in_the_question_still_counts():
+    check = sc.check_subject(_config(), "show the lineage of patient xy 7", _plan(["XY-7"]),
+                             run=fake_neo4j(_graph()))
+    assert [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]

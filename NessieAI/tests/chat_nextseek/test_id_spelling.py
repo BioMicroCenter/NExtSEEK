@@ -177,3 +177,10 @@ class TestEveryArmOfAUnion:
               "AND toLower(s.search_text) CONTAINS 'liver' RETURN s.uuid AS uuid")
         v = gr.id_spelling_variant(cy, {})
         assert v.cypher.count("=~ $id_spelling") == 1 and "CONTAINS 'liver'" in v.cypher
+
+
+def test_the_same_term_in_another_case_is_rewritten_too():
+    cy = ("MATCH (a:Sample) WHERE toLower(a.search_text) CONTAINS 'qx-12' RETURN a.uuid AS uuid UNION "
+          "MATCH (a:Sample) WHERE toLower(a.search_text) CONTAINS toLower($term) RETURN a.uuid AS uuid")
+    v = gr.id_spelling_variant(cy, {"term": "QX-12"})
+    assert v.cypher.count("=~ $id_spelling") == 2

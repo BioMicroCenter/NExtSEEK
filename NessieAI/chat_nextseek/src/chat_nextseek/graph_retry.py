@@ -153,7 +153,7 @@ def id_spelling_variant(cypher: str | None, parameters: dict | None) -> IdSpelli
             if runs is None:
                 continue
             first = value
-        elif value != first:
+        elif value.strip().lower() != first.strip().lower():
             continue
         end = m.end(3)
         for _ in range(m.group(2).count("(")):        # close the toLower( / trim( the term was wrapped in

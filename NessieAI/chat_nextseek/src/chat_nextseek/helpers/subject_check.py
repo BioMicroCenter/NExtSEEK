@@ -23,12 +23,16 @@ from ..graph_retry import _id_pattern, _id_runs
 from ..uid_links import sample_url
 from .uid_check import UID_RE
 
-#: The question asks for what belongs to one subject: its tree, lineage, derived samples or data. "Samples mentioning
-#: X" is a text search and does not match ("of", "for" or "from" must follow the noun).
-_SUBJECT_ASK = re.compile(
-    r"sample\s*-?\s*trees?|\btrees?\b|\blineage\b|\bderived\b|\bdescend\w*|\bchild(?:ren)?\b"
-    r"|\b(?:samples?|data|records?|everything)\s+(?:of|for|from|under)\b",
-    re.IGNORECASE)
+#: What belongs to one subject: its tree, lineage, derived samples or data, asked "of", "for", "from" or "under" it.
+_ASK = r"(?:trees?|lineage|derived|descendants?|child(?:ren)?|samples?|data|records?|everything)"
+#: The ask, then an article and at most one word ("the patient", "monkey"), then the name: "sample tree for XY-7", "data for patient
+#: XY-7". "Samples mentioning X", "stained for CD8" and "children with HIV-1" do not put the name there.
+_BEFORE_NAME = re.compile(_ASK + r"\s+(?:of|for|from|under)\s+(?:(?:the|a|an)\s+)?(?:[\w.'-]+\s+)?$", re.IGNORECASE)
+#: Or the name, then its tree: "XY-7's sample tree", "XY-7 lineage".
+_AFTER_NAME = re.compile(r"^(?:'s)?\s+(?:sample\s*)?(?:trees?|lineage|descendants)\b", re.IGNORECASE)
+#: A turn that is only the tree page's name ("Sampletree"): the parser carried the subject from the previous question
+#: (``agents/parser.py`` ``_page_word_turn``).
+_TREE_ONLY = re.compile(r"\s*sample\s*-?\s*trees?\s*[?.!]*\s*", re.IGNORECASE)
 
 #: The identity fields: the record's Name and ID attributes and its UID, lower-cased, each whole-string matched
 #: against the separator-tolerant pattern. ``s.type IN $types`` seeks the Sample.type range index.
@@ -60,9 +64,17 @@ class SubjectCheck:
     truncated: bool = False        # the lookup hit LOOKUP_CAP
 
 
-def asks_about_one_subject(question: str | None) -> bool:
-    """The question asks for the tree, lineage, samples or data of something it names."""
-    return bool(_SUBJECT_ASK.search(question or ""))
+def asks_about_one_subject(question: str | None, term: str) -> bool:
+    """The question asks for the tree, lineage, samples or data of ``term`` (written with any separators), or is only
+    the tree page's name."""
+    q = question or ""
+    if _TREE_ONLY.fullmatch(q):
+        return True
+    runs = _id_runs(term) or []
+    for m in re.finditer(r"(?<![a-z0-9])" + r"[-._ /]?".join(map(re.escape, runs)) + r"(?![a-z0-9])", q, re.I):
+        if _BEFORE_NAME.search(q[:m.start()]) or _AFTER_NAME.match(q[m.end():]):
+            return True
+    return False
 
 
 def subject_term(plan: Any) -> str | None:
@@ -84,29 +96,29 @@ def _catalog_rows(config: Any) -> list[dict]:
 
 
 def subject_types(config: Any, plan: Any) -> list[str]:
-    """The type the question names (the parser's sampletype_code, else the resolved sample types), else every
-    Source-clade type of the catalog."""
-    code = getattr(getattr(plan, "filters", None), "sampletype_code", None)
-    if code:
-        return [str(code)]
-    named = [str(t.get("code") if isinstance(t, dict) else getattr(t, "code", "") or "")
-             for t in getattr(getattr(plan, "resolved", None), "sampletypes", None) or []]
-    named = [c for c in named if c]
-    if named:
+    """The Source-clade types the question names (the parser's sampletype_code and the resolved sample types), else
+    every Source-clade type of the catalog. A named type that is not a source ("D.SEQ data for patient X") is what
+    is asked for, not what the name names. Without a catalog, the named types."""
+    named = [str(getattr(getattr(plan, "filters", None), "sampletype_code", None) or "")]
+    named += [str(t.get("code") if isinstance(t, dict) else getattr(t, "code", "") or "")
+              for t in getattr(getattr(plan, "resolved", None), "sampletypes", None) or []]
+    named = list(dict.fromkeys(c for c in named if c))
+    source = [str(r["SampleType"]) for r in _catalog_rows(config)
+              if r.get("SampleType") and str(r.get("Clade") or "").strip().lower() == "source"]
+    if not source:
         return named
-    return [str(r["SampleType"]) for r in _catalog_rows(config)
-            if r.get("SampleType") and str(r.get("Clade") or "").strip().lower() == "source"]
+    return [c for c in named if c in source] or source
 
 
 def check_subject(config: Any, question: str | None, plan: Any, *,
                   run: Callable[..., dict]) -> SubjectCheck | None:
     """The lookup, or None when the turn is not about one named subject or a read failed (which claims nothing).
     ``run`` is ``tool_neo4j_query``, so the caller's graph scope applies."""
-    if not asks_about_one_subject(question):
-        return None
     term = subject_term(plan)
-    types = subject_types(config, plan) if term else []
-    if not term or not types:
+    if not term or not asks_about_one_subject(question, term):
+        return None
+    types = subject_types(config, plan)
+    if not types:
         return None
     pattern = _id_pattern(_id_runs(term))
     found = run(config, LOOKUP_CYPHER, {"types": types, "pattern": pattern, "cap": LOOKUP_CAP})
