@@ -263,4 +263,7 @@ def asks_for_a_count(question: str | None, cypher: str | None) -> bool:
         return True
     from .cypher_text import mask_cypher
     from .graph_review import _is_count_only
-    return _is_count_only(mask_cypher(cypher or ""))
+    # _is_count_only finds the clauses by their upper-case keywords; a statement may write them in any case.
+    masked = re.sub(r"(?<![\w.`])(?:return|order\s+by|limit)\b", lambda m: m.group(0).upper(),
+                    mask_cypher(cypher or ""), flags=re.I)
+    return _is_count_only(masked)

@@ -759,6 +759,8 @@ def test_a_members_how_many_question_makes_no_sample_search_call():
      "RETURN d.type AS type, count(DISTINCT d) AS n", False),
     ("which zebras", "MATCH (z:T_ZEB) RETURN z.Colour AS colour, count(z) AS n ORDER BY n DESC", False),
     ("which zebras", "MATCH (z:T_ZEB) RETURN count(DISTINCT z) AS zebras, sum(z.Legs) AS legs", True),
+    ("which zebras", "match (z:T_ZEB) return count(z) as n", True),       # keywords in any case
+    ("which zebras", "match (z:T_ZEB) return z.Colour as c, count(z) as n order by n", False),
 ])
 def test_what_counts_as_a_count(question, cypher, count):
     from chat_nextseek.graph_retry import asks_for_a_count
