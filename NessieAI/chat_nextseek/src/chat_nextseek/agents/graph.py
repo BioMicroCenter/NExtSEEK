@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from .. import call_scope, cypher_text, graph_catalog, graph_context
+from ..graph_scope import HIDDEN_SAMPLE_PROPERTIES
 from ..graph_contract import schema
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured
@@ -2850,6 +2851,25 @@ def _projects_parser_plan(config) -> bool:
     return getattr(config, "PROJECT_PARSER_PLAN", False) is True
 
 
+#: Where graph_agent.txt's system-properties line names the hidden sample properties (``render_hidden_properties``).
+HIDDEN_PROPERTIES_SLOT = "{{HIDDEN_SAMPLE_PROPERTIES}}"
+
+
+def render_hidden_properties(prompt, scoped: bool):
+    """The graph prompt with its hidden-property slot filled from ``HIDDEN_SAMPLE_PROPERTIES``, the scope check's own
+    list: listed for an admin, who may read them; named as never readable for anyone else, whose statement naming one
+    is refused (who-asked-2, R1: "every stored property" invited that refusal)."""
+    if not isinstance(prompt, str):
+        return prompt
+    names = sorted(HIDDEN_SAMPLE_PROPERTIES)
+    if scoped:
+        fill = (". Never read " + " or ".join(f"`{n}`" for n in names)
+                + ": they are hidden from this user, and a query that names one is refused")
+    else:
+        fill = ", " + ", ".join(f"`{n}` (a list)" for n in names)
+    return prompt.replace(HIDDEN_PROPERTIES_SLOT, fill)
+
+
 def graph_agent(
     config: ChatConfig,
     user_query: str,
@@ -2911,8 +2931,9 @@ def graph_agent(
     # so the text the model reads is unchanged and a Gemini move (the marker stripped) reads the one message it
     # read before. A repair appends to this list, so it keeps the head.
     head, found, sections = schema_message.partition("\n\n" + graph_context.RESOLVED_TYPES_HEADING)
+    system_prompt = render_hidden_properties(config.GRAPH_AGENT_SYSTEM_PROMPT, scoped)
     messages = [
-        {"role": "system", "content": config.GRAPH_AGENT_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "system", "content": head, "cache_point": "1h"},
     ]
     if found:
@@ -2936,7 +2957,7 @@ def graph_agent(
             config=config,
             prompt=prompt,
             model=GraphAgentPlan,
-            system=config.GRAPH_AGENT_SYSTEM_PROMPT,
+            system=system_prompt,
             messages=messages,
             model_name=graph_model,
             temperature=0,
