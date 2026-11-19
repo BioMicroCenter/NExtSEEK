@@ -699,14 +699,26 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_
         out["fallback"] = answer.fallback
     if reply_notes:
         out["notes"] = reply_notes
+    _add_type_names(out, config, (answer.result or {}).get("data"))
     return out
+
+
+def _add_type_names(out, config, rows):
+    """``type_names`` {code: catalog name} for the sample type codes in the rows, so the agent copies a type's name
+    from the catalog and does not make one up."""
+    from chat_nextseek.agents.chatter import type_names_in_rows
+    names = type_names_in_rows(config, rows if isinstance(rows, list) else [])
+    if names:
+        out["type_names"] = names
 
 
 def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Counts and breakdowns in one call, one to four parts run in parallel on the server (``aggregate.py``)."""
     from NessieAI.ns.aggregate import run_aggregate
-    return run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
-                         limit_s=limit_s, turn=turn)
+    out = run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
+                        limit_s=limit_s, turn=turn)
+    _add_type_names(out, config, [g for part in out.get("parts") or [] for g in part.get("groups") or []])
+    return out
 
 
 def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
