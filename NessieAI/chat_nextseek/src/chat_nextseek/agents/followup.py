@@ -155,6 +155,28 @@ def _summary_value(value: Any) -> tuple[tuple, Any]:
     return (4, shown), shown
 
 
+def _field_entry(records: list, column: str, nulls: int) -> dict | None:
+    """A column whose non-null cells are all dicts (a record's fields, e.g. a REST lookup's metadata), by field:
+    each field's number of rows with a value, most filled first, and how many fields no row fills. None when a
+    non-null cell is not a dict.
+
+    # ponytail: a JSON-string dict column (graph json_metadata) is not parsed here; add when a stored graph
+    # result with one is seen.
+    """
+    cells = [row.get(column) for row in records if row.get(column) is not None]
+    if not cells or not all(isinstance(c, dict) for c in cells):
+        return None
+    filled: dict[str, int] = {}
+    names: set[str] = set()
+    for cell in cells:
+        for key, value in cell.items():
+            names.add(str(key))
+            if value not in (None, "", [], {}):
+                filled[str(key)] = filled.get(str(key), 0) + 1
+    ranked = dict(sorted(filled.items(), key=lambda kv: (-kv[1], kv[0])))
+    return {"nulls": nulls, "fields": ranked, "fields_empty": len(names - set(filled))}
+
+
 def _column_summary(rows: list) -> tuple[dict[str, dict], int]:
     """``({column: {distinct, nulls, top}}, columns left out)`` over every row of ``rows``.
 
@@ -187,8 +209,12 @@ def _column_summary(rows: list) -> tuple[dict[str, dict], int]:
                  "top": [[shown[k], counts[k]] for k in ranked]}
         cost = len(json.dumps({column: entry}, separators=(",", ":"), default=str))
         if size + cost > COLUMN_SUMMARY_CHARS:
-            omitted += 1
-            continue
+            by_field = _field_entry(records, column, nulls)
+            cost = len(json.dumps({column: by_field}, separators=(",", ":"), default=str)) if by_field else 0
+            if not by_field or size + cost > COLUMN_SUMMARY_CHARS:
+                omitted += 1
+                continue
+            entry = by_field
         summary[column] = entry
         size += cost
     return summary, omitted
@@ -206,7 +232,10 @@ def _stored_contents(rows: list, *, capped: bool) -> dict[str, Any]:
         return {}
     if len(rows) <= FOLLOWUP_ROWS_MAX:
         shown = preview_rows(rows)
-        return {"rows": shown, "rows_shown": len(shown), "rows_truncated": len(shown) < len(rows)}
+        out = {"rows": shown, "rows_shown": len(shown), "rows_truncated": len(shown) < len(rows)}
+        if out["rows_truncated"]:
+            out["column_summary"], out["columns_omitted"] = _column_summary(rows)
+        return out
     summary, omitted = _column_summary(rows)
     if not summary and not omitted:
         return {}
@@ -344,9 +373,11 @@ def build_followup_tool_schemas(*, final: bool = False, compute: bool = False) -
                 "query when they hold the answer. When total_known is false, no total was "
                 "stored, so such an answer covers the rows_stored stored rows, not the "
                 "whole set, and must say so. If rows_truncated is "
-                "true, only rows_shown of the rows fit; if a column's distinct is larger "
+                "true, only rows_shown of the rows fit, and column_summary is added over every stored row; if a column's distinct is larger "
                 "than its top list, its other values are not shown; columns_omitted "
-                "counts columns left out for length. When the copy is capped, neither "
+                "counts columns left out for length. "
+                "A column whose values are records of named fields (such as metadata) and that does not fit by value is summarized by field instead: fields gives each field's number of rows with a value, and fields_empty counts the fields no row fills, which are not listed. Check any field by name with compute_over_rows (op present on <column>.<Field>): it counts a field the records hold, 0 when none fills it, and refuses one they do not hold. "
+                "When the copy is capped, neither "
                 "rows nor column_summary is present. If rows_stored is less than total, "
                 "the stored copy cannot answer a question about the whole set and you "
                 "must run a new query."
