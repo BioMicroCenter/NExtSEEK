@@ -935,6 +935,18 @@ _SOP_LIST_ASK = re.compile(r"\b(?:how\s+many|number\s+of|count|list|which|what|o
 _SOP_USE = re.compile(r"\b(?:follow\w*|use[sd]?|using|applied|appl(?:y|ies)|ran|run|process\w*|with|named|called|titled|contain\w*|about"
                       r"|mention\w*|in\s+(?:the\s+)?(?:titles?|names?)|projects?|investigations?|stud(?:y|ies)|labs?)\b|['\"\u201c]", re.I)
 SOP_RECORDS_NOTE = "sent to reporter: the SOP records on file are counted by the protocols report over every project the caller reads"
+# a bare count or list of the SOPs on file: the clause naming SOPs holds only the kind word, ask words and stopwords.
+# Anything left there (a topic, a title word) is a condition, so "Which biosafety SOPs exist?" stays on the graph (D4).
+_SOP_ASK_WORDS = re.compile(r"\b(?:sops?|protocols?|how\s+many|number\s+of|count|list|show|which|what|on\s+file"
+                            r"|registered|exist\w*|available)\b", re.I)
+_SOP_STOPWORDS = frozenset("a an the all any of in me us i we you can could please give tell are is there do does have "
+                           "has nextseek currently now so far total".split())
+
+
+def _bare_sop_ask(q: str) -> bool:
+    clauses = [c for c in re.split(r"[,;:?!.]", q) if _SOP_RECORDS.search(c)]
+    return bool(clauses) and all(
+        w in _SOP_STOPWORDS for c in clauses for w in re.findall(r"[a-z0-9]+", _SOP_ASK_WORDS.sub(" ", c).lower()))
 
 
 def _route_by_kind_steps(user_query, plan, config, resolved):
@@ -958,11 +970,11 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
             and _CATALOG_COUNT.search(q)):
         return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
     # "How many SOPs are on file", "which protocols are registered": the SOP records, which the protocols report counts
-    # over every project the caller reads. What samples used, one named SOP's file or a word search is not this.
+    # over every project the caller reads. What samples used, one named SOP's file, a word search or a topic is not this.
     if (plan.mode in ("new_search", "graph_query") and _SOP_RECORDS.search(q) and _SOP_LIST_ASK.search(q)
             and not has_sample and not named and not projects and not _SOP_USE.search(q)
             and not filters.sampletype_code and not filters.assay_codes and not sop_id_in(q)
-            and not (sop_ref_in(q) and _SOP_FILE_WORD.search(q))):
+            and not (sop_ref_in(q) and _SOP_FILE_WORD.search(q)) and _bare_sop_ask(q)):
         return _to(plan, "reporter", SOP_RECORDS_NOTE, report_mode="summary")
     if plan.mode in ("new_search", "graph_query") and _WHICH_ATTRIBUTES_RE.search(q) and _SAMPLE_WORD_RE.search(q):
         if not sees_all(config):

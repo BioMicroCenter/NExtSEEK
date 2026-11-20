@@ -79,9 +79,10 @@ assays are defined is system_question.
   sample used, and how the Protocol field is written. Each sample's Protocol value is a
   property on its node and the SOP it names is protocol_title on DERIVED_FROM, so the graph
   lists each protocol with its count, as it does for Scientist. The SOP records and files
-  themselves are not on the graph: the number of SOPs on file, or which exist, with no sample
-  condition, are reporter (the protocols report over every project the user can read), as are
-  the SOPs registered to a project; downloading one named SOP is REST.
+  themselves are not on the graph: the number of SOPs on file, or which exist, with no other
+  condition (a topic or a title word is a condition: graph_query), are reporter (the protocols
+  report over every project the user can read), as are the SOPs registered to a project;
+  downloading one named SOP is REST.
 
 Do NOT use graph_query when:
 - The user wants the file of one SOP named by its id or its exact title, or the registered user accounts, with
@@ -104,7 +105,7 @@ PATH: new_search
 
 The REST catalog has three endpoints. None of them filters, pages or counts: each returns the named samples, one named SOP, or the whole list. Use new_search only for:
 - The full metadata record, an export or a download of samples named by UID (retrieve).
-- The file of one SOP named by its id or its exact title, such as "Download SOP 142" (sops). Which protocols samples used is graph_query; which SOPs exist, how many, and the SOPs registered to a project are reporter.
+- The file of one SOP named by its id or its exact title, such as "Download SOP 142" (sops). Which protocols samples used, and SOPs about a topic or a word, are graph_query; which SOPs exist or how many, with no other condition, and the SOPs registered to a project are reporter.
 - The registered user accounts, with no other condition (people). A person named on samples, a lab or a PI is graph_query; the caller's own account is system_question.
 A question that adds any condition to the user list (a project, a lab, a word, a count by something) is not new_search: the list cannot apply it.
 

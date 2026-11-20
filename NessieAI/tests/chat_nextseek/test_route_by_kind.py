@@ -352,3 +352,29 @@ def test_a_word_search_of_sop_titles_is_not_routed():
 def test_a_named_project_or_investigation_is_a_condition_even_when_unresolved():
     for q in ("How many protocols are registered for the Zeta investigation?", "What protocols exist for the Zeta project"):
         assert route(q, plan("graph_query")).mode == "graph_query", q
+
+
+# A topic is a condition (D4, 2026-11-20): only the bare count or list of SOPs on file goes to the protocols report.
+@pytest.mark.parametrize("q", ["Which SOP covers shipping on dry ice?", "What SOPs are there for biosafety?",
+                               "List the SOPs for freezer storage", "What protocols are there for animal handling?",
+                               "Which SOPs exist for BSL3 work?", "Which biosafety SOPs exist?"])
+def test_an_sop_topic_question_stays_on_the_graph(q):
+    out = route(q, plan("graph_query"))
+    assert out.mode == "graph_query", q
+    assert "SOP records on file" not in (out.notes or ""), q
+
+
+@pytest.mark.parametrize("q", ["How many SOPs are on file, and are any of them test artifacts?",
+                               "What SOPs do we have?", "How many protocols are there in total?"])
+def test_a_bare_sop_count_or_list_still_goes_to_the_protocols_report(q):
+    out = route(q, plan("graph_query"))
+    assert out.mode == "reporter" and out.report_mode == "summary", q
+
+
+def test_the_routing_prompt_says_a_topic_keeps_sops_on_the_graph():
+    core = Path(__file__).resolve().parents[2] / "chat_nextseek/src/chat_nextseek/prompts/parser_core_routing.txt"
+    text = " ".join(core.read_text(encoding="utf-8").split())
+    assert "with no other condition (a topic or a title word is a condition: graph_query)" in text
+    assert ("Which protocols samples used, and SOPs about a topic or a word, are graph_query; which SOPs exist or how "
+            "many, with no other condition, and the SOPs registered to a project are reporter.") in text
+    assert "with no sample condition" not in text
