@@ -430,6 +430,41 @@ class RetryTests(SimpleTestCase):
         self.assertFalse(part["attempts"][1]["kept"])
         self.assertFalse(any("changed filter" in note for note in out["notes"]))
 
+    def test_a_zero_part_retry_carries_the_evidence(self):
+        q = "How many HeLa samples?"
+        first, second = COUNT + " // first", COUNT + " // second"
+        fakes = Fakes({q: [first, second]}, {"// first": [_ok([{"n": 0}])], "// second": [_ok([{"n": 4}])]})
+        with patch("chat_nextseek.graph_review_counts.zero_row_evidence",
+                   return_value=(["`StatusFoo` on T_QQQ holds: '1'"], [])) as ev:
+            fakes.run(q)
+
+        ev.assert_called_once()
+        self.assertIn("`StatusFoo` on T_QQQ holds: '1'", fakes.graph_calls[1]["retry_context"])
+
+    def test_a_zero_part_that_stays_zero_tells_the_reply_the_count_without_the_word(self):
+        q = "How many HeLa samples?"
+        first, second = COUNT + " // first", COUNT + " // second"
+        fakes = Fakes({q: [first, second]}, {"// first": [_ok([{"n": 0}])], "// second": [_ok([{"n": 0}])]})
+        call = {"kind": "without_text", "term": "scrap", "total": 9, "ok": True}
+        with patch("chat_nextseek.graph_review_counts.zero_row_evidence", return_value=(["f"], [call])):
+            out = fakes.run(q)
+
+        from chat_nextseek.graph_retry import WORD_ZERO_NOTE
+        self.assertTrue(any(WORD_ZERO_NOTE.format(term="scrap", n=9) in n for n in out["notes"]), out["notes"])
+
+    def test_a_late_zero_part_reads_no_evidence(self):
+        q = "How many HeLa samples?"
+        clock = _Clock()
+        fakes = Fakes({q: [COUNT, COUNT]}, {"T_TIS": [_ok([{"n": 0}])]},
+                      part_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
+                                                        - aggregate.MIN_REMAINING_S - 1))
+        with patch("NessieAI.ns.aggregate._monotonic", clock), \
+                patch("chat_nextseek.graph_review_counts.zero_row_evidence") as ev:
+            fakes.run(q)
+
+        ev.assert_not_called()
+        self.assertEqual(len(fakes.graph_calls), 2)   # the retry still ran, with the old words
+
     def test_a_retry_that_finds_something_is_kept_and_disclosed(self):
         q = "How many HeLa samples?"
         first, second = COUNT + " // first", COUNT + " // second"
