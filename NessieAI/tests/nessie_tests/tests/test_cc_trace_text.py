@@ -59,6 +59,8 @@ def test_followup_is_a_routing_decision_and_cc_unavailable_is_not():
     assert "cc_unavailable" not in runner.ROUTE_DECISION_SOURCES
     # round 4: the product's how-to and named-SOP-file rules move a BAML decision; they are not fallbacks
     assert {"howto", "sop_file"} <= runner.ROUTE_DECISION_SOURCES
+    # round 2: the router said nextseek_query and the file-request rule moved the turn to container_cc
+    assert "file_request" in runner.ROUTE_DECISION_SOURCES
 
 
 def test_a_reingest_redirect_is_a_routing_decision():
