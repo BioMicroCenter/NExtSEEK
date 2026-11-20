@@ -184,3 +184,11 @@ def test_the_same_term_in_another_case_is_rewritten_too():
           "MATCH (a:Sample) WHERE toLower(a.search_text) CONTAINS toLower($term) RETURN a.uuid AS uuid")
     v = gr.id_spelling_variant(cy, {"term": "QX-12"})
     assert v.cypher.count("=~ $id_spelling") == 2
+
+
+def test_the_spelling_retry_still_runs_before_the_evidence(loop, monkeypatch):
+    from chat_nextseek import orchestrator as orch
+    seen = []
+    monkeypatch.setattr(orch, "zero_row_evidence", lambda *a, **k: (seen.append(1) or ([], [])))
+    run, _ = loop("Show me the sample tree for QXRT-4", lambda cy, p: FOUND if "id_spelling" in p else EMPTY)
+    assert run.spelling_note and seen == []
