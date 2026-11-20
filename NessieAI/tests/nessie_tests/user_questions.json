@@ -149,7 +149,8 @@
     "uq.sheet_for_uid_list.1",
     "uq.sheet_for_uid_list.2",
     "uq.sheet_for_uid_list.s1",
-    "uq.sheet_for_uid_list.s2"
+    "uq.sheet_for_uid_list.s2",
+    "uq.sheet_for_uid_list.s3"
    ],
    "run2": [
     "uq.sheet_for_uid_list.2",
@@ -4222,7 +4223,7 @@
      "_why": "Prod, read 2026-11-18: NHP-221109FLY-5 exists (animal 16619, study IV-BCG SIV Aim 3). Its tree was not read."
     },
     {
-     "id": "uq.sheet_for_uid_list.s2",
+     "id": "uq.sheet_for_uid_list.s3",
      "family": "sample_retrieve",
      "name": "A sheet asked for with no list given",
      "tags": [

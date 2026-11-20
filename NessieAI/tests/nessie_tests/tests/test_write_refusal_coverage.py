@@ -924,7 +924,7 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # inline (+2 route), pipeline.run_on_first_of_two_searches gets pipeline_launch's injected route (+1 route),
     # fu.self_contained_after_search_no_target asserts parser_plan.mode graph_query (+1 mode) and graph_cypher.
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [283, 247, 12, 13], (  # 2026-11-09 fix/run-done-intent merged dev: SF-9's two route_gate variants add +2 route criteria. 279 -> 281.  2026-11-03 feat/nfcore-dna-integration merged dev: both sides' additions (the branch's six build_e2e variants add +6 route criteria, one inline on each question turn; parser_plan.mode is dev's 245). 273 -> 279.  2026-10-30 TCGA sequencing data (#143): the four graph_traversal cases take the injected route nextseek_query (+4 route) and the floor's parser_plan.mode graph_query (+4 mode). 269 -> 273, 241 -> 245.  2026-10-22 reingest integration merged dev: +4 route criteria (the route.ns_compare_* gates; the 3 route.cc_reingest_* and 2 pipeline.compare_offer_* are green or carry no route field here). 265 -> 269.  2026-10-21 prod_fixes: writes go to container_cc, three route-only write cases added.
+                                    "api_plan.endpoint")] == [284, 248, 12, 13], (  # 2026-11-20 D1: write.download_all_samples_from_the asserts nextseek_query through an override, which keeps its parser_plan.mode unsupported (+1 route, +1 mode). 283, 247 -> 284, 248.  2026-11-09 fix/run-done-intent merged dev: SF-9's two route_gate variants add +2 route criteria. 279 -> 281.  2026-11-03 feat/nfcore-dna-integration merged dev: both sides' additions (the branch's six build_e2e variants add +6 route criteria, one inline on each question turn; parser_plan.mode is dev's 245). 273 -> 279.  2026-10-30 TCGA sequencing data (#143): the four graph_traversal cases take the injected route nextseek_query (+4 route) and the floor's parser_plan.mode graph_query (+4 mode). 269 -> 273, 241 -> 245.  2026-10-22 reingest integration merged dev: +4 route criteria (the route.ns_compare_* gates; the 3 route.cc_reingest_* and 2 pipeline.compare_offer_* are green or carry no route field here). 265 -> 269.  2026-10-21 prod_fixes: writes go to container_cc, three route-only write cases added.
    
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
@@ -1557,3 +1557,18 @@ def test_every_probe_case_still_loads():
 
     assert len(inline) == 9    # 13 -> 9: 2026-10-07 test-set review (SPEC-2): four probe-cc-2026-07-31 cases were retired
     assert CREATE_PROBE in {v.id for v in inline}
+
+
+def _resolved(vid):
+    return {(c.field, c.op, c.value) for c in _merged()[vid].turns[0].pass_criteria}
+
+
+def test_the_unscoped_export_stays_refused_on_nextseek_and_the_named_export_goes_to_cc():
+    """D1 (operator 2026-11-20): every sample with nothing to narrow it is refused on NExtSEEK; ruling Q2: an export
+    of named samples is Container-CC's. The family rule drops parser_plan.mode wherever the route is not NExtSEEK."""
+    unscoped = _resolved("write.download_all_samples_from_the")
+    assert ("route", "eq", "nextseek_query") in unscoped
+    assert ("parser_plan.mode", "eq", "unsupported") in unscoped
+    named = _resolved("write.export_all_metadata_for_nhp_22")
+    assert ("route", "eq", "container_cc") in named
+    assert not any(field == "parser_plan.mode" for field, _, _ in named)

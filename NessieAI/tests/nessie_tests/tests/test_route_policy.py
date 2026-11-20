@@ -55,19 +55,22 @@ def _by_id_incl_retired():
 
 
 def test_no_cc_routed_family_asserts_an_ns_internal_parser_mode():
-    """`parser_plan.mode` is unobservable on a turn that never reaches NS."""
+    """`parser_plan.mode` is unobservable on a turn that never reaches NS. A case these families pin to
+    nextseek_query does reach it (D1, 2026-11-20: the unscoped export is refused there), so it keeps the mode."""
     offenders = [v.id for v in corpus.merged(CORPUS)
                  if v.family in ("unsupported", "writes_unsupported")
+                 and ("route", "eq", "nextseek_query") not in _crits(v)
                  for t in v.turns for c in t.pass_criteria
                  if c.field == "parser_plan.mode"]
     assert offenders == [], f"{len(offenders)} variants still assert an NS mode: {offenders[:6]}"
 
 
 def test_bulk_export_is_asserted_as_container_cc():
-    """The operator's call: a bulk export is CC's job, not an NS refusal."""
+    """The operator's call: a bulk export is CC's job, not an NS refusal. D1 (2026-11-20): except every sample with
+    nothing to narrow it, which stays refused on NExtSEEK (write.download_all_samples_from_the,
+    test_write_refusal_coverage.py)."""
     for vid in ("write.export_all_metadata_for_nhp_22",
-                "write.export_all_metadata_for_nhp_22_2",
-                "write.download_all_samples_from_the"):
+                "write.export_all_metadata_for_nhp_22_2"):
         assert ("route", "eq", "container_cc") in _crits(_by_id_incl_retired()[vid]), vid
 
 
