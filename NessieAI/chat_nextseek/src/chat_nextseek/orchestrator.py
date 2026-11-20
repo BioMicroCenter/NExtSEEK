@@ -2882,7 +2882,15 @@ def run_query(
             current_agent = "system"
             send_event("agent_started", {"agent": "system", "mode": mode})
             _t0 = time.perf_counter()
-            sys_output = system_agent(config, user_text, entity_result, plan, session=session)
+            # Who a lab code names is read here too (Lane C read the graph turn only): the parser sends most
+            # "who is / full name for code X" questions to this agent, whose lab record can hold only a surname.
+            people = None
+            turn_lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+            if turn_lab_codes and asks_lab_person(user_text):
+                people = lab_people(config, turn_lab_codes, run=tool_neo4j_query)
+                debug_payload["lab_people"] = (
+                    {code: [list(v) for v in values] for code, values in people.items()} if people is not None else None)
+            sys_output = system_agent(config, user_text, entity_result, plan, session=session, lab_people=people)
             print(f"[TIMING][SYSTEM] {time.perf_counter() - _t0:.2f}s")
             print(f"[DEBUG][SYSTEM] mode={sys_output.mode}")
             print(f"[DEBUG][SYSTEM] entities_consulted={sys_output.entities_consulted}")
