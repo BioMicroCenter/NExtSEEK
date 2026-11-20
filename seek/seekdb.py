@@ -248,7 +248,7 @@ class SeekDB(object):
         if not person_id:
             return False
         try:
-            current = self.__seekapi.getCurrentUser(timeout=timeout)
+            current = self.__seekapi.getCurrentUser()
             return str(current['data']['id']) == str(person_id)
         except Exception:  # noqa: BLE001 (SEEK unreachable or an error page: not a confirmed login)
             logger.warning("SEEK could not confirm a login; refusing it")
@@ -276,7 +276,7 @@ class SeekDB(object):
         person has not left. SEEK lists former projects there too; every NExtSEEK reader of this answer takes it as
         the caller's project scope, which ends on leaving (``nextseek_api.graph_search.scope``). Raises if the
         membership cannot be read."""
-        current = self.__seekapi.getCurrentUser()
+        current = self.__seekapi.getCurrentUser(timeout=timeout)
         try:
             data = current["data"]
             projects = data["relationships"]["projects"]
