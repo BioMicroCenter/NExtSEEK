@@ -750,6 +750,7 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_
     if notes:
         out["notes"] = notes
     _add_type_names(out, config, (answer.result or {}).get("data"))
+    _add_lab_names(out, config, (answer.result or {}).get("data"))
     return out
 
 
@@ -762,12 +763,23 @@ def _add_type_names(out, config, rows):
         out["type_names"] = names
 
 
+def _add_lab_names(out, config, rows):
+    """``lab_names`` {CODE: "Name lab (Affiliation)"} for the lab codes in the rows' lab columns, from SEEK's lab
+    records (``config.LABS``), so the agent names a lab and does not say the records hold no names."""
+    from chat_nextseek.agents.chatter import lab_names_in_rows
+    names = lab_names_in_rows(config, rows if isinstance(rows, list) else [])
+    if names:
+        out["lab_names"] = names
+
+
 def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Counts and breakdowns in one call, one to four parts run in parallel on the server (``aggregate.py``)."""
     from NessieAI.ns.aggregate import run_aggregate
     out = run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
                         limit_s=limit_s, turn=turn)
-    _add_type_names(out, config, [g for part in out.get("parts") or [] for g in part.get("groups") or []])
+    groups = [g for part in out.get("parts") or [] for g in part.get("groups") or []]
+    _add_type_names(out, config, groups)
+    _add_lab_names(out, config, groups)
     return out
 
 

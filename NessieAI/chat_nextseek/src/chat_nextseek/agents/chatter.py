@@ -475,13 +475,14 @@ def _type_names_block(config: Any, rows: list) -> str:
 _LAB_COLUMN_WORDS = frozenset({"lab", "labs", "investigator", "investigators"})
 
 
-def _lab_names_block(config: Any, rows: list) -> str:
-    """SEEK's lab name for each lab code in the rows' lab columns (a lab is named after its head), from
-    ``config.LABS``, so the writer never says the records hold no names (3a, round 2). A plain function of
-    (``config.LABS``, rows): nothing else is read, so another reply path can reuse it."""
+def lab_names_in_rows(config: Any, rows: list) -> dict[str, str]:
+    """``{CODE: "Name lab (Affiliation)"}`` for each lab code in the rows' lab columns (a lab is named after its
+    head), from ``config.LABS`` (SEEK's institution titles), at most 20 codes; several labs under one code are joined
+    with " / ". A plain function of (``config.LABS``, rows): nothing else is read, so another reply path can reuse it
+    (the Container-CC graph op does). Empty when LABS is not a list or no lab column holds a known code."""
     labs = getattr(config, "LABS", None)
     if not isinstance(labs, list):
-        return ""
+        return {}
     names: dict[str, list[str]] = {}
     for rec in labs:
         if isinstance(rec, dict) and isinstance(rec.get("code"), str) and isinstance(rec.get("name"), str):
@@ -497,10 +498,17 @@ def _lab_names_block(config: Any, rows: list) -> str:
             code = value.strip().upper() if isinstance(value, str) else ""
             if code in names and code not in seen and len(seen) < 20:
                 seen.append(code)
-    if not seen:
+    return {c: " / ".join(names[c]) for c in seen}
+
+
+def _lab_names_block(config: Any, rows: list) -> str:
+    """SEEK's lab name for each lab code in the rows' lab columns, as a block for the writer, so it never says the
+    records hold no names (3a, round 2)."""
+    found = lab_names_in_rows(config, rows)
+    if not found:
         return ""
     return ("Lab names for the lab codes in these rows, from SEEK's lab records (give each code with its lab; a lab is "
-            "named after its head):\n" + "\n".join(f"- {c} = {' / '.join(names[c])}" for c in seen) + "\n")
+            "named after its head):\n" + "\n".join(f"- {c} = {n}" for c, n in found.items()) + "\n")
 
 
 def _counts_sections(all_rows: list, shown: int, graph_result: dict | None, total_matches: Any, truncated: bool,
