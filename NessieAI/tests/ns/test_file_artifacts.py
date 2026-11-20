@@ -194,10 +194,10 @@ class GraphTableArtifactTests(SimpleTestCase):
         rows = [{"uuid": f"TIS-{i}", "type": "TIS", "Organ": "lung"} for i in range(3)]
         [table] = extract_table_artifacts(self._bundle(rows))
 
-        self.assertEqual(table["type"], "table")
+        self.assertEqual(table["artifact_type"], "table")
         self.assertEqual(table["columns"], ["uuid", "type", "Organ"])
-        self.assertEqual(table["rows"][0], ["TIS-0", "TIS", "lung"])
-        self.assertEqual(table["total_rows"], 3)
+        self.assertEqual(table["data"][0], {"uuid": "TIS-0", "type": "TIS", "Organ": "lung"})
+        self.assertNotIn("truncated", table)
 
     def test_a_capped_result_says_how_many_it_is_showing(self):
         from nextseek_api.assistant.excel_export import MAX_INLINE_ROWS, extract_table_artifacts
@@ -205,8 +205,9 @@ class GraphTableArtifactTests(SimpleTestCase):
         rows = [{"uuid": f"TIS-{i}"} for i in range(MAX_INLINE_ROWS + 41)]
         [table] = extract_table_artifacts(self._bundle(rows, total=241))
 
-        self.assertEqual(len(table["rows"]), MAX_INLINE_ROWS)
-        self.assertIn(f"Showing first {MAX_INLINE_ROWS} of 241 rows", table["footer"])
+        self.assertEqual(len(table["data"]), MAX_INLINE_ROWS)
+        self.assertTrue(table["truncated"])
+        self.assertEqual(table["total_rows"], MAX_INLINE_ROWS + 41)
 
     def test_a_count_only_result_has_no_table(self):
         from nextseek_api.assistant.excel_export import extract_table_artifacts
