@@ -297,3 +297,12 @@ def test_the_capabilities_graph_section_names_the_assay():
     assert "Two samples on one Assay did not come from each other" in graph
     for admin_only in ("RUN_IN", "ACCEPTED_BY", "GENERATES"):
         assert admin_only not in caps, admin_only
+
+
+def test_the_lineage_count_of_a_person_does_not_call_made_their_total():
+    """Round 2 T7: the example's ``made`` counts the person's records below the asked type's samples, not every
+    record the person made, so the line must not tell the reply it is the person's total."""
+    agent = " ".join(shipped("graph_agent.txt").split())
+    assert ("return beside that count how many of the person's records sit below those samples, and of which types"
+            in agent)
+    assert "how many records the person made" not in agent
