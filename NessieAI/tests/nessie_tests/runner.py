@@ -46,7 +46,8 @@ from NessieAI.tests.nessie_tests.manifest import (
 # `howto` and `sop_file` (round 4, 2026-10-03) belong for the same reason as `followup`: the router said
 # container_cc and the product's own rule moved the turn to NExtSEEK (a how-to question about the site; the file
 # of one named SOP). Both follow a real BAML call, so they are evidence about routing.
-ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup", "reingest", "howto", "sop_file"})
+# `file_request` (round 2): the router said nextseek_query and the product's file-request rule moved the turn to Container-CC.
+ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup", "reingest", "howto", "sop_file", "file_request"})
 
 
 def default_route_criterion(variant) -> dict | None:

@@ -221,3 +221,69 @@ def test_router_text_sends_an_explicit_container_request_to_container_cc():
     assert ('A request that asks for the container by name ("use the container to count samples per '
             'project", "run this in Container-CC", "in the sandbox") is `container_cc`, whatever the '
             'task is.') in baml
+
+
+# ------------------------------------------------------------------ a request to make a file (round 2, 2026-11-20)
+_FILE_ASKS = [
+    "Download an Excel spreadsheet with data for some samples",
+    "Make me a CSV of the zeta mice with their sex",
+    "I'd like to export a metadata sheet with Organ and Sex for a set of tissue samples",
+    "Can you write me a workbook of the QQZ lab's samples?",
+    "I need a CSV with the UID and sex of every zeta mouse",
+    "Export all metadata for these samples to Excel",
+]
+
+
+@pytest.mark.parametrize("query", _FILE_ASKS)
+def test_a_request_to_make_a_spreadsheet_the_router_sent_to_ns_goes_to_cc(monkeypatch, query):
+    sent = _says(monkeypatch, cc_router.ROUTE_NS)
+    monkeypatch.setattr(cc_router, "_resolve_cc_model_id", lambda: "opus-id")
+    d = _route(query)
+    assert (d.route, d.source) == (cc_router.ROUTE_CC, "file_request")
+    assert d.attempted_route == cc_router.ROUTE_NS and d.model_class == "opus"
+    assert "router said ns" in d.reasoning
+
+
+@pytest.mark.parametrize("query", [
+    "How do I export?",
+    "How can I download my results as a spreadsheet?",
+    "Where do I download my results as a spreadsheet?",
+    "Can I get the search results as an Excel file?",
+    "Can you help me download model file ZZ-990101QQZ-2?",
+    "Download SOP 9001",
+    "Build me an nf-core rnaseq samplesheet for the zeta samples and save it as a file I can download",
+    "Create a GEO deposit file for D.ZZ-990101QQZ-5",
+    "Build a PRIDE deposit for D.ZZ-990101QQZ-5",
+    "Is there way to export this session to send to the development team for feedback?",
+    "Please prepare the batch upload workbook for project Zeta",
+    "Generate the NIH progress report for Zeta as an Excel file",
+    "Which spreadsheet columns does the TIS type have?",
+    "I have a few samples with UID, how to get all the metadata of those samples",
+    "how do i find all the flow cytometry files for one patient myself?",
+    "Give me the file for the SOP titled Z.QIL-990101-V2_Zeta-fixation.docx",
+    "What is in the excel file attached to sample ZZQ-990101QQZ-1?",
+    "Do you have a template workbook for mouse uploads?",
+    "can you tell me what CSV columns the sample retrieval gives?",
+    "I want to know how many samples have a spreadsheet attached",
+    "Please harmonize the Organ values and build me the update workbook",
+])
+def test_a_how_to_or_a_file_another_rule_owns_keeps_the_routers_call(monkeypatch, query):
+    sent = _says(monkeypatch, cc_router.ROUTE_NS)
+    assert _route(query) is sent
+
+
+def test_a_file_request_the_router_sent_to_cc_is_untouched(monkeypatch):
+    sent = _says(monkeypatch, cc_router.ROUTE_CC)
+    assert _route("Make me a spreadsheet of the zeta samples") is sent
+
+
+def test_a_file_request_the_router_called_unrelated_stays_unrelated(monkeypatch):
+    sent = _says(monkeypatch, cc_router.ROUTE_UNRELATED)
+    assert _route("Make me a spreadsheet of the zeta samples") is sent
+
+
+def test_router_text_sends_a_file_request_without_its_samples_to_cc():
+    text = " ".join(_baml().split())
+    needle = "asks for the work even when the samples or UIDs it should cover are not in the message yet"
+    assert needle in text
+    assert text.index("How-to questions about the site") < text.index(needle) < text.index("The file of one SOP named")

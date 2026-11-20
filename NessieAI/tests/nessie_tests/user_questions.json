@@ -148,7 +148,8 @@
    "cases": [
     "uq.sheet_for_uid_list.1",
     "uq.sheet_for_uid_list.2",
-    "uq.sheet_for_uid_list.s1"
+    "uq.sheet_for_uid_list.s1",
+    "uq.sheet_for_uid_list.s2"
    ],
    "run2": [
     "uq.sheet_for_uid_list.2",
@@ -267,6 +268,7 @@
     "uq.lab_or_pi_name.1",
     "uq.lab_or_pi_name.2",
     "person.lab_code_full_name",
+    "person.lab_code_person.s1",
     "person.who_is_pi",
     "person.lau_lab_samples",
     "person.beh_lab_show"
@@ -2724,6 +2726,69 @@
      "_why": "Prod, read 2026-11-18: the five patients exist (GBM1.DFCI1 to GBM1.DFCI5). Tissue counts per patient were not measured."
     },
     {
+     "id": "uq.sheet_for_uid_list.s2",
+     "family": "artifact_delivery",
+     "name": "A CSV asked for before its samples are named",
+     "tags": [
+      "user",
+      "issue:sheet_for_uid_list",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "ask",
+       "query": "Make me a CSV with the metadata of a few sequencing samples",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(UID|list|paste)"
+        }
+       ]
+      },
+      {
+       "label": "uids",
+       "query": "D.SEQ-221031SHA-65-PUB\nD.SEQ-221031SHA-67-PUB",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)\\.csv"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2 sibling: the file-request rule (turn 1, a CSV and no UIDs yet) and the UIDs-only rule (turn 2, only two D.SEQ UIDs after a Container-CC turn). Another noun and another sample type than uq.sheet_for_uid_list.1."
+    },
+    {
      "id": "uq.export_full_list.1",
      "family": "artifact_delivery",
      "name": "Export the full list after a search",
@@ -3064,6 +3129,48 @@
       }
      ],
      "_why": "The UID carries the BOO lab code (the Boom lab)."
+    },
+    {
+     "id": "person.lab_code_person.s1",
+     "family": "person_lab_resolution",
+     "name": "A person asked for from a lab code: the Scientist values",
+     "tags": [
+      "user",
+      "issue:lab_or_pi_name",
+      "sibling"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Who is the person behind lab code LAU?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)scientist field"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b\\d[\\d,]*\\s+samples\\b"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2 sibling of person.lab_code_full_name on another code: the system agent's lab record names the Scientist values of the code's samples (lab_people read on the system path). The task debug lab_people must be a non-empty dict; None means the read failed."
     },
     {
      "id": "uq.files_read_as_dfile.s1",
