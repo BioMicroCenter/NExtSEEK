@@ -713,3 +713,27 @@ def test_a_rebuilt_or_unscoped_query_gets_no_seed_types(monkeypatch, tmp_path):
         rq(question="fresh", seed_uids=[], scoped=False)
 
     assert _entity_capture(monkeypatch, tmp_path, bundle, calls=calls) == [[], []]
+
+
+# ---------------------------------------------------------------- a follow-up that names its own UIDs (round 2, F8)
+_BOUND = ["ZZZ-990101ABC-1", "ZZZ-990101ABC-2", "ZZZ-990101ABC-3"]
+_IN_UIDS = "MATCH (s:Sample) WHERE s.uuid IN $uids RETURN s.uuid AS uid"
+
+
+def _bound(own):
+    plan = GraphAgentPlan(cypher=_IN_UIDS, parameters={} if own is None else {"uids": own})
+    return orch._bind_parameters(plan, {"uids": list(_BOUND)})
+
+
+def test_uids_the_question_names_are_not_replaced_by_the_earlier_set():
+    assert _bound(["ZZZ-990202XYZ-7", "ZZZ-990202XYZ-8"])["uids"] == ["ZZZ-990202XYZ-7", "ZZZ-990202XYZ-8"]
+    assert _bound(["ZZZ-990101ABC-1", "ZZZ-990202XYZ-8"])["uids"] == ["ZZZ-990101ABC-1", "ZZZ-990202XYZ-8"]
+
+
+def test_a_value_that_only_repeats_the_earlier_uids_gets_the_whole_set():
+    assert _bound(["ZZZ-990101ABC-1", "ZZZ-990101ABC-2"])["uids"] == _BOUND
+    assert _bound(None)["uids"] == _BOUND
+
+
+def test_the_bound_uids_line_says_where_named_uids_go():
+    assert "UIDs the question itself names go in a parameter of another name" in orch.FOLLOWUP_GRAPH_UIDS

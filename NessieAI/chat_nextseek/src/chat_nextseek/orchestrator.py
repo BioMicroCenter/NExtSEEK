@@ -663,7 +663,8 @@ FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
 #: Follows the earlier statement when it bound $uids: the UIDs are bound by code (`parameters_extra`), never pasted.
 FOLLOWUP_GRAPH_UIDS = ("The earlier result's {n} sample UIDs are ALREADY BOUND as the query parameter $uids. To keep "
                        "that set, filter with `WHERE s.uuid IN $uids`; never paste UIDs into the query text. A few "
-                       "of them, so you can see their shape: {shown}")
+                       "of them, so you can see their shape: {shown}. UIDs the question itself names go in a "
+                       "parameter of another name, such as $named_uids.")
 
 
 def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, dict] | None:
@@ -1266,9 +1267,19 @@ def _with_statement(graph_plan, cypher: str, parameters: dict):
 
 def _bind_parameters(graph_plan, parameters_extra: dict | None):
     """The parameters ``graph_plan`` runs with: its own, plus each of ``parameters_extra`` that its Cypher names as
-    ``$name`` (over any value the model wrote for it). Its own, untouched, when none of them applies."""
-    named = {k: v for k, v in (parameters_extra or {}).items() if f"${k}" in (graph_plan.cypher or "")}
-    return {**dict(graph_plan.parameters or {}), **named} if named else graph_plan.parameters
+    ``$name`` (over any value the model wrote for it, unless that value is a list holding something the bound list
+    does not: UIDs the question names, round 2 F8; a value that only repeats bound UIDs is the model pasting what it
+    was shown). Its own, untouched, when none of them applies."""
+    own = dict(graph_plan.parameters or {})
+
+    def names_its_own(k, bound) -> bool:
+        mine = own.get(k)
+        return (isinstance(mine, list) and isinstance(bound, list)
+                and bool({str(v) for v in mine} - {str(v) for v in bound}))
+
+    named = {k: v for k, v in (parameters_extra or {}).items()
+             if f"${k}" in (graph_plan.cypher or "") and not names_its_own(k, v)}
+    return {**own, **named} if named else graph_plan.parameters
 
 
 def _run_graph_with_retries(config, question: str, entity, plan, refine: str | None,
@@ -2771,8 +2782,9 @@ def run_query(
             _t0 = time.perf_counter()
             reporter_plan = reporter_agent(config, user_text, plan)
             print(f"[TIMING][REPORTER] {time.perf_counter() - _t0:.2f}s")
-            if SOP_RECORDS_NOTE in (plan.notes or ""):  # the bare SOP count is the protocols report, not the model's pick
-                reporter_plan = reporter_plan.model_copy(update={"reporter_mode": "summary", "summary_mode": "protocols"})
+            if SOP_RECORDS_NOTE in (plan.notes or ""):  # the bare SOP count is the protocols report, not a model pick
+                reporter_plan = reporter_plan.model_copy(
+                    update={"reporter_mode": "summary", "summary_mode": "protocols"})
             debug_payload["reporter_plan"] = reporter_plan.model_dump()
             reporter_mode = reporter_plan.reporter_mode or plan.report_mode or "summary"
             if reporter_mode == "summary_sql":  # legacy alias
