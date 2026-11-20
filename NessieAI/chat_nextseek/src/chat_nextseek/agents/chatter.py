@@ -13,7 +13,7 @@ from ..session import SessionState
 from .. import graph_scope
 from ..config import ChatConfig
 from ..context_rows import is_project_row
-from ..graph_review import PREMISE_FACT_RE
+from ..graph_review import FREE_TEXT_ONLY_LEAD_RE, PREMISE_FACT_RE
 from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
@@ -848,6 +848,21 @@ def _premise_first(reply: str, notes: list[str] | None, *, corrected: bool | Non
     return _lead_with(lead, text.lstrip())
 
 
+_YES_OPEN = re.compile(r"^\s*(?:\*\*)?yes\b[\s,.:;!*-]*(?:but\s+)?", re.I)
+
+
+def _mentions_first(reply: str, notes: list[str] | None) -> str:
+    """The reviewer's "no record here is typed, assayed or labelled as X data" sentence first, in place of a leading
+    "Yes", when the answer to an existence ask rests only on records whose text mentions X (``graph_review``'s
+    ``free_text_only_existence``). A reply that does not open with "Yes", or notes without that sentence, are left as
+    they are. Modelled on ``_premise_first``; a table or list opening stays intact (``_lead_with``)."""
+    lead = next((m.group(0) for note in notes or [] if (m := FREE_TEXT_ONLY_LEAD_RE.search(str(note or "")))), None)
+    text = reply or ""
+    if not lead or not _YES_OPEN.match(text):
+        return reply
+    return _lead_with(lead, _YES_OPEN.sub("", text, count=1).lstrip())
+
+
 def _lead_with(lead: str, rest: str) -> str:
     """``lead`` then ``rest``: on one line after a space, or as a paragraph of its own before a first line that is not
     prose (``_NOT_PROSE``), which a space would break."""
@@ -1422,6 +1437,7 @@ def chatter_agent_answer(
     # last reply backstop, so it adds the sentence only where nothing before it did, and puts it first where the
     # disclosure above holds it behind another fact.
     answer_no_links = _premise_first(answer_no_links, premise_notes, corrected=corrected)
+    answer_no_links = _mentions_first(answer_no_links, premise_notes)
     # Every sample UID the reply names links to its sample page. Before the debug
     # block is appended, so that block is never a candidate.
     answer_no_links = link_sample_uids(answer_no_links)
