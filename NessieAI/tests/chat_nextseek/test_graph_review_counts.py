@@ -1331,3 +1331,93 @@ def test_only_statement_time_counts_against_the_budget(monkeypatch, fake_clock):
     fake_clock.t += 30.0                                                    # the loop's model thinks
     assert provider.values("T_A", "Later") == [("x", 1)]
     assert provider.lookups()["counts"] == {"fetched": 2}
+
+
+# ------------------------------------------------ whole-result breakdown of a capped list (round 2, 3b) -------------
+PAIR_CYPHER = ("MATCH (s:Sample {uuid: $uid}) MATCH (s)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) "
+               "MATCH (o:Sample)-[:INPUT_TO|OUTPUT_OF]->(a)\n"
+               "WHERE o.uuid <> s.uuid RETURN DISTINCT a.title AS assay, o.id AS id, o.uuid AS uuid, o.type AS type\n"
+               "ORDER BY assay, id LIMIT 5000")
+PAIR_PARAMS = {"uid": "D.SEQ-200101QQZ-1"}
+
+
+def _proven_for_member(stmt, params):
+    outcome = scope_cypher(stmt, params, MEMBER)
+    assert isinstance(outcome, Scoped), getattr(outcome, "reasons", None)
+
+
+def test_a_capped_list_is_counted_by_column_over_the_whole_result():
+    stmt = g2.breakdown_statement(PAIR_CYPHER, PAIR_PARAMS, "assay", "uuid")
+    assert "WITH DISTINCT a.title AS assay, o.id AS id, o.uuid AS uuid, o.type AS type" in stmt
+    assert "count(DISTINCT `uuid`)" in stmt
+    assert "LIMIT 5000" not in stmt and "ORDER BY assay" not in stmt
+    assert stmt.rstrip().endswith("RETURN value, n")
+    _proven_for_member(stmt, PAIR_PARAMS)
+    assert "count(DISTINCT `uuid`) AS n" in g2.breakdown_statement(PAIR_CYPHER, PAIR_PARAMS, None, "uuid")
+    assert split_trailing_limit(stmt, PAIR_PARAMS) == (None, None)
+
+
+def test_a_plain_capped_list_is_counted_by_its_field():
+    cy = ("MATCH (t:T_TIS) WHERE t.Organ IS NOT NULL RETURN t.id AS id, t.uuid AS uuid, t.type AS type, "
+          "t.Organ AS Organ ORDER BY id LIMIT 5000")
+    stmt = g2.breakdown_statement(cy, {}, "Organ", "uuid")
+    assert "`Organ` AS value" in stmt
+    _proven_for_member(stmt, {})
+
+
+def test_an_aggregating_return_becomes_a_grouping_with():
+    cy = ("MATCH (o:Sample)-[:INPUT_TO]->(a:Assay) RETURN o.id AS id, o.uuid AS uuid, o.type AS type, "
+          "collect(DISTINCT a.title) AS assays ORDER BY id LIMIT 5000")
+    stmt = g2.breakdown_statement(cy, {}, "type", "uuid")
+    assert "WITH o.id AS id, o.uuid AS uuid, o.type AS type, collect(DISTINCT a.title) AS assays" in stmt
+    _proven_for_member(stmt, {})
+
+
+def test_a_union_gets_no_breakdown():
+    cy = "MATCH (a:T_TIS) RETURN a.uuid AS uuid UNION MATCH (b:T_MUS) RETURN b.uuid AS uuid"
+    assert g2.breakdown_statement(cy, {}, "uuid", "uuid") is None
+
+
+def test_an_unaliased_item_is_aliased_by_its_text():
+    stmt = g2.breakdown_statement("MATCH (s:T_TIS) RETURN s.uuid, s.type LIMIT 5000", {}, "s.type", "s.uuid")
+    assert "WITH s.uuid AS `s.uuid`, s.type AS `s.type`" in stmt
+
+
+def test_breakdown_columns_put_type_first_and_skip_ids_lists_and_unique_columns():
+    rows = [{"id": i, "uuid": f"A-{i}", "type": "A.GEX" if i % 2 else "D.SEQ", "assay": "Alpha" if i < 3 else "Beta",
+             "Name": f"n{i}", "assays": ["Alpha"]} for i in range(6)]
+    assert g2.breakdown_columns(rows) == ("uuid", ["type", "assay"])
+    assert g2.breakdown_columns([{k: v for k, v in r.items() if k != "uuid"} for r in rows]) == (None, [])
+
+
+def test_breakdown_columns_prefer_the_column_with_fewest_values():
+    rows = [{"uuid": f"A-{i}", "File": f"f{i if i < 9 else 8}", "Organ": "Lung" if i % 2 else "Liver"}
+            for i in range(10)]
+    assert g2.breakdown_columns(rows) == ("uuid", ["Organ", "File"])
+
+
+def test_the_breakdown_reads_through_rows_of_and_keeps_what_answered(monkeypatch):
+    rows = [{"uuid": f"A-{i}", "type": "A.GEX" if i % 2 else "D.SEQ", "assay": "Alpha"} for i in range(6)]
+    stmts = []
+
+    def fake(config, cypher, params, *, timeout_s):
+        stmts.append(cypher)
+        if "AS n\n" in cypher + "\n" and "value" not in cypher:
+            return {"ok": True, "rows": [{"n": 73122}], "error": None, "elapsed_ms": 1}
+        if "`type` AS value" in cypher:
+            return {"ok": True, "rows": [{"value": "A.GEX", "n": 69394}, {"value": "D.SEQ", "n": 4041}],
+                    "error": None, "elapsed_ms": 1}
+        return {"ok": False, "rows": [], "error": "timeout", "elapsed_ms": 1}
+    monkeypatch.setattr(g2, "rows_of", fake)
+    out = g2.whole_result_breakdown(_cfg(), PAIR_CYPHER, PAIR_PARAMS, rows, elapsed_ms=100)
+    assert out["samples"] == 73122 and out["unit"] == "samples"
+    assert out["columns"] == {"type": [["A.GEX", 69394], ["D.SEQ", 4041]]} and out["more"] == []
+    assert len(stmts) == 3
+
+
+def test_a_slow_list_gets_no_breakdown(monkeypatch):
+    calls = []
+    monkeypatch.setattr(g2, "rows_of", lambda *a, **k: calls.append(1))
+    rows = [{"uuid": f"A-{i}", "type": "T"} for i in range(4)]
+    assert g2.whole_result_breakdown(_cfg(), PAIR_CYPHER, PAIR_PARAMS, rows, elapsed_ms=g2.SKIP_AFTER_MS + 1) is None
+    assert calls == []

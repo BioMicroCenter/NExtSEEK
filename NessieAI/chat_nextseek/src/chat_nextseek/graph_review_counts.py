@@ -42,8 +42,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import graph_catalog
-from .graph_review import (DISCLOSURE_MAX, TERM, VALUES_CAP, CatalogProvider, GraphReview, ReviewInput, _resolve,
-                           _var_labels)
+from .graph_review import (DISCLOSURE_MAX, SAMPLE_ID_COLUMNS, TERM, VALUES_CAP, CatalogProvider, GraphReview,
+                           ReviewInput, _resolve, _var_labels)
 from .graph_scope import scope_of
 from .helpers.tools.neo4j import split_trailing_limit, tool_neo4j_query
 
@@ -247,6 +247,108 @@ def rows_of(config, cypher: str, parameters: dict, *, timeout_s: float = COUNT_T
         error = result.get("error") if isinstance(result, dict) else None
         return done(False, error=str(error or "the breakdown query failed")[:300])
     return done(True, [r for r in (result.get("data") or []) if isinstance(r, dict)])
+
+
+# ---------------------------------------------------------------- whole-result breakdown (capped list) -----------
+BREAKDOWN_COLUMNS_MAX = 2     # columns counted over the whole result, the sample type first
+BREAKDOWN_VALUES_MAX = 12     # values kept per column, most common first (one more is read to know there are more)
+BREAKDOWN_BUDGET_S = 8.0      # all of a turn's breakdown statements together
+_ALIASED = re.compile(r"\s+AS\s+(?:`[^`]+`|\w+)\s*$", re.I)
+
+
+def _tick(name: str) -> str:
+    return "`" + name.replace("`", "``") + "`"
+
+
+def breakdown_columns(rows) -> tuple[str | None, list[str]]:
+    """``(sample id column, up to BREAKDOWN_COLUMNS_MAX columns to count)`` for a capped list of samples.
+
+    The id column is the first of ``SAMPLE_ID_COLUMNS`` every row holds as a str or int, else None (then nothing is
+    counted: only a list of samples is). A column to count is not an id, holds no list or dict, and repeats a value;
+    ``type`` goes first, the rest by fewest distinct values (a near-unique column never takes a category's slot)."""
+    rows = [r for r in rows or [] if isinstance(r, dict)]
+    if not rows:
+        return None, []
+    id_col = next((c for c in SAMPLE_ID_COLUMNS
+                   if all(isinstance(r.get(c), (str, int)) and not isinstance(r.get(c), bool) for r in rows)), None)
+    if id_col is None:
+        return None, []
+    found: list[tuple[str, int]] = []
+    for key in rows[0]:
+        if key == "id" or key == id_col or key.endswith(("_id", "_uuid", "_uid")):
+            continue
+        values = [r.get(key) for r in rows]
+        if any(isinstance(v, (list, dict)) for v in values):
+            continue
+        counts = Counter(v for v in values if v not in (None, ""))
+        if counts and max(counts.values()) >= 2:
+            found.append((key, len(counts)))
+    found.sort(key=lambda kv: (kv[0] != "type", kv[1]))   # stable: ties keep the first row's order
+    return id_col, [k for k, _ in found[:BREAKDOWN_COLUMNS_MAX]]
+
+
+def breakdown_statement(cypher: str, parameters: dict | None, column: str | None = None,
+                        id_column: str = "uuid") -> str | None:
+    """``cypher`` rewritten to count its own result: the distinct samples (``column`` None), or the samples under each
+    value of ``column`` (most common first, ``BREAKDOWN_VALUES_MAX + 1`` kept, the cap in a WITH so the tool never
+    probes a total). None for a UNION, a ``RETURN *`` or no final RETURN."""
+    cy = _count_statement(cypher, parameters)
+    mask = _mask(cy)
+    ret = _final_return(cy, mask)
+    if ret is None or _has_union(cy, mask):
+        return None
+    distinct = re.match(r"\s*DISTINCT\b", cy[ret.body:ret.end], re.I) is not None
+    items = _return_items(cy, mask, ret)
+    if not items or "*" in items:
+        return None
+    aliased = [i if _ALIASED.search(_mask(i)) else f"{i} AS {_tick(i)}" for i in items]
+    head = cy[:ret.start].rstrip() + "\nWITH " + ("DISTINCT " if distinct else "") + ", ".join(aliased) + "\n"
+    if column is None:
+        return head + f"RETURN count(DISTINCT {_tick(id_column)}) AS n"
+    return (head + f"WITH {_tick(column)} AS value, count(DISTINCT {_tick(id_column)}) AS n ORDER BY n DESC "
+            f"LIMIT {BREAKDOWN_VALUES_MAX + 1}\nRETURN value, n")
+
+
+def whole_result_breakdown(config, cypher: str, parameters: dict, rows, *, elapsed_ms: int | None) -> dict | None:
+    """The distinct samples and the per-value counts of up to two columns, over the WHOLE result of a capped list,
+    read through ``rows_of`` (the tool's write check, scope prover and READ transaction). None when the list was slow
+    (``SKIP_AFTER_MS``), has no sample id or no column to count, or every part failed. Never raises."""
+    t0 = _clock()
+    try:
+        if elapsed_ms is not None and elapsed_ms > SKIP_AFTER_MS:
+            return None
+        id_col, columns = breakdown_columns(rows)
+        if id_col is None or not columns:
+            return None
+
+        def run(column):
+            left = BREAKDOWN_BUDGET_S - (_clock() - t0)
+            stmt = breakdown_statement(cypher, parameters, column, id_col)
+            if stmt is None or left < MIN_START_S:
+                return None
+            got = rows_of(config, stmt, parameters, timeout_s=max(1, min(COUNT_TIMEOUT_S, int(left))))
+            return got.get("rows") or None if got.get("ok") else None
+
+        samples = None
+        got = run(None)
+        if got and isinstance(got[0].get("n"), int):
+            samples = got[0]["n"]
+        out_cols: dict = {}
+        more: list = []
+        for column in columns:
+            got = run(column)
+            pairs = [[str(r["value"]), r["n"]] for r in got or []
+                     if r.get("value") is not None and isinstance(r.get("n"), int)]
+            if pairs:
+                out_cols[column] = pairs[:BREAKDOWN_VALUES_MAX]
+                if len(got) > BREAKDOWN_VALUES_MAX:
+                    more.append(column)
+        if samples is None and not out_cols:
+            return None
+        return {"samples": samples, "unit": "samples", "columns": out_cols, "more": more,
+                "elapsed_ms": int((_clock() - t0) * 1000)}
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------- live_values ---------------------------------------
