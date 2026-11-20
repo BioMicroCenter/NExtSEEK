@@ -883,10 +883,10 @@ def _page_word_turn(q: str, plan, resolved):
 #: over every project the caller reads. What samples used, or one named SOP's file, is not this.
 _SOP_RECORDS = re.compile(r"\b(?:sops?|protocols?)\b", re.I)
 _SOP_LIST_ASK = re.compile(r"\b(?:how\s+many|number\s+of|count|list|which|what|on\s+file|registered|exist\w*)\b", re.I)
-# a word search of titles ("with", "named", "containing", "about", "in the title", a quoted word) is not routed: the
-# report shows 10 titles
+# a word search of titles ("with", "named", "containing", "about", "in the title", a quoted word), samples' use of a
+# protocol, or a named project, investigation, study or lab is not "no condition": it is not routed here
 _SOP_USE = re.compile(r"\b(?:follow\w*|use[sd]?|using|applied|appl(?:y|ies)|ran|run|process\w*|with|named|called|titled|contain\w*|about"
-                      r"|mention\w*|in\s+(?:the\s+)?(?:titles?|names?))\b|['\"\u201c]", re.I)
+                      r"|mention\w*|in\s+(?:the\s+)?(?:titles?|names?)|projects?|investigations?|stud(?:y|ies)|labs?)\b|['\"\u201c]", re.I)
 SOP_RECORDS_NOTE = "sent to reporter: the SOP records on file are counted by the protocols report over every project the caller reads"
 
 

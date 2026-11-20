@@ -294,3 +294,8 @@ def test_a_projects_sops_stay_with_the_project_report():
 def test_a_word_search_of_sop_titles_is_not_routed():
     for q in ("Which SOPs have staining in the title?", "Which SOPs mention fixation?"):
         assert route(q, plan("graph_query")).mode == "graph_query", q
+
+
+def test_a_named_project_or_investigation_is_a_condition_even_when_unresolved():
+    for q in ("How many protocols are registered for the Zeta investigation?", "What protocols exist for the Zeta project"):
+        assert route(q, plan("graph_query")).mode == "graph_query", q
