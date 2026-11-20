@@ -20,7 +20,7 @@ def test_derived_metric_names_are_a_closed_set():
         "exon_intron_ratio", "exon_intergenic_ratio", "sense_antisense_ratio",
         "genes_detected", "genes_detected_percent", "top30_count_percent",
         "unaligned_reads", "total_reads", "uniquely_mapped_reads",
-        "multimapped_pct", "strandedness", "mismatch_pct",
+        "multimapped_pct", "strandedness", "mismatch_pct", "contam_pct",
     )
 
 
@@ -230,7 +230,8 @@ def test_every_derived_metric_name_can_appear_in_compute_output():
         infer_experiment={"forward": 0.04, "reverse": 0.94, "failed": 0.02},
         star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
               "too_many_loci": 30.0, "unmapped": 20.0},
-        counts=counts, n_annotated_genes=80)
+        counts=counts, n_annotated_genes=80,
+        kraken2={"classified": 5.0, "unclassified": 15.0})
     out.update(derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.006}))
     assert set(derived.DERIVED_METRICS) <= set(out.keys())
 
@@ -418,3 +419,52 @@ def test_multiqc_1_22s_samtools_error_rate_fraction_becomes_a_percentage():
 
 def test_a_current_multiqc_error_rate_is_already_a_percentage_and_is_left_alone():
     assert "mismatch_pct" not in derived.from_metrics({"samtools_stats-error_rate": 0.5994653})
+
+
+# --- contam_pct: Kraken2's classified reads as a share of the whole library ----------------------
+# nf-core/rnaseq runs Kraken2 on the reads STAR left unaligned, so MultiQC's
+# kraken2-pct_unclassified is a share of those leftovers, not a contamination
+# percentage. contam_pct is the reads Kraken2 assigned to any taxon divided by
+# every read that entered STAR.
+
+_KRAKEN2_REPORT = (
+    " 75.00\t150\t150\tU\t0\tunclassified\n"
+    " 25.00\t50\t2\tR\t1\troot\n"
+    " 24.00\t48\t0\tR1\t131567\t  cellular organisms\n"
+    " 20.00\t40\t40\tS\t562\t                Escherichia coli\n"
+)
+
+
+def test_the_kraken2_report_parser_reads_the_root_and_unclassified_counts():
+    assert derived.parse_kraken2_report(_KRAKEN2_REPORT) == {
+        "classified": 50.0, "unclassified": 150.0}
+
+
+def test_a_kraken2_report_with_nothing_unclassified_has_a_zero_unclassified_count():
+    report = " 100.00\t50\t2\tR\t1\troot\n"
+    assert derived.parse_kraken2_report(report) == {"classified": 50.0, "unclassified": 0.0}
+
+
+def test_a_kraken2_report_without_a_root_line_gives_nothing():
+    assert derived.parse_kraken2_report(" 100.00\t150\t150\tU\t0\tunclassified\n") == {}
+
+
+def test_contam_pct_is_classified_reads_over_every_read_that_entered_star():
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"total": 10000.0, "unmapped": 200.0},
+                          counts=None, n_annotated_genes=None,
+                          kraken2={"classified": 50.0, "unclassified": 150.0})
+    assert out["contam_pct"] == 0.5
+    # Not Kraken2's own share of the leftovers (25%), nor its unclassified share (75%).
+    assert out["contam_pct"] not in (25.0, 75.0)
+
+
+@pytest.mark.parametrize("star, kraken2", [
+    ({"total": 10000.0}, None),
+    (None, {"classified": 50.0, "unclassified": 150.0}),
+    ({"total": 0.0}, {"classified": 50.0, "unclassified": 150.0}),
+])
+def test_contam_pct_needs_both_the_kraken2_counts_and_the_star_total(star, kraken2):
+    out = derived.compute(read_distribution=None, infer_experiment=None, star=star,
+                          counts=None, n_annotated_genes=None, kraken2=kraken2)
+    assert "contam_pct" not in out

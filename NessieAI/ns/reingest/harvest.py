@@ -80,6 +80,10 @@ _RSEQC_INFER_EXPERIMENT_GLOB = "*/rseqc/infer_experiment/*.infer_experiment.txt"
 # named it in harvest_globs, but nothing read that field, so the file was
 # never fetched and UnalignedReads could never be produced.
 _STAR_LOG_GLOB = "*/log/*.Log.final.out"
+# nf-core/rnaseq's contaminant screen (--contaminant_screening kraken2): one
+# Kraken2 report per sample, over the reads STAR left unaligned. PARSED
+# (parse_kraken2_report -> contam_pct), so it is in GENERIC_GLOBS.
+_KRAKEN2_REPORT_GLOB = "*/contaminants/kraken2/kraken_reports/*.kraken2.report.txt"
 # nf-core/differentialabundance's contrasts file, at the run folder's top level
 # (where `--outdir .` launches keep it). A .csv one is already staged by
 # _SAMPLESHEET_GLOB; these add the .tsv and YAML forms 2.0.0 also accepts.
@@ -97,6 +101,7 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _RSEQC_READ_DISTRIBUTION_GLOB,
     _RSEQC_INFER_EXPERIMENT_GLOB,
     _STAR_LOG_GLOB,
+    _KRAKEN2_REPORT_GLOB,
     _CONTRASTS_TSV_GLOB,
     _CONTRASTS_YAML_GLOB,
 )
@@ -1137,4 +1142,12 @@ def _derived_for(base: Path, sample: str, read) -> dict[str, float]:
         if text:
             star = derived.parse_star_log(text)
 
-    return derived.compute(dist, infer, star, None, None)
+    kraken2 = None
+    kraken2_pattern = _rseqc_glob_for_sample(_KRAKEN2_REPORT_GLOB, sample)
+    match = next(iter(sorted(base.glob(kraken2_pattern))), None)
+    if match is not None:
+        text = read(str(match.relative_to(base)))
+        if text:
+            kraken2 = derived.parse_kraken2_report(text)
+
+    return derived.compute(dist, infer, star, None, None, kraken2=kraken2)

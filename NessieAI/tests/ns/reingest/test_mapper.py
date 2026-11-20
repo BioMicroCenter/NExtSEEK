@@ -142,7 +142,7 @@ def test_star_multimapped_millions_stay_out_of_multimapped_percent():
 
 def test_an_approved_rule_applies_and_is_marked_origin_approved():
     # approved_rules is keyed BY attribute, so the rule carries only its source.
-    # The map's own ContamPercent rule reads "kraken2-pct_unclassified", which is
+    # The map's own ContamPercent rule reads "$derived.contam_pct", which is
     # absent here, so the committed rule finds nothing and the approved rule applies.
     approved = {"ContamPercent": maps.AttributeRule(
         **{"from": "Kraken2_bracken_fraction", "target": "D.SEQ",
@@ -268,7 +268,7 @@ def test_a_committed_rule_wins_over_a_contested_approved_rule():
         **{"from": "Kraken2_bracken_fraction", "target": "D.SEQ",
            "datatype": "number", "provenance": "approved 2026-09-15 by tester"})}
     result = mapper.apply(
-        _run(metrics={"kraken2-pct_unclassified": 4.5, "Kraken2_bracken_fraction": 3.2}),
+        _run(metrics={"Kraken2_bracken_fraction": 3.2}, derived={"contam_pct": 4.5}),
         maps.load("rnaseq"), approved_rules=approved)
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
     assert row.attributes["ContamPercent"].value == 4.5
@@ -554,8 +554,8 @@ def test_a_d_seq_parent_produces_no_warnings():
     # manifest has no outputs, so the output rules' "matched no file" warnings
     # are expected and are not what this guards.
     result = mapper.apply(
-        _run(metrics={"star-uniquely_mapped_percent": 91.4,
-                      "kraken2-pct_unclassified": 4.5}),
+        _run(metrics={"star-uniquely_mapped_percent": 91.4},
+             derived={"contam_pct": 4.5}),
         maps.load("rnaseq"))
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
     assert row.attributes["MappedPercent"].value == 91.4
@@ -1891,6 +1891,14 @@ def test_rnavar_writes_snpeffs_ts_tv_ratio_on_the_vcf_row():
     assert [u["raw_key"] for u in result.unmapped] == []
 
 
+def test_rnaseq_contam_percent_reads_the_library_share_not_krakens_unclassified_share():
+    run = _qc_run("rnaseq", "3.22.2", {"kraken2-pct_unclassified": 75.0}, {"contam_pct": 0.5})
+    result = mapper.apply(run, maps.load("rnaseq"))
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert row.attributes["ContamPercent"].value == 0.5
+    assert [u["raw_key"] for u in result.unmapped] == []
+
+
 @pytest.mark.parametrize("pipeline, version, raw_key", [
     ("denovotranscript", "1.2.1", "salmon-num_mapped"),
     ("hlatyping", "2.2.0", "fastqc-percent_fails"),
@@ -1899,6 +1907,7 @@ def test_rnavar_writes_snpeffs_ts_tv_ratio_on_the_vcf_row():
     ("rnaseq", "3.22.2", "fastqc_raw-percent_fails"),
     ("rnaseq", "3.22.2", "fastqc_trimmed-percent_gc"),
     ("rnaseq", "3.22.2", "cutadapt-percent_trimmed"),
+    ("rnaseq", "3.22.2", "kraken2-pct_unclassified"),
     ("rnasplice", "1.0.4", "Samtools_mqc-generalstats-samtools-raw_total_sequences"),
     ("rnavar", "1.3.0", "snpeff-Change_rate"),
     ("scrnaseq", "4.1.0", "cell_ranger_count-count_q30_bc"),

@@ -23,7 +23,7 @@
     "cds_pct", "utr_pct", "intron_pct", "intergenic_pct",
     "exon_intron_ratio", "exon_intergenic_ratio", "sense_antisense_ratio",
     "genes_detected", "genes_detected_percent", "top30_count_percent",
-    "unaligned_reads"
+    "unaligned_reads", "contam_pct"
   ],
 
   "outputs": [
@@ -107,9 +107,9 @@
                               "datatype": "number", "provenance": "seed" },
     "Top30CountPercent":    { "from": "$derived.top30_count_percent", "target": "D.SEQ",
                               "datatype": "number", "provenance": "seed" },
-    "ContamPercent":        { "from": "kraken2-pct_unclassified", "target": "D.SEQ",
+    "ContamPercent":        { "from": "$derived.contam_pct", "target": "D.SEQ",
                               "datatype": "number",
-                              "note": "only when contaminant screening ran",
+                              "note": "reads Kraken2 assigned to any taxon, as a percentage of every read that entered STAR (Kraken2 sees only STAR's unaligned reads); only when contaminant screening ran",
                               "provenance": "seed" },
     "Link_Contamination":   { "from": "$outputs.kraken2_report", "target": "D.SEQ",
                               "datatype": "string", "provenance": "seed" },
@@ -223,6 +223,8 @@
     { "key": "fastqc_trimmed-median_sequence_length", "why": "Post-trim repeat of the raw FastQC values." },
     { "key": "fastqc_trimmed-percent_fails", "why": "Post-trim repeat of the raw FastQC values." },
     { "key": "fastqc_trimmed-total_sequences", "why": "Post-trim repeat of the raw FastQC values." },
+    { "key": "kraken2-pct_unclassified",
+      "why": "Kraken2's unclassified share of the reads STAR left unaligned, not a contamination percentage. ContamPercent is computed from the Kraken2 report's counts over STAR's input reads ($derived.contam_pct)." },
     { "key": "cutadapt-percent_trimmed",
       "why": "Percentage of bases (not reads) trimmed by Trim Galore; low signal, and nothing on D.SEQ records trimming." }
   ]

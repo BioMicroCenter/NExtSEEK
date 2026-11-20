@@ -40,6 +40,11 @@ DERIVED_METRICS: tuple[str, ...] = (
     "strandedness",
     # samtools' error rate as a percentage, from MultiQC <= 1.22's fraction.
     "mismatch_pct",
+    # Reads Kraken2 assigned to any taxon, as a percentage of every read that
+    # entered STAR. Kraken2 only sees the reads STAR left unaligned, so its own
+    # percentages (and MultiQC's kraken2-pct_unclassified) are shares of those
+    # leftovers, not of the library.
+    "contam_pct",
 )
 
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
@@ -176,6 +181,35 @@ _STAR_COUNT_LABELS = {
 }
 
 
+def parse_kraken2_report(text: str) -> dict[str, float]:
+    """A Kraken2 `--report` -> {"classified", "unclassified"} read counts.
+
+    Each line is tab-separated: percentage, reads in the clade, reads at the
+    taxon itself, rank code, taxid, name. Classified reads are the root line's
+    clade count (rank R, taxid 1); unclassified is the U line's count, absent
+    when Kraken2 classified everything. No root line means no usable report,
+    so nothing is returned rather than a zero that looks like a measurement.
+    """
+    classified = None
+    unclassified = 0.0
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 6:
+            continue
+        rank, taxid = fields[3].strip(), fields[4].strip()
+        try:
+            clade_reads = float(fields[1])
+        except ValueError:
+            continue
+        if rank == "U" and taxid == "0":
+            unclassified = clade_reads
+        elif rank == "R" and taxid == "1":
+            classified = clade_reads
+    if classified is None:
+        return {}
+    return {"classified": classified, "unclassified": unclassified}
+
+
 def parse_star_log(text: str) -> dict[str, float]:
     """`<sample>.Log.final.out` -> the read counts, as integers, unscaled.
 
@@ -232,6 +266,7 @@ def compute(
     star: dict[str, float] | None,
     counts: dict[str, float] | None,
     n_annotated_genes: int | None,
+    kraken2: dict[str, float] | None = None,
 ) -> dict[str, int | float | str]:
     """Every derived metric whose inputs are present. Missing inputs -> missing keys."""
     out: dict[str, int | float | str] = {}
@@ -281,6 +316,11 @@ def compute(
             # STAR prints this percentage itself, from these two counts; its
             # "mapped to too many loci" line is a separate category.
             out["multimapped_pct"] = round(star["multi"] / star["total"] * 100, 4)
+
+    if kraken2 and star and star.get("total") and "classified" in kraken2:
+        # Both counts are reads with a pair counted once: STAR's "Number of
+        # input reads" and Kraken2's paired-mode sequence count.
+        out["contam_pct"] = round(kraken2["classified"] / star["total"] * 100, 4)
 
     if counts:
         values = sorted(v for v in counts.values() if v > 0)
