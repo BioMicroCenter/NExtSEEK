@@ -1045,3 +1045,33 @@ def test_no_per_turn_line_still_forbids_the_method_the_user_asked_for(captured):
     assert ("not how it was reached, unless the user asked how the answer was found: then also say, in one or "
             "two plain sentences, what was counted (which records, of which type, under which conditions).") in qualified
     assert "not how it was reached.\n" not in qualified
+
+
+class _LabConfig(_StubConfig):
+    LABS = [{"code": "QQZ", "name": "Quill", "affiliation": "Example University"},
+            {"code": "ZZY", "name": "Zephyr", "affiliation": "Sample Institute"},
+            {"code": "XXW", "name": "Other", "affiliation": "Elsewhere"}]
+
+
+def test_lab_codes_in_the_rows_come_with_their_lab_names(captured):
+    rows = [{"lab_code": "QQZ", "n": 20}, {"lab_code": "ZZY", "n": 3}]
+    text = _graph_turn(captured, question="Which labs are these samples from?", rows=rows, config=_LabConfig())
+
+    assert "QQZ = Quill lab (Example University)" in text
+    assert "ZZY = Zephyr lab (Sample Institute)" in text
+    assert "XXW" not in text
+
+
+def test_an_investigator_code_column_is_named_too_and_a_type_column_is_not():
+    rows = [{"investigator_code": "ZZY", "samples": 4}, {"type": "QQZ", "n": 1}]
+    block = chatter_mod._lab_names_block(_LabConfig(), rows)
+
+    assert "ZZY = Zephyr lab" in block
+    assert "QQZ" not in block
+
+
+def test_no_lab_block_without_labs_or_without_a_lab_column(captured):
+    rows = [{"lab_code": "QQZ", "n": 20}]
+    assert "lab names" not in _graph_turn(captured, question="Which labs?", rows=rows).lower()
+    uuid_only = [{"uuid": "TIS-200101QQZ-1"}, {"uuid": "TIS-200101ZZY-2"}]
+    assert chatter_mod._lab_names_block(_LabConfig(), uuid_only) == ""

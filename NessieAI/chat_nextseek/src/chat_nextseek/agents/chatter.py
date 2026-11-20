@@ -436,6 +436,37 @@ def _type_names_block(config: Any, rows: list) -> str:
             + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
 
 
+_LAB_COLUMN_WORDS = frozenset({"lab", "labs", "investigator", "investigators"})
+
+
+def _lab_names_block(config: Any, rows: list) -> str:
+    """SEEK's lab name for each lab code in the rows' lab columns (a lab is named after its head), from
+    ``config.LABS``, so the writer never says the records hold no names (3a, round 2). A plain function of
+    (``config.LABS``, rows): nothing else is read, so another reply path can reuse it."""
+    labs = getattr(config, "LABS", None)
+    if not isinstance(labs, list):
+        return ""
+    names: dict[str, list[str]] = {}
+    for rec in labs:
+        if isinstance(rec, dict) and isinstance(rec.get("code"), str) and isinstance(rec.get("name"), str):
+            label = f"{rec['name']} lab" + (f" ({rec['affiliation']})" if rec.get("affiliation") else "")
+            names.setdefault(rec["code"].strip().upper(), []).append(label)
+    seen: list[str] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if not _LAB_COLUMN_WORDS.intersection(re.split(r"[^a-z]+", str(key).lower())):
+                continue
+            code = value.strip().upper() if isinstance(value, str) else ""
+            if code in names and code not in seen and len(seen) < 20:
+                seen.append(code)
+    if not seen:
+        return ""
+    return ("Lab names for the lab codes in these rows, from SEEK's lab records (give each code with its lab; a lab is "
+            "named after its head):\n" + "\n".join(f"- {c} = {' / '.join(names[c])}" for c in seen) + "\n")
+
+
 def _fold_name(name: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
 
@@ -1015,6 +1046,7 @@ def chatter_agent_answer(
                                                              and total_matches > len(all_rows)),
                                   aggregate_columns=_aggregate_columns(str((graph_plan or {}).get("cypher") or "")))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
+            + _lab_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
         )
