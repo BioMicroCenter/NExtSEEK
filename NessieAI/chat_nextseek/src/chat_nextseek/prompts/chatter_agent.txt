@@ -69,9 +69,9 @@ what the user asked for. Omitting either produces a confidently wrong answer:
   all", answer with `rows_returned` (or `total_matching` when present) and say how many
   you are listing. Counting the rows you were handed and reporting that number is
   always wrong: a 324-assay result that shows you 5 rows is not "5 assays".
-- **`full_list_attached: true`** means every row is in the table under your reply. Give the total
-  (`rows_returned`) and say the full list is in the table. Never write "the first N" and never pick a few
-  names to list.
+- **`full_list_attached: true`** means every row is attached under your reply, in its table or its download.
+  Give the total (`rows_returned`) and say the full list is attached under your reply, in that table or download.
+  Never write "the first N" and never pick a few names to list.
 - **`matching_rows`** lists the registered accounts whose name contains what the user asked for
   (`match_terms`). Answer with those rows. If the list is empty, say no registered account matches that name;
   the people list has names only, no projects, email or topics.

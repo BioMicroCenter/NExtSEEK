@@ -418,19 +418,21 @@ def slim_api_result_for_llm(
     if preview_rows is None:
         preview_rows = _rows_actually_returned(slimmed)
     slimmed.update(build_result_disclosure(api_result, api_plan, preview_rows=preview_rows))
-    slimmed.update(_rest_list_flags(api_result, api_plan))
+    slimmed.update(_rest_list_flags(api_result, api_plan, preview_rows=preview_rows))
     return slimmed
 
 
 #: The two REST answers that are a single record or a whole list rather than a sample page (R4, U3b).
 _PEOPLE_LIST = "/nextseek_api/people/"
+_RETRIEVE = "/nextseek_api/samples/retrieve/"
 _SOPS_RECORD = "/nextseek_api/sops/"
 
 
-def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
+def _rest_list_flags(api_result: dict, api_plan: dict | None, preview_rows: int | None = None) -> dict:
     """``full_list_attached`` + ``rows_returned`` for the people list (the table under the reply holds every row, so
     the chatter gives the total and never "the first N"), with ``match_terms`` + ``matching_rows`` when the request
-    looks for names; ``download_links`` for one SOP record (the file it offers)."""
+    looks for names; ``download_links`` for one SOP record (the file it offers); the same full-list flag for a
+    retrieve whose preview is shorter than its complete result (the full JSON is attached)."""
     endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0]
     data = api_result.get("data") if isinstance(api_result, dict) else None
     if endpoint.rstrip("/") + "/" == _PEOPLE_LIST:
@@ -446,6 +448,12 @@ def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
                     for title in [str((row.get("attributes") or {}).get("title") or "")]
                     if title and any(all(w in title.lower() for w in t.lower().split()) for t in terms)]
             return flags
+    elif endpoint.rstrip("/") + "/" == _RETRIEVE and isinstance(data, dict):
+        total = data.get("total_samples")
+        # Only a complete result: the file must hold every record (a capped result is never called the full list).
+        if (isinstance(total, int) and total > 0 and api_row_count(api_result) == total
+                and (preview_rows is None or preview_rows < total)):
+            return {"full_list_attached": True, "rows_returned": total}
     elif endpoint.startswith(_SOPS_RECORD.rstrip("/") + "/") and isinstance(data, dict):
         record = data.get("data") if isinstance(data.get("data"), dict) else data
         links = _download_links(record)

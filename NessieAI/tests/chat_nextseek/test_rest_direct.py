@@ -148,14 +148,40 @@ def test_the_people_table_holds_every_row_even_past_the_inline_cap():
     assert extract_table_artifacts({"mode": "new_search", "endpoint": RETRIEVE, "api_result_full": _people(3)}) == []
 
 
-def test_the_chatter_is_told_a_full_list_is_in_the_table():
+def test_the_chatter_is_told_a_full_list_is_in_the_download():
     from pathlib import Path
 
     text = (Path(api_mod.__file__).resolve().parent.parent / "prompts" / "chatter_agent.txt").read_text(encoding="utf-8")
     flat = " ".join(text.split())
-    assert "**`full_list_attached: true`** means every row is in the table under your reply." in flat
+    assert ("**`full_list_attached: true`** means every row is attached under your reply, in its table or its "
+            "download.") in flat
+    assert "say the full list is attached under your reply, in that table or download" in flat
+    assert "in the table under your reply" not in flat
     assert "Never write \"the first N\"" in flat
     assert flat.index("full_list_attached") < flat.index("`result_capped: true`")
+
+
+def _retrieve(n):
+    return {"ok": True, "data": {"total_samples": n, "total_sample_types": 2, "total_children": n - 1,
+                                 "failed_uids": 0, "lineage_complete": True,
+                                 "data": [{"sample_type": "TIS", "n_samples": n, "samples": [
+                                     {"id": str(i), "uuid": f"TIS-000101XYZ-{i}", "sample_type_id": 3,
+                                      "metadata": {"Notes": "x" * 400}} for i in range(n)]}]}}
+
+
+def test_a_retrieve_whose_preview_is_short_says_the_full_list_is_attached():
+    slim = slim_api_result_for_llm(_retrieve(40), api_plan={"endpoint": RETRIEVE})
+    assert slim["full_list_attached"] is True and slim["rows_returned"] == 40
+
+
+def test_a_retrieve_shown_whole_is_not_flagged():
+    assert "full_list_attached" not in slim_api_result_for_llm(_retrieve(1), api_plan={"endpoint": RETRIEVE})
+
+
+def test_a_retrieve_missing_records_is_not_flagged():
+    raw = _retrieve(40)
+    raw["data"]["total_samples"] = 60
+    assert "full_list_attached" not in slim_api_result_for_llm(raw, api_plan={"endpoint": RETRIEVE})
 
 
 @pytest.mark.parametrize("asked,stored", [("MUS-990101ABC-23", "MUS-990101ABC-23-PUB"), ("D.SEQ-990202XYZ-67", "D.SEQ-990202XYZ-67-PUB")])
