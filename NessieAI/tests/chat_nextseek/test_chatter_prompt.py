@@ -1134,3 +1134,9 @@ def test_file_locations_are_given_exactly_as_stored():
     text = _prompt_text()
     assert "exactly as stored" in text
     assert "never described in its place" in text
+
+
+def test_the_prompt_explains_records_not_linked_to_the_named_samples():
+    """Round 2 T2: the lineage block can carry ``not_linked_by_type`` (helpers/results.py), which no line explained."""
+    assert ("`not_linked_by_type` counts returned records whose link to the named samples is not in this result; "
+            "never say they are unrelated.") in _prompt_text()
