@@ -54,3 +54,22 @@ def test_the_graph_refusal_reply_carries_no_machinery():
     from chat_nextseek.orchestrator import GRAPH_REFUSAL_REPLY
     for leak in ("Graph agent", "Cypher", "catalog", "Reason", "node.", "guard"):
         assert leak not in GRAPH_REFUSAL_REPLY
+
+
+def test_an_unscoped_export_names_what_to_narrow():
+    """D1 (operator, 2026-11-20): an export of every sample stays refused, and the refusal says what to narrow."""
+    import re
+
+    from chat_nextseek.agents.parser import _apply_parser_guardrails
+
+    q = "Download all samples from the database as a spreadsheet"
+    plan = _apply_parser_guardrails(q, ParserPlan(mode="new_search", target_endpoint="/nextseek_api/samples/retrieve/",
+                                                  intent_summary="x"))
+    assert plan.mode == "unsupported"
+    reply = unsupported_reply(plan)
+    assert reply != UNSUPPORTED_REPLY
+    for named in ("narrow", "project", "lab", "sample type", "UIDs"):
+        assert named.lower() in reply.lower(), named
+    assert re.search(r"(?is)(scope|narrow|too (large|many)|filter|subset|can.?t|cannot|won.?t)", reply)  # the corpus pin
+    for leak in ("Unscoped", "parser", "report-generation"):
+        assert leak not in reply

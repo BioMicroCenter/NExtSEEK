@@ -87,6 +87,11 @@ def _filters_have_any_value(filters: ParserFilters | dict | None) -> bool:
     )
 
 
+#: The note the bulk-export guard leaves on its unsupported plan; the reply for it names what to narrow (D1).
+BULK_EXPORT_NOTE = ("Unscoped bulk export/download is unsupported without filters, UIDs, project-reporting scope, or a "
+                    "supported report-generation target.")
+
+
 def _is_unscoped_bulk_export_request(user_query: str, mode: str, filters: ParserFilters | dict | None) -> bool:
     if mode != "new_search":
         return False
@@ -1076,7 +1081,7 @@ def _apply_parser_guardrails(
             endpoint_candidates=[],
             notes=(
                 (plan.notes + " | ") if plan.notes else ""
-            ) + "Unscoped bulk export/download is unsupported without filters, UIDs, project-reporting scope, or a supported report-generation target.",
+            ) + BULK_EXPORT_NOTE,
             metadata=plan.metadata,
             previous_api_plan=plan.previous_api_plan,
             previous_user_query=plan.previous_user_query,

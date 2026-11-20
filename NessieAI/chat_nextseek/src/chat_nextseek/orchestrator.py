@@ -99,7 +99,7 @@ from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_no
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
-from .agents.parser import SOP_RECORDS_NOTE, adds_a_condition
+from .agents.parser import BULK_EXPORT_NOTE, SOP_RECORDS_NOTE, adds_a_condition
 from .helpers.subject_check import asks_for_tree_of, check_subject, plan_with_subject, subject_notes
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
@@ -2394,6 +2394,13 @@ UNSUPPORTED_REPLY = (
     "NExtSEEK holds. If you tell me what you're after in those terms, I'll try again."
 )
 
+#: D1 (operator, 2026-11-20): an export of every sample stays refused, and says what to narrow.
+UNSCOPED_EXPORT_REPLY = (
+    "That would be every sample in NExtSEEK, too many for one file. Narrow it to the samples you want, such as a "
+    "project, a lab, a sample type or a list of UIDs, and ask again: I'll make the file for those."
+)
+
+
 
 def unsupported_reply(plan) -> str:
     """The reply for an unsupported plan: a planning fault says so, anything else says what is possible.
@@ -2413,6 +2420,8 @@ def unsupported_reply(plan) -> str:
         return PLANNER_TIMEOUT_REPLY
     if failure:
         return PLANNER_UNUSABLE_REPLY
+    if BULK_EXPORT_NOTE in (plan.notes or ""):
+        return UNSCOPED_EXPORT_REPLY
     return UNSUPPORTED_REPLY
 
 
