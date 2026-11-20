@@ -135,4 +135,24 @@ def test_a_failing_lookup_costs_the_block_not_the_catalog(monkeypatch):
     def broken(*a, **k):
         raise RuntimeError("bad snapshot")
     monkeypatch.setattr(fw, "fields_named", broken)
-    assert graph_mod._fields_block(MagicMock(), SNAPSHOT, "How many bands?", {}, {}) == ""
+    assert graph_mod._fields_block(MagicMock(), SNAPSHOT, "How many bands?", {}, {}) == ("", {})
+
+
+def _plan_for(monkeypatch, question):
+    detail = gcat.TypeDetail(title="ZEB", label="T_ZEB", name="Zebra", summary=None, clade="Source", sample_count=None,
+                             curated_parents=None, curated_children=None, never_filled=0, attributes=())
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: SNAPSHOT)
+    monkeypatch.setattr(gcat, "get_type_details", lambda config, titles: [detail] if "ZEB" in titles else [])
+    monkeypatch.setattr(gcat, "get_vocabulary", lambda config: gcat.Vocabulary((), ("Quill",), (), (), (), (), ()))
+    monkeypatch.setattr(graph_mod, "call_llm_structured", _llm([]))
+    plan = {"mode": "graph_query", "resolved": {"keywords": ["Quill", "bands"], "projects": ["Quill"]}}
+    return graph_mod.graph_agent(_config(GraphScope.admin("test")), question, {}, plan)
+
+
+def test_the_plan_records_the_fields_it_was_handed(monkeypatch):
+    result = _plan_for(monkeypatch, "How many bands does Quill have?")
+    assert result.fields_named == {"words": ["band"], "fields": [["QUO", "BaselineBand"], ["ZEB", "Stripe_Band"]]}
+
+
+def test_a_question_that_counts_no_field_records_nothing(monkeypatch):
+    assert _plan_for(monkeypatch, "How many tissues does Quill have?").fields_named == {}

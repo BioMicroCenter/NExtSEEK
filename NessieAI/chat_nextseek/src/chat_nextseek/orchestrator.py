@@ -1824,6 +1824,8 @@ def _execute_graph_turn(
     else:
         print("\n[GRAPH] Running the chip's statement (no graph agent)...")
     debug_payload["graph_context"] = graph_plan.context_mode
+    if graph_plan.fields_named:
+        debug_payload["fields_named"] = graph_plan.fields_named
     # A fallback's reason and capture date: the harness reads the payload, the debug panel the summary line.
     schema_fallback = _schema_fallback_line(graph_plan.context_fallback)
     if schema_fallback:

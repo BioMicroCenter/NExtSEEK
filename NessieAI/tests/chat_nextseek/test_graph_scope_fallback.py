@@ -765,3 +765,11 @@ def test_a_members_how_many_question_makes_no_sample_search_call():
 def test_what_counts_as_a_count(question, cypher, count):
     from chat_nextseek.graph_retry import asks_for_a_count
     assert asks_for_a_count(question, cypher) is count
+
+
+def test_the_turn_records_the_fields_named_block(monkeypatch, tmp_path):
+    record = {"words": ["arm"], "fields": [["PAT", "Arm"]]}
+    cypher = "MATCH (s:T_PAT) RETURN s.id AS id"
+    plan = GraphAgentPlan(cypher=cypher, context_mode="catalog", fields_named=record)
+    run = _graph_turn(monkeypatch, tmp_path, [plan], [_proven(1, cypher)])
+    assert run.debug["fields_named"] == record
