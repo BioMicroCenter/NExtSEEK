@@ -13,7 +13,7 @@ from ..session import SessionState
 from .. import graph_scope
 from ..config import ChatConfig
 from ..context_rows import is_project_row
-from ..graph_review import PREMISE_FACT_RE
+from ..graph_review import FREE_TEXT_ONLY_LEAD_RE, PREMISE_FACT_RE
 from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
@@ -173,7 +173,7 @@ def _attached_rows_line(shown: int, attached: int, total, truncated: bool) -> st
             "query or telling the user to narrow it.\n")
 
 
-def _type_histogram_block(all_rows: list, shown: int) -> str:
+def _type_histogram_block(all_rows: list, shown: int, capped: bool = False) -> str:
     """How the sample types are distributed across the WHOLE result, not the preview.
 
     B8 (task 437): a query returned a heterogeneous result and the writer was shown its
@@ -199,6 +199,12 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     listed = ", ".join(f"{code} {n:,}" for code, n in ranked[:12])
     more = f", and {len(ranked) - 12} more" if len(ranked) > 12 else ""
+    if capped:  # the rows are only the first part of a longer result: this is their split, not the result's
+        return (
+            f"Sample types across only the {len(all_rows):,} rows returned, a capped part of the result: "
+            f"{listed}{more}. Give this split as the split of the rows returned, never as the whole result's, "
+            "and never name the result after the type that happens to appear first.\n"
+        )
     return (
         f"Sample types across ALL {len(all_rows):,} rows, not just the preview: {listed}{more}. "
         "The preview is the head of the result and is not representative: describe the result "
@@ -224,7 +230,7 @@ def _is_identity_key(key: Any) -> bool:
 
 
 def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
-                        aggregate_columns: frozenset = frozenset()) -> str:
+                        aggregate_columns: frozenset = frozenset(), skip: frozenset = frozenset()) -> str:
     """The values of each returned column across the WHOLE result, not the preview.
 
     ss.mtb_infected_mice (dev run 2026-09-29): the writer was shown the first twenty of 651 rows, all one strain,
@@ -248,7 +254,7 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
     lines: list[str] = []
     size = 0
     for key in keys:
-        if str(key) in aggregate_columns:
+        if str(key) in aggregate_columns or str(key) in skip:
             continue
         counts: dict[str, int] = {}
         empty = 0
@@ -275,13 +281,43 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
     if not lines:
         return ""
     n = f"{len(all_rows):,}"
-    first = (f"Values across the {n} returned rows, not just the preview (each column counted on its own):"
-             if capped else f"Values across ALL {n} rows, not just the preview (each column counted on its own):")
+    if capped:  # counted over the returned rows only: a value that fills them is not known to fill the rest
+        return (
+            f"Values across only the {n} rows returned, a capped part of the result (each column counted on its own); "
+            "a value that fills all of these rows is not known to fill the rest, so never write all, only, every or "
+            "always from them:\n" + "\n".join(lines) + "\n"
+            "The preview is the head of the result and is not representative. Give these counts as counts of the rows "
+            "returned, never as the whole result's.\n"
+        )
     return (
-        first + "\n" + "\n".join(lines) + "\n"
+        f"Values across ALL {n} rows, not just the preview (each column counted on its own):\n"
+        + "\n".join(lines) + "\n"
         "The preview is the head of the result and is not representative. When you say which values a field holds, "
         "or that a field is empty or the same throughout, say it from these counts, never from the preview rows.\n"
     )
+
+
+def _breakdown_block(breakdown: dict, shown: int, total: int | None) -> str:
+    """The counts of a capped sample list taken over its WHOLE result (``whole_result_breakdown``), so the writer
+    describes the result by them and not by the first rows (3b, round 2)."""
+    columns = breakdown.get("columns") or {}
+    samples = breakdown.get("samples")
+    samples = samples if isinstance(samples, int) else None
+    more = set(breakdown.get("more") or [])
+    overlap = bool(samples is not None and any(sum(n for _, n in pairs) > samples for pairs in columns.values()))
+    of = f"a separate count of all {total:,} rows" if isinstance(total, int) else "a separate count of the whole result"
+    head = (f"Counted over the WHOLE result, not just the {shown:,} rows returned ({of}"
+            + (f", {samples:,} distinct samples" if samples is not None else "")
+            + "; each column counted on its own"
+            + ("; a sample can count under more than one value" if overlap else "") + "):\n")
+    lines = [f"- {col}: " + ", ".join(f"{v} {n:,}" for v, n in pairs) + (", and other values" if col in more else "")
+             for col, pairs in columns.items()]
+    tail = ("Describe the result by these counts. The rows returned are the first part of a sorted list, so a value "
+            "they all share may not be the whole result's.\n")
+    if samples is not None and isinstance(total, int) and samples != total:
+        tail += (f"The total of {total:,} counts rows, and a sample can sit on more than one row: when the question "
+                 f"asks how many samples, the answer is {samples:,}.\n")
+    return head + "\n".join(lines) + "\n" + tail
 
 
 _PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -434,6 +470,53 @@ def _type_names_block(config: Any, rows: list) -> str:
         return ""
     return ("Sample type names for the codes in these rows (use these names; never invent one):\n"
             + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
+
+
+_LAB_COLUMN_WORDS = frozenset({"lab", "labs", "investigator", "investigators"})
+
+
+def _lab_names_block(config: Any, rows: list) -> str:
+    """SEEK's lab name for each lab code in the rows' lab columns (a lab is named after its head), from
+    ``config.LABS``, so the writer never says the records hold no names (3a, round 2). A plain function of
+    (``config.LABS``, rows): nothing else is read, so another reply path can reuse it."""
+    labs = getattr(config, "LABS", None)
+    if not isinstance(labs, list):
+        return ""
+    names: dict[str, list[str]] = {}
+    for rec in labs:
+        if isinstance(rec, dict) and isinstance(rec.get("code"), str) and isinstance(rec.get("name"), str):
+            label = f"{rec['name']} lab" + (f" ({rec['affiliation']})" if rec.get("affiliation") else "")
+            names.setdefault(rec["code"].strip().upper(), []).append(label)
+    seen: list[str] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if not _LAB_COLUMN_WORDS.intersection(re.split(r"[^a-z]+", str(key).lower())):
+                continue
+            code = value.strip().upper() if isinstance(value, str) else ""
+            if code in names and code not in seen and len(seen) < 20:
+                seen.append(code)
+    if not seen:
+        return ""
+    return ("Lab names for the lab codes in these rows, from SEEK's lab records (give each code with its lab; a lab is "
+            "named after its head):\n" + "\n".join(f"- {c} = {' / '.join(names[c])}" for c in seen) + "\n")
+
+
+def _counts_sections(all_rows: list, shown: int, graph_result: dict | None, total_matches: Any, truncated: bool,
+                     aggregate_columns: frozenset) -> str:
+    """The type split and the value counts of a graph result. A capped list is described by the whole-result counts
+    when the turn read them, else by the rows returned and said to be only that."""
+    capped = bool(truncated or (isinstance(total_matches, int) and total_matches > len(all_rows)))
+    bd = (graph_result or {}).get("breakdown")
+    if capped and isinstance(bd, dict) and bd.get("columns"):
+        columns = bd["columns"]
+        return (_breakdown_block(bd, shown, total_matches if isinstance(total_matches, int) else None)
+                + _value_counts_block(all_rows, shown, capped=True, aggregate_columns=aggregate_columns,
+                                      skip=frozenset(columns))
+                + ("" if "type" in columns else _type_histogram_block(all_rows, shown, capped=True)))
+    return (_type_histogram_block(all_rows, shown, capped=capped)
+            + _value_counts_block(all_rows, shown, capped=capped, aggregate_columns=aggregate_columns))
 
 
 def _fold_name(name: Any) -> str:
@@ -765,6 +848,21 @@ def _premise_first(reply: str, notes: list[str] | None, *, corrected: bool | Non
     return _lead_with(lead, text.lstrip())
 
 
+_YES_OPEN = re.compile(r"^\s*(?:\*\*)?yes\b[\s,.:;!*-]*(?:but\s+)?", re.I)
+
+
+def _mentions_first(reply: str, notes: list[str] | None) -> str:
+    """The reviewer's "no record here is typed, assayed or labelled as X data" sentence first, in place of a leading
+    "Yes", when the answer to an existence ask rests only on records whose text mentions X (``graph_review``'s
+    ``free_text_only_existence``). A reply that does not open with "Yes", or notes without that sentence, are left as
+    they are. Modelled on ``_premise_first``; a table or list opening stays intact (``_lead_with``)."""
+    lead = next((m.group(0) for note in notes or [] if (m := FREE_TEXT_ONLY_LEAD_RE.search(str(note or "")))), None)
+    text = reply or ""
+    if not lead or not _YES_OPEN.match(text):
+        return reply
+    return _lead_with(lead, _YES_OPEN.sub("", text, count=1).lstrip())
+
+
 def _lead_with(lead: str, rest: str) -> str:
     """``lead`` then ``rest``: on one line after a space, or as a paragraph of its own before a first line that is not
     prose (``_NOT_PROSE``), which a space would break."""
@@ -1009,12 +1107,10 @@ def chatter_agent_answer(
                   else "When the question asks how many, give this total first, then the breakdown.")
                + "\n" if breakdown else "")
             + _attached_rows_line(len(records), len(all_rows), total_matches, graph_truncated)
-            + _type_histogram_block(all_rows, len(records))
-            + _value_counts_block(all_rows, len(records),
-                                  capped=graph_truncated or (isinstance(total_matches, int)
-                                                             and total_matches > len(all_rows)),
-                                  aggregate_columns=_aggregate_columns(str((graph_plan or {}).get("cypher") or "")))
+            + _counts_sections(all_rows, len(records), graph_result, total_matches, graph_truncated,
+                               _aggregate_columns(str((graph_plan or {}).get("cypher") or "")))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
+            + _lab_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
         )
@@ -1341,6 +1437,7 @@ def chatter_agent_answer(
     # last reply backstop, so it adds the sentence only where nothing before it did, and puts it first where the
     # disclosure above holds it behind another fact.
     answer_no_links = _premise_first(answer_no_links, premise_notes, corrected=corrected)
+    answer_no_links = _mentions_first(answer_no_links, premise_notes)
     # Every sample UID the reply names links to its sample page. Before the debug
     # block is appended, so that block is never a candidate.
     answer_no_links = link_sample_uids(answer_no_links)

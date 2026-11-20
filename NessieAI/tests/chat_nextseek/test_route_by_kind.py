@@ -117,8 +117,7 @@ def test_catalog_count_on_the_graph_moves_but_a_sample_count_stays():
     assert route("How many Raw samples are there?", p) is p
 
 
-def test_sop_list_and_search_go_to_the_graph():
-    assert route("What SOPs are on file?", plan(endpoint=SOPS, keywords=["SOP"])).mode == "graph_query"
+def test_sop_search_goes_to_the_graph():
     assert route("Which SOPs mention fixation?", plan(endpoint=SOPS, keywords=["fixation"])).mode == "graph_query"
 
 
@@ -230,9 +229,9 @@ def _listed(q, mode="graph_query", endpoint=None, keywords=(), resolved=()):
     return route(q, p)
 
 
-@pytest.mark.parametrize("q,keywords", [("What SOPs are on file?", ["SOPs"]), ("What SOPs are on file?", ["SOP"]),
-                                        ("Which protocols are recorded?", ["protocols"]),
-                                        ("List the SOP protocols", ["SOP protocols"])])
+@pytest.mark.parametrize("q,keywords", [("What SOPs did the samples use?", ["SOPs"]), ("What SOPs did the samples use?", ["SOP"]),
+                                        ("Which protocols were used on the samples?", ["protocols"]),
+                                        ("List the SOP protocols the samples followed", ["SOP protocols"])])
 def test_the_kind_being_listed_is_never_a_graph_filter(q, keywords):
     """A word that names the kind being listed is not a filter term: the plan lists every protocol title."""
     out = _listed(q, keywords=keywords, resolved=keywords)
@@ -240,7 +239,7 @@ def test_the_kind_being_listed_is_never_a_graph_filter(q, keywords):
 
 
 def test_the_kind_word_leaves_a_rerouted_sop_list_too():
-    out = _listed("What SOPs are on file?", mode="new_search", endpoint=SOPS, keywords=["SOP"], resolved=["SOP"])
+    out = _listed("What SOPs did the samples use?", mode="new_search", endpoint=SOPS, keywords=["SOP"], resolved=["SOP"])
     assert (out.mode, out.filters.keywords, out.resolved.keywords) == ("graph_query", [], [])
 
 
@@ -254,10 +253,49 @@ def test_a_real_term_next_to_the_kind_word_stays():
 def test_a_plan_mode_candidate_loses_the_kind_word_too():
     mp = MultiParserPlan(intent_summary="x", candidates=[ParserCandidate(mode="graph_query", tool_query="x",
                                                                          filters=ParserFilters(keywords=["protocols"]))])
-    assert _apply_multi_parser_guardrails("Which protocols are recorded?", mp, ADMIN).candidates[0].filters.keywords == []
+    assert _apply_multi_parser_guardrails("Which protocols were used on the samples?", mp, ADMIN).candidates[0].filters.keywords == []
 
 
-def test_the_graph_prompt_lists_sops_as_distinct_protocol_titles():
+def test_the_graph_prompt_lists_the_protocols_samples_used_as_distinct_titles():
     text = (CATALOG.parent.parent / "prompts" / "graph_agent.txt").read_text(encoding="utf-8")
-    assert ("Listing the SOPs or protocols on file is the distinct protocol titles, never a text filter on the word "
-            "SOP or protocol") in " ".join(text.split())
+    assert ("Listing the protocols samples used is the distinct protocol titles on the edges, never a text filter on the "
+            "word SOP or protocol") in " ".join(text.split())
+
+
+# ---------------------------------------------------------------- SOP records on file (round 2, P4) ---------------
+@pytest.mark.parametrize("q", ["How many SOPs are on file?", "What SOPs are on file?", "How many protocols are on file?"])
+def test_sops_on_file_go_to_the_protocols_report(q):
+    for p in (plan("graph_query"), plan(endpoint=SOPS, keywords=["SOP"])):
+        out = route(q, p)
+        assert out.mode == "reporter" and out.report_mode == "summary", q
+
+
+def test_which_protocols_are_registered_go_to_the_protocols_report():
+    out = route("Which protocols are registered?", plan("graph_query"))
+    assert out.mode == "reporter" and out.report_mode == "summary"
+
+
+def test_protocols_samples_used_stay_on_the_graph():
+    out = route("Which protocols did the tissue samples use?", plan("graph_query"))
+    assert out.mode == "graph_query"
+
+
+def test_one_named_sops_file_stays_rest():
+    out = route("Download SOP 142", plan(endpoint=SOPS))
+    assert (out.mode, out.target_endpoint) == ("new_search", SOPS)
+
+
+def test_a_projects_sops_stay_with_the_project_report():
+    out = route("How many SOPs are on file for Zeta?", plan("graph_query", projects=["Zeta"]))
+    assert out.mode == "graph_query" or out.report_mode == "summary"
+    assert "SOP records on file" not in (out.notes or "")
+
+
+def test_a_word_search_of_sop_titles_is_not_routed():
+    for q in ("Which SOPs have staining in the title?", "Which SOPs mention fixation?"):
+        assert route(q, plan("graph_query")).mode == "graph_query", q
+
+
+def test_a_named_project_or_investigation_is_a_condition_even_when_unresolved():
+    for q in ("How many protocols are registered for the Zeta investigation?", "What protocols exist for the Zeta project"):
+        assert route(q, plan("graph_query")).mode == "graph_query", q

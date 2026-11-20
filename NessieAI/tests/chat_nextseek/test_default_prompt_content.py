@@ -229,6 +229,12 @@ def test_person_names_never_go_to_person_nodes_or_the_people_endpoint():
     assert "NEVER call /nextseek_api/people/ to find samples by a person" in api
 
 
+def test_people_are_named_in_scientist_and_never_said_to_be_unstored():
+    agent = shipped("graph_agent.txt")
+    assert "Never write that the records hold no names of people" in agent
+    assert "two places only" not in agent
+
+
 def test_the_prompt_never_promises_a_values_list_the_catalog_does_not_render():
     # No Attribute node carries top_values on the 1.2 graph, so the renderer prints none: the prompt must say the
     # spellings are unknown rather than tell the agent to read them off a list.

@@ -39,7 +39,7 @@ def timeout_retry_context(cypher: str) -> str:
     )
 
 
-def zero_row_retry_context(cypher: str) -> str:
+def zero_row_retry_context(cypher: str, evidence: "list[str] | tuple" = ()) -> str:
     """The retry message for a query that ran without error and matched nothing.
 
     Pilot A v2 (2026-09-18), ChIP-seq: this message used to say "use the closest value that really exists". The
@@ -47,7 +47,7 @@ def zero_row_retry_context(cypher: str) -> str:
     Analysis sample, and the reply led with 12 Hi-C samples. A retry may repair a guess. It may not answer a
     different question.
     """
-    return (
+    base = (
         "Your previous Cypher query ran without error and matched 0 records:\n"
         f"{cypher}\n\n"
         "Find the one filter that was a guess and change only that one: a field you "
@@ -59,6 +59,26 @@ def zero_row_retry_context(cypher: str) -> str:
         "spellings is a real zero. If every filter was certain, return the SAME query "
         "unchanged - zero is a valid answer and a second guess would be worse than it."
     )
+    if not evidence:
+        return base
+    return base + (
+        "\n\nWhat the graph holds for this query's filters, read just now:\n"
+        + "\n".join(f"- {fact}" for fact in evidence)
+        + "\n\nThese facts replace guessing. Match a value the question asks for to the spellings or codes listed "
+        "(STEP 2, \"Codes and abbreviations\"), never move a value you can see listed into search_text, and say in "
+        "the explanation which stored value you read as the one asked for. One exception to keeping every term the "
+        "user wrote: a word that only describes the samples, that no field holds, and that empties a set the other "
+        "filters find is left out, and the explanation says no record of these mentions it. A word the user asked "
+        "records to mention, or a named technique, product or UID, stays, and its zero is the answer. A test that "
+        "holds on other types is reached through lineage (STEP 3, STEP 4)."
+    )
+
+
+#: Replies notes for a describing word that the zero-row evidence counted without (graph_review_counts.zero_row_evidence).
+WORD_LEFT_OUT_NOTE = ("No record here mentions '{term}', so this result leaves that word out. Say that in the first "
+                      "sentence, then give the result.")
+WORD_ZERO_NOTE = ("Nothing matched with '{term}'; without that word, {n:,} records match the rest of the question. "
+                  "Say both.")
 
 
 #: Told to the reply when the first query matched nothing and a second query with a changed filter found something.

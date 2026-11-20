@@ -53,19 +53,19 @@ def test_pbmc_accepts_an_all_types_headline_that_names_the_tissue_figure():
                          "tissue samples. The 1,826 tissue (TIS) samples are the closest figure.")
 
 
-def test_flow_accepts_either_count_when_it_says_which():
-    assert _passes(FLOW, "8,372 samples have flow cytometry or CyTOF data.")
-    assert _passes(FLOW, "I found 10,872 flow and CyTOF data records in the project.")
-    assert _passes(FLOW, "8,375 distinct samples have a D.FLOW, D.CYTOF or D.FCS record.")
-    # R10: the record count with D.FCS included is the count fix 7 asks for.
-    assert _passes(FLOW, "There are 12,244 flow cytometry, FCS and CyTOF data records.")
+def test_flow_accepts_the_samples_number_only():
+    """Round 2, P4 (operator 2026-11-20): 7,032 samples sit above a flow-family data record (prod read 2026-11-20).
+    The records count (10,872 or 12,244) and the old 8,372 no longer pass: the answer is samples, not records."""
+    assert _passes(FLOW, "7,032 samples have flow cytometry or CyTOF data.")
+    assert _passes(FLOW, "I found 7032 distinct samples above flow, FCS and CyTOF records.")
 
 
-def test_flow_rejects_a_count_that_does_not_say_which():
-    assert not _passes(FLOW, "10,872 samples have flow cytometry or CyTOF data.")
-    assert not _passes(FLOW, "12,244 samples have flow cytometry or CyTOF data.")
-    assert not _passes(FLOW, "The answer is 10,872.")
-    assert not _passes(FLOW, "8,372.")
+def test_flow_rejects_the_records_count_and_a_number_that_does_not_say_which():
+    assert not _passes(FLOW, "I found 10,872 flow and CyTOF data records in the project.")
+    assert not _passes(FLOW, "There are 12,244 flow cytometry, FCS and CyTOF data records.")
+    assert not _passes(FLOW, "8,372 samples have flow cytometry or CyTOF data.")
+    assert not _passes(FLOW, "The answer is 7,032.")
+    assert not _passes(FLOW, "7,032.")
 
 
 def test_refine_recall_is_retired_with_a_reason_and_not_active():

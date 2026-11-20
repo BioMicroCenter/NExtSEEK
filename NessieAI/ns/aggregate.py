@@ -171,10 +171,12 @@ def shape_repair_context(reasons: list[str]) -> str:
     )
 
 
-def _retry_for(result: dict, cypher: str, deadline: float) -> tuple[str, str] | None:
+def _retry_for(result: dict, cypher: str, deadline: float, *, config: Any = None, parameters: dict | None = None,
+               counted: list | None = None) -> tuple[str, str] | None:
     """At most one more statement: after zero rows, or after a refusal a rewrite can cure (a subquery or UNION
     shape, or ``graph_retry.SCOPE_REPAIR_CODES``, told the check's reasons); never late."""
     from chat_nextseek.graph_retry import scope_repair_context, zero_row_retry_context
+    from chat_nextseek.graph_review_counts import EVIDENCE_BUDGET_S, zero_row_evidence
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal, matched_nothing
 
     scope = result.get("scope") if isinstance(result.get("scope"), dict) else {}
@@ -191,7 +193,13 @@ def _retry_for(result: dict, cypher: str, deadline: float) -> tuple[str, str] | 
     if deadline - _clock() < MIN_REMAINING_S:
         return None
     if reason == "zero_rows":
-        return reason, zero_row_retry_context(cypher)
+        facts = []
+        spare = deadline - _clock() - MIN_REMAINING_S
+        if config is not None and spare >= EVIDENCE_BUDGET_S:
+            facts, calls = zero_row_evidence(config, cypher, parameters or {}, budget_s=min(EVIDENCE_BUDGET_S, spare))
+            if counted is not None:
+                counted += [c for c in calls if c.get("kind") == "without_text" and (c.get("total") or 0) > 0]
+        return reason, zero_row_retry_context(cypher, facts)
     if reason == "scope_repair":
         return reason, repair
     return reason, shape_repair_context(list(scope.get("reasons") or ()))
@@ -356,15 +364,21 @@ def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, conf
               deadline: float,
               parser_plan: Any = None, plan_source: str | None = None) -> tuple[dict, list[str], Any]:
     """One part through the graph op's chain; never raises (a failure is an ``error`` part)."""
+    counted: list = []   # words the zero-row evidence counted without (graph_retry.WORD_ZERO_NOTE)
     try:
         answer = run_graph_question(
             text, config=config, session=session, write_gate=write_gate, neo4j_exec=exec_fn,
             entity_out=entity_out, refine_context=_brief(question, multi, uid_note), prepare_cypher=cap_rows,
-            retry=lambda result, cypher: _retry_for(result, cypher, deadline),
+            retry=lambda result, cypher, parameters=None: _retry_for(
+                result, cypher, deadline, config=config, parameters=parameters, counted=counted),
             started=started, clock=_clock, text_fallback=False,
             parser_plan=parser_plan, plan_source=plan_source,
         )
         part, notes = _shape_part(k, text, answer, label)
+        from chat_nextseek.helpers.tools.neo4j import matched_nothing
+        if counted and matched_nothing(answer.result):
+            from chat_nextseek.graph_retry import WORD_ZERO_NOTE
+            notes.append(f"{label}{WORD_ZERO_NOTE.format(term=counted[0]['term'], n=counted[0]['total'])}")
         return part, notes, answer.parser_plan
     except Exception as exc:  # one part's failure never takes the others down
         part = _blank_part(k, text, "error")

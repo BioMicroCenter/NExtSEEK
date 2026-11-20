@@ -574,9 +574,11 @@ def test_a_column_where_no_value_repeats_and_the_identity_and_type_columns_are_l
 def test_a_capped_result_says_returned_rows_not_all():
     block = _counts(_mice(), shown=20, capped=True)
 
-    assert block.startswith("Values across the 25 returned rows, not just the preview (each column counted on its own):\n")
+    assert block.startswith("Values across only the 25 rows returned, a capped part of the result (each column counted "
+                            "on its own);")
     assert "ALL" not in block.splitlines()[0]
-    assert block.rstrip("\n").endswith(_COUNTS_LAST)
+    assert "never write all, only, every or always" in block.splitlines()[0]
+    assert block.rstrip("\n").endswith("Give these counts as counts of the rows returned, never as the whole result's.")
 
 
 def test_the_value_counts_are_bounded():
@@ -1045,3 +1047,85 @@ def test_no_per_turn_line_still_forbids_the_method_the_user_asked_for(captured):
     assert ("not how it was reached, unless the user asked how the answer was found: then also say, in one or "
             "two plain sentences, what was counted (which records, of which type, under which conditions).") in qualified
     assert "not how it was reached.\n" not in qualified
+
+
+class _LabConfig(_StubConfig):
+    LABS = [{"code": "QQZ", "name": "Quill", "affiliation": "Example University"},
+            {"code": "ZZY", "name": "Zephyr", "affiliation": "Sample Institute"},
+            {"code": "XXW", "name": "Other", "affiliation": "Elsewhere"}]
+
+
+def test_lab_codes_in_the_rows_come_with_their_lab_names(captured):
+    rows = [{"lab_code": "QQZ", "n": 20}, {"lab_code": "ZZY", "n": 3}]
+    text = _graph_turn(captured, question="Which labs are these samples from?", rows=rows, config=_LabConfig())
+
+    assert "QQZ = Quill lab (Example University)" in text
+    assert "ZZY = Zephyr lab (Sample Institute)" in text
+    assert "XXW" not in text
+
+
+def test_an_investigator_code_column_is_named_too_and_a_type_column_is_not():
+    rows = [{"investigator_code": "ZZY", "samples": 4}, {"type": "QQZ", "n": 1}]
+    block = chatter_mod._lab_names_block(_LabConfig(), rows)
+
+    assert "ZZY = Zephyr lab" in block
+    assert "QQZ" not in block
+
+
+def test_no_lab_block_without_labs_or_without_a_lab_column(captured):
+    rows = [{"lab_code": "QQZ", "n": 20}]
+    assert "lab names" not in _graph_turn(captured, question="Which labs?", rows=rows).lower()
+    uuid_only = [{"uuid": "TIS-200101QQZ-1"}, {"uuid": "TIS-200101ZZY-2"}]
+    assert chatter_mod._lab_names_block(_LabConfig(), uuid_only) == ""
+
+
+# --------------------------------------------------------------------------
+# Round 2, 3b: a capped list is described by counts over the WHOLE result, never by the 5,000 rows returned.
+# --------------------------------------------------------------------------
+
+def _capped_rows():
+    return [{"assay": "Alpha Profiling", "id": i, "uuid": f"A.GEX-200101QQZ-{i}",
+             "type": "A.GEX" if i < 4687 else "D.SEQ"} for i in range(5000)]
+
+
+def _capped_turn(captured, breakdown=None):
+    graph_result = {"ok": True, "count": 5000, "total": 73435, "truncated": True, "limit": 5000,
+                    "data": _capped_rows()}
+    if breakdown is not None:
+        graph_result["breakdown"] = breakdown
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "Which other samples share an assay with this one?", _entity(), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) RETURN s.uuid AS uuid", "parameters": {}, "explanation": ""},
+        graph_result=graph_result, log_dir="")
+    return captured["user_content"]
+
+
+_WHOLE = {"samples": 73122, "unit": "samples",
+          "columns": {"assay": [["Alpha Profiling", 69707], ["Beta Sequencing", 4041]],
+                      "type": [["A.GEX", 69394], ["D.SEQ", 4041]]}, "more": []}
+
+
+def test_a_capped_list_is_described_by_its_whole_result_counts(captured):
+    text = _capped_turn(captured, _WHOLE)
+
+    assert "Beta Sequencing 4,041" in text
+    assert "73,122 distinct samples" in text
+    assert "more than one value" in text
+    assert "73,435 counts rows" in text
+    assert "Alpha Profiling 5,000" not in text
+    assert "Sample types across ALL" not in text
+
+
+def test_a_whole_result_count_without_samples_renders_and_says_no_samples_number(captured):
+    text = _capped_turn(captured, {**_WHOLE, "samples": None, "more": ["assay"]})
+
+    assert "Beta Sequencing 4,041, and other values" in text
+    assert "distinct samples" not in text and "counts rows" not in text
+
+
+def test_a_capped_list_without_whole_result_counts_says_they_are_of_the_rows_returned(captured):
+    text = _capped_turn(captured)
+
+    assert "Values across only the 5,000 rows returned" in text
+    assert "never write all, only, every or always" in text
+    assert "Sample types across only the 5,000 rows returned" in text

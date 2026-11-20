@@ -67,7 +67,8 @@ from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
                            check_binding, check_premise, holding_study_note, review_compute, review_tier1,
                            with_checks)
-from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2
+from .graph_review_counts import (SKIP_AFTER_MS, live_values, rerun_statement, run_tier2, whole_result_breakdown,
+                                  zero_row_evidence)
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
@@ -93,7 +94,7 @@ from .helpers import (
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, asks_for_a_count, id_spelling_note, id_spelling_variant,
                           scope_repair_note,
                           normalized_cypher, quoted_in, scope_repair_context, timed_out, timeout_retry_context,
-                          zero_row_retry_context)
+                          WORD_LEFT_OUT_NOTE, WORD_ZERO_NOTE, zero_row_retry_context)
 from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_notes, lab_people, lab_people_notes
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
@@ -1237,6 +1238,9 @@ class GraphRun(NamedTuple):
     spelling_note: str | None = None
     #: Set when a scope rewrite answered and its cure changes what the result covers (graph_retry.scope_repair_note).
     scope_repair_note: str | None = None
+    #: Set when the zero-row evidence counted a free-text word without it and the answer left it out or stayed zero
+    #: (graph_retry.WORD_LEFT_OUT_NOTE, WORD_ZERO_NOTE).
+    word_note: str | None = None
 
 
 def _with_statement(graph_plan, cypher: str, parameters: dict):
@@ -1287,6 +1291,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
+    zero_calls: list[dict] = []   # the reads behind the zero-row retry's facts
     scope_repair_used = False
     repaired_codes: list = []  # the codes of the refusal the one scope rewrite answered
     # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
@@ -1340,7 +1345,8 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
             print("[GRAPH] Query ran but matched nothing, retrying once with that context")
             # The wording, and why it no longer says "use the closest value", is in
             # graph_retry.py: the CC aggregate op retries a zero part in the same words.
-            retry_ctx = zero_row_retry_context(graph_plan.cypher)
+            zero_facts, zero_calls = zero_row_evidence(config, graph_plan.cypher, parameters)
+            retry_ctx = zero_row_retry_context(graph_plan.cypher, zero_facts)
             reason = "zero_rows"
         else:
             break
@@ -1363,6 +1369,8 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, retry_parameters)
         retry_ms = _ms_since(t_query)
         attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
+        if reason == "zero_rows":
+            attempts[-1]["evidence"] = {"facts": zero_facts, "calls": zero_calls}
         if timed_out(retry_result):
             timed_out_statements.add(normalized_cypher(graph_plan_retry.cypher))
             last_timeout = (graph_plan_retry, retry_result, retry_parameters, retry_ms)
@@ -1378,10 +1386,21 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         parameters = retry_parameters
         kept_ms = retry_ms
 
+    # A free-text word the evidence counted without: told to the reply, since query_scope never lists it.
+    word_note = None
+    counted = [c for c in zero_calls if c.get("kind") == "without_text" and (c.get("total") or 0) > 0]
+    if counted and graph_result.get("ok"):
+        if matched_nothing(graph_result):
+            word_note = WORD_ZERO_NOTE.format(term=counted[0]["term"], n=counted[0]["total"])
+        else:
+            kept = f"{graph_plan.cypher} {parameters}".lower()
+            gone = [c for c in counted if c["term"] not in kept]
+            if gone:
+                word_note = WORD_LEFT_OUT_NOTE.format(term=gone[0]["term"])
     return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,
                     parameters=parameters,
                     changed_answer=first_ok_empty and not matched_nothing(graph_result),
-                    spelling_note=spelling_note,
+                    spelling_note=spelling_note, word_note=word_note,
                     scope_repair_note=scope_repair_note(repaired_codes) if graph_result.get("ok") else None)
 
 
@@ -1866,6 +1885,8 @@ def _execute_graph_turn(
     else:
         print("\n[GRAPH] Running the chip's statement (no graph agent)...")
     debug_payload["graph_context"] = graph_plan.context_mode
+    if graph_plan.fields_named:
+        debug_payload["fields_named"] = graph_plan.fields_named
     # A fallback's reason and capture date: the harness reads the payload, the debug panel the summary line.
     schema_fallback = _schema_fallback_line(graph_plan.context_fallback)
     if schema_fallback:
@@ -1887,7 +1908,22 @@ def _execute_graph_turn(
              "executed_cypher": None, "scope_decision": None, "elapsed_ms": None}
             for cypher, reason in ((graph_plan.attempted_cypher, "initial"), (graph_plan.repaired_cypher, "repair"))
             if cypher]
-        reply = refusal_reply(graph_plan.refusal_kinds) or GRAPH_REFUSAL_REPLY
+        reply = refusal_reply(graph_plan.refusal_kinds)
+        why = (graph_plan.explanation or "").strip()
+        if reply is None and why and not graph_plan.refusal_kinds and not why.startswith("Graph agent "):
+            # The agent's own reasoned refusal (graph prompt: "If the question cannot be answered ..."): its reason is
+            # internal words, so the reply writer says it plainly. A guard's refusal and an exception keep the fixed
+            # reply (24506e9de).
+            _on("chatter")
+            reply = chatter_agent_answer(
+                config, user_text, entity_result.model_dump(), plan.model_dump(),
+                graph_plan=graph_plan.model_dump(),
+                graph_result={"ok": False, "data": [], "count": None, "total": None, "error": "No search was run."},
+                log_dir=log_dir, session=session,
+                query_notes=[*uid_reply_notes, *subject_reply_notes, *lab_reply_notes, GRAPH_NO_QUERY_NOTE])
+        reply = reply or GRAPH_REFUSAL_REPLY
+        append_turn(session, user_query=user_text, mode="graph_query", intent_summary=plan.intent_summary,
+                    entity_result=entity_result, assistant_reply=reply)
         session["last_debug"] = debug_payload
         send_event("agent_complete", {"agent": "graph",
                                       "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
@@ -1945,6 +1981,13 @@ def _execute_graph_turn(
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]
+    if graph_result.get("ok") and graph_result.get("truncated"):
+        # A list cut at its cap is described by counts over the WHOLE result, not by the rows returned (3b).
+        inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
+        breakdown = whole_result_breakdown(config, graph_plan.cypher, inp.parameters, inp.rows, elapsed_ms=elapsed_ms)
+        if breakdown:
+            graph_result = {**graph_result, "breakdown": breakdown}
+            debug_payload["graph_breakdown"] = breakdown
     # A number found by a changed filter may not mean what the question asked, so the
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
@@ -1955,6 +1998,8 @@ def _execute_graph_turn(
         query_notes.append(run.spelling_note or RETRY_CHANGED_ANSWER_NOTE)
     if run.scope_repair_note:
         query_notes.append(run.scope_repair_note)
+    if run.word_note:
+        query_notes.append(run.word_note)
     # A lab the question misspells resolves to no code, by design, and used to leave the
     # turn with a keyword and a confident zero ("There are no samples associated with the
     # Engleward lab", 2026-09-22). The near record is a note, so the reply can ask.
@@ -2308,6 +2353,13 @@ def _handle_pipeline_agent_turn(
 GRAPH_REFUSAL_REPLY = (
     "I couldn't build a search for that question. Try naming the sample type, project or attribute "
     "you mean, or ask it a different way."
+)
+
+#: A query note for the reply writer when the graph agent itself declined to write a query (its reason is internal).
+GRAPH_NO_QUERY_NOTE = (
+    "No search was run for this question: the step that writes searches stopped, and its note says why. Say in plain "
+    "words what is missing or not recorded, then the one thing the user can give or ask that would let a search run "
+    "(for example, pasting the UIDs). Give no number and no result."
 )
 
 #: What a user is told when the parser routes a turn to "unsupported". The parser's own notes

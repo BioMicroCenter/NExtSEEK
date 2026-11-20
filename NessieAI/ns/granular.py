@@ -609,7 +609,7 @@ def run_graph_question(
     write the parser plan's filters.uids as the graph stores them, as the NS path does. The aggregate op calls it
     once per part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief,
     handed to every graph agent call), ``prepare_cypher`` (its row cap, applied to every statement before the tool sees
-    it), ``retry`` (given the first result and the agent's own statement, it returns ``(reason, retry_context)``
+    it), ``retry`` (given the first result, the agent's own statement and its parameters, it returns ``(reason, retry_context)``
     for at most one more statement, or None), and its own clock, start and fallback budget.
 
     Every statement, a retry's too, runs through ``neo4j_exec`` (the scoped ``tool_neo4j_query`` when None) on the
@@ -658,7 +658,10 @@ def run_graph_question(
         retry = _scope_retry(now, started, fallback_budget_s)
     changed = False
     repair_note = None
-    spec = retry(result, own_cypher) if retry is not None and own_cypher else None
+    spec = None
+    if retry is not None and own_cypher:
+        plan_params = (plan_dump.get("parameters") if isinstance(plan_dump, dict) else getattr(plan, "parameters", None))
+        spec = retry(result, own_cypher, plan_params or {})
     if spec:
         from chat_nextseek.helpers.tools.neo4j import matched_nothing
         reason, retry_context = spec
@@ -693,7 +696,7 @@ def _scope_retry(now, started, budget_s):
     from chat_nextseek.graph_retry import scope_repair_context
     budget = fallback_start_budget_s(None) if budget_s is None else budget_s
 
-    def retry(result, cypher):
+    def retry(result, cypher, parameters=None):
         context = scope_repair_context(result)
         return ("scope_repair", context) if context and now() - started < budget else None
     return retry

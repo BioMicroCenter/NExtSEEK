@@ -879,6 +879,17 @@ def _page_word_turn(q: str, plan, resolved):
     return _to(plan, "system_question", f"{PAGE_WORD_NOTE}: a how-to about the page", **update)
 
 
+#: "How many SOPs are on file", "which protocols are registered": the SOP records, which the protocols report counts
+#: over every project the caller reads. What samples used, or one named SOP's file, is not this.
+_SOP_RECORDS = re.compile(r"\b(?:sops?|protocols?)\b", re.I)
+_SOP_LIST_ASK = re.compile(r"\b(?:how\s+many|number\s+of|count|list|which|what|on\s+file|registered|exist\w*)\b", re.I)
+# a word search of titles ("with", "named", "containing", "about", "in the title", a quoted word), samples' use of a
+# protocol, or a named project, investigation, study or lab is not "no condition": it is not routed here
+_SOP_USE = re.compile(r"\b(?:follow\w*|use[sd]?|using|applied|appl(?:y|ies)|ran|run|process\w*|with|named|called|titled|contain\w*|about"
+                      r"|mention\w*|in\s+(?:the\s+)?(?:titles?|names?)|projects?|investigations?|stud(?:y|ies)|labs?)\b|['\"\u201c]", re.I)
+SOP_RECORDS_NOTE = "sent to reporter: the SOP records on file are counted by the protocols report over every project the caller reads"
+
+
 def _route_by_kind_steps(user_query, plan, config, resolved):
     from ..graph_scope import sees_all
 
@@ -899,6 +910,13 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
     if (plan.mode in ("new_search", "graph_query") and not has_sample and not named and not projects
             and _CATALOG_COUNT.search(q)):
         return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
+    # "How many SOPs are on file", "which protocols are registered": the SOP records, which the protocols report counts
+    # over every project the caller reads. What samples used, one named SOP's file or a word search is not this.
+    if (plan.mode in ("new_search", "graph_query") and _SOP_RECORDS.search(q) and _SOP_LIST_ASK.search(q)
+            and not has_sample and not named and not projects and not _SOP_USE.search(q)
+            and not filters.sampletype_code and not filters.assay_codes and not sop_id_in(q)
+            and not (sop_ref_in(q) and _SOP_FILE_WORD.search(q))):
+        return _to(plan, "reporter", SOP_RECORDS_NOTE, report_mode="summary")
     if plan.mode in ("new_search", "graph_query") and _WHICH_ATTRIBUTES_RE.search(q) and _SAMPLE_WORD_RE.search(q):
         if not sees_all(config):
             return _to(plan, "system_question", ATTRIBUTE_CATALOG_NOTE + " (the system agent answers from the catalog for this caller)")
@@ -923,7 +941,7 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
                 return plan.model_copy(update={"filters": filters.model_copy(update={"keywords": [ref]})})
             if projects:
                 return _to(plan, "reporter", "sent to reporter: the SOPs registered to a project are the project report's", report_mode="summary")
-            return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
+            return _to(plan, "graph_query", "sent to graph_query: which protocols samples used is read on the graph; REST only downloads one named SOP")
         elif ep == PEOPLE_PATH:
             # Keywords alone are names to find on the list, matched in code (review F8); anything else is a
             # condition the list cannot hold.
