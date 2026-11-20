@@ -460,6 +460,15 @@ def _equality_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def in_list_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
+    """[(var, attr, item)] for every whole-value ``...var.attr...) IN $list`` or ``IN ['a', 'b']``."""
+    out = []
+    for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+IN\s+(\$\w+|\[[^\]]*\])", cy):
+        items = params.get(tok[1:]) if tok.startswith("$") else re.findall(r"'([^']*)'", tok)
+        out += [(var, attr, str(i).lower()) for i in (items if isinstance(items, (list, tuple)) else []) if i]
+    return out
+
+
 def _return_clause(cy: str) -> str:
     parts = re.split(r"\bRETURN\b", cy)
     return parts[-1] if len(parts) > 1 else ""

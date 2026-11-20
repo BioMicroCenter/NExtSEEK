@@ -43,7 +43,8 @@ from typing import Callable
 
 from . import graph_catalog
 from .graph_review import (DISCLOSURE_MAX, SAMPLE_ID_COLUMNS, TERM, VALUES_CAP, CatalogProvider, GraphReview,
-                           ReviewInput, _resolve, _var_labels)
+                           ReviewInput, _contains_filters, _equality_filters, _excluded_terms, _free_text_terms,
+                           _resolve, _var_labels, in_list_filters)
 from .graph_scope import scope_of
 from .helpers.tools.neo4j import split_trailing_limit, tool_neo4j_query
 
@@ -1221,3 +1222,166 @@ def run_tier2(config, inp: ReviewInput, review: GraphReview, *, budget_s: float 
         out.error = out.error or f"tier2: {type(exc).__name__}: {exc}"[:200]
     out.elapsed_ms = (review.elapsed_ms or 0) + int((_clock() - t0) * 1000)
     return out
+
+
+# ---------------------------------------------------------------- zero_row_evidence ---------------------------------
+EVIDENCE_BUDGET_S = 4.0        # all the reads of one zero-row turn
+EVIDENCE_VALUES_SHOWN = 15
+EVIDENCE_FIELDS_MAX = 3
+EVIDENCE_TERMS_MAX = 2
+EVIDENCE_ELSEWHERE_MAX = 1
+EVIDENCE_STATEMENT_S = 2.0
+_EVIDENCE_SKIP_ATTRS = {"search_text", "title", "uuid", "id", "type"}
+
+
+def _drop_term_tests(cy: str, literal: str) -> str | None:
+    """``cy`` with every ``[f(]var.prop[)] CONTAINS [f(]literal[)]`` replaced by ``true``; None when nothing changed
+    or the parentheses of a match cannot be balanced."""
+    rx = re.compile(r"(?:\w+\(\s*)*\w+\.(?:\w+|`[^`]+`)(?:\s*\))*\s+CONTAINS\s+(?:\w+\(\s*)*" + re.escape(literal)
+                    + r"(?:\s*\))*")
+    bad = []
+
+    def sub(m):
+        text, tail = m.group(0), ""
+        while text.count(")") > text.count("(") and text.endswith(")"):
+            text, tail = text[:-1], ")" + tail
+        text = text.rstrip()
+        if text.count("(") != text.count(")"):
+            bad.append(1)
+            return m.group(0)
+        return "true" + tail
+
+    new, n = rx.subn(sub, cy)
+    return new if n and not bad else None
+
+
+def zero_row_evidence(config, cypher: str, parameters: dict, *,
+                      budget_s: float = EVIDENCE_BUDGET_S) -> tuple[list[str], list[dict]]:
+    """What the graph holds for the filters of a statement that matched nothing, as ``(facts, calls)``.
+
+    Read for the retry model only. Every read goes through ``tool_neo4j_query`` under the caller's scope
+    (``live_values``, ``count_of``, ``rows_of``). Never raises; ``([], calls)`` when nothing could be read."""
+    facts: list[str] = []
+    calls: list[dict] = []
+    t0 = _clock()
+
+    def left() -> float:
+        return budget_s - (_clock() - t0)
+
+    def stmt_timeout() -> float | None:
+        s = min(EVIDENCE_STATEMENT_S, left())
+        return s if s >= MIN_TIMEOUT_S else None
+
+    try:
+        parameters = parameters or {}
+        mask = _mask(cypher)
+        if _has_union(cypher, mask):
+            return [], calls
+        labels = _var_labels(cypher)
+        eq, co, il = _equality_filters(cypher, parameters), _contains_filters(cypher, parameters), \
+            in_list_filters(cypher, parameters)
+        # (a) the stored values of each filtered field
+        fields: dict[tuple[str, str], list[str]] = {}
+        for var, attr, term in eq + co + il:
+            if attr.lower() in _EVIDENCE_SKIP_ATTRS or var not in labels:
+                continue
+            fields.setdefault((labels[var], attr), [])
+            if term not in fields[(labels[var], attr)]:
+                fields[(labels[var], attr)].append(term)
+        provider = None
+        for (label, attr), terms in list(fields.items())[:EVIDENCE_FIELDS_MAX]:
+            if left() <= 0:
+                break
+            t1 = _clock()
+            ok, pairs = False, None
+            try:
+                provider = provider or live_values(config, budget_s=min(EVIDENCE_STATEMENT_S * 2, left()))
+                pairs = provider.values(label, attr)
+                ok = pairs is not None
+            except Exception:  # noqa: BLE001
+                pairs = None
+            calls.append({"kind": "values", "key": f"{label}.{attr}", "ok": ok, "ms": int((_clock() - t1) * 1000)})
+            if not pairs:
+                continue
+            names = [v for v, _n in pairs]
+            complete = len(names) < VALUES_CAP
+            if complete and len(names) <= EVIDENCE_VALUES_SHOWN:
+                shown = names
+            else:
+                shown = [v for v in names if any(t in v.lower() for t in terms)][:EVIDENCE_VALUES_SHOWN]
+                if not shown:
+                    # ponytail: a capped list says nothing about values beyond the cap, so no "none contains" fact
+                    if complete:
+                        facts.append(f"No stored `{attr}` value on {label} contains '{terms[0]}'.")
+                    continue
+            facts.append(f"`{attr}` on {label} holds: " + ", ".join(f"'{v}'" for v in shown))
+        # (b) the count without each free-text word
+        field_filters = [f for f in eq + co + il if f[1] != "search_text"]
+        has_exists = bool(re.search(r"\bEXISTS\s*\{", mask, re.I))
+        excluded = {t for _v, _a, t in _excluded_terms(cypher, parameters)}
+        seen: list[str] = []
+        for _var, tok, term in _free_text_terms(cypher, parameters):
+            if len(seen) >= EVIDENCE_TERMS_MAX:
+                break
+            if term in seen or term in excluded:
+                continue
+            if not (has_exists or any(f[2] != term for f in field_filters)):
+                continue
+            if tok.startswith("$") and isinstance(parameters.get(tok[1:]), (list, tuple)):
+                continue
+            new = _drop_term_tests(cypher, tok)
+            row = _row_level(new) if new else None
+            if not row:
+                continue
+            seen.append(term)
+            timeout = stmt_timeout()
+            if timeout is None:
+                break
+            t1 = _clock()
+            try:
+                got = count_of(config, row, parameters, timeout_s=timeout)
+            except Exception as exc:  # noqa: BLE001
+                got = {"ok": False, "error": str(exc)}
+            ok = bool(got.get("ok"))
+            total = got.get("total") if ok else None
+            calls.append({"kind": "without_text", "key": term, "term": term, "total": total, "ok": ok,
+                          "ms": int((_clock() - t1) * 1000)})
+            if total is None:
+                continue
+            facts.append(f"Without the text '{term}' (every other filter kept), it finds {total:,} records."
+                         if total > 0 else f"Without the text '{term}' it still finds nothing.")
+        # (c) the same field test on other types
+        clauses = _clauses(cypher, mask)
+        if (len(clauses) >= 2 and clauses[0].kw == "MATCH" and clauses[1].kw == "WHERE"
+                and not re.search(r"\b(?:OR|XOR)\b", mask[clauses[1].body:clauses[1].end], re.I)):
+            body, bmask = cypher[clauses[1].body:clauses[1].end], mask[clauses[1].body:clauses[1].end]
+            done = 0
+            for part in _split_top(body, bmask, r"\bAND\b"):
+                if done >= EVIDENCE_ELSEWHERE_MAX:
+                    break
+                for var, label in labels.items():
+                    m = re.search(rf"\b{re.escape(var)}\.(\w+)", part)
+                    if not m or not _text_match_on(part, var) or m.group(1).lower() in ("search_text", "title"):
+                        continue
+                    timeout = stmt_timeout()
+                    if timeout is None:
+                        break
+                    done += 1
+                    t1 = _clock()
+                    try:
+                        got = rows_of(config, f"MATCH ({var}:Sample) WHERE {_unwrap(part)} RETURN {var}.type AS type, "
+                                      f"count(*) AS n ORDER BY n DESC LIMIT 8", parameters, timeout_s=timeout)
+                    except Exception as exc:  # noqa: BLE001
+                        got = {"ok": False, "rows": [], "error": str(exc)}
+                    calls.append({"kind": "elsewhere", "key": f"{label}.{m.group(1)}", "ok": bool(got.get("ok")),
+                                  "ms": int((_clock() - t1) * 1000)})
+                    mine = label[2:]
+                    others = [r for r in got.get("rows") or []
+                              if str(r.get("type")).replace(".", "_").upper() != mine]
+                    if others:
+                        facts.append(f"The same test on `{m.group(1)}` holds on other types: "
+                                     + ", ".join(f"{r['type']} {r['n']}" for r in others))
+                    break
+    except Exception:  # noqa: BLE001 (evidence never raises to its caller)
+        pass
+    return facts, calls
