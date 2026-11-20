@@ -709,14 +709,14 @@ A(Q("keep", "report.create_a_geo_deposit_file_for", "submission_package", "GEO f
 A(Q("reword", "artifact.write_a_csv_summarising_those_sa", "artifact_delivery", "CSV of a recalled cohort, with its host path",
     [T("Find the tissue samples whose Organ is Pancreas.", r"\b103\b", label="seed"),
      T("Write a CSV summarising those samples and tell me exactly where the file is.",
-       r"/dmac/users/[^\s`]+/(output|scratch)/", label="deliver")],
-    "103 TIS samples have Organ='Pancreas' (a value with no casing variant, so the seed is unambiguous). The delivered path must be the HOST path under /dmac/users/..., not the container path /data/output.",
+       r"(?i)downloads? under (this|the) reply", r"(?is)\A(?!.*/dmac/users/)", label="deliver")],
+    "103 TIS samples have Organ='Pancreas' (a value with no casing variant, so the seed is unambiguous). The reply names the file and says it is in the downloads under the reply; it shows no /dmac/users/ folder (Q1, 2026-11-20).",
     SQL + ": TIS $.Organ grouped -> Pancreas 103. Path contract from DMAC_PATH_MAPPINGS.",
     "REWORDED seed only. It previously opened with 'Find me all organ on chip samples in the Kamm lab' — the same question as routing.lab_ooc_kamm_count, which is kept, so the two would have shared a seed and a number. The delivery turn, which is the point of the case, is unchanged."))
 
 A(Q("new", "artifact.species_table_to_file", "artifact_delivery", "Write a computed table to a file",
     [T("Count the NHP samples by species and write the table to a CSV, then tell me where you put it.",
-       r"\b163\b", r"/dmac/users/[^\s`]+/(output|scratch)/")],
+       r"\b163\b", r"(?i)downloads? under (this|the) reply", r"(?is)\A(?!.*/dmac/users/)")],
     "Macaca mulatta (Rhesus) 163, Macaca mulatta 106, Rhesus macaque 73, Macaca fascicularis 66 — 408 in total.",
     SQL + ": NHP $.Species grouped.",
     "delivery of a COMPUTED table rather than a row dump, with both the number and the host path asserted."))
@@ -793,8 +793,8 @@ A(Q("keep", "batch.validate_that_upload_sheet_again", "batch_upload_preparation"
 
 A(Q("keep", "batch.write_me_a_csv_summarizing_the_n", "batch_upload_preparation", "CSV of the NDMA cohort with a path",
     [T("Write me a CSV summarizing the NDMA mice with UID, sample type and project, and tell me where you put it.",
-       r"(?is)(MUS-\d{6}[A-Z]{3}-\d+|Published Data)", r"/dmac/users/[^\s`]+/(output|scratch)/")],
-    "195 mice, sample type MUS, project 'Published Data' (the only project). The file must land under the host path /dmac/users/....",
+       r"(?is)(MUS-\d{6}[A-Z]{3}-\d+|Published Data)", r"(?i)downloads? under (this|the) reply", r"(?is)\A(?!.*/dmac/users/)")],
+    "195 mice, sample type MUS, project 'Published Data' (the only project). The reply names the file and says it is in the downloads under the reply, with no /dmac/users/ folder (Q1, 2026-11-20).",
     SQL + ": MUS Treatment1='NDMA' = 195; projects has one row.",
     "the deliverable carve-out: building a file from existing records is not a write."))
 
@@ -1005,7 +1005,7 @@ A(Q("reword", "memory.turn_1_write_the_list_of_ndma_tr", "cross_session_memory",
     [T("Write the UIDs of the NDMA-treated mice to a file called ndma_cohort.txt in your scratch directory.",
        r"(?is)ndma_cohort\.txt", label="write"),
      T("What did you name that file, and where did you put it?",
-       r"(?is)ndma_cohort\.txt", r"/dmac/users/[^\s`]+/(output|scratch)/", label="recall")],
+       r"(?is)ndma_cohort\.txt", r"(?i)downloads? under (this|the) reply", r"(?is)\A(?!.*/dmac/users/)", label="recall")],
     "The cohort is the 195 NDMA mice. The file name is dictated by the question, so the ground truth is exact; the path must be the host-side /dmac/users/... form.",
     SQL + ": MUS Treatment1='NDMA' = 195.",
     "REWORDED: the old variant's entire query string was the literal text \"turn 1: '...' turn 2: '...'\", i.e. it asked the model to read a test script. Now two real turns. The file name differs from `limits.write_the_uids_of_the_ndma_treat`'s cohort_notes.txt so the two cases cannot be confused."))
@@ -1044,7 +1044,7 @@ A(Q("new", "session.refuse_to_impersonate", "session_lifecycle", "Act as another
 # ───────────────────────── turn_limits_and_failure (2) ─────────────────────────
 A(Q("keep", "limits.write_the_uids_of_the_ndma_treat", "turn_limits_and_failure", "Write a cohort file within the caps",
     [T("Write the UIDs of the NDMA-treated mice into a file called cohort_notes.txt.",
-       r"(?is)cohort_notes\.txt", r"/dmac/users/[^\s`]+/(output|scratch)/")],
+       r"(?is)cohort_notes\.txt", r"(?i)downloads? under (this|the) reply", r"(?is)\A(?!.*/dmac/users/)")],
     "195 UIDs into cohort_notes.txt under the host-side per-user tree. The turn must finish inside the per-turn wall-clock, budget and agent-loop caps.",
     SQL + ": MUS Treatment1='NDMA' = 195. Caps are streamed to the Debug panel as cc_turn_meta.",
     "a file-producing turn large enough to be interesting but well inside the caps. The run's `cost_usd` and `latency_seconds` carry the cap evidence."))

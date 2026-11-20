@@ -13955,7 +13955,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -13974,7 +13979,7 @@
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED. 'Those samples' had no antecedent as a single turn. A seed turn now supplies one, and the delivery criterion (the reply must quote the HOST-side path under /dmac/users/... rather than leak the container path /data/output) is kept as generated \u2014 it is the only place the corpus tests DMAC_PATH_MAPPINGS. The seed is the Kamm organ-on-chip cohort (530, verified) rather than the NDMA mice, deliberately: 'Find me mice treated with NDMA' is already the seed of five other selected variants, and a sixth would buy nothing but another copy of the same first turn.",
           "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 103 TIS samples have Organ='Pancreas' (a value with no casing variant, so the seed is unambiguous). The delivered path must be the HOST path under /dmac/users/..., not the container path /data/output. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ grouped -> Pancreas 103. Path contract from DMAC_PATH_MAPPINGS. || TESTS: REWORDED seed only. It previously opened with 'Find me all organ on chip samples in the Kamm lab' \u2014 the same question as routing.lab_ooc_kamm_count, which is kept, so the two would have shared a seed and a number. The delivery turn, which is the point of the case, is unchanged.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ = 'Pancreas' 2,666, and 3,321 with 'pancreas' 384 and 'PANCREAS' 271 (Neo4j cypher-shell, read-only); the seed is no longer free of case variants, so both readings are accepted; was 103."
+          "_why": "2026-11-20 (Q1): the delivery turn now checks that the reply names the file and says it is in the downloads under the reply, and that it shows no /dmac/users/ folder (the server's folder, which no user can open); it used to require the host path. Seed note follows. || Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ = 'Pancreas' 2,666, and 3,321 with 'pancreas' 384 and 'PANCREAS' 271 (Neo4j cypher-shell, read-only); the seed is no longer free of case variants, so both readings are accepted; was 103."
         },
         {
           "artifact_expected": null,
@@ -14006,7 +14011,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -14086,7 +14096,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 },
                 {
                   "field": "last_reply",
@@ -14176,7 +14191,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -14256,7 +14276,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 },
                 {
                   "field": "last_reply",
@@ -17020,7 +17045,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -18484,7 +18514,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -18773,7 +18808,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
