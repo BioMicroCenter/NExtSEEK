@@ -3960,7 +3960,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b593\\b"
+                  "value": "\\b617\\b"
                 },
                 {
                   "field": "parser_plan.mode",
@@ -3970,7 +3970,7 @@
               ]
             }
           ],
-          "_why": "593 SOP records on production (seek_production MySQL, read-only, 2026-09-23: COUNT(sops) = 593, 593 distinct titles, none titled TEST_SOP% or containing 'test'). || Round 2, P4 task 7 (2026-11-20 ruling): 'How many SOPs are on file' with no other condition goes to the reporter's protocols summary, which counts the SOP records over every project the caller reads; the graph only knows the 128 protocol titles samples used (dev). The second half of the question (are any test artifacts) is not answered by that report, so the case no longer pins TEST_SOP. || WAS: mode graph_query and the literal TEST_SOP, which this note said prod does not hold. || A production number: the case runs only with NESSIE_ON_PROD.",
+          "_why": "617 SOP records on production, every one filed under a project, 0 under none (seek_production MySQL, read-only, 2026-11-20, CI-reports/prod-check2-20261120/sop-count/prod_sop_count.out). The protocols report counts the distinct SOPs filed under the projects the caller reads (reports/runners.py), so an admin's count is the same 617. || WAS: 593 (COUNT(sops), 2026-09-23: 593 distinct titles, none titled TEST_SOP% or containing 'test'). || Round 2, P4 task 7 (2026-11-20 ruling): 'How many SOPs are on file' with no other condition goes to the reporter's protocols summary, which counts the SOP records over every project the caller reads; the graph only knows the 128 protocol titles samples used (dev). The second half of the question (are any test artifacts) is not answered by that report, so the case no longer pins TEST_SOP. || WAS: mode graph_query and the literal TEST_SOP, which this note said prod does not hold. || A production number: the case runs only with NESSIE_ON_PROD.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
