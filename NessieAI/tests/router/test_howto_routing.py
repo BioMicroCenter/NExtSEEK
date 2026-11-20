@@ -280,3 +280,10 @@ def test_a_file_request_the_router_sent_to_cc_is_untouched(monkeypatch):
 def test_a_file_request_the_router_called_unrelated_stays_unrelated(monkeypatch):
     sent = _says(monkeypatch, cc_router.ROUTE_UNRELATED)
     assert _route("Make me a spreadsheet of the zeta samples") is sent
+
+
+def test_router_text_sends_a_file_request_without_its_samples_to_cc():
+    text = " ".join(_baml().split())
+    needle = "asks for the work even when the samples or UIDs it should cover are not in the message yet"
+    assert needle in text
+    assert text.index("How-to questions about the site") < text.index(needle) < text.index("The file of one SOP named")
