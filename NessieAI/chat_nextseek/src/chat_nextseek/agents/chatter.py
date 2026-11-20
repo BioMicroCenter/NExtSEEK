@@ -877,7 +877,7 @@ def _lead_with(lead: str, rest: str) -> str:
     return (lead + ("\n\n" if _NOT_PROSE.match(rest) else " ") + rest).strip()
 
 
-_WEB_ADDRESS = re.compile(r"https?://\S+")
+_WEB_ADDRESS = re.compile(r"https?://[^\s`*<>\]]+")  # a markdown wrapper (`, **, <>, [..]) is not the address
 _ADDRESS_TAIL = ")]}.,;:!?'\""
 
 

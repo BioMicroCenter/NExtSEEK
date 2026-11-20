@@ -1,6 +1,8 @@
 """P6 T4: a web address the turn's data stores stays in the reply; any other address goes (made-up entities only)."""
 from __future__ import annotations
 
+import pytest
+
 from chat_nextseek.agents.chatter import _keep_stored_links
 
 LINK = "https://repo.example/search?text=abc"
@@ -27,3 +29,23 @@ def test_an_invented_address_is_removed():
 def test_the_request_url_in_the_envelope_is_not_stored_data():
     out = _keep_stored_links("Called http://127.0.0.1:8000/nextseek_api/samples/retrieve/ ok.", [{"a": 1}], None)
     assert "127.0.0.1" not in out
+
+
+# Round 2 F5: a stored link the reply wraps in markdown is still the stored link.
+
+FILE = "https://example.org/files/a.fastq.gz"
+OTHER = "https://other.example/files/b.fastq.gz"
+
+
+@pytest.mark.parametrize("shape", ["File: {u}.", "File: `{u}`.", "File: **{u}**.", "File: <{u}>.", "File: [a.fastq.gz]({u}).",
+                                   "File: [{u}]({u})."])
+def test_a_stored_link_survives_every_markdown_wrapper(shape):
+    rows = [{"uuid": "ZZD-990101QQQ-3", "Link_PrimaryData": FILE}]
+    assert _keep_stored_links(shape.format(u=FILE), rows) == shape.format(u=FILE)
+
+
+@pytest.mark.parametrize("shape", ["File: {u}.", "File: `{u}`.", "File: **{u}**.", "File: <{u}>.", "File: [b]({u}).",
+                                   "File: [{u}]({u})."])
+def test_an_address_not_in_the_data_is_removed_in_every_wrapper(shape):
+    rows = [{"uuid": "ZZD-990101QQQ-3", "Link_PrimaryData": FILE}]
+    assert "other.example" not in _keep_stored_links(shape.format(u=OTHER), rows)
