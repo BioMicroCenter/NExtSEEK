@@ -1847,7 +1847,22 @@ def _execute_graph_turn(
              "executed_cypher": None, "scope_decision": None, "elapsed_ms": None}
             for cypher, reason in ((graph_plan.attempted_cypher, "initial"), (graph_plan.repaired_cypher, "repair"))
             if cypher]
-        reply = refusal_reply(graph_plan.refusal_kinds) or GRAPH_REFUSAL_REPLY
+        reply = refusal_reply(graph_plan.refusal_kinds)
+        why = (graph_plan.explanation or "").strip()
+        if reply is None and why and not graph_plan.refusal_kinds and not why.startswith("Graph agent "):
+            # The agent's own reasoned refusal (graph prompt: "If the question cannot be answered ..."): its reason is
+            # internal words, so the reply writer says it plainly. A guard's refusal and an exception keep the fixed
+            # reply (24506e9de).
+            _on("chatter")
+            reply = chatter_agent_answer(
+                config, user_text, entity_result.model_dump(), plan.model_dump(),
+                graph_plan=graph_plan.model_dump(),
+                graph_result={"ok": False, "data": [], "count": None, "total": None, "error": "No search was run."},
+                log_dir=log_dir, session=session,
+                query_notes=[*uid_reply_notes, *subject_reply_notes, *lab_reply_notes, GRAPH_NO_QUERY_NOTE])
+        reply = reply or GRAPH_REFUSAL_REPLY
+        append_turn(session, user_query=user_text, mode="graph_query", intent_summary=plan.intent_summary,
+                    entity_result=entity_result, assistant_reply=reply)
         session["last_debug"] = debug_payload
         send_event("agent_complete", {"agent": "graph",
                                       "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
@@ -2267,6 +2282,13 @@ def _handle_pipeline_agent_turn(
 GRAPH_REFUSAL_REPLY = (
     "I couldn't build a search for that question. Try naming the sample type, project or attribute "
     "you mean, or ask it a different way."
+)
+
+#: A query note for the reply writer when the graph agent itself declined to write a query (its reason is internal).
+GRAPH_NO_QUERY_NOTE = (
+    "No search was run for this question: the step that writes searches stopped, and its note says why. Say in plain "
+    "words what is missing or not recorded, then the one thing the user can give or ask that would let a search run "
+    "(for example, pasting the UIDs). Give no number and no result."
 )
 
 #: What a user is told when the parser routes a turn to "unsupported". The parser's own notes

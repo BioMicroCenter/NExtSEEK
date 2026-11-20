@@ -230,7 +230,8 @@ def _graph_turn(monkeypatch, tmp_path, plans, results, user_text="which tissue s
     monkeypatch.setattr(orch, "graph_agent", agent)
     monkeypatch.setattr(orch, "tool_neo4j_query", neo4j)
     monkeypatch.setattr(orch, "chatter_agent_answer", chatter)
-    monkeypatch.setattr(orch, "append_turn", lambda *a, **k: None)
+    turns: list = []
+    monkeypatch.setattr(orch, "append_turn", lambda *a, **k: turns.append(k))
     written = []
     monkeypatch.setattr(orch, "_write_graph_debug", lambda log_dir, ts, payload: written.append(payload))
     config = MagicMock()
@@ -246,7 +247,7 @@ def _graph_turn(monkeypatch, tmp_path, plans, results, user_text="which tissue s
         t_total_start=time.perf_counter(),
     )
     return SimpleNamespace(out=out, debug=debug, calls=calls, written=written, events=events, session=session,
-                           chatter_kwargs=chatter_kwargs, cyphers=cyphers, retry_contexts=retry_contexts)
+                           chatter_kwargs=chatter_kwargs, cyphers=cyphers, retry_contexts=retry_contexts, turns=turns)
 
 
 def _plan(cypher):
@@ -596,9 +597,30 @@ def test_a_refusal_without_a_cypher_replies_per_kind_and_keeps_both_attempts(mon
     assert run.debug["graph_refusal"].startswith("Graph agent could not")
 
 
-def test_a_refusal_with_no_kind_keeps_the_generic_reply(monkeypatch, tmp_path):
-    run = _graph_turn(monkeypatch, tmp_path, [GraphAgentPlan(cypher="", explanation="x", context_mode="catalog")], [])
-    assert run.out["reply"] == orch.GRAPH_REFUSAL_REPLY and run.debug["graph_attempts"] == []
+def test_the_agents_own_refusal_is_written_by_the_reply_writer_and_remembered(monkeypatch, tmp_path):
+    plan = GraphAgentPlan(cypher="", explanation="No list of sample ids was given, so there is nothing to look up.",
+                          context_mode="catalog")
+    run = _graph_turn(monkeypatch, tmp_path, [plan], [])
+    assert run.calls["chatter"] == 1
+    kwargs = run.chatter_kwargs[0]
+    assert orch.GRAPH_NO_QUERY_NOTE in kwargs["query_notes"]
+    assert kwargs["graph_result"]["ok"] is False and kwargs["graph_result"]["count"] is None
+    assert run.out["reply"] == "graph reply"
+    assert run.debug["graph_refusal"].startswith("No list")
+    assert [t["assistant_reply"] for t in run.turns] == ["graph reply"]
+    assert len(orch.GRAPH_NO_QUERY_NOTE) < 400
+
+
+def test_an_exception_refusal_keeps_the_fixed_reply(monkeypatch, tmp_path):
+    plan = GraphAgentPlan(cypher="", explanation="Graph agent error: boom", context_mode="catalog")
+    run = _graph_turn(monkeypatch, tmp_path, [plan], [])
+    assert run.out["reply"] == orch.GRAPH_REFUSAL_REPLY and run.calls["chatter"] == 0
+
+
+def test_an_empty_reason_keeps_the_fixed_reply(monkeypatch, tmp_path):
+    run = _graph_turn(monkeypatch, tmp_path, [GraphAgentPlan(cypher="", explanation="", context_mode="catalog")], [])
+    assert run.out["reply"] == orch.GRAPH_REFUSAL_REPLY and run.calls["chatter"] == 0
+    assert run.debug["graph_attempts"] == []
 
 
 @pytest.mark.parametrize("title", ["Zeta Unpublished", "  Quill lab unpublished "])
