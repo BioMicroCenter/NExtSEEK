@@ -223,8 +223,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
 
     # run.sh drives the run with explicit --fasta/--gtf for the resolved genome (path > iGenomes;
     # the params.genomes map resolution is unreliable), -params-file params.yml (curated params),
-    # and -c luria.config (genomes map for --genome identity + a per-protocol SIMPLEAF_QUANT
-    # --knee block for scrnaseq bead protocols). Stage run.sh + luria.config + params.yml + sheet.
+    # and -c luria.config (genomes map for --genome identity + any per-protocol process ext.args
+    # the pipeline JSON declares). Stage run.sh + luria.config + params.yml + sheet.
     refs_root = f"{working}/refs"
     accessions = _sheet_fetch_accessions(local_sheet)
     needs_fetch = bool(accessions)
@@ -249,8 +249,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         )
         run_tmp = _write_temp(run_sh, prefix="run_", suffix=".sh"); tmp_files.append(run_tmp)
         # luria.config = genomes map + executor limits + any curated per-protocol process ext.args
-        # (e.g. seqwell/dropseq -> SIMPLEAF_QUANT --knee); process_args comes from the pipeline
-        # JSON via tool_submit_to_luria.
+        # (its 'protocol_process_args'); process_args comes from the pipeline JSON via
+        # tool_submit_to_luria.
         luria_config = (render_luria_config(refs_root, resources=res)
                         + render_process_config(process_args))
         cfg_tmp = _write_temp(luria_config, prefix="luriacfg_", suffix=".config")

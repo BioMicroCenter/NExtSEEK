@@ -57,6 +57,8 @@ from ..seqera.pairing import TABLE, pairing_question, tool_names
 from ..seqera.contrasts import (
     CONTRASTS_FILENAME,
     CONTRASTS_PARAM,
+    R_NAME_RE,
+    R_NAME_RULE,
     condition_problems,
     is_user_path,
     parse_contrasts,
@@ -677,6 +679,15 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
                 "rnasplice needs a non-blank 'condition' on every row (it defines the two "
                 f"groups to compare); missing on: {', '.join(map(str, missing_cond))}. "
                 "Set a condition per sample, or group the cohort so each sample gets one."]})
+        # 2.0.0's contrastsheet takes only R names as treatment and control, and both must be
+        # conditions here, so a condition that is not one could never be compared.
+        bad_cond = list(dict.fromkeys(str(r.get("condition")).strip() for r in merged_rows
+                                      if not R_NAME_RE.match(str(r.get("condition")).strip())))
+        if bad_cond:
+            return json.dumps({"ok": False, "errors": [
+                f"rnasplice conditions must each be {R_NAME_RULE} (its contrasts file compares "
+                f"conditions by name); not one: {', '.join(bad_cond)}. Rename them, for example "
+                "0h -> h0 or wild-type -> wild_type."]})
 
     # ENA route retired: Luria resolves fastqs from a local /net/bmc-* path (filled here)
     # or fetches SRR accessions on-cluster (run.sh fetchngs pre-stage). No ENA URL synthesis.
@@ -1415,8 +1426,8 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     # (iGenomes, non-GENCODE) but wrong for our local GENCODE refs.
     if "gencode" in launch_params and gencode_for_genome_key(genome):
         launch_params["gencode"] = True
-    # Per-protocol process ext.args the curated pipeline JSON declares (e.g. scrnaseq dropseq ->
-    # SIMPLEAF_QUANT --knee); the submitter renders these into the run's -c config.
+    # Per-protocol process ext.args the curated pipeline JSON declares ('protocol_process_args',
+    # {PROCESS: ext_args} per protocol); the submitter renders these into the run's -c config.
     process_args = process_args_for(state.get("pipeline_key") or "", launch_params.get("protocol"))
     tool_input = tool_input or {}
     reasons: list = []

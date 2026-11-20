@@ -376,7 +376,7 @@ _EXT_ARGS_RE = re.compile(r"[A-Za-z0-9_.,=:/ -]{1,200}")
 
 # A -c config REPLACES a process's ext.args (Nextflow can't append across configs — VERIFIED on
 # Luria: a self-referencing closure StackOverflows, a plain string clobbers). So overriding ext.args
-# is only safe for processes whose PIPELINE default is empty (e.g. alevin's SIMPLEAF_QUANT). These
+# is only safe for processes whose PIPELINE default is empty (e.g. scrnaseq 4.2.0's SIMPLEAF_QUANT). These
 # processes have a NON-empty default in nf-core/scrnaseq — overriding them would drop needed flags.
 # Tune them via the samplesheet instead: STAR (STAR_ALIGN) cell-calling reads `expected_cells` and
 # otherwise uses STAR's built-in knee-based --soloCellFilter, so it needs no ext.args override.
@@ -390,9 +390,9 @@ def render_process_config(process_args: dict[str, str] | None) -> str:
     here — this is just the renderer. Names/args validated fail-closed; raises for a process whose
     pipeline ext.args default is non-empty (would be clobbered). '' for empty input.
 
-    (e.g. scrnaseq seqwell/dropseq declares SIMPLEAF_QUANT '--knee': 2.7.1 needs a cell-calling
-    mode and its unfiltered fallback wants a barcode whitelist bead protocols lack. STAR is fine
-    without an override — it tunes cell-calling via the samplesheet `expected_cells` column.)"""
+    (scrnaseq 2.7.1 declared SIMPLEAF_QUANT '-r cr-like --knee' for dropseq; 4.2.0 declares
+    nothing, since bead protocols run on the patched STAR clone. STAR is fine without an
+    override — it tunes cell-calling via the samplesheet `expected_cells` column.)"""
     if not process_args:
         return ""
     blocks = []
@@ -514,16 +514,18 @@ def sanitize_job_name(name: str, fallback: str = "nfcore_run") -> str:
 
 
 # Vendored, locally-patched pipeline clones on Luria that REPLACE the stock remote pipeline for a
-# specific (pipeline, aligner). Keyed general so a future patched pipeline is one more entry. Needed
-# where the stock nf-core pipeline can't run a case: nf-core/scrnaseq 2.7.1 STARsolo has no
+# specific (pipeline, aligner) at one release (`revision`): a run pinned to another release keeps
+# the stock pipeline. Keyed general so a future patched pipeline is one more entry. Needed where
+# the stock nf-core pipeline can't run a case: nf-core/scrnaseq 4.2.0 STARsolo has no
 # whitelist-less bead-protocol support (hardcoded --soloCBwhitelist + missing dropseq geometry), so
-# `aligner=star` runs a clone patched for `--soloCBwhitelist None` + seqwell 12/8 geometry. alevin is
-# unaffected (stays on the stock remote). Provision with luria/pipelines/scrnaseq_2_7_1_star/provision.sh.
+# `aligner=star` runs a clone patched for `--soloCBwhitelist None` + seqwell 12/8 geometry. Every
+# other aligner (simpleaf, kallisto, cellranger) stays on the stock remote. Provision with
+# luria/pipelines/scrnaseq_4_2_0_star/provision.sh.
 LURIA_VENDORED_PIPELINES: dict[tuple[str, str], dict[str, str]] = {
     ("nf-core/scrnaseq", "star"): {
-        "path": "{WORKING}/pipelines/scrnaseq-2.7.1-star-patched",
+        "path": "{WORKING}/pipelines/scrnaseq-4.2.0-star-patched",
         "base": "nf-core/scrnaseq",
-        "revision": "2.7.1",
+        "revision": "4.2.0",
     },
 }
 
@@ -543,9 +545,10 @@ def resolve_pipeline_source(pipeline: str, aligner: str | None, revision: str,
     (pipeline, aligner) vendored clone, source is the LOCAL clone path and revision_flag is '' — a
     `-r <tag>` on a local git clone would `git checkout` the tag and WIPE the patches. Otherwise
     source is the stock pipeline and revision_flag is '-r <revision>'. Falls back to stock when no
-    working path is available (the clone path can't be built)."""
+    working path is available (the clone path can't be built), and when the run pins a release
+    other than the clone's (its params were checked against that release's schema)."""
     entry = LURIA_VENDORED_PIPELINES.get((_normalize_pipeline_name(pipeline), str(aligner or "")))
-    if entry and working:
+    if entry and working and entry["revision"] == str(revision):
         return entry["path"].format(WORKING=str(working).rstrip("/")), ""
     return str(pipeline), f"-r {revision}"
 

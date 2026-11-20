@@ -1704,6 +1704,7 @@ _SCRNASEQ_CTX = {"user_full_name": "Ada Lovelace",
 
 
 @pytest.mark.parametrize("release, filtered", [
+    ("4.2.0", "cellbender_filter"),     # the pinned release
     ("v4.1.0-gf7bf36d", "cellbender_filter"),
     ("3.0.0", "emptydrops_filter"),
     ("2.7.1", "custom_emptydrops_filter"),
@@ -1931,6 +1932,37 @@ def test_a_low_value_key_is_ruled_out_and_never_queued(pipeline, version, raw_ke
     assert raw_key in pipeline_map.ruled_out()
     result = mapper.apply(_qc_run(pipeline, version, {raw_key: 1.0}), pipeline_map)
     assert not any(u["raw_key"] == raw_key for u in result.unmapped)
+
+
+@pytest.mark.parametrize("version, te_method", [("1.2.0", None), ("2.0.0", "plastid_psite"),
+                                                 ("2.0.0", "pseudo")])
+def test_riboseq_files_salmons_gene_counts_whatever_the_te_counts(version, te_method):
+    """riboseq 2.0.0 (#196) reorganised its outputs, but conf/modules.config still publishes the
+    genome BAM to alignment/star/sorted/ and Salmon's merged matrices to quantification/salmon/,
+    as 1.2.0 did. #160 made in-frame P-site counts (quantification/inframe_psite/gene_counts.tsv)
+    the default TE input, and QUANTIFY_STAR_SALMON still runs on every library
+    (workflows/riboseq/main.nf), so the A.GEX row stays Salmon's matrix, says so, and never takes
+    --pseudo_aligner (which only picks the TE pseudo-aligner) as its quantifier."""
+    run = _qc_run("riboseq", version, {}, outputs=[
+        "alignment/star/sorted/S1.genome.sorted.bam",
+        "alignment/star/sorted/S1.genome.sorted.bam.bai",
+        "alignment/star/sorted/S1.transcriptome.sorted.bam",
+        "quantification/salmon/salmon.merged.gene_counts.tsv",
+        "quantification/inframe_psite/gene_counts.tsv",
+        "quantification/salmon_te_pseudo/salmon.merged.gene_counts.te_pseudo.tsv",
+        "psites/ribowaltz/S1.ribowaltz.psite.tsv"])
+    run.params = {"genome": "GRCh38", "aligner": "star", "pseudo_aligner": "kallisto",
+                  **({"te_quantification_method": te_method} if te_method else {})}
+    result = mapper.apply(run, maps.load("riboseq"))
+    assert not [w for w in result.warnings if "outside the checked range" in w]
+    (aln,) = [r for r in result.rows if r.sample_type == "A.ALN"]
+    assert aln.attributes["File_PrimaryData"].value == "S1.genome.sorted.bam"
+    (gex,) = [r for r in result.rows if r.sample_type == "A.GEX"]
+    values = {k: v.value for k, v in gex.attributes.items()}
+    assert values["File_PrimaryData"].endswith("/salmon.merged.gene_counts.tsv")  # run-named
+    assert values["Software"] == "Salmon"
+    assert "Pseudo_Aligner" not in values
+    assert "inframe_psite" in values["Notes"] and "Salmon" in values["Notes"]
 
 
 def test_hlatyping_writes_optitypes_alleles_on_an_a_hla_row():

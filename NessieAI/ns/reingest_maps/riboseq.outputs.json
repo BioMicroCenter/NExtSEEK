@@ -1,7 +1,7 @@
 {
   "map_version": 2,
   "pipeline": "nf-core/riboseq",
-  "applies_to_versions": ">=1.2,<2",
+  "applies_to_versions": ">=1.2,<3",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
   "derived_metrics": [],
@@ -38,7 +38,8 @@
         "Lab": "@lab",
         "SampleCreationDate": "@run_date",
         "DataType": "TSV",
-        "Notes": "One matrix across every library in the run: the samplesheet type column (riboseq, rnaseq, tiseq) says which columns are ribosome footprints and which are total RNA."
+        "Software": "Salmon",
+        "Notes": "Salmon's raw per-gene counts from the STAR transcriptome alignment, one matrix across every library in the run: the samplesheet type column (riboseq, rnaseq, tiseq) says which columns are ribosome footprints and which are total RNA. It is Salmon's whichever --te_quantification_method the run used: from 2.0.0, translational efficiency reads in-frame P-site counts by default (quantification/inframe_psite/gene_counts.tsv), not this matrix."
       }
     }
   ],

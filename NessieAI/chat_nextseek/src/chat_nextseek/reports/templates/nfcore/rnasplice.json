@@ -1,15 +1,18 @@
 {
   "report_type": "NFCORE_RNASPLICE_SAMPLESHEET",
-  "description": "nf-core/rnasplice context, aligned to the pinned 1.0.4 schema. Differential splicing between two named groups.",
+  "description": "nf-core/rnasplice context, aligned to the pinned 2.0.0 schema. Differential splicing between two named groups.",
   "params": {
-    "aligner":        {"type": "enum",   "allowed": ["star", "star_salmon"], "default": "star",   "steerable": true, "help": "Alignment route."},
-    "pseudo_aligner": {"type": "enum",   "allowed": ["salmon"],              "default": "salmon", "steerable": true, "help": "Transcript quantifier (only salmon in 1.0.4)."},
-    "suppa":          {"type": "bool",   "default": true,  "steerable": true, "help": "Run the SUPPA splicing workflow (schema default on)."},
-    "rmats":          {"type": "bool",   "default": false, "steerable": true, "help": "Run the rMATS workflow."},
-    "dexseq_exon":    {"type": "bool",   "default": false, "steerable": true, "help": "DEXSeq differential exon usage."},
-    "edger_exon":     {"type": "bool",   "default": false, "steerable": true, "help": "edgeR differential exon usage."},
-    "dexseq_dtu":     {"type": "bool",   "default": false, "steerable": true, "help": "DEXSeq differential transcript usage."},
-    "sashimi_plot":   {"type": "bool",   "default": false, "steerable": true, "help": "MISO sashimi plots."},
+    "aligner":        {"type": "enum",   "allowed": ["star", "star_salmon"], "default": "star_salmon", "steerable": true, "help": "Alignment route; set it from the question. star_salmon (the 2.0.0 default) also quantifies STAR's transcriptome BAM with Salmon, giving alignment-based transcript abundances beside the pseudo-aligner's; star gives genome alignments only, enough for the event- and exon-level analyses (rMATS, DEXSeq/edgeR exon, LeafCutter, sashimi) and faster."},
+    "pseudo_aligner": {"type": "enum",   "allowed": ["salmon"],              "default": "salmon", "steerable": true, "help": "Transcript quantifier (only salmon in 2.0.0); it feeds SUPPA, DEXSeq DTU and IsoformSwitchAnalyzeR."},
+    "suppa":          {"type": "bool",   "default": true,  "steerable": true, "help": "SUPPA: differential splicing events (exon skipping, alternative 5'/3' sites, intron retention, mutually exclusive exons) and transcript-level dPSI from Salmon abundances. Set from the question: on when it asks which splicing events or isoform proportions change between the conditions (2.0.0 default on)."},
+    "rmats":          {"type": "bool",   "default": true,  "steerable": true, "help": "rMATS: differential splicing events counted from the genome alignments, with junction-read support. Set from the question: on when it asks which specific events change, especially with deep reads and well-annotated events; off for a question only about transcript or gene-level usage (2.0.0 default on). 2.0.0 runs it unpaired unless rmats_paired_stats is set, which Nessie does not offer: the paired model needs the samplesheet ordered by pair."},
+    "dexseq_exon":    {"type": "bool",   "default": true,  "steerable": true, "help": "DEXSeq differential exon usage: which exon bins are used differently between conditions. Set from the question: on when it asks about exon usage or exon-level changes within genes (2.0.0 default on); it needs at least two replicates per condition."},
+    "edger_exon":     {"type": "bool",   "default": true,  "steerable": true, "help": "edgeR differential exon usage: a second, faster exon-usage test that complements DEXSeq. Set from the question: on with dexseq_exon when exon usage is the point and an independent method is wanted (2.0.0 default on)."},
+    "dexseq_dtu":     {"type": "bool",   "default": true,  "steerable": true, "help": "DEXSeq differential transcript usage on Salmon abundances (with DRIMSeq filtering and stageR): which transcripts change their share of a gene's expression. Set from the question: on when it asks about isoform or transcript usage (2.0.0 default on)."},
+    "sashimi_plot":   {"type": "bool",   "default": true,  "steerable": true, "help": "MISO sashimi plots: read coverage and junctions drawn per event, for showing or checking specific splicing events. Set from the question: on when the scientist wants to see or validate events; off when only tables are needed, since it adds run time (2.0.0 default on)."},
+    "isoformswitchanalyzer": {"type": "bool", "default": true, "steerable": true, "help": "IsoformSwitchAnalyzeR: isoform switches between conditions and their predicted functional consequences (coding potential, protein domains, NMD sensitivity). Set from the question: on when it asks about isoform switches or what a splicing change does to the protein (2.0.0 default on)."},
+    "leafcutter":     {"type": "bool",   "default": false, "steerable": true, "help": "LeafCutter: annotation-free intron-excision clusters from split reads, so it also finds unannotated junctions. Set from the question and data: on when it asks about novel or unannotated splicing, intron usage, or the organism's annotation is incomplete (2.0.0 default off)."},
+    "ignore_tx_version": {"type": "bool", "default": false, "steerable": true, "help": "Match transcript IDs without their version suffix (ENST00000335137.1 as ENST00000335137), for a transcript FASTA and a GTF that disagree on versions, such as GENCODE with Ensembl. New in 2.0.0, default off."},
     "contrasts":      {"type": "string", "default": null,  "steerable": true, "help": "The contrasts CSV naming the groups to compare. The user states the comparison (see required_user_params) and configure_run writes contrasts.csv into the run folder; an absolute path is the user's own file and is passed through."},
     "multiqc_title":  {"type": "string", "default": null,  "steerable": true, "help": "MultiQC report title."}
   },
@@ -23,16 +26,17 @@
   "pipeline": {
     "name": "nf-core/rnasplice",
     "repository": "https://github.com/nf-core/rnasplice",
-    "documentation_url": "https://nf-co.re/rnasplice/1.0.4/docs/usage/",
+    "documentation_url": "https://nf-co.re/rnasplice/2.0.0/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Columns: sample, fastq_1, fastq_2, strandedness, condition. 'condition' groups samples; a contrasts CSV names the comparison.",
+    "core_rule": "Columns: sample, fastq_1, fastq_2, strandedness, condition. 'condition' groups samples; a contrasts CSV names the comparison. 2.0.0 requires each sample and each compared condition to be an R name (a letter first, then letters, digits, '.' or '_'): Nessie rewrites a UID's hyphens to '_' in the sample column and keeps the UID in nextseek_uid; a condition that is not one is refused.",
     "required_columns": ["sample", "fastq_1", "fastq_2", "strandedness", "condition"],
     "optional_columns": []
   },
-  "notes": "The comparison is defined by the 'condition' column plus a contrasts file. The user states the comparison and Nessie writes the file (seqera/contrasts.py); the direction is never defaulted.",
+  "notes": "The comparison is defined by the 'condition' column plus a contrasts file. The user states the comparison and Nessie writes the file (seqera/contrasts.py); the direction is never defaulted. 2.0.0 reports DEXSeq log2 fold changes as treatment over control and SUPPA dPSI as treatment minus control; 1.0.4 reported both the other way round, so results of a 1.0.4 run and a 2.0.0 run of the same contrast have opposite signs. 2.0.0 also removed max_cpus, max_memory and max_time, which Nessie never sends: Luria's luria.config caps each task with process.resourceLimits.",
   "sources": [
-    {"label": "nf-core/rnasplice nextflow_schema.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/nextflow_schema.json", "notes": "param names, types, defaults; suppa default true."},
-    {"label": "nf-core/rnasplice assets/schema_input.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/assets/schema_input.json", "notes": "required columns: sample, fastq_1, strandedness, condition (fastq_2 optional)."}
+    {"label": "nf-core/rnasplice nextflow_schema.json @ 2.0.0", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/2.0.0/nextflow_schema.json", "notes": "param names, types, defaults; suppa, rmats, dexseq_exon, edger_exon, dexseq_dtu, sashimi_plot and isoformswitchanalyzer default true, leafcutter and rmats_paired_stats false; aligner default star_salmon."},
+    {"label": "nf-core/rnasplice assets/schema_input.json @ 2.0.0", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/2.0.0/assets/schema_input.json", "notes": "the --source fastq schema. Required columns: sample, fastq_1, strandedness, condition (fastq_2 optional). sample is an R name and no R reserved word."},
+    {"label": "nf-core/rnasplice assets/schema_contrasts.json @ 2.0.0", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/2.0.0/assets/schema_contrasts.json", "notes": "contrast, treatment, control; treatment and control are R names."}
   ],
   "runtime": {
     "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",

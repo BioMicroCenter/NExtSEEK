@@ -38,10 +38,17 @@ def test_a_measured_strandedness_sets_the_column(atlas, pipeline, measured):
 
 
 def test_rnasplice_asks_when_nothing_measured_strandedness(atlas):
-    """rnasplice 1.0.4 assets/schema_input.json: strandedness is required and its enum is
-    forward, reverse, unstranded; docs/usage.md "Samplesheet input" says the same. There is no
-    auto, so a row the agent filled with auto is asked about, never sent."""
+    """rnasplice 2.0.0 assets/schema_input.json (the fastq source's): strandedness is required
+    and its enum is forward, reverse, unstranded; docs/usage.md "Samplesheet input" says the
+    same. There is no auto, so a row the agent filled with auto is asked about, never sent."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    from NessieAI.paths import NESSIE_ROOT
     spec = _spec(atlas, "rnasplice", "strandedness")
+    fixture = NESSIE_ROOT / "tests/chat_nextseek/fixtures/nfcore/rnasplice.schema_input.json"
+    pinned = json.loads(fixture.read_text())["items"]["properties"]["strandedness"]["enum"]
+    assert sorted(spec["allowed"]) == sorted(pinned)
+    revision = NFCORE_PIPELINE_CATALOG["rnasplice"]["default_revision"]
+    assert f"rnasplice {revision}" in spec["ask"]["definition"]
     assert "auto" not in spec["allowed"]
     verdict = evaluate_data_driven_param(spec, {})
     assert verdict["verdict"] == "absent"
@@ -66,7 +73,7 @@ def test_rnafusion_offers_every_value_its_schema_allows(atlas):
 
 
 def test_riboseq_infers_strandedness_when_nothing_measured_it(atlas):
-    """riboseq 1.2.0 docs/usage.md "Strandedness Prediction": auto sub-samples a million reads and
+    """riboseq 2.0.0 docs/usage.md "Strandedness Prediction": auto sub-samples a million reads and
     infers strandedness with Salmon; assets/schema_input.json allows auto."""
     out = evaluate_data_driven_param(_spec(atlas, "riboseq", "strandedness"), {})
     assert out == {"value": "auto", "verdict": "defaulted",
@@ -88,7 +95,7 @@ def test_riboseq_infers_strandedness_when_nothing_measured_it(atlas):
     ({"SequencingType": "RNA-Seq", "Name": "Ribo-Zero_depleted_rep1"}, "rnaseq", "derived_uncorroborated"),
 ])
 def test_riboseq_type_follows_each_libraries_own_metadata(atlas, signals, value, verdict):
-    """riboseq 1.2.0 assets/schema_input.json: type is required, enum riboseq, rnaseq, tiseq;
+    """riboseq 2.0.0 assets/schema_input.json: type is required, enum riboseq, rnaseq, tiseq;
     README.md and docs/usage.md: riboseq or tiseq for Ribo-seq / TI-seq rows, rnaseq for the
     matched RNA-seq that translational efficiency (anota2seq) pairs with them. The cohort's
     protocol documents cover both kinds of library, so only each library's own fields vote
