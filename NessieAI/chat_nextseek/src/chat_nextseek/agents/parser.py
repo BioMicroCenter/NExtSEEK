@@ -935,8 +935,9 @@ _SOP_LIST_ASK = re.compile(r"\b(?:how\s+many|number\s+of|count|list|which|what|o
 _SOP_USE = re.compile(r"\b(?:follow\w*|use[sd]?|using|applied|appl(?:y|ies)|ran|run|process\w*|with|named|called|titled|contain\w*|about"
                       r"|mention\w*|in\s+(?:the\s+)?(?:titles?|names?)|projects?|investigations?|stud(?:y|ies)|labs?)\b|['\"\u201c]", re.I)
 SOP_RECORDS_NOTE = "sent to reporter: the SOP records on file are counted by the protocols report over every project the caller reads"
-# a bare count or list of the SOPs on file: the clause naming SOPs holds only the kind word, ask words and stopwords.
-# Anything left there (a topic, a title word) is a condition, so "Which biosafety SOPs exist?" stays on the graph (D4).
+# a bare count or list of the SOPs on file: every clause holds only the kind word, ask words and stopwords, except a
+# second question after the first SOP clause ("..., and are any of them test artifacts?"). Anything else left (a topic,
+# a title word, before or after) is a condition, so "Which biosafety SOPs exist?" stays on the graph (D4).
 _SOP_ASK_WORDS = re.compile(r"\b(?:sops?|protocols?|how\s+many|number\s+of|count|list|show|which|what|on\s+file"
                             r"|registered|exist\w*|available)\b", re.I)
 _SOP_STOPWORDS = frozenset("a an the all any of in me us i we you can could please give tell are is there do does have "
@@ -944,9 +945,13 @@ _SOP_STOPWORDS = frozenset("a an the all any of in me us i we you can could plea
 
 
 def _bare_sop_ask(q: str) -> bool:
-    clauses = [c for c in re.split(r"[,;:?!.]", q) if _SOP_RECORDS.search(c)]
-    return bool(clauses) and all(
-        w in _SOP_STOPWORDS for c in clauses for w in re.findall(r"[a-z0-9]+", _SOP_ASK_WORDS.sub(" ", c).lower()))
+    clauses = [c for c in re.split(r"[,;:?!.]", q) if c.strip()]
+    first = next((i for i, c in enumerate(clauses) if _SOP_RECORDS.search(c)), None)
+    if first is None:
+        return False
+    held = [c for i, c in enumerate(clauses)
+            if i <= first or _SOP_RECORDS.search(c) or not re.match(r"\s*(?:and|or|but|also)\b", c, re.I)]
+    return all(w in _SOP_STOPWORDS for c in held for w in re.findall(r"[a-z0-9]+", _SOP_ASK_WORDS.sub(" ", c).lower()))
 
 
 def _route_by_kind_steps(user_query, plan, config, resolved):

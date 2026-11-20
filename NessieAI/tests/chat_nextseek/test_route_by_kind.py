@@ -357,7 +357,9 @@ def test_a_named_project_or_investigation_is_a_condition_even_when_unresolved():
 # A topic is a condition (D4, 2026-11-20): only the bare count or list of SOPs on file goes to the protocols report.
 @pytest.mark.parametrize("q", ["Which SOP covers shipping on dry ice?", "What SOPs are there for biosafety?",
                                "List the SOPs for freezer storage", "What protocols are there for animal handling?",
-                               "Which SOPs exist for BSL3 work?", "Which biosafety SOPs exist?"])
+                               "Which SOPs exist for BSL3 work?", "Which biosafety SOPs exist?",
+                               "For biosafety, which SOPs exist?", "Which SOPs exist, for freezer storage?",
+                               "How many SOPs are on file, and which SOPs cover biosafety?"])
 def test_an_sop_topic_question_stays_on_the_graph(q):
     out = route(q, plan("graph_query"))
     assert out.mode == "graph_query", q
