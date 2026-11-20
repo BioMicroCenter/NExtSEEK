@@ -76,6 +76,35 @@ def test_a_named_result_bound_to_uids_is_not_carried():
     assert orch._followup_graph_context(_session(bound), "the samples you listed", _plan(target=1)) is None
 
 
+def test_a_named_graph_result_bound_to_uids_is_carried_with_its_uids_bound():
+    uids = ["AAA-200101XYZ-1", "AAA-200101XYZ-2"]
+    bound = _bundle(1, "q", "MATCH (s:T_AAA) WHERE s.uuid IN $uids RETURN s.uuid AS uid",
+                    {"uids": uids, "site": "S1"})
+    context, debug = orch._followup_graph_context(_session(bound), "the samples you listed", _plan(target=1))
+    assert bound["graph_plan"]["cypher"] in context
+    assert '{"site": "S1"}' in context and "ALREADY BOUND" in context
+    assert '"uids"' not in context, "the UID list is bound by code, never pasted as JSON"
+    assert debug["uids"] == uids
+
+
+def test_a_followup_bundle_s_placeholder_binds_the_uids_it_ran_with_not_its_rows():
+    first = {"id": 1, "user_query": "q", "mode": "graph_query",
+             "graph_result": {"ok": True, "data": [{"uuid": f"AAA-200101XYZ-{i}"} for i in range(3)]}}
+    loop = {"id": 2, "user_query": "derived", "mode": "graph_query",
+            "graph_plan": {"cypher": "MATCH (m:Sample) WHERE m.uuid IN $uids MATCH (d:Sample)-[:DERIVED_FROM]->(m) "
+                                     "RETURN d.uuid AS uid",
+                           "parameters": {"uids": "<3 UIDs of bundle 1>"}},
+            "search_context": {"followup_of_bundle": 1},
+            "graph_result": {"ok": True, "data": [{"uid": f"BBB-200101XYZ-{i}"} for i in range(5)]}}
+    _context, debug = orch._followup_graph_context(_session(first, loop), "the samples you listed", _plan(target=2))
+    assert debug["uids"] == [f"AAA-200101XYZ-{i}" for i in range(3)]
+
+    loop["search_context"] = {}
+    assert orch._followup_graph_context(_session(first, loop), "the samples you listed", _plan(target=2)) is None
+    loop["search_context"] = {"followup_of_bundle": 9}
+    assert orch._followup_graph_context(_session(first, loop), "the samples you listed", _plan(target=2)) is None
+
+
 # --- R9: the parser-named lead keeps its escape, and REST prose stays out ----------------------------------------
 
 def test_a_named_result_still_lets_a_question_that_names_its_own_set_ignore_it():
