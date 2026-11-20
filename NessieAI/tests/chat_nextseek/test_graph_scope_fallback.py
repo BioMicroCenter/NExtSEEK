@@ -434,6 +434,28 @@ def test_the_graph_origin_refine_falls_back_the_same_way(monkeypatch):
     _assert_fell_back(payload, seen)
 
 
+def test_a_subject_tree_is_answered_by_one_retrieve_call_with_the_subject_note(monkeypatch):
+    """Round 2, P6 T3: a graph turn that resolved a named subject to one record is answered by samples/retrieve."""
+    root = "PAT-990101ZZZ-1"
+    fixed = ParserPlan(mode="new_search", target_endpoint="/nextseek_api/samples/retrieve/", intent_summary="tree")
+    fixed.filters.uids = [root]
+    note = f"'XY-7' is the record {root}; link its tree page."
+    kwargs_seen = {}
+
+    def execute(**kwargs):
+        kwargs_seen.update(kwargs)
+        return orch.SubjectTree(plan=fixed, notes=(note,))
+
+    with patch.object(orch, "_execute_graph_turn", execute):
+        payload, seen, _ = _run_turn(ParserPlan(mode="graph_query", intent_summary="tree of XY-7"), [])
+
+    assert kwargs_seen["tree_by_retrieve"] is True
+    assert len(seen.api_requests) == 1 and seen.api_requests[0][0] == "/nextseek_api/samples/retrieve/"
+    assert seen.api_plans[0].filters.uids == [root]
+    assert seen.chatter[0]["kwargs"]["query_notes"] == [note]
+    assert orch.SCOPE_FALLBACK_FOOTER not in payload["reply"]
+
+
 def test_a_proven_graph_question_is_answered_from_the_graph(monkeypatch):
     payload, seen, _ = _run_turn(ParserPlan(mode="graph_query", intent_summary="count"), [_proven(1)])
 

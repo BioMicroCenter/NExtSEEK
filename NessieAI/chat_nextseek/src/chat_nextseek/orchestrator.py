@@ -99,7 +99,8 @@ from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_no
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
-from .helpers.subject_check import check_subject, plan_with_subject, subject_notes
+from .agents.parser import adds_a_condition
+from .helpers.subject_check import asks_for_tree_of, check_subject, plan_with_subject, subject_notes
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -223,6 +224,15 @@ class GraphScopeFallback:
     reasons: tuple[str, ...]
     submitted_cypher: str | None
     attempts: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class SubjectTree:
+    """A graph turn asking for the tree of one named subject that resolved to one record: run_query answers it from
+    samples/retrieve for that record (operator 2026-11-19)."""
+
+    plan: Any
+    notes: tuple[str, ...]
 
 
 def _coerce_graph_scope(graph_scope: Any, *, entry_point: str) -> GraphScope | None:
@@ -1830,6 +1840,7 @@ def _execute_graph_turn(
     graph_plan: GraphAgentPlan | None = None,
     count_stop: bool = True,
     parameters_extra: dict | None = None,
+    tree_by_retrieve: bool = False,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
 
@@ -1867,6 +1878,17 @@ def _execute_graph_turn(
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     subject_agent_note, subject_reply_notes, plan = _subject_check(config, user_text, plan, debug_payload,
                                                                    skip=graph_plan is not None)
+    roots = (debug_payload.get("subject_check") or {}).get("roots") or []
+    if tree_by_retrieve and graph_plan is None and len(roots) == 1:
+        root = str(roots[0])
+        root_type = root.partition("-")[0]
+        if (asks_for_tree_of(user_text, debug_payload["subject_check"]["term"])
+                and not adds_a_condition(plan, root_type, None, None)):
+            debug_payload["subject_tree_by_retrieve"] = root
+            return SubjectTree(plan=plan.model_copy(update={
+                "mode": "new_search", "target_endpoint": "/nextseek_api/samples/retrieve/",
+                "filters": plan.filters.model_copy(update={"uids": [root], "keywords": []})}),
+                notes=tuple(subject_reply_notes))
     # Who a lab code names is read from the Scientist values on the code's samples, for a question that asks
     # for a person: the lab record alone can hold only a surname.
     lab_agent_note, lab_reply_notes = None, []
@@ -3033,6 +3055,7 @@ def run_query(
         # A graph query refused for its project scope is answered by graph_search through
         # the REST branch below; these notes go to its chatter and set the reply's footer.
         scope_notes: list[str] = []
+        subject_notes_: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
             followup = _followup_graph_context(session, user_text, plan)
@@ -3051,11 +3074,14 @@ def run_query(
                 debug_payload=debug_payload, t_total_start=_t_total_start,
                 refine_context=followup[0] if followup else None,
                 note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
-                parameters_extra=seed,
+                parameters_extra=seed, tree_by_retrieve=True,
             )
-            if not isinstance(outcome, GraphScopeFallback):
+            if isinstance(outcome, SubjectTree):
+                plan, mode, subject_notes_ = outcome.plan, "new_search", list(outcome.notes)
+            elif not isinstance(outcome, GraphScopeFallback):
                 return outcome
-            plan, mode, scope_notes = _fall_back_to_graph_search(plan)
+            if not isinstance(outcome, SubjectTree):
+                plan, mode, scope_notes = _fall_back_to_graph_search(plan)
 
         if mode in ("new_search", "refine_last_search"):
             # Graph-origin refines re-run the graph path (with prior Cypher as context);
@@ -3299,7 +3325,7 @@ def run_query(
                 debug_payload["error_context"],
                 log_dir=log_dir,
                 session=session,
-                query_notes=scope_notes or None,
+                query_notes=(scope_notes + subject_notes_) or None,
             )
             if scope_notes:
                 answer = f"{answer}\n\n{SCOPE_FALLBACK_FOOTER}"

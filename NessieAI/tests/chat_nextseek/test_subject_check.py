@@ -166,7 +166,7 @@ def test_both_statements_are_read_only_and_proven_for_a_member():
 
 # --- the graph turn --------------------------------------------------------------------------------------------------
 
-def _turn(monkeypatch, tmp_path, *, user_text, plan, g):
+def _turn(monkeypatch, tmp_path, *, user_text, plan, g, **kwargs):
     seen = {}
     run = fake_neo4j(g)
 
@@ -186,10 +186,11 @@ def _turn(monkeypatch, tmp_path, *, user_text, plan, g):
     monkeypatch.setattr(orch, "chatter_agent_answer", _chatter)
     monkeypatch.setattr(orch, "append_turn", lambda *a, **k: None)
     debug: dict = {}
-    orch._execute_graph_turn(
+    outcome = orch._execute_graph_turn(
         config=_config(), session={}, user_text=user_text, entity_result=EntityAgentOutput(), plan=plan,
         log_dir=str(tmp_path), artifact_store=MagicMock(register_path=MagicMock(return_value=None)),
-        send_event=lambda *a, **k: None, debug_payload=debug, t_total_start=time.perf_counter())
+        send_event=lambda *a, **k: None, debug_payload=debug, t_total_start=time.perf_counter(), **kwargs)
+    seen["outcome"] = outcome
     return debug, seen
 
 
@@ -306,3 +307,55 @@ def test_the_subject_is_the_keyword_the_question_asks_about_not_the_first_one():
     check = sc.check_subject(_config(), "CD4 samples for patient XY-7", _plan(["CD4", "XY-7"]),
                              run=fake_neo4j(_graph()))
     assert check is not None and check.term == "XY-7" and [r["uuid"] for r in check.roots] == ["PAT-990101ZZZ-1"]
+
+
+# --- a tree asked by name, answered by the lookup (round 2, P6 T3) ---------------------------------------------------
+
+def test_the_tree_of_a_named_subject_is_answered_by_the_lookup(monkeypatch, tmp_path):
+    debug, seen = _turn(monkeypatch, tmp_path, user_text="sample tree for XY-7", plan=_plan(["XY-7"]), g=_graph(),
+                        tree_by_retrieve=True)
+    out = seen["outcome"]
+    assert isinstance(out, orch.SubjectTree)
+    assert out.plan.mode == "new_search" and out.plan.target_endpoint == "/nextseek_api/samples/retrieve/"
+    assert out.plan.filters.uids == ["PAT-990101ZZZ-1"] and out.plan.filters.keywords == []
+    assert any("/seek/sampletree/uid=PAT-990101ZZZ-1/" in n for n in out.notes)
+    assert debug["subject_tree_by_retrieve"] == "PAT-990101ZZZ-1"
+    assert "plan" not in seen                      # the graph agent was never asked
+
+
+def test_the_tree_of_a_named_animal_written_with_a_dash_is_answered_by_the_lookup(monkeypatch, tmp_path):
+    _, seen = _turn(monkeypatch, tmp_path, user_text="lineage of macaque Q-9", plan=_plan(["Q-9"]), g=_graph(),
+                    tree_by_retrieve=True)
+    out = seen["outcome"]
+    assert isinstance(out, orch.SubjectTree) and out.plan.filters.uids == ["NHP-990101ZZZ-1"]
+
+
+def test_without_the_flag_the_tree_of_a_named_subject_stays_on_the_graph(monkeypatch, tmp_path):
+    _, seen = _turn(monkeypatch, tmp_path, user_text="sample tree for XY-7", plan=_plan(["XY-7"]), g=_graph())
+    assert not isinstance(seen["outcome"], orch.SubjectTree) and "plan" in seen
+
+
+def test_other_asks_about_a_named_subject_stay_on_the_graph_even_with_the_flag(monkeypatch, tmp_path):
+    for text, plan in (("Sampletree", _plan(["XY-7"])),
+                       ("samples that came from patient XY-7", _plan(["XY-7"])),
+                       ("everything derived from patient XY-7", _plan(["XY-7"])),
+                       ("sample tree for XY-7 in lung", _plan(["XY-7", "lung"])),
+                       ("sample tree for XY", _plan(["XY"]))):          # two matches, or none: not one record
+        _, seen = _turn(monkeypatch, tmp_path, user_text=text, plan=plan, g=_graph(), tree_by_retrieve=True)
+        assert not isinstance(seen["outcome"], orch.SubjectTree), text
+
+
+def test_a_resolved_project_keeps_a_named_subject_tree_on_the_graph(monkeypatch, tmp_path):
+    plan = _plan(["XY-7"])
+    plan = plan.model_copy(update={"resolved": plan.resolved.model_copy(update={"projects": [{"id": 2}]})})
+    _, seen = _turn(monkeypatch, tmp_path, user_text="sample tree for XY-7", plan=plan, g=_graph(),
+                    tree_by_retrieve=True)
+    assert not isinstance(seen["outcome"], orch.SubjectTree)
+
+
+def test_asks_for_tree_of_reads_only_tree_and_lineage():
+    assert sc.asks_for_tree_of("sample tree for XY-7", "XY-7")
+    assert sc.asks_for_tree_of("XY-7's lineage", "XY-7")
+    assert not sc.asks_for_tree_of("Sampletree", "XY-7")
+    assert not sc.asks_for_tree_of("everything derived from XY-7", "XY-7")
+    assert not sc.asks_for_tree_of("children of XY-7", "XY-7")

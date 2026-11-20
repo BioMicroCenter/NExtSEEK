@@ -91,6 +91,17 @@ def tree_named_at(question: str, start: int, end: int) -> bool:
     return bool(_BEFORE_TREE_WORDS.search(question[:start]) or _AFTER_TREE_WORDS.match(question[end:]))
 
 
+def asks_for_tree_of(question: str | None, term: str) -> bool:
+    """The question asks for the tree or lineage of ``term`` in those words ("tree of X", "X's lineage"). Not the
+    tree page's name alone, and not "derived from" or "children of" (operator 2026-11-20)."""
+    q = question or ""
+    runs = _id_runs(term)
+    if not runs or _TREE_ONLY.fullmatch(q):
+        return False
+    pat = r"(?<![a-z0-9])" + r"[-._ /]?".join(map(re.escape, runs)) + r"(?![a-z0-9])"
+    return any(tree_named_at(q, m.start(), m.end()) for m in re.finditer(pat, q, re.I))
+
+
 def asks_about_one_subject(question: str | None, term: str, words: frozenset[str] = frozenset()) -> bool:
     """The question asks for the tree or lineage of ``term`` (written with any separators), or for the samples, data
     or records of it written after one of ``words`` (``subject_words``), or is only the tree page's name."""
