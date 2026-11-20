@@ -307,9 +307,12 @@ def test_a_graph_turn_table_has_the_shape_the_chat_renders():
     assert [t["key"] for t in build_tables_from_bundle(bundle)] == [table["key"]]
 
 
-def test_a_one_row_graph_result_still_gets_a_table():
-    (table,) = extract_table_artifacts({"mode": "graph_query", "graph_result": {"data": [{"count": 7}]}})
-    assert table["data"] == [{"count": 7}] and "truncated" not in table
+def test_a_one_row_graph_result_gets_a_table_unless_it_is_a_bare_count():
+    """D2 (2026-11-20): one row of at most 2 columns is a count the reply states; a wider row is still a table."""
+    assert extract_table_artifacts({"mode": "graph_query", "graph_result": {"data": [{"count": 7}]}}) == []
+    row = {"type": "ZZ", "lab": "QQZ", "count": 7}
+    (table,) = extract_table_artifacts({"mode": "graph_query", "graph_result": {"data": [row]}})
+    assert table["data"] == [row] and "truncated" not in table
 
 
 def test_a_long_graph_table_is_capped_inline_and_whole_for_download():

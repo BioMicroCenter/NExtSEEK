@@ -281,8 +281,8 @@ def _graph_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:
         for key in row:
             if str(key) not in columns:
                 columns.append(str(key))
-    if not columns:
-        return []
+    if not columns or (len(rows) == 1 and len(columns) <= 2):
+        return []  # D2 (2026-11-20): one row of at most 2 columns is a bare count, said in the reply, not a table
 
     return [{
         "key": "graph_table",

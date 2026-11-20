@@ -210,9 +210,20 @@ class GraphTableArtifactTests(SimpleTestCase):
         self.assertEqual(table["total_rows"], MAX_INLINE_ROWS + 41)
 
     def test_a_count_only_result_has_no_table(self):
-        from nextseek_api.assistant.excel_export import extract_table_artifacts
+        from nextseek_api.assistant.excel_export import build_tables_from_bundle, extract_table_artifacts
 
         self.assertEqual(extract_table_artifacts(self._bundle([])), [])
+        # D2 (2026-11-20): one row of at most 2 columns is a bare count, said in the reply; no table, no download
+        for rows in ([{"n": 1234}], [{"type": "TIS", "n": 1234}]):
+            self.assertEqual(extract_table_artifacts(self._bundle(rows)), [], rows)
+            self.assertEqual(build_tables_from_bundle(self._bundle(rows)), [], rows)
+
+    def test_one_row_of_three_columns_or_two_rows_keep_their_table(self):
+        from nextseek_api.assistant.excel_export import extract_table_artifacts
+
+        for rows in ([{"type": "TIS", "lab": "QQZ", "n": 12}], [{"n": 1}, {"n": 2}]):
+            [table] = extract_table_artifacts(self._bundle(rows))
+            self.assertEqual(len(table["data"]), len(rows))
 
     def test_a_reporter_bundle_is_untouched_by_the_graph_branch(self):
         from nextseek_api.assistant.excel_export import extract_table_artifacts
