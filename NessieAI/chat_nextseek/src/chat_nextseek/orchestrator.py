@@ -1420,7 +1420,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
             # the statement's quoted values and its parameter values, never its property or variable names ("rna" is
             # in "internal_assay_title"); a word moved into a field filter is kept (round 2 F10)
             kept = " ".join([*(a or b for a, b in _QUOTED.findall(graph_plan.cypher or "")),
-                             json.dumps(parameters or {}, default=str)]).lower()
+                             json.dumps(list((parameters or {}).values()), default=str)]).lower()
             gone = [c for c in counted if c["term"].lower() not in kept]
             if gone:
                 word_note = WORD_LEFT_OUT_NOTE.format(term=gone[0]["term"])

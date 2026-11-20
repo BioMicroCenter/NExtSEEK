@@ -477,3 +477,9 @@ def test_a_word_moved_into_a_field_filter_was_kept(monkeypatch, tmp_path):
                                  parameters={"w": "RNA"}, context_mode="catalog")):
         notes = _word_notes(monkeypatch, tmp_path, retry)
         assert not any("leaves that word out" in n for n in notes), (retry.cypher, notes)
+
+
+def test_a_word_in_a_parameter_name_only_was_still_left_out(monkeypatch, tmp_path):
+    retry = GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE r.Kind = $rna_kind RETURN r.id AS id",
+                           parameters={"rna_kind": "k"}, context_mode="catalog")
+    assert WORD_LEFT_OUT_NOTE.format(term="rna") in _word_notes(monkeypatch, tmp_path, retry)
