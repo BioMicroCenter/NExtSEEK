@@ -29,6 +29,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -567,6 +568,16 @@ def _attempt(reason: str, result: dict) -> dict:
     return out
 
 
+#: A RETURN column called uid built from the record number or a UID property (the graph has none): the sample's
+#: UID is its uuid (graph_schema_structure.txt). Seen asking for s.id AS uid and for s.UID AS uid.
+_UID_ALIAS = re.compile(r"\b(\w+)\.(?:id|UID)((?i:\s+AS\s+))(`?)((?i:uid))\3(?![\w`])")
+
+
+def _uid_column(cypher: str, params: dict) -> str:
+    """A uid column always holds the UID. ponytail: matches the alias only; a column named otherwise is the asker's."""
+    return _UID_ALIAS.sub(r"\1.uuid\2\3\4\3", cypher)
+
+
 def _run_plan(plan, exec_fn, config, prepare_cypher) -> tuple[Any, str | None, str | None, dict]:
     """``(plan dump, the agent's cypher, the submitted cypher, result)`` for one graph agent plan."""
     plan_dump = _dump(plan)
@@ -728,7 +739,8 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_
                                                  agent_plan.filters.uids if agent_plan is not None else None)
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
                                 neo4j_exec=neo4j_exec, refine_context=agent_note, uid_checks=checks,
-                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn, agent_plan=agent_plan)
+                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn, agent_plan=agent_plan,
+                                prepare_cypher=_uid_column)
     # parser_plan: the plan this answer ran, as JSON, so nextseek-api-read can ask the same question of the REST API.
     out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan),
            "plan_source": answer.plan_source}

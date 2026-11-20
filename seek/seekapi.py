@@ -9,6 +9,11 @@ logger = logging.getLogger(__name__)
 # cannot render in time becomes an empty panel, never an unbounded wait.
 PAGE_TIMEOUT_S = (10, 300)
 
+class SeekNotJSON(ValueError):
+    """SEEK answered with something that is not JSON; ``status_code`` is its HTTP status."""
+    status_code = None
+
+
 class SeekAPI(object):
     def __init__(self, server, username, password):
         self.__server = server
@@ -85,7 +90,7 @@ class SeekAPI(object):
         return self.__getHtmlpageDiv(htmlpage, 'content')
     
     
-    def getCurrentUser(self):
+    def getCurrentUser(self, timeout=None):
         import requests
         # Basic auth is encoded here rather than passed as requests' auth= so a
         # non-Latin-1 password doesn't raise UnicodeEncodeError (#52). Imported
@@ -95,8 +100,16 @@ class SeekAPI(object):
                    "accept": "application/json"}
         headers.update(basic_auth_header((self.__username, self.__password)))
         req = requests.get(self.__server + "/people/current",
-                           headers=headers)
-        return req.json()
+                           headers=headers, timeout=timeout)
+        try:
+            return req.json()
+        except ValueError as exc:
+            # SEEK answered something that is not JSON (an error page while its workers recycle). Name the status and
+            # type, never the body.
+            err = SeekNotJSON(f"SEEK /people/current answered {req.status_code} "
+                              f"({req.headers.get('Content-Type') or 'no content type'}), not JSON")
+            err.status_code = req.status_code
+            raise err from exc
     
     def __getStudyTitle(self, study_id):
         queryurl = "/studies/" + study_id

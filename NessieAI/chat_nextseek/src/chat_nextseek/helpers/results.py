@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from .text import strip_html
@@ -56,6 +57,57 @@ def _record_keys(record: dict) -> set[str]:
         if value is not None and not isinstance(value, (dict, list)):
             keys.add(re.sub(r"<[^>]+>", "", str(value)).strip().lower())
     return keys
+
+
+#: Named records' relatives listed in ``lineage`` (counts by type cover all of them).
+_LINEAGE_LIST_MAX = 20
+
+
+def _parent_tokens(record: dict) -> list[str]:
+    """The parent rule the graph sync builds DERIVED_FROM from (batch_upload/helpers.py collect_parent_tokens): every
+    metadata field whose name contains "parent", split on ";", exact UIDs, lower-cased."""
+    meta = record.get("metadata") if isinstance(record.get("metadata"), dict) else record
+    return [t.strip().lower() for k, v in meta.items() if "parent" in str(k).lower() and isinstance(v, str)
+            for t in v.split(";") if t.strip()]
+
+
+def _lineage_of_named(flat: list[dict], named: set[str]) -> dict | None:
+    """Which returned records sit above the named ones and which below, by type, from the records' own parent
+    fields. None when nothing was named or nothing links. ponytail: rebuilt from the rows; a relative linked only
+    through a record not returned (gone from MySQL, or outside a member's projects) is in not_linked_by_type."""
+    by_uid = {_record_uid(r).lower(): r for r in flat}
+    start = [u for u in by_uid if u in named]
+    if not start:
+        return None
+    parents = {u: [p for p in _parent_tokens(r) if p in by_uid] for u, r in by_uid.items()}
+    children: dict[str, list[str]] = {}
+    for u, ps in parents.items():
+        for p in ps:
+            children.setdefault(p, []).append(u)
+
+    def walk(edges: dict[str, list[str]]) -> list[str]:
+        seen, queue = set(start), list(start)
+        out = []
+        for u in queue:
+            for v in edges.get(u, []):
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                    queue.append(v)
+        return out
+
+    up, down = walk(parents), walk(children)
+    label = lambda u: str(by_uid[u].get(_GROUP_LABEL_KEY))  # noqa: E731
+    loose = Counter(label(u) for u in by_uid if u not in set(start) | set(up) | set(down))
+    if not (up or down or loose):
+        return None
+    return {
+        "ancestors_by_type": dict(Counter(label(u) for u in up)),
+        "descendants_by_type": dict(Counter(label(u) for u in down)),
+        "ancestors": [f"{_record_uid(by_uid[u])} ({label(u)})" for u in up[:_LINEAGE_LIST_MAX]],
+        "descendants": [f"{_record_uid(by_uid[u])} ({label(u)})" for u in down[:_LINEAGE_LIST_MAX]],
+        **({"not_linked_by_type": dict(loose)} if loose else {}),
+    }
 
 
 def _order_named_first(flat: list[dict], named: list[str]) -> tuple[list[dict], int]:
@@ -280,7 +332,9 @@ def slim_api_result_for_llm(
         # A UID named without its suffix comes back under its stored spelling (`resolved_as`), and is pinned as that.
         resolved = {str(k).strip().lower(): str(v).strip().lower()
                     for k, v in ((data.get("resolved_as") if isinstance(data, dict) else None) or {}).items()}
-        flat, pinned = _order_named_first(flat, [resolved.get(n, n) for n in _named_identifiers(api_plan)])
+        named_ids = [resolved.get(n, n) for n in _named_identifiers(api_plan)]
+        lineage = _lineage_of_named(flat, set(named_ids))
+        flat, pinned = _order_named_first(flat, named_ids)
         shown, also_named = flat, []
         if pinned > _PINNED_MAX:
             also_named = [f"{_record_uid(r)} ({r.get(_GROUP_LABEL_KEY)})" for r in flat[_PINNED_MAX:pinned]]
@@ -289,7 +343,9 @@ def slim_api_result_for_llm(
         preview_items = shown[:max(max_rows, pinned)]
         preview_rows = len(preview_items)
         new_data = {
-            **{k: v for k, v in data.items() if k != "data"},
+            # total_children counts ancestors too, so it is dropped: lineage says which are above and which below.
+            **{k: v for k, v in data.items() if k not in ("data", "total_children")},
+            **({"lineage": lineage} if lineage else {}),
             "samples_by_type": {
                 str(group.get(_GROUP_LABEL_KEY)): (
                     group.get("n_samples")
@@ -362,19 +418,21 @@ def slim_api_result_for_llm(
     if preview_rows is None:
         preview_rows = _rows_actually_returned(slimmed)
     slimmed.update(build_result_disclosure(api_result, api_plan, preview_rows=preview_rows))
-    slimmed.update(_rest_list_flags(api_result, api_plan))
+    slimmed.update(_rest_list_flags(api_result, api_plan, preview_rows=preview_rows))
     return slimmed
 
 
 #: The two REST answers that are a single record or a whole list rather than a sample page (R4, U3b).
 _PEOPLE_LIST = "/nextseek_api/people/"
+_RETRIEVE = "/nextseek_api/samples/retrieve/"
 _SOPS_RECORD = "/nextseek_api/sops/"
 
 
-def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
+def _rest_list_flags(api_result: dict, api_plan: dict | None, preview_rows: int | None = None) -> dict:
     """``full_list_attached`` + ``rows_returned`` for the people list (the table under the reply holds every row, so
     the chatter gives the total and never "the first N"), with ``match_terms`` + ``matching_rows`` when the request
-    looks for names; ``download_links`` for one SOP record (the file it offers)."""
+    looks for names; ``download_links`` for one SOP record (the file it offers); the same full-list flag for a
+    retrieve whose preview is shorter than its complete result (the full JSON is attached)."""
     endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0]
     data = api_result.get("data") if isinstance(api_result, dict) else None
     if endpoint.rstrip("/") + "/" == _PEOPLE_LIST:
@@ -390,6 +448,12 @@ def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
                     for title in [str((row.get("attributes") or {}).get("title") or "")]
                     if title and any(all(w in title.lower() for w in t.lower().split()) for t in terms)]
             return flags
+    elif endpoint.rstrip("/") + "/" == _RETRIEVE and isinstance(data, dict):
+        total = data.get("total_samples")
+        # Only a complete result: the file must hold every record (a capped result is never called the full list).
+        if (isinstance(total, int) and total > 0 and api_row_count(api_result) == total
+                and (preview_rows is None or preview_rows < total)):
+            return {"full_list_attached": True, "rows_returned": total}
     elif endpoint.startswith(_SOPS_RECORD.rstrip("/") + "/") and isinstance(data, dict):
         record = data.get("data") if isinstance(data.get("data"), dict) else data
         links = _download_links(record)

@@ -869,6 +869,17 @@ def _lead_with(lead: str, rest: str) -> str:
     return (lead + ("\n\n" if _NOT_PROSE.match(rest) else " ") + rest).strip()
 
 
+_WEB_ADDRESS = re.compile(r"https?://\S+")
+_ADDRESS_TAIL = ")]}.,;:!?'\""
+
+
+def _keep_stored_links(answer: str, *data) -> str:
+    """``answer`` without the web addresses the turn's data does not hold: a record's stored link is its file's
+    location (operator 2026-11-20); any other address is invented or plumbing and goes, as before."""
+    stored = {m.rstrip(_ADDRESS_TAIL) for m in _WEB_ADDRESS.findall(json.dumps(data, default=str))}
+    return _WEB_ADDRESS.sub(lambda m: m.group() if m.group().rstrip(_ADDRESS_TAIL) in stored else "", answer)
+
+
 def chatter_agent_answer(
     config: ChatConfig,
     user_query: str,
@@ -1415,7 +1426,8 @@ def chatter_agent_answer(
         )
 
     # ---------- Clean answer ----------
-    answer_no_links = re.sub(r"https?://\S+", "", answer)
+    answer_no_links = _keep_stored_links(
+        answer, (api_result_full or {}).get("data"), (graph_result or {}).get("data"))
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
     # F-d: with no chip to offer, an answered result's closing stock offer goes, unless a note names
     # a misspelled lab's closest spelling, which the reply offers on any result. On the model's

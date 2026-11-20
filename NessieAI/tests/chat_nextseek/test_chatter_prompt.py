@@ -1129,3 +1129,8 @@ def test_a_capped_list_without_whole_result_counts_says_they_are_of_the_rows_ret
     assert "Values across only the 5,000 rows returned" in text
     assert "never write all, only, every or always" in text
     assert "Sample types across only the 5,000 rows returned" in text
+
+def test_file_locations_are_given_exactly_as_stored():
+    text = _prompt_text()
+    assert "exactly as stored" in text
+    assert "never described in its place" in text

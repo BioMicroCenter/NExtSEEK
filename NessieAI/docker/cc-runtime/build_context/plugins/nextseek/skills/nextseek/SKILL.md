@@ -451,21 +451,9 @@ Compose the user-facing answer from each op's JSON output.
 - When the reply lists the stored values of one attribute, `context/ONTOLOGIES.json` covers that attribute, and some listed values are not house `TERM`s, end with one line offering to harmonize them to the house terms. No table and no workbook until the user asks (harmonizing is a `nextseek-batch-upload` task).
 - Do not fabricate counts, UIDs, or fields, or fill in numbers from prior knowledge — report only
   what the op returned. State an empty result plainly.
-- Quote the **user-facing path** of any artifact produced (submission workbook, report, file
-  under `/data/scratch/`), not the container path. `DMAC_PATH_MAPPINGS` in the env is a JSON
-  object of one entry per mounted root:
-
-  ```json
-  {"output":  {"container_root": "/data/output",  "logical_root": "/dmac/users/<project>/<user>/output"},
-   "scratch": {"container_root": "/data/scratch", "logical_root": "/dmac/users/<project>/<user>/scratch/<run id>"}}
-  ```
-
-  To report a file, find the entry whose `container_root` is a prefix of the file's path and
-  replace that prefix with the same entry's `logical_root`. That result is the path to quote:
-  `/data/scratch/chart.svg` becomes `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg`, where each <...> is the real value the variable holds; never copy a <...> into a reply.
-  There is no host path in the mapping and you are not expected to produce one. Report the
-  container path, and say the mapping was unavailable, ONLY when the variable is missing, is not
-  valid JSON, or holds no entry whose `container_root` is a prefix of the path.
+- Name an artifact you produced (submission workbook, report, a file under `/data/scratch/`) by its file
+  name and say it is in the downloads under your reply. Never give a folder or a path: the user cannot open
+  the server's folders.
 
 ## Write safety — 3 layers
 

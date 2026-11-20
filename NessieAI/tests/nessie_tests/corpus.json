@@ -7334,6 +7334,54 @@
           ],
           "_why": "MDL-250912LAU-1's lineage holds no NHP at all: its ancestors are 304 patients and 95 mice (see tree.patients_upstream_of_a_model). So the honest answer is that the scope is empty and what the model does derive from, not a count; no zero is pinned. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: (m)-[:DERIVED_FROM*1..15]->(n:T_NHP) returns no rows. || WAS: the graph query ran (total 0) but the reply model returned 503 and the user saw a pipeline error (A1). || TESTS: an empty scope is named as empty.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 463 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "id": "tree.lineage_of_a_data_record",
+          "family": "lineage_tree",
+          "name": "Lineage of a data record: records above it are not called derived from it",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What's the lineage of D.MSP-230828GRI-4-PUB?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "new_search"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.MSP-230828GRI-4\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)(ancestor|above|upstream)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*every(thing)? derived from (this|the) (record|sample))"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
         }
       ]
     },
@@ -13911,7 +13959,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -13930,7 +13983,7 @@
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED. 'Those samples' had no antecedent as a single turn. A seed turn now supplies one, and the delivery criterion (the reply must quote the HOST-side path under /dmac/users/... rather than leak the container path /data/output) is kept as generated \u2014 it is the only place the corpus tests DMAC_PATH_MAPPINGS. The seed is the Kamm organ-on-chip cohort (530, verified) rather than the NDMA mice, deliberately: 'Find me mice treated with NDMA' is already the seed of five other selected variants, and a sixth would buy nothing but another copy of the same first turn.",
           "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 103 TIS samples have Organ='Pancreas' (a value with no casing variant, so the seed is unambiguous). The delivered path must be the HOST path under /dmac/users/..., not the container path /data/output. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ grouped -> Pancreas 103. Path contract from DMAC_PATH_MAPPINGS. || TESTS: REWORDED seed only. It previously opened with 'Find me all organ on chip samples in the Kamm lab' \u2014 the same question as routing.lab_ooc_kamm_count, which is kept, so the two would have shared a seed and a number. The delivery turn, which is the point of the case, is unchanged.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ = 'Pancreas' 2,666, and 3,321 with 'pancreas' 384 and 'PANCREAS' 271 (Neo4j cypher-shell, read-only); the seed is no longer free of case variants, so both readings are accepted; was 103."
+          "_why": "2026-11-20 (Q1): the delivery turn now checks that the reply names the file and says it is in the downloads under the reply, and that it shows no /dmac/users/ folder (the server's folder, which no user can open); it used to require the host path. Seed note follows. || Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ = 'Pancreas' 2,666, and 3,321 with 'pancreas' 384 and 'PANCREAS' 271 (Neo4j cypher-shell, read-only); the seed is no longer free of case variants, so both readings are accepted; was 103."
         },
         {
           "artifact_expected": null,
@@ -13962,7 +14015,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -14042,7 +14100,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 },
                 {
                   "field": "last_reply",
@@ -14132,7 +14195,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -14212,7 +14280,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 },
                 {
                   "field": "last_reply",
@@ -14268,11 +14341,6 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
                   "value": "(\\.rds\\b|/net/)"
                 },
                 {
@@ -14320,11 +14388,6 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file)"
                 },
                 {
                   "field": "last_reply",
@@ -14389,12 +14452,55 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(File_PrimaryData|Link_PrimaryData|link|path|file location|ImmPort)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "https?://"
                 }
               ]
             }
           ],
           "_why": "PAT-230323BOO-74 has two D.FLOW descendants, D.FLOW-230330BOO-56 and D.FLOW-230330BOO-57, both carrying File_PrimaryData and Link_PrimaryData (no D.FCS). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (p:Sample {uuid:'PAT-230323BOO-74'}) MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(p) RETURN f.uuid. || WAS: the reply explained how to look for the D.FLOW child records but named none and gave no download path (C1). || TESTS: the patient is walked to its data records and their file fields.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 452 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian true: the one member of this new family in the paired selection, which must represent every measurable family."
+        },
+        {
+          "id": "file.where_is_a_sequencing_file",
+          "family": "data_file_location",
+          "name": "Where a sequencing data file is stored, printed as stored",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Where is the raw data file for D.SEQ-221031SHA-67-PUB stored? I want to download it.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.SEQ-221031SHA-67\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(https?://|/net/)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
         }
       ]
     },
@@ -16943,7 +17049,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -18407,7 +18518,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }
@@ -18696,7 +18812,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+                  "value": "(?i)downloads? under (this|the) reply"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/dmac/users/)"
                 }
               ]
             }

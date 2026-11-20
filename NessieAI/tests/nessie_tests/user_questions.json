@@ -2663,7 +2663,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",
@@ -2694,7 +2699,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         }
        ]
       },
@@ -2746,7 +2756,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",
@@ -2830,7 +2845,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",
@@ -2940,7 +2960,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",
@@ -3061,7 +3086,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",
@@ -3124,7 +3154,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",
@@ -3171,7 +3206,12 @@
         {
          "field": "last_reply",
          "op": "matches_re",
-         "value": "/dmac/users/"
+         "value": "(?i)downloads? under (this|the) reply"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*/dmac/users/)"
         },
         {
          "field": "last_reply",

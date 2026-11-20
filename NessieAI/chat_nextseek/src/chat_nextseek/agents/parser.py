@@ -17,6 +17,7 @@ from ..helpers import (
     build_recent_results_summary,
 )
 from ..helpers.query_scope import PEOPLE_KIND_WORDS, names_only_the_kind
+from ..helpers.subject_check import tree_named_at
 from ..llm_clients import LLMTimeoutError, model_traits
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
@@ -805,6 +806,52 @@ def _to(plan, mode: str, note: str, **extra):
     return plan.model_copy(update={"mode": mode, "target_endpoint": None, field: (old + " | " if old else "") + note, **extra})
 
 
+#: A tree or lineage question about ONE sample named by its UID, with no other condition, is answered by
+#: samples/retrieve: the whole tree the tree page draws, each relative marked above or below (results.py lineage).
+#: Operator 2026-11-19, narrowed 2026-11-20: only the words "tree" and "lineage" (``tree_named_at``); other asks about
+#: one UID stay on the graph. Two or more UIDs stay on the graph (_force_graph_for_uid_lineage), and so does any
+#: condition. Single-plan path only: a multi-step plan's candidates are not rerouted on the whole question's words.
+TREE_BY_UID_NOTE = "sent to retrieve: the tree of one named UID is its lineage lookup"
+
+
+def adds_a_condition(plan, sample_type: str | None, lab: str | None, own: str | None) -> bool:
+    """Anything besides the one sample: an assay, a keyword other than ``own`` (any spelling), a lab other than
+    ``lab``, a sample type other than ``sample_type``, a resolved project or scientist."""
+    def norm(text) -> str:
+        return re.sub(r"pub\d*$", "", re.sub(r"[^a-z0-9]", "", str(text).lower()))
+
+    f, r = plan.filters, plan.resolved
+    if f.assay_codes or r.assays or r.projects or r.scientists or r.category_types or r.house_types:
+        return True
+    if any(norm(k) != norm(own or "") for k in [*f.keywords, *r.keywords]):
+        return True
+    labs = {c.upper() for c in [*f.lab_codes, *r.lab_codes, *(m.code for m in r.lab_matches)]}
+    if labs - {(lab or "").upper()}:
+        return True
+    types = {t.upper() for t in [f.sampletype_code, *(i.code for i in r.sampletypes)] if t}
+    return bool(types - {(sample_type or "").upper()})
+
+
+def _tree_by_uid(user_query: str, plan: ParserPlan) -> ParserPlan:
+    """Send the tree or lineage of one named UID to samples/retrieve (see TREE_BY_UID_NOTE)."""
+    if plan.mode not in ("new_search", "graph_query"):
+        return plan
+    query = user_query or ""
+    hits = list(_WELL_FORMED_ANY_UID.finditer(query))
+    if len({re.sub(r"-PUB\d*$", "", m.group().upper()) for m in hits}) != 1:
+        return plan
+    hit = hits[0]
+    if not tree_named_at(query, hit.start(), hit.end()):
+        return plan
+    uid = hit.group().upper()
+    prefix, _, rest = re.sub(r"-PUB\d*$", "", uid).partition("-")
+    lab = re.match(r"\d{6}([A-Z]{3})", rest)
+    if adds_a_condition(plan, prefix, lab.group(1) if lab else None, uid):
+        return plan
+    return _to(plan, "new_search", TREE_BY_UID_NOTE, target_endpoint="/nextseek_api/samples/retrieve/",
+               filters=plan.filters.model_copy(update={"uids": [uid], "keywords": []}))
+
+
 def _route_by_kind(user_query: str, plan, config=None, resolved=None):
     """Hold each question to the engine that answers its KIND, whatever endpoint the model picked.
 
@@ -996,6 +1043,7 @@ def _apply_parser_guardrails(
     plan = _seen("mode_aliases", plan, _normalise_mode_aliases(plan))
     plan = _seen("refine_without_bundle", plan, _note_refine_without_bundle(session, plan))
     plan = _seen("uid_lineage", plan, _force_graph_for_uid_lineage(user_query, plan))
+    plan = _seen("tree_by_uid", plan, _tree_by_uid(user_query, plan))
     before_bulk = plan
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         plan = ParserPlan(
