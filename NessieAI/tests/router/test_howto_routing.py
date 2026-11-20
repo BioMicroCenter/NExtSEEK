@@ -287,3 +287,36 @@ def test_router_text_sends_a_file_request_without_its_samples_to_cc():
     needle = "asks for the work even when the samples or UIDs it should cover are not in the message yet"
     assert needle in text
     assert text.index("How-to questions about the site") < text.index(needle) < text.index("The file of one SOP named")
+
+
+# ------------------------------------------------------------------ how-tos anywhere, and the unscoped export (D1)
+@pytest.mark.parametrize("query", [
+    "Tell me how I can export the RNA-seq samples to Excel",
+    "What is the easiest way to get an Excel file of my samples?",
+    "Please explain the steps to export samples as csv",
+    "Download all samples from the database as a spreadsheet",
+    "Give me every record in the database as a CSV",
+    "Export the entire database to Excel",
+    "Export all samples to Excel",
+])
+def test_a_how_to_anywhere_or_an_unscoped_export_is_not_a_file_request(query):
+    assert policy._is_new_file_request(query) is False
+
+
+@pytest.mark.parametrize("query", [
+    "Make me a spreadsheet showing how many samples each lab has",
+    "Make me a spreadsheet of all the samples in my list",
+    "Make a CSV of these samples with every column",
+    "Make me a metadata sheet for the samples in my list.",
+    "Export all samples derived from PAT-990101ZZZ-1 to Excel",
+])
+def test_a_scoped_request_or_a_count_word_is_still_a_file_request(query):
+    assert policy._is_new_file_request(query) is True
+
+
+def test_router_text_keeps_an_unscoped_export_with_nextseek():
+    text = " ".join(_baml().split())
+    needle = ("A request for every sample or the whole database with nothing to narrow it is not this: it stays "
+              "with `nextseek_query`, which asks the user to narrow it.")
+    assert needle in text
+    assert text.index("asks for the work even when the samples or UIDs") < text.index(needle)

@@ -170,10 +170,24 @@ _OTHER_FILE_RULES = re.compile(
     r"annual\s+reports?|sops?|protocols?|uploads?|batch|harmoni[sz]\w*|templates?)\b", re.IGNORECASE)
 
 
+# A how-to anywhere in the sentence ("tell me how I can export ...", "the easiest way to get ..."); a bare "how" is not
+# one ("a spreadsheet showing how many samples each lab has").
+_HOWTO_ANYWHERE = re.compile(r"\bhow\s+(?:do|can|could|would|should|to|i|we)\b|\b(?:way|steps)\s+to\b", re.IGNORECASE)
+# D1 (operator, 2026-11-20): an export of the whole database, or of every sample with nothing to narrow it, stays
+# refused on NExtSEEK. Subsets of the parser's _BULK_SCOPE_RE, which also refuses on the plan's empty filters; that
+# wider pattern is not used here, because "a spreadsheet of all the samples in my list" asks for a file before its
+# inputs (ruling Q1).
+_UNSCOPED_EXPORT = re.compile(
+    r"\b(?:all|every|entire|whole)\b[^.?!\n]{0,40}\b(?:database|db)\b"
+    r"|\b(?:all|every)\s+(?:the\s+)?(?:samples?|records?)\b(?!\s+(?:in|of|from|for|with|that|which|where|whose|on|"
+    r"derived|listed|below|above)\b)", re.IGNORECASE)
+
+
 def _is_new_file_request(query: str | None) -> bool:
     """True for a request to make a new spreadsheet, workbook or CSV that no other routing rule owns."""
     q = " ".join(str(query or "").split())
-    return bool(_FILE_ASK.search(q)) and not _HOWTO_OPENER.search(q) and not _OTHER_FILE_RULES.search(q)
+    return (bool(_FILE_ASK.search(q)) and not _HOWTO_OPENER.search(q) and not _HOWTO_ANYWHERE.search(q)
+            and not _OTHER_FILE_RULES.search(q) and not _UNSCOPED_EXPORT.search(q))
 
 
 def _decide_route(user, req, *, force_cc: bool, session=None,
