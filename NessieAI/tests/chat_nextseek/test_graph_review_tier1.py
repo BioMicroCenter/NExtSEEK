@@ -795,3 +795,42 @@ def test_empty_by_node_stays_quiet_on_an_empty_list():
     inp = ReviewInput(question="Which investigations have no samples?", cypher=EMPTY_INVESTIGATIONS, parameters={},
                       keyword_fields={}, rows=[], count=0, total=0, ok=True, error=None)
     assert not _check(review_tier1(inp, DictCatalog({})), "empty_by_node").fired
+
+
+# ---------------------------------------------------------------- free_text_only_existence (round 2, P4) ----------
+def _exist(question, cypher, rows, params=None):
+    inp = ReviewInput(question=question, cypher=cypher, parameters=params or {}, keyword_fields={}, rows=rows,
+                      count=len(rows), total=None, ok=True, error=None)
+    return review_tier1(inp, DictCatalog({}))
+
+
+_TEXT_ONLY = ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = $t AND (toLower(s.search_text) "
+              "CONTAINS 'zorbex') RETURN s.type AS type, count(DISTINCT s) AS n")
+_THREE = [{"type": "A.AAA", "n": 3}, {"type": "B.BBB", "n": 2}, {"type": "C.CCC", "n": 1}]
+
+
+def test_existence_answered_only_by_text_mentions_is_disclosed():
+    rv = _exist("do we have any zorbex data for the QQ project?", _TEXT_ONLY, _THREE, {"t": "QQ"})
+    assert rv.verdict == "suggest" and _check(rv, "free_text_only_existence").fired
+    assert "mentions" in rv.disclosure and "zorbex" in rv.disclosure
+    for bad in ("MATCH", "WHERE", "CONTAINS", "RETURN", "search_text", "sample_count", "$"):
+        assert bad not in rv.disclosure
+
+
+def test_existence_answered_by_a_type_label_stays_quiet():
+    rv = _exist("do we have any qwerty data", "MATCH (s:T_D_QWE) RETURN count(*) AS n", [{"n": 48}])
+    assert not _check(rv, "free_text_only_existence").fired
+
+
+def test_a_count_or_mention_question_stays_quiet():
+    for q in ("how many samples do we have that mention zorbex", "do we have any data that mentions zorbex",
+              "how many zorbex data do we have, any in QQ?"):
+        rv = _exist(q, _TEXT_ONLY, _THREE, {"t": "QQ"})
+        assert not _check(rv, "free_text_only_existence").fired, q
+
+
+def test_a_text_word_beside_a_field_stays_quiet():
+    cy = ("MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS 'zorbex' AND s.Organ = $o "
+          "RETURN s.type AS type, count(DISTINCT s) AS n")
+    rv = _exist("do we have any zorbex data from liver?", cy, _THREE, {"o": "liver"})
+    assert not _check(rv, "free_text_only_existence").fired

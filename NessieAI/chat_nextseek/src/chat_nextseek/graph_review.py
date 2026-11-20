@@ -196,7 +196,7 @@ class GraphReview:
 
 
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
-SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
+SHIP = ("breakage", "free_text_only_existence", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
         "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count",
         "duplicate_rows", "empty_by_node")
 INFO_ONLY = ("title_contains_multi", "count_only")
@@ -991,6 +991,40 @@ def _free_text_beside_field(t: _Turn) -> _Finding | None:
     return None
 
 
+#: "Do we have any <technique> data", "is there any <x> data": an existence ask about data, never a count or a mention.
+EXISTENCE_DATA_ASK = re.compile(r"^\s*(?:do|does|did|is|are|have|has)\b[^?]{0,80}?\bany\b[^?]{0,60}?\b(?:data|datasets?|files?)\b|\b(?:is|are)\s+there\s+(?:any\s+)?[^?]{0,60}?\b(?:data|datasets?)\b", re.I)
+MENTION_ASK = re.compile(r"\b(?:mention\w*|contain\w*|refer\w*|text)\b", re.I)
+FREE_TEXT_ONLY_FACT = ("No record here is typed, assayed or labelled as {term} data. These matched only because "
+                       "their text mentions '{term}'.")
+FREE_TEXT_ONLY_LEAD_RE = re.compile(r"No record here is typed, assayed or labelled as .+? data\.")
+
+
+def _free_text_only_existence(t: _Turn) -> _Finding | None:
+    """An existence-of-data ask ("do we have any X data") answered only by records whose text mentions X: no type,
+    assay or field says it, so "Yes" would claim more than the graph holds. Fires only when the question asks for the
+    data's existence (not a count, not a mention), the result is not empty, a ``search_text`` term of the query is
+    in the question, and nothing but ``search_text`` / ``title`` filters the records."""
+    if (not EXISTENCE_DATA_ASK.search(t.q) or MENTION_ASK.search(t.q) or re.search(r"\bhow\s+many\b", t.q, re.I)):
+        return None
+    n = t.result_n()
+    if not isinstance(n, (int, float)) or isinstance(n, bool) or n <= 0:
+        return None
+    low = t.q.lower()
+    terms = [term for _v, _tok, term in _free_text_terms(t.cy, t.params) if term in low]
+    if not terms:
+        return None
+    if any(a not in ("search_text", "title") for _v, a, _x in t.cf + t.eq):
+        return None
+    if re.search(r"internal_assay_title|:Assay\b", t.cy):
+        return None
+    if any(a != "uuid" for _v, a in re.findall(r"(\w+)\.(\w+)\s*\)*\s*=~", t.cy)):
+        return None
+    if any(a != "type" for _v, a, _x in in_list_filters(t.cy, t.params)):
+        return None
+    return _Finding(f"existence asked, answered only by the text of records mentioning '{terms[0]}'",
+                    FREE_TEXT_ONLY_FACT.format(term=terms[0]))
+
+
 def _premise_count(t: _Turn) -> _Finding | None:
     # An aggregate row with a total column beside the answer (one row, count 1) is compared on that total.
     row_total = total_column_value(t.rows[0]) if len(t.rows) == 1 else None
@@ -1111,6 +1145,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
         run("zero_unproven_base", lambda: _zero_unproven_base(turn))
         run("unapplied_value", lambda: _unapplied_value(turn))
         run("free_text_beside_field", lambda: _free_text_beside_field(turn))
+        run("free_text_only_existence", lambda: _free_text_only_existence(turn))
         run("premise_count", lambda: _premise_count(turn))
         run("duplicate_rows", lambda: _duplicate_rows(turn))
         run("empty_by_node", lambda: _empty_by_node(turn))
