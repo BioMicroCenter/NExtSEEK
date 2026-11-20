@@ -58,3 +58,14 @@ def test_a_yes_without_the_fact_is_left_alone():
 def test_a_table_opening_stays_intact():
     out = chatter_mod._mentions_first("Yes\n| type | n |\n|---|---|\n| A | 3 |", [NOTE])
     assert out.startswith(LEAD + "\n\n| type | n |")
+
+
+# Round 2 F6: the two recorded reply shapes the check targets.
+def test_the_rest_after_yes_but_starts_a_sentence():
+    out = chatter_mod._mentions_first("Yes, but only as free-text mentions: 305 records mention zorbex.", [NOTE])
+    assert out == f"{LEAD} Only as free-text mentions: 305 records mention zorbex."
+
+
+def test_a_reply_that_already_says_the_fact_says_it_once():
+    out = chatter_mod._mentions_first(f"Yes. {LEAD} 12 records mention it in their text.", [NOTE])
+    assert out.startswith(LEAD) and out.count(LEAD) == 1 and "12 records mention it" in out

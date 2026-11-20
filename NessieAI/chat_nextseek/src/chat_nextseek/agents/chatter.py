@@ -868,7 +868,12 @@ def _mentions_first(reply: str, notes: list[str] | None) -> str:
     text = reply or ""
     if not lead or not _YES_OPEN.match(text):
         return reply
-    return _lead_with(lead, _YES_OPEN.sub("", text, count=1).lstrip())
+    rest = _YES_OPEN.sub("", text, count=1).lstrip()
+    if lead in rest:  # the reply already says it: once, in front
+        rest = _drop_fact(rest, lead)
+    if rest[:1].islower():  # "Yes, but only as ..." leaves a fragment: it starts a sentence now
+        rest = rest[0].upper() + rest[1:]
+    return _lead_with(lead, rest)
 
 
 def _lead_with(lead: str, rest: str) -> str:
