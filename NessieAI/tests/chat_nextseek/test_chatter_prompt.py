@@ -1045,3 +1045,9 @@ def test_no_per_turn_line_still_forbids_the_method_the_user_asked_for(captured):
     assert ("not how it was reached, unless the user asked how the answer was found: then also say, in one or "
             "two plain sentences, what was counted (which records, of which type, under which conditions).") in qualified
     assert "not how it was reached.\n" not in qualified
+
+
+def test_file_locations_are_given_exactly_as_stored():
+    text = _prompt_text()
+    assert "exactly as stored" in text
+    assert "never described in its place" in text
