@@ -25,7 +25,8 @@ GEO1 = ("GEO draft for D.SEQ-241219BRY-5-PUB (paired-end polyA RNA-seq, prime-se
         "Generated report payload is available in the Reporter result panel.")
 FLOW = ("NExtSEEK doesn't host data files; it holds metadata that points to where each file lives. "
         "Both point to the same external location, the ImmPort repository, study SDY2268. "
-        "D.FLOW-230330BOO-56-PUB: file x.fcs. D.FLOW-230330BOO-57-PUB: file y.fcs.")
+        "D.FLOW-230330BOO-56-PUB: file x.fcs. D.FLOW-230330BOO-57-PUB: file y.fcs. "
+        "Link: https://example.org/study/SDY0000")
 
 
 def test_geo_submission_needs_both_uids_not_accessions():
@@ -47,4 +48,6 @@ def test_geo_deposit_needs_the_uid_and_nextseq():
 def test_flow_file_reply_may_give_locations_in_words():
     rx = _regexes("file.flow_file_for_a_patient")[-1]
     assert re.search(rx, FLOW)
+    # 2026-11-20 round 2: the link is given as stored, so a reply that only describes it fails.
+    assert not re.search(rx, FLOW.split(" Link:")[0])
     assert not re.search(rx, "Sorry, nothing found for that patient.")
