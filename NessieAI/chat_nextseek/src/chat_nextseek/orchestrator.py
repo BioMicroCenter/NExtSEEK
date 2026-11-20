@@ -35,6 +35,7 @@ from .chat_memory import (
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
+    _column_summary,
     describe_stored_result,
     preview_rows,
     resolve_followup_outcome,
@@ -934,6 +935,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "scope_note": scope_note,
             "review": as_debug(review),
         }
+        if len(shown) < len(rows):
+            payload["column_summary"], payload["columns_omitted"] = _column_summary(rows)
         if run.changed_answer:
             payload["retry_note"] = run.spelling_note or RETRY_CHANGED_ANSWER_NOTE
         if run.scope_repair_note:
