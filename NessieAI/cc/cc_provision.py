@@ -183,13 +183,15 @@ SEEK_RETRY_DELAY_S = 2
 
 
 def _transient(exc: Exception) -> bool:
-    """A dropped or slow connection, or a non-JSON answer with a 5xx status. Never a 4xx, a KeyError or a
+    """A dropped, cut or slow connection, or a non-JSON answer whose status is not 4xx (a 5xx, or a 200 with an HTML
+    or empty body while SEEK's workers recycle). Never a 4xx, a plain ValueError with no status, a KeyError or a
     malformed membership."""
     import requests
 
-    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)):
         return True
-    return isinstance(exc, ValueError) and (getattr(exc, "status_code", None) or 0) >= 500
+    status = getattr(exc, "status_code", None)
+    return isinstance(exc, ValueError) and isinstance(status, int) and not 400 <= status < 500
 
 
 def _failed(step: str, started: float, exc: Exception) -> ProjectResolutionError:

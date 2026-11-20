@@ -199,9 +199,11 @@ def no_sleep(monkeypatch):
 
 
 @pytest.mark.parametrize("first", [__import__("requests").ConnectionError("reset"),
-                                   __import__("requests").Timeout("slow"), "502"])
+                                   __import__("requests").Timeout("slow"), "502",
+                                   # round 2 F15: a 200 with an HTML or empty body, and a body cut mid-stream
+                                   "200", __import__("requests").exceptions.ChunkedEncodingError("cut")])
 def test_a_transient_failure_is_retried_once(no_sleep, first):
-    err = _not_json(502) if first == "502" else first
+    err = _not_json(int(first)) if isinstance(first, str) else first
     factory = lambda s, u, p: _Flaky(s, u, p, first=err, membership=[{"id": "42"}], titles={"42": "Zeta"})  # noqa: E731
     project = resolve_user_project("alice", "pw", seekdb_factory=factory)
     assert project.id == "42" and _Flaky.calls == 2 and no_sleep == [2]
