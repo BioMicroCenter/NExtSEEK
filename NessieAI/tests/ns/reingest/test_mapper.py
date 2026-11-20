@@ -1,6 +1,6 @@
 import pytest
 
-from NessieAI.ns.reingest import manifest, mapper, maps
+from NessieAI.ns.reingest import manifest, mapper, maps, parsers
 from NessieAI.ns.reingest.pipelines import common
 
 
@@ -253,11 +253,29 @@ def test_a_multirun_samples_partial_parent_list_ships_as_is():
 # software_versions dict, which must not clobber it). ---
 
 def test_an_output_rules_own_attribute_wins_over_a_same_named_provenance_attribute():
-    run = _run(software_versions={"STAR": "2.7.11a"})
+    run = _run(software_versions={"star": "2.7.11a"})
     result = mapper.apply(run, maps.load("rnaseq"))
     aln = next(r for r in result.rows if r.sample_type == "A.ALN")
     assert aln.attributes["Software"].value == "2.7.11a"
     assert isinstance(aln.attributes["Software"].value, str)
+
+
+def test_aln_software_reads_the_star_version_as_a_real_run_spells_it():
+    # nf-core/rnaseq writes the tool key in lowercase ("star: 2.7.11b"), never
+    # "STAR", and 3.22 reports it under two processes at two versions. The
+    # versions here go through the real parser, not a hand-built dict, because
+    # a hand-built {"STAR": ...} is how the map's wrong key went unnoticed.
+    text = ("MAKE_TRANSCRIPTS_FASTA:\n"
+            "  rsem: 1.3.1\n"
+            "  star: 2.7.10a\n"
+            "STAR_ALIGN:\n"
+            "  star: 2.7.11b\n"
+            "Workflow:\n"
+            "  nf-core/rnaseq: v3.22.2\n")
+    run = _run(software_versions=parsers.parse_software_versions(text))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert aln.attributes["Software"].value == "2.7.11b"
 
 
 # --- Resolution 3: when a committed map rule and an approved rule both
