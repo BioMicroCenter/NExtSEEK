@@ -320,3 +320,30 @@ def test_router_text_keeps_an_unscoped_export_with_nextseek():
               "with `nextseek_query`, which asks the user to narrow it.")
     assert needle in text
     assert text.index("asks for the work even when the samples or UIDs") < text.index(needle)
+
+
+def test_no_case_pins_a_route_source_that_rejects_the_file_rule_on_a_turn_it_fires_on():
+    """Round 2 F19: a turn the file-request rule moves to Container-CC records route_source=file_request, so a case
+    whose turn the rule fires on must accept that source."""
+    import re
+
+    corpus_dir = paths.NESSIE_ROOT / "tests" / "nessie_tests"
+    bad = []
+
+    def walk(node, name):
+        if isinstance(node, dict):
+            turns = node.get("turns") if "id" in node and isinstance(node.get("turns"), list) else []
+            for i, turn in enumerate(t for t in turns if isinstance(t, dict)):
+                for c in turn.get("pass_criteria") or []:
+                    if (c.get("field") == "route_source" and policy._is_new_file_request(turn.get("query"))
+                            and not re.search(str(c.get("value")), "file_request")):
+                        bad.append(f"{name}:{node['id']}[{i}] {c.get('value')}")
+            for v in node.values():
+                walk(v, name)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, name)
+
+    for path in sorted(corpus_dir.glob("*.json")):
+        walk(json.loads(path.read_text(encoding="utf-8")), path.name)
+    assert bad == []

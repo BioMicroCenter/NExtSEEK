@@ -8714,7 +8714,7 @@
                 {
                   "field": "route_source",
                   "op": "matches_re",
-                  "value": "^(baml|followup|sticky)$"
+                  "value": "^(baml|followup|sticky|file_request)$"
                 },
                 {
                   "field": "last_reply",
@@ -14090,7 +14090,7 @@
                 {
                   "field": "route_source",
                   "op": "matches_re",
-                  "value": "^(baml|followup|sticky)$"
+                  "value": "^(baml|followup|sticky|file_request)$"
                 },
                 {
                   "field": "last_reply",
@@ -14180,7 +14180,7 @@
                 {
                   "field": "route_source",
                   "op": "matches_re",
-                  "value": "^(baml|followup|sticky)$"
+                  "value": "^(baml|followup|sticky|file_request)$"
                 },
                 {
                   "field": "last_reply",
@@ -14270,7 +14270,7 @@
                 {
                   "field": "route_source",
                   "op": "matches_re",
-                  "value": "^(baml|followup|sticky)$"
+                  "value": "^(baml|followup|sticky|file_request)$"
                 },
                 {
                   "field": "last_reply",
