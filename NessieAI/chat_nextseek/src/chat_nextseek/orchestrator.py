@@ -1265,6 +1265,9 @@ def _with_statement(graph_plan, cypher: str, parameters: dict):
     return plan
 
 
+_QUOTED = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"")  # a Cypher string literal's text
+
+
 def _bind_parameters(graph_plan, parameters_extra: dict | None):
     """The parameters ``graph_plan`` runs with: its own, plus each of ``parameters_extra`` that its Cypher names as
     ``$name`` (over any value the model wrote for it, unless that value is a list holding something the bound list
@@ -1414,8 +1417,11 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         if matched_nothing(graph_result):
             word_note = WORD_ZERO_NOTE.format(term=counted[0]["term"], n=counted[0]["total"])
         else:
-            kept = f"{graph_plan.cypher} {parameters}".lower()
-            gone = [c for c in counted if c["term"] not in kept]
+            # the statement's quoted values and its parameter values, never its property or variable names ("rna" is
+            # in "internal_assay_title"); a word moved into a field filter is kept (round 2 F10)
+            kept = " ".join([*(a or b for a, b in _QUOTED.findall(graph_plan.cypher or "")),
+                             json.dumps(parameters or {}, default=str)]).lower()
+            gone = [c for c in counted if c["term"].lower() not in kept]
             if gone:
                 word_note = WORD_LEFT_OUT_NOTE.format(term=gone[0]["term"])
     return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,

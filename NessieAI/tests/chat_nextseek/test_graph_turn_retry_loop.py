@@ -449,3 +449,31 @@ def test_no_word_note_without_a_counted_word(monkeypatch, tmp_path):
     )
     notes = calls["chatter_kwargs"].get("query_notes") or []
     assert not any("leaves that word out" in n or "Nothing matched with" in n for n in notes), notes
+
+
+# Round 2 F10: the dropped word is looked for in the kept statement's quoted values and parameters, never in its
+# property or variable names.
+_RNA_CALL = {"kind": "without_text", "term": "rna", "total": 9, "ok": True}
+_RNA = "MATCH (r:T_QQQ) WHERE toLower(r.search_text) CONTAINS 'rna' AND r.Kind = 'k' RETURN r.id AS id"
+
+
+def _word_notes(monkeypatch, tmp_path, retry):
+    _evidence(monkeypatch, ["f"], [_RNA_CALL])
+    _, _, calls = _run(monkeypatch, tmp_path,
+                       plans=[GraphAgentPlan(cypher=_RNA, context_mode="catalog"), retry], results=[_ok(0), _ok(9)])
+    return calls["chatter_kwargs"].get("query_notes") or []
+
+
+def test_a_word_hidden_in_a_property_name_was_still_left_out(monkeypatch, tmp_path):
+    retry = GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE r.internal_assay_title = 'k' RETURN r.id AS id",
+                           context_mode="catalog")
+    assert WORD_LEFT_OUT_NOTE.format(term="rna") in _word_notes(monkeypatch, tmp_path, retry)
+
+
+def test_a_word_moved_into_a_field_filter_was_kept(monkeypatch, tmp_path):
+    for retry in (GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE toLower(r.Cell_type) CONTAINS 'rna' RETURN r.id AS id",
+                                 context_mode="catalog"),
+                  GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE toLower(r.Cell_type) CONTAINS $w RETURN r.id AS id",
+                                 parameters={"w": "RNA"}, context_mode="catalog")):
+        notes = _word_notes(monkeypatch, tmp_path, retry)
+        assert not any("leaves that word out" in n for n in notes), (retry.cypher, notes)
