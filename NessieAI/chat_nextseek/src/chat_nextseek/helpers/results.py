@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from .text import strip_html
@@ -56,6 +57,57 @@ def _record_keys(record: dict) -> set[str]:
         if value is not None and not isinstance(value, (dict, list)):
             keys.add(re.sub(r"<[^>]+>", "", str(value)).strip().lower())
     return keys
+
+
+#: Named records' relatives listed in ``lineage`` (counts by type cover all of them).
+_LINEAGE_LIST_MAX = 20
+
+
+def _parent_tokens(record: dict) -> list[str]:
+    """The parent rule the graph sync builds DERIVED_FROM from (batch_upload/helpers.py collect_parent_tokens): every
+    metadata field whose name contains "parent", split on ";", exact UIDs, lower-cased."""
+    meta = record.get("metadata") if isinstance(record.get("metadata"), dict) else record
+    return [t.strip().lower() for k, v in meta.items() if "parent" in str(k).lower() and isinstance(v, str)
+            for t in v.split(";") if t.strip()]
+
+
+def _lineage_of_named(flat: list[dict], named: set[str]) -> dict | None:
+    """Which returned records sit above the named ones and which below, by type, from the records' own parent
+    fields. None when nothing was named or nothing links. ponytail: rebuilt from the rows; a relative linked only
+    through a record not returned (gone from MySQL, or outside a member's projects) is in not_linked_by_type."""
+    by_uid = {_record_uid(r).lower(): r for r in flat}
+    start = [u for u in by_uid if u in named]
+    if not start:
+        return None
+    parents = {u: [p for p in _parent_tokens(r) if p in by_uid] for u, r in by_uid.items()}
+    children: dict[str, list[str]] = {}
+    for u, ps in parents.items():
+        for p in ps:
+            children.setdefault(p, []).append(u)
+
+    def walk(edges: dict[str, list[str]]) -> list[str]:
+        seen, queue = set(start), list(start)
+        out = []
+        for u in queue:
+            for v in edges.get(u, []):
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                    queue.append(v)
+        return out
+
+    up, down = walk(parents), walk(children)
+    label = lambda u: str(by_uid[u].get(_GROUP_LABEL_KEY))  # noqa: E731
+    loose = Counter(label(u) for u in by_uid if u not in set(start) | set(up) | set(down))
+    if not (up or down or loose):
+        return None
+    return {
+        "ancestors_by_type": dict(Counter(label(u) for u in up)),
+        "descendants_by_type": dict(Counter(label(u) for u in down)),
+        "ancestors": [f"{_record_uid(by_uid[u])} ({label(u)})" for u in up[:_LINEAGE_LIST_MAX]],
+        "descendants": [f"{_record_uid(by_uid[u])} ({label(u)})" for u in down[:_LINEAGE_LIST_MAX]],
+        **({"not_linked_by_type": dict(loose)} if loose else {}),
+    }
 
 
 def _order_named_first(flat: list[dict], named: list[str]) -> tuple[list[dict], int]:
@@ -280,7 +332,9 @@ def slim_api_result_for_llm(
         # A UID named without its suffix comes back under its stored spelling (`resolved_as`), and is pinned as that.
         resolved = {str(k).strip().lower(): str(v).strip().lower()
                     for k, v in ((data.get("resolved_as") if isinstance(data, dict) else None) or {}).items()}
-        flat, pinned = _order_named_first(flat, [resolved.get(n, n) for n in _named_identifiers(api_plan)])
+        named_ids = [resolved.get(n, n) for n in _named_identifiers(api_plan)]
+        lineage = _lineage_of_named(flat, set(named_ids))
+        flat, pinned = _order_named_first(flat, named_ids)
         shown, also_named = flat, []
         if pinned > _PINNED_MAX:
             also_named = [f"{_record_uid(r)} ({r.get(_GROUP_LABEL_KEY)})" for r in flat[_PINNED_MAX:pinned]]
@@ -289,7 +343,9 @@ def slim_api_result_for_llm(
         preview_items = shown[:max(max_rows, pinned)]
         preview_rows = len(preview_items)
         new_data = {
-            **{k: v for k, v in data.items() if k != "data"},
+            # total_children counts ancestors too, so it is dropped: lineage says which are above and which below.
+            **{k: v for k, v in data.items() if k not in ("data", "total_children")},
+            **({"lineage": lineage} if lineage else {}),
             "samples_by_type": {
                 str(group.get(_GROUP_LABEL_KEY)): (
                     group.get("n_samples")

@@ -52,7 +52,7 @@ WHEN A NEXT STEP IS OFFERED. When the message includes the line 'Offered next st
 MODE: search  (new_search | refine_last_search)
 --------------------------------------------------
 
-The data block is `Matching sample records (slimmed)`: the NExtSEEK REST result with its rows trimmed to a few examples, plus the disclosure flags below. Grouped results carry `samples_by_type` (how many samples of each type) and `samples_preview` (example records, each tagged with its `sample_type`).
+The data block is `Matching sample records (slimmed)`: the NExtSEEK REST result with its rows trimmed to a few examples, plus the disclosure flags below. Grouped results carry `samples_by_type` (how many samples of each type) and `samples_preview` (example records, each tagged with its `sample_type`). A lookup of named samples also carries `lineage`: `ancestors_by_type` and `ancestors` are the records the named samples were derived from (above them), `descendants_by_type` and `descendants` the records derived from them (below). Say which are above and which below; never call an ancestor derived from the named sample.
 
 - State how many records matched. Name the filters only when they qualify the answer (see HOW MUCH YOU MAY SAY ABOUT THE QUERY), and take them from `Constrained by` when you do.
 - Highlight representative UIDs, sample types, assay codes, and treatment attributes from the results.

@@ -443,3 +443,88 @@ def test_resolved_as_reaches_the_reply_writer_whatever_the_body_size():
                 "data": [{"sample_type": "TIS", "n_samples": n, "samples": samples}]}
         slim = slim_api_result_for_llm({"ok": True, "status_code": 200, "data": body})
         assert slim["data"]["resolved_as"] == {"TIS-90": "TIS-90-PUB1"}, n
+
+
+# --------------------------------------------------------------------------- #
+# Which returned records sit above the named one and which below (P6 T1). A retrieve walks up AND down, and its
+# total_children counts ancestors, so a reply called upstream records "derived from" the named one.
+# --------------------------------------------------------------------------- #
+
+def _lookup_body(records):
+    """A retrieve body: ``records`` is [(uid, type, parent_field_or_None)], grouped by type."""
+    by_type = {}
+    for uid, sample_type, parent in records:
+        meta = {"Notes": "x" * 200}
+        if parent is not None:
+            meta["Parent"] = parent
+        by_type.setdefault(sample_type, []).append({"id": str(len(by_type) + len(records)), "uuid": uid, "metadata": meta})
+    groups = [{"sample_type": t, "n_samples": len(rows), "samples": rows} for t, rows in by_type.items()]
+    n = len(records)
+    return {"ok": True, "status_code": 200, "url": "http://127.0.0.1:8000/nextseek_api/samples/retrieve/",
+            "data": {"total_samples": n, "total_children": n - 1, "failed_uids": 0, "data": groups}}
+
+
+def _plan_naming(uid):
+    return {"requestBody": {"identifiers": [uid]}}
+
+
+def test_a_lookup_of_a_record_with_no_children_calls_its_relatives_ancestors():
+    body = _lookup_body([
+        ("MMM-990101QQQ-1", "MMM", "AAA-990101QQQ-1; AAA-990101QQQ-2"),
+        ("AAA-990101QQQ-1", "AAA", "PPP-990101QQQ-1"),
+        ("AAA-990101QQQ-2", "AAA", "PPP-990101QQQ-1"),
+        ("PPP-990101QQQ-1", "PPP", None),
+    ])
+
+    slim = slim_api_result_for_llm(body, api_plan=_plan_naming("MMM-990101QQQ-1"))
+    lineage = slim["data"]["lineage"]
+
+    assert lineage["descendants_by_type"] == {}
+    assert lineage["ancestors_by_type"] == {"AAA": 2, "PPP": 1}
+    assert "PPP-990101QQQ-1 (PPP)" in lineage["ancestors"]
+    assert "total_children" not in slim["data"]
+
+
+def test_a_lookup_of_a_root_lists_only_descendants():
+    body = _lookup_body([
+        ("RRR-990101QQQ-1", "RRR", None),
+        ("CCC-990101QQQ-1", "CCC", "RRR-990101QQQ-1"),
+        ("CCC-990101QQQ-2", "CCC", "RRR-990101QQQ-1"),
+        ("CCC-990101QQQ-3", "CCC", "RRR-990101QQQ-1"),
+        ("GGG-990101QQQ-1", "GGG", "CCC-990101QQQ-1;CCC-990101QQQ-2"),
+    ])
+
+    lineage = slim_api_result_for_llm(body, api_plan=_plan_naming("RRR-990101QQQ-1"))["data"]["lineage"]
+
+    assert lineage["ancestors_by_type"] == {} and lineage["ancestors"] == []
+    assert lineage["descendants_by_type"] == {"CCC": 3, "GGG": 1}
+
+
+def test_a_relative_beyond_a_record_not_returned_is_not_linked():
+    """A member view: the middle record is absent, so the one below it is neither above nor below the named one."""
+    body = _lookup_body([
+        ("MMM-990101QQQ-1", "MMM", "AAA-990101QQQ-1"),
+        ("AAA-990101QQQ-1", "AAA", "PPP-990101QQQ-9"),   # its parent was not returned
+        ("ZZZ-990101QQQ-1", "ZZZ", "XXX-990101QQQ-9"),   # linked only through a record not returned
+    ])
+
+    lineage = slim_api_result_for_llm(body, api_plan=_plan_naming("MMM-990101QQQ-1"))["data"]["lineage"]
+
+    assert lineage["ancestors_by_type"] == {"AAA": 1}
+    assert lineage["descendants_by_type"] == {}
+    assert lineage["not_linked_by_type"] == {"ZZZ": 1}
+
+
+def test_a_lookup_with_lineage_still_fits_and_keeps_the_named_record():
+    import json as _json
+
+    rows = [("MMM-990101QQQ-1", "MMM", "AAA-990101QQQ-1")]
+    rows += [(f"AAA-990101QQQ-{i}", "AAA", f"AAA-990101QQQ-{i + 1}" if i < 25 else None) for i in range(1, 26)]
+    rows += [(f"DDD-990101QQQ-{i}", "DDD", "MMM-990101QQQ-1" if i == 1 else f"DDD-990101QQQ-{i - 1}")
+             for i in range(1, 26)]
+
+    slim = slim_api_result_for_llm(_lookup_body(rows), api_plan=_plan_naming("MMM-990101QQQ-1"))
+
+    assert len(_json.dumps(slim)) <= 5000
+    assert slim["data"]["samples_preview"][0]["uuid"] == "MMM-990101QQQ-1"
+    assert len(slim["data"]["lineage"]["ancestors"]) == 20
