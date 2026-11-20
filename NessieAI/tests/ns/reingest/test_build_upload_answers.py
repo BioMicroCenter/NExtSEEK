@@ -56,12 +56,12 @@ def test_a_fill_of_a_measured_backfill_cell_is_refused_end_to_end(rows, tmp_path
     monkeypatch.setattr("nextseek_api.services.reingest_lookups.notes_for_uids",
                         lambda uids: {u: "" for u in uids})
     manifest_id = _save_manifest(tmp_path, monkeypatch,
-                                 metrics={"star-uniquely_mapped_percent": 91.4})
+                                 metrics={"samtools_stats-error_rate": 0.59})
     with pytest.raises(g.OpValidationError, match="run data"):
         _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update",
                                         "answers": json.dumps({"fill": [
                                             {"sample_type": "D.SEQ",
-                                             "attribute": "MappedPercent",
+                                             "attribute": "MismatchPercent",
                                              "value": "99"}]})},
                   outputs_dir=str(tmp_path))
 

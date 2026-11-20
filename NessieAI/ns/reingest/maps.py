@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 
@@ -146,7 +146,10 @@ class OutputRule(BaseModel):
     # mapper warns and tells the curator. None for an output that coexists with its
     # siblings of the same type (a bigwig beside peaks, sarek's callers).
     alternative_group: str | None = None
-    attributes: dict[str, str] = Field(default_factory=dict)
+    # A value is one source, or a non-empty list of sources tried in order:
+    # the first that resolves to a non-empty value wins, like a qc_attributes
+    # rule's `from` then `alternates`. Readers go through `ref_options`.
+    attributes: dict[str, str | list[str]] = Field(default_factory=dict)
     # Whether this rule's rows also receive the map's `provenance_attributes`
     # (mapper.apply merges that one flat dict into every row of every output
     # rule that opts in). Default False is deliberate: provenance_attributes
@@ -181,6 +184,14 @@ class OutputRule(BaseModel):
     # parents_by_samplesheet value (cutandrun's `control`). A sample whose value some
     # sample names there is a control, and is not a parent of the whole-run row.
     controls_by_samplesheet: str | None = None
+
+    @field_validator("attributes")
+    @classmethod
+    def _fallback_lists_are_not_empty(cls, value):
+        empty = sorted(name for name, ref in value.items() if isinstance(ref, list) and not ref)
+        if empty:
+            raise ValueError(f"an attribute's source list must not be empty: {empty}")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -431,7 +442,8 @@ class PipelineMap(BaseModel):
         keeps only these cells (`SampleRecord.samplesheet`), so a column no map reads
         (sarek's sex or status) never reaches the stored manifest."""
         rules = list(self.outputs) + [r for o in self.versions for r in o.outputs]
-        values = [v for rule in rules for v in rule.attributes.values()]
+        values = [option for rule in rules for v in rule.attributes.values()
+                  for option in ref_options(v)]
         values += list(self.row_defaults.values()) + list(self.provenance_attributes.values())
         prefix = f"${_SAMPLESHEET_SECTION}."
         columns = {v[len(prefix):] for v in values
@@ -461,7 +473,8 @@ class PipelineMap(BaseModel):
         from NessieAI.ns.reingest.pipelines import token_names_for
         known = token_names_for(self.pipeline)
         rules = list(self.outputs) + [r for o in self.versions for r in o.outputs]
-        values = [(f"{r.sample_type}::{a}", v) for r in rules for a, v in r.attributes.items()]
+        values = [(f"{r.sample_type}::{a}", option) for r in rules
+                  for a, v in r.attributes.items() for option in ref_options(v)]
         values += [(f"provenance_attributes::{a}", v) for a, v in self.provenance_attributes.items()]
         values += [(f"row_defaults::{a}", v) for a, v in self.row_defaults.items()]
         bad = [f"{where} = {value!r}" for where, value in values
@@ -651,6 +664,15 @@ def all_inventory_globs() -> tuple[str, ...]:
         except Exception:
             continue
     return tuple(seen)
+
+
+def ref_options(value) -> list:
+    """The sources an output-rule attribute names, in preference order: a
+    single value becomes a one-item list. Every reader of
+    `OutputRule.attributes` values (resolution, claimed keys, run-sourced
+    attributes, map validation) goes through this, so none can miss a source
+    that sits second in a list."""
+    return list(value) if isinstance(value, list) else [value]
 
 
 def resolve_ref(ref: str, run_manifest, sample=None):

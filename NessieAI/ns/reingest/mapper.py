@@ -160,19 +160,24 @@ _METRICS_REF = "$metrics."
 def claimed_raw_keys(pipeline_map: maps.PipelineMap | None,
                      approved_rules: dict[str, maps.AttributeRule] | None = None) -> set[str]:
     """Raw general-stats keys some rule of ``pipeline_map`` reads: each QC
-    rule's ``from`` and alternates, and every ``$metrics.<key>`` an output
+    rule's ``from`` and alternates, every ``$metrics.<key>`` an output
     rule, version override, row default or provenance value names (rnavar's
-    VCF row reads snpEff's Ts/Tv this way). Harvest folds per-read columns
-    only for these keys, and apply never queues them."""
+    VCF row reads snpEff's Ts/Tv this way; an output attribute's fallback list
+    counts every entry), and the general-stats columns each of the map's
+    ``derived_metrics`` reads (``derived.METRIC_INPUTS``). Harvest folds
+    per-read columns only for these keys, and apply never queues them."""
     if pipeline_map is None:
         return set()
     rules = list(pipeline_map.qc_attributes.values()) + list((approved_rules or {}).values())
     keys = {rule.from_key for rule in rules} | {alt for rule in rules for alt in rule.alternates}
     outputs = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
-    values = [v for rule in outputs for v in rule.attributes.values()]
+    values = [option for rule in outputs for v in rule.attributes.values()
+              for option in maps.ref_options(v)]
     values += list(pipeline_map.row_defaults.values()) + list(pipeline_map.provenance_attributes.values())
     keys |= {v[len(_METRICS_REF):] for v in values
              if isinstance(v, str) and v.startswith(_METRICS_REF)}
+    for name in pipeline_map.derived_metrics:
+        keys |= set(derived.METRIC_INPUTS.get(name, ()))
     return keys
 
 
@@ -458,6 +463,17 @@ def _with_build_local_ordinals(context: dict) -> dict:
 
 # Moved to maps.expand_braces; harvest.staged_globs and older tests use this name.
 _expand_braces = maps.expand_braces
+
+
+def _resolve_first(ref, run_manifest, sample=None, context=None):
+    """(value, source) for an output-rule attribute: its one source, or the
+    first entry of its fallback list that resolves to a non-empty value.
+    (None, "") when nothing does."""
+    for option in maps.ref_options(ref):
+        value = _resolve_value(option, run_manifest, sample, context)
+        if value is not None and value != "":
+            return value, option
+    return None, ""
 
 
 def _resolve_value(ref, run_manifest, sample=None, context=None):
@@ -862,7 +878,7 @@ def _place_companions(row: MappedRow, rule: maps.OutputRule, run_manifest,
         source_file=overflow[0])
 
 
-def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
+def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str | list[str]],
                      run_manifest: manifest.RunManifest,
                      context: dict | None, warnings: list[str],
                      parentless_rows: list[dict] | None = None) -> list[MappedRow]:
@@ -935,7 +951,7 @@ def _first_tier(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
     return next((i for i, tier in enumerate(tiers) if tier), None)
 
 
-def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
+def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str | list[str]],
                run_manifest: manifest.RunManifest, context: dict | None,
                warnings: list[str], group: str,
                members: list[manifest.SampleRecord],
@@ -1005,7 +1021,7 @@ def _parentless_row(rule: maps.OutputRule, row: MappedRow, group: str,
             "path": path, "samples": list(samples)}
 
 
-def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
+def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str | list[str]],
                 run_manifest: manifest.RunManifest, context: dict | None,
                 warnings: list[str], sample: manifest.SampleRecord,
                 replicate_files: list[manifest.OutputRecord] = ()) -> MappedRow | None:
@@ -1029,12 +1045,12 @@ def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
                     rule_id=rule.id)
     row_context = {**(context or {}), "row_sample_type": rule.sample_type}
     for attribute, ref in merged_attrs.items():
-        value = _resolve_value(ref, run_manifest, sample, row_context)
-        if value is None or value == "":
+        value, source = _resolve_first(ref, run_manifest, sample, row_context)
+        if value is None:
             continue
         row.attributes[attribute] = MappedAttribute(
             attribute=attribute, value=value, origin=ORIGIN_MAP,
-            raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
+            raw_key=source if isinstance(source, str) and source.startswith("$") else "",
             source_file=run_manifest.sources.get("params", ""))
     _attach_checksum(row, rule, run_manifest, sample.nfcore_sample)
     _place_companions(row, rule, run_manifest, sample.nfcore_sample, row_context,
@@ -1057,7 +1073,7 @@ def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     return row
 
 
-def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
+def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str | list[str]],
                  run_manifest: manifest.RunManifest,
                  context: dict | None, warnings: list[str]) -> MappedRow | None:
     """One row for the whole run, with `Parent` `;`-joined across the run's
@@ -1084,12 +1100,12 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     row = MappedRow(sample_type=rule.sample_type, rule_id=rule.id)
     row_context = {**(context or {}), "row_sample_type": rule.sample_type}
     for attribute, ref in merged_attrs.items():
-        value = _resolve_value(ref, run_manifest, None, row_context)
-        if value is None or value == "":
+        value, source = _resolve_first(ref, run_manifest, None, row_context)
+        if value is None:
             continue
         row.attributes[attribute] = MappedAttribute(
             attribute=attribute, value=value, origin=ORIGIN_MAP,
-            raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
+            raw_key=source if isinstance(source, str) and source.startswith("$") else "",
             source_file=run_manifest.sources.get("params", ""))
     _attach_checksum(row, rule, run_manifest, None)
     _place_companions(row, rule, run_manifest, None, row_context,
@@ -1114,7 +1130,7 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     return row if row.attributes else None
 
 
-def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
+def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str | list[str]],
                    run_manifest: manifest.RunManifest,
                    context: dict | None, warnings: list[str],
                    stale_files: list[dict] | None = None,

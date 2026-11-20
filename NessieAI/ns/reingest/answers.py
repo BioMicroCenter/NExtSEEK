@@ -25,7 +25,7 @@ import os
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from NessieAI.ns.reingest import mapper
+from NessieAI.ns.reingest import mapper, maps
 from NessieAI.ns.reingest.mapper import ORIGIN_CURATOR, ORIGIN_MAP, MappedAttribute
 from NessieAI.ns.reingest_qa import _value_missing, group_members_for_label
 
@@ -142,7 +142,8 @@ def run_sourced_attributes(pipeline_map, approved_rules, sample_type: str) -> fr
         provenance = pipeline_map.provenance_attributes if rule.include_provenance else {}
         merged = {**pipeline_map.row_defaults, **provenance, **rule.attributes}
         out |= {name for name, value in merged.items()
-                if isinstance(value, str) and value.startswith("$")}
+                if any(isinstance(option, str) and option.startswith("$")
+                       for option in maps.ref_options(value))}
         if rule.primary_data:
             out |= set(_PRIMARY)
         if rule.companions or (rule.primary_data and len(rule.candidates) > 1):

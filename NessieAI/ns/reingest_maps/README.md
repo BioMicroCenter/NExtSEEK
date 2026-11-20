@@ -73,7 +73,12 @@ fixture that holds a run's MultiQC data), all under `NessieAI/tests/ns/reingest/
   - `skip_samples_without_file` — optional per_sample rules only: a sample with no file gets no row (logged), e.g. tumours for germline callers. Without it, such a sample gets a fileless row, which blocks the upload.
   - `alternative_group` — optional primary rules only, per_sample or per_file (not mixed in one group), two or more to a group, one sample type per group; a per_file rule's rows are counted by their `@file_stem` (chipseq's narrow and broad consensus of one antibody): rules naming one group are outputs of which one launch writes at most one per sample (methylseq's three A.MSEQ rules; atacseq's and chipseq's narrow and broad peaks). nf-core never deletes an old output, so a run folder reused by a second launch can hold both; the sample (counted by replicate group where the run has them) then gets a row from each, every row is kept, and the reply's FILES FROM AN EARLIER RUN TO CHECK names the files, plus any other row of the sample whose file won over a later candidate pattern (methylseq's aln rule prefers Bismark's BAM). Leave it unset for outputs that coexist (a bigWig beside its peaks, sarek's variant callers).
   - `assay` — the house assay the rule's rows are filed under, by its `internal_assays` title (a catalog alternative name also resolves). A name, never an id: the ASSAY sheet needs a study-scoped `assays.id`, resolved per run from the parents' study, and the upload creates the study assay when the study has none. Every rule must name one (`test_map_contract.py`).
-  - `attributes`, `primary_data`, `include_provenance` — as in the schema.
+  - `attributes` — attribute to value. A value may also be a non-empty list of
+    values tried in order: the first that resolves to something non-empty wins,
+    as a `qc_attributes` rule's `from` then `alternates` do (rnaseq's A.ALN
+    `MappedPercent` falls back from STAR's to samtools' mapped share). Every
+    entry of a list counts as claimed and as run-sourced.
+  - `primary_data`, `include_provenance` — as in the schema.
 
   A `per_file` row takes a companion only when the companion's own
   glob-captured stem equals the row's stem (the same logic as `@file_stem`) and the
@@ -91,6 +96,9 @@ fixture that holds a run's MultiQC data), all under `NessieAI/tests/ns/reingest/
   no-op — the contract test fails it deliberately, because that block would
   otherwise be merged into nothing.
 - `qc_attributes` — raw key to a sample attribute on an EXISTING sample type.
+  The mapper writes these only onto the sample's parent row (the D.SEQ
+  backfill); a value that belongs on an analysis type (A.ALN, A.GEX) is an
+  output rule attribute instead.
 - `module_tables` — MultiQC data files by name (`multiqc_picard_dups.yaml`), each with a
   `namespace` (and an optional row `suffix`), read like the harvest's own `_MODULE_TABLES`:
   column `C` of row `<sample>` becomes the metric `<namespace>-C`. For a pipeline whose
@@ -156,6 +164,9 @@ Either way it counts as claimed and is never queued. FastQC and Cutadapt write
 per read file, on MultiQC's `<sample>_1` / `<sample>_2` rows: name such a column
 `<key>@R1` or `<key>@R2` and harvest folds it onto the sample. Only claimed
 `@R1`/`@R2` keys are folded, so an unread per-read column never reaches the queue.
+A derived metric that reads general-stats columns declares them in
+`derived.METRIC_INPUTS`, and listing it in `derived_metrics` claims them, so its
+`@R1`/`@R2` inputs are folded too (rnaseq's `raw_reads_r1`/`raw_reads_r2`).
 
 `@`-prefixed values are named tokens computed in code, in
 `NessieAI/ns/reingest/pipelines/`: `common.py` for every pipeline, and one module

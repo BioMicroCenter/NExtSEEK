@@ -45,9 +45,9 @@ def _dispatch(op: str, args: dict, config=None, session=None, write_gate=None,
                      neo4j_exec=neo4j_exec, outputs_dir=outputs_dir)
 
 
-# A D.SEQ catalog row that declares MappedPercent (and Genome, which the
+# A D.SEQ catalog row that declares MismatchPercent (and Genome, which the
 # rnaseq map's qc_attributes ALSO backfills unconditionally from
-# $params.genome, present or not) as real attributes, but NOT rRNAPercent --
+# $params.genome, present or not) as real attributes, but NOT GCPercent --
 # so a manifest carrying all three metrics exercises both branches of the
 # attribute_exists parking decision in one run, with Genome kept boring
 # (always resolvable, always declared) so it never contaminates a test's
@@ -66,7 +66,7 @@ _D_SEQ_ROW = {
     # (Minor 7, 2026-09-17 review).
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, "
                           "Checksum_PrimaryData, Scientist, Parent",
-    "standard_metadata": "MappedPercent, Genome",
+    "standard_metadata": "MismatchPercent, Genome",
     "possible_metadata_fields": "",
     "parent_sampletypes": "", "child_sampletypes": "",
     "associated_assay_parents": "", "associated_assay_children": "",
@@ -400,8 +400,8 @@ def test_the_manifest_path_never_actually_calls_proposals_record(rows, tmp_path,
         lambda uids: {u: "" for u in uids})
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"star-uniquely_mapped_percent": 91.4,
-                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+        metrics={"samtools_stats-error_rate": 0.59,
+                 "fastqc_raw-percent_gc": 48.0})
 
     with patch("NessieAI.ns.reingest.proposals.record") as mock_record:
         result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
@@ -722,7 +722,7 @@ def test_mode_update_fans_out_one_row_per_sample_with_distinct_uids(rows, tmp_pa
         lambda uids: {u: "" for u in uids})
     manifest_id = _save_manifest_multi(
         tmp_path, monkeypatch, n=3,
-        metrics={"star-uniquely_mapped_percent": 91.4})
+        metrics={"samtools_stats-error_rate": 0.59})
 
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
                         outputs_dir=str(tmp_path))
@@ -732,7 +732,7 @@ def test_mode_update_fans_out_one_row_per_sample_with_distinct_uids(rows, tmp_pa
     assert len(batch.rows) == 3
     uids = {row.UID for row in batch.rows}
     assert uids == {"D.SEQ-EXAMPLE-1", "D.SEQ-EXAMPLE-2", "D.SEQ-EXAMPLE-3"}
-    assert all(_meta(row)["MappedPercent"] == 91.4 for row in batch.rows)
+    assert all(_meta(row)["MismatchPercent"] == 0.59 for row in batch.rows)
 
 
 # ---------------------------------------------------------------------------
@@ -747,7 +747,7 @@ def test_mode_update_renders_only_dseq_with_mapped_percent(rows, tmp_path, monke
         lambda uids: {u: "" for u in uids})
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"star-uniquely_mapped_percent": 91.4})
+        metrics={"samtools_stats-error_rate": 0.59})
 
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
                         outputs_dir=str(tmp_path))
@@ -762,13 +762,13 @@ def test_mode_update_renders_only_dseq_with_mapped_percent(rows, tmp_path, monke
     row = batch.rows[0]
     assert row.UID == "D.SEQ-EXAMPLE-1"
     meta = _meta(row)
-    assert meta["MappedPercent"] == 91.4
+    assert meta["MismatchPercent"] == 0.59
     assert "Parent" not in meta  # update mode: no Parent column
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")
 def test_an_attribute_not_on_the_schema_is_parked_in_notes_not_a_column(rows, tmp_path, monkeypatch):
-    """rRNAPercent maps cleanly (a committed qc_attributes rule) but is not
+    """GCPercent_R2 maps cleanly (a committed qc_attributes rule) but is not
     declared on _D_SEQ_ROW's schema -- design section 8's "attributes that do
     not exist": parked into Notes, never invented as a real column, and a
     needs_definition proposal is queued for it."""
@@ -778,8 +778,8 @@ def test_an_attribute_not_on_the_schema_is_parked_in_notes_not_a_column(rows, tm
         lambda uids: {u: "" for u in uids})
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"star-uniquely_mapped_percent": 91.4,
-                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+        metrics={"samtools_stats-error_rate": 0.59,
+                 "fastqc_raw-percent_gc@R2": 48.0})
 
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
                         outputs_dir=str(tmp_path))
@@ -788,15 +788,15 @@ def test_an_attribute_not_on_the_schema_is_parked_in_notes_not_a_column(rows, tm
     batch = parse_traditional_file(result["saved_files"]["reingest_D_SEQ_update"])
     row = batch.rows[0]
     meta = _meta(row)
-    assert "rRNAPercent" not in meta
-    assert meta["MappedPercent"] == 91.4
+    assert "GCPercent_R2" not in meta
+    assert meta["MismatchPercent"] == 0.59
     notes = meta.get("Notes", "")
-    assert "rRNAPercent=2.1" in notes
+    assert "GCPercent_R2=48.0" in notes
     assert "[nfcore-reingest" in notes
 
     needs_def = [p for p in result["proposals"] if p.get("status") == "needs_definition"]
     assert len(needs_def) == 1
-    assert needs_def[0]["proposed_attribute"] == "rRNAPercent"
+    assert needs_def[0]["proposed_attribute"] == "GCPercent_R2"
     assert needs_def[0]["proposed_target"] == "D.SEQ"
     assert needs_def[0]["pipeline"] == "nf-core/rnaseq"
     assert needs_def[0]["manifest_digest"] == manifest_id
@@ -817,7 +817,7 @@ def test_a_notes_fetch_failure_drops_the_parked_value_rather_than_guessing(rows,
         "nextseek_api.services.reingest_lookups.notes_for_uids", lambda uids: {})
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"custom_content_biotype_counts-percent_rRNA": 2.1})
+        metrics={"fastqc_raw-percent_gc": 48.0})
 
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
                         outputs_dir=str(tmp_path))
@@ -829,7 +829,7 @@ def test_a_notes_fetch_failure_drops_the_parked_value_rather_than_guessing(rows,
     # The proposal is still raised even though the Notes write did not
     # happen -- the schema gap is real regardless of whether this run could
     # safely record it in this sample's Notes.
-    assert any(p.get("proposed_attribute") == "rRNAPercent" for p in result["proposals"])
+    assert any(p.get("proposed_attribute") == "GCPercent" for p in result["proposals"])
 
 
 def test_attribute_exists_outage_propagates_rather_than_defaulting_false(tmp_path, monkeypatch):
@@ -839,7 +839,7 @@ def test_attribute_exists_outage_propagates_rather_than_defaulting_false(tmp_pat
     park a good value in Notes."""
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"star-uniquely_mapped_percent": 91.4})
+        metrics={"samtools_stats-error_rate": 0.59})
 
     with patch("nextseek_api.services.context_catalog._sample_type_rows",
                side_effect=RuntimeError("sample_types_context table unreachable")):
@@ -860,8 +860,8 @@ def test_provenance_sheet_is_written_when_an_attribute_has_a_non_map_origin(rows
         lambda uids: {u: "" for u in uids})
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"star-uniquely_mapped_percent": 91.4,
-                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+        metrics={"samtools_stats-error_rate": 0.59,
+                 "fastqc_raw-percent_gc": 48.0})
 
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
                         outputs_dir=str(tmp_path))
@@ -873,9 +873,9 @@ def test_provenance_sheet_is_written_when_an_attribute_has_a_non_map_origin(rows
     assert header == ["UID", "Attribute", "Value", "Origin", "Raw key", "Source file",
                       "Answered by"]
     rows_by_attr = {r[1].value: r for r in sheet.iter_rows(min_row=2)}
-    assert rows_by_attr["MappedPercent"][3].value == "map"
-    assert rows_by_attr["rRNAPercent"][3].value == "parked"
-    assert rows_by_attr["rRNAPercent"][4].value == "custom_content_biotype_counts-percent_rRNA"
+    assert rows_by_attr["MismatchPercent"][3].value == "map"
+    assert rows_by_attr["GCPercent"][3].value == "parked"
+    assert rows_by_attr["GCPercent"][4].value == "fastqc_raw-percent_gc"
 
 
 def test_no_provenance_sheet_wiring_means_no_sheet_would_appear(tmp_path, monkeypatch):
@@ -1046,8 +1046,8 @@ def test_an_update_build_records_the_samples_whose_notes_it_replaces(rows, tmp_p
         lambda uids: {u: "curated text" for u in uids})
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
-        metrics={"star-uniquely_mapped_percent": 91.4,
-                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+        metrics={"samtools_stats-error_rate": 0.59,
+                 "fastqc_raw-percent_gc": 48.0})
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
                        outputs_dir=str(tmp_path))
     (build,) = result["builds"]

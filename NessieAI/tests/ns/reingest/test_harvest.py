@@ -1381,6 +1381,8 @@ _OLD_INVENTORY = {
     "**/report/*.html", "**/report/*/*_differentialabundance_report.html",
     "**/*.kraken2.report.txt",
     "**/mirna_quant/mirtop/mirna.tsv", "**/salmon/*/quant.sf",
+    # rnaseq's per-sample A.GEX rule: Salmon beside STAR (star_salmon) writes here
+    "**/star_salmon/*/quant.sf",
     "**/processed_abundance/all.normalised_counts.tsv",
     "**/processed_abundance/*/all.normalised_counts.tsv",
     "**/tables/differential/*.deseq2.results.tsv",

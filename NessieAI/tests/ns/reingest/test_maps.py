@@ -8,7 +8,7 @@ from NessieAI.ns.reingest.manifest import PipelineInfo, RunManifest
 def test_load_reads_the_rnaseq_map_by_pipeline_name():
     pipeline_map = maps.load("nf-core/rnaseq")
     assert pipeline_map.pipeline == "nf-core/rnaseq"
-    assert pipeline_map.qc_attributes["MappedPercent"].target == "D.SEQ"
+    assert pipeline_map.qc_attributes["MismatchPercent"].target == "D.SEQ"
 
 
 def test_load_accepts_a_bare_pipeline_name():

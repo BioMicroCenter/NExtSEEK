@@ -22,6 +22,8 @@ def test_derived_metric_names_are_a_closed_set():
         "unaligned_reads", "total_reads", "uniquely_mapped_reads",
         "multimapped_pct", "strandedness", "mismatch_pct", "duplication_pct",
         "frip_pct", "peak_count",
+        "qualimap_aligned_reads", "exonic_fraction", "intronic_fraction",
+        "intergenic_fraction", "raw_reads_r1", "raw_reads_r2",
     )
 
 
@@ -232,9 +234,16 @@ def test_every_derived_metric_name_can_appear_in_compute_output():
         star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
               "too_many_loci": 30.0, "unmapped": 20.0},
         counts=counts, n_annotated_genes=80)
-    out.update(derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.006,
-                                     derived.PICARD_DUPLICATION_FRACTION: 0.12,
-                                     "frip-value": 0.31, "peak_count-value": 812.0}))
+    out.update(derived.from_metrics({
+        "Samtools_mqc-generalstats-samtools-error_rate": 0.006,
+        derived.PICARD_DUPLICATION_FRACTION: 0.12,
+        "frip-value": 0.31, "peak_count-value": 812.0,
+        "qualimap_rnaseq-reads_aligned": 4.763343,
+        "qualimap_rnaseq-reads_aligned_exonic": 3.0,
+        "qualimap_rnaseq-reads_aligned_intronic": 0.8,
+        "qualimap_rnaseq-reads_aligned_intergenic": 0.2,
+        "fastqc_raw-total_sequences@R1": 5.0,
+        "fastqc_raw-total_sequences@R2": 5.0}))
     assert set(derived.DERIVED_METRICS) <= set(out.keys())
 
 
@@ -421,3 +430,64 @@ def test_multiqc_1_22s_samtools_error_rate_fraction_becomes_a_percentage():
 
 def test_a_current_multiqc_error_rate_is_already_a_percentage_and_is_left_alone():
     assert "mismatch_pct" not in derived.from_metrics({"samtools_stats-error_rate": 0.5994653})
+
+
+# --- MultiQC counts in millions, made exact; Qualimap region fractions ---------------------------
+# MultiQC's general-stats table prints read counts in millions at full precision
+# (4.763343 for 4,763,343 reads), so the exact count is the value times 1e6.
+
+def test_qualimap_aligned_reads_is_the_millions_column_as_an_exact_count():
+    out = derived.from_metrics({"qualimap_rnaseq-reads_aligned": 4.763343})
+    assert out["qualimap_aligned_reads"] == 4763343
+    assert isinstance(out["qualimap_aligned_reads"], int)
+
+
+def test_qualimap_region_fractions_share_exonic_intronic_intergenic():
+    out = derived.from_metrics({"qualimap_rnaseq-reads_aligned_exonic": 3.0,
+                                "qualimap_rnaseq-reads_aligned_intronic": 0.75,
+                                "qualimap_rnaseq-reads_aligned_intergenic": 0.25})
+    assert out["exonic_fraction"] == 0.75
+    assert out["intronic_fraction"] == 0.1875
+    assert out["intergenic_fraction"] == 0.0625
+
+
+def test_qualimap_region_fractions_need_all_three_counts():
+    """A missing count would turn a share of two regions into a claim about three."""
+    out = derived.from_metrics({"qualimap_rnaseq-reads_aligned_exonic": 3.0,
+                                "qualimap_rnaseq-reads_aligned_intronic": 0.75})
+    assert not {"exonic_fraction", "intronic_fraction", "intergenic_fraction"} & set(out)
+
+
+def test_qualimap_region_fractions_are_omitted_when_every_count_is_zero():
+    out = derived.from_metrics({"qualimap_rnaseq-reads_aligned_exonic": 0.0,
+                                "qualimap_rnaseq-reads_aligned_intronic": 0.0,
+                                "qualimap_rnaseq-reads_aligned_intergenic": 0.0})
+    assert "exonic_fraction" not in out
+
+
+def test_raw_reads_per_mate_come_from_the_folded_per_read_fastqc_rows():
+    out = derived.from_metrics({"fastqc_raw-total_sequences@R1": 4.763343,
+                                "fastqc_raw-total_sequences@R2": 4.763343})
+    assert out["raw_reads_r1"] == 4763343
+    assert out["raw_reads_r2"] == 4763343
+
+
+def test_a_single_end_sample_row_is_read_1_and_has_no_read_2():
+    out = derived.from_metrics({"fastqc_raw-total_sequences": 12.5})
+    assert out["raw_reads_r1"] == 12500000
+    assert "raw_reads_r2" not in out
+
+
+def test_a_non_numeric_count_is_omitted_not_raised():
+    out = derived.from_metrics({"qualimap_rnaseq-reads_aligned": "NA",
+                                "fastqc_raw-total_sequences@R1": ""})
+    assert "qualimap_aligned_reads" not in out and "raw_reads_r1" not in out
+
+
+def test_metric_inputs_name_every_general_stats_column_from_metrics_reads():
+    """Harvest folds a per-read column only when something claims it, so the
+    raw-read metrics must declare their @R1/@R2 inputs."""
+    assert {"fastqc_raw-total_sequences@R1", "fastqc_raw-total_sequences@R2",
+            "fastqc_raw-total_sequences"} <= set(derived.METRIC_INPUTS["raw_reads_r1"]) | set(
+                derived.METRIC_INPUTS["raw_reads_r2"])
+    assert set(derived.METRIC_INPUTS) <= set(derived.DERIVED_METRICS)

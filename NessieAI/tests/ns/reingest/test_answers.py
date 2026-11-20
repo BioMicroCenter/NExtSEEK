@@ -30,16 +30,25 @@ def _fill(sample_type, attribute, value="x", rows=None):
 
 def test_a_measured_cell_cannot_be_filled_even_when_qa_flags_it():
     rows = [MappedRow(sample_type="D.SEQ", uid="D.SEQ-EXAMPLE-1")]
-    findings = [_finding("D.SEQ", "TotalReads", 0)]
+    findings = [_finding("D.SEQ", "UnalignedReads", 0)]
     errors = answers.check_fill(
-        _fill("D.SEQ", "TotalReads", "12345678"), findings=findings, rows=rows,
+        _fill("D.SEQ", "UnalignedReads", "12345678"), findings=findings, rows=rows,
         run_sourced=answers.run_sourced_attributes(RNASEQ, {}, "D.SEQ"))
     assert errors and "run data" in errors[0]
 
 
 def test_every_qc_attribute_of_the_map_is_run_sourced():
     sourced = answers.run_sourced_attributes(RNASEQ, {}, "D.SEQ")
-    assert {"TotalReads", "NumAligned", "MappedPercent", "UnalignedReads"} <= sourced
+    assert {"UnalignedReads", "MismatchPercent", "GCPercent_R1", "RawReads_R1"} <= sourced
+
+
+def test_a_list_valued_output_attribute_is_run_sourced():
+    """An output attribute with fallback sources is still measured by the run,
+    so chat may never fill it (the allowlist must not miss list values)."""
+    sourced = answers.run_sourced_attributes(RNASEQ, {}, "A.ALN")
+    assert {"MappedPercent", "5_3UTR", "TrimmedBasesPercent_R1", "TotalReads"} <= sourced
+    assert {"PseudoalignedPercent", "SalmonLibraryType", "TrimmedBasesPercent_R1"} <= \
+        answers.run_sourced_attributes(RNASEQ, {}, "A.GEX")
 
 
 def test_dollar_refs_and_file_attributes_are_run_sourced_but_session_values_are_not():
@@ -460,9 +469,9 @@ def _check_place(place, *, rows=None, run_sourced=frozenset(), existing_values=_
 
 
 def test_place_onto_a_run_sourced_attribute_is_refused():
-    errors = _check_place(_place(attribute="TotalReads"),
+    errors = _check_place(_place(attribute="UnalignedReads"),
                           run_sourced=answers.run_sourced_attributes(RNASEQ, {}, "D.SEQ"))
-    assert errors == ["place star-foo -> D.SEQ.TotalReads: this attribute is measured "
+    assert errors == ["place star-foo -> D.SEQ.UnalignedReads: this attribute is measured "
                       "by the run; it cannot be placed from chat"]
 
 

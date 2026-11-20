@@ -51,6 +51,17 @@ DERIVED_METRICS: tuple[str, ...] = (
     # On a peak row they describe that row's own peak set.
     "frip_pct",
     "peak_count",
+    # MultiQC general-stats counts, which it prints in millions, made exact:
+    # Qualimap's aligned reads, and FastQC's raw reads per mate (see
+    # from_metrics).
+    "qualimap_aligned_reads",
+    # Qualimap's exonic, intronic and intergenic counts, each over their sum
+    # (0 to 1).
+    "exonic_fraction",
+    "intronic_fraction",
+    "intergenic_fraction",
+    "raw_reads_r1",
+    "raw_reads_r2",
 )
 
 #: The module-table key duplication_pct reads (maps.ModuleTable namespace + column).
@@ -70,6 +81,25 @@ FRIP_NAMESPACES = ("frip", "mlib_frip", "mrep_frip")
 PEAK_COUNT_NAMESPACES = ("peak_count", "mlib_peak_count", "mrep_peak_count")
 MODULE_TABLE_INPUTS = {"duplication_pct": (PICARD_DUPLICATION_FRACTION.split("-", 1)[0], PICARD_DEDUP_PLOT),
                        "frip_pct": FRIP_NAMESPACES, "peak_count": PEAK_COUNT_NAMESPACES}
+
+_QUALIMAP_ALIGNED = "qualimap_rnaseq-reads_aligned"
+_QUALIMAP_REGIONS = (
+    ("exonic_fraction", "qualimap_rnaseq-reads_aligned_exonic"),
+    ("intronic_fraction", "qualimap_rnaseq-reads_aligned_intronic"),
+    ("intergenic_fraction", "qualimap_rnaseq-reads_aligned_intergenic"),
+)
+_FASTQC_RAW_TOTAL = "fastqc_raw-total_sequences"
+
+# The general-stats columns each from_metrics metric reads. Harvest folds a
+# per-read column (<column>@R1, @R2) into a sample's metrics only when some
+# rule claims it, so mapper.claimed_raw_keys adds these for every metric a
+# map lists in derived_metrics; without that the @R1/@R2 inputs never arrive.
+METRIC_INPUTS: dict[str, tuple[str, ...]] = {
+    "qualimap_aligned_reads": (_QUALIMAP_ALIGNED,),
+    **{name: tuple(column for _, column in _QUALIMAP_REGIONS) for name, _ in _QUALIMAP_REGIONS},
+    "raw_reads_r1": (f"{_FASTQC_RAW_TOTAL}@R1", _FASTQC_RAW_TOTAL),
+    "raw_reads_r2": (f"{_FASTQC_RAW_TOTAL}@R2",),
+}
 
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
 # applied the way its calculateStrandedness does: to the forward and reverse
@@ -378,6 +408,24 @@ def _first_value(metrics: dict, namespaces: tuple[str, ...]) -> float | None:
     return None
 
 
+def _number(value) -> float | None:
+    """A general-stats cell as a float, or None when it is blank or not a number."""
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _exact_count(millions) -> int | None:
+    """MultiQC's general-stats table prints a read count in millions at full
+    precision (4.763343 for 4,763,343 reads), so the exact count is the value
+    times 1e6, rounded away from float error."""
+    value = _number(millions)
+    return None if value is None else int(round(value * 1_000_000))
+
+
 def from_metrics(metrics: dict) -> dict[str, float | str]:
     """Derived values computed from a sample's MultiQC general-stats columns,
     for pipelines that leave no per-sample tool file to read instead.
@@ -399,6 +447,10 @@ def from_metrics(metrics: dict) -> dict[str, float | str]:
     `frip_pct` and `peak_count` come from MultiQC's FRiP-score and peak-count bar graphs
     (FRIP_NAMESPACES, PEAK_COUNT_NAMESPACES): FRiP as a percentage of the 0-1 fraction the
     pipelines' scripts write, the peak count as a whole number.
+
+    The counts (`qualimap_aligned_reads`, `raw_reads_r1/_r2`) are MultiQC's
+    millions made exact; the Qualimap region fractions need all three counts.
+    A blank or non-numeric cell omits the metric.
     """
     out: dict[str, float | str] = {}
     strandedness = _salmon_strandedness(metrics.get("salmon-library_types"))
@@ -423,4 +475,26 @@ def from_metrics(metrics: dict) -> dict[str, float | str]:
             except (TypeError, ValueError):
                 pass
             break
+
+    aligned = _exact_count(metrics.get(_QUALIMAP_ALIGNED))
+    if aligned is not None:
+        out["qualimap_aligned_reads"] = aligned
+    # All three counts or none: a share of two regions is not a share of three.
+    # The millions scaling cancels in the division.
+    regions = {name: _number(metrics.get(column)) for name, column in _QUALIMAP_REGIONS}
+    if all(v is not None for v in regions.values()):
+        total = sum(regions.values())
+        if total > 0:
+            for name, count in regions.items():
+                out[name] = round(count / total, 6)
+
+    # Paired-end FastQC writes each mate on its own row (folded as @R1/@R2);
+    # single-end writes the sample's own row, which is read 1.
+    for name, columns in (("raw_reads_r1", METRIC_INPUTS["raw_reads_r1"]),
+                          ("raw_reads_r2", METRIC_INPUTS["raw_reads_r2"])):
+        for column in columns:
+            count = _exact_count(metrics.get(column))
+            if count is not None:
+                out[name] = count
+                break
     return out

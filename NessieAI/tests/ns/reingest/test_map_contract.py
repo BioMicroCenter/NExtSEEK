@@ -234,7 +234,8 @@ def test_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(
 def test_every_dollar_ref_names_a_real_manifest_section(name):
     pipeline_map = maps.load(name)
     refs = list(pipeline_map.provenance_attributes.values())
-    refs += [v for rule in pipeline_map.outputs for v in rule.attributes.values()]
+    refs += [option for rule in pipeline_map.outputs for v in rule.attributes.values()
+             for option in maps.ref_options(v)]
     refs += [rule.from_key for rule in pipeline_map.qc_attributes.values()
              if rule.from_key.startswith("$")]
     for ref in refs:
@@ -299,6 +300,30 @@ def test_no_qc_attribute_reads_a_million_scaled_multiqc_count(name):
     for attribute, rule in maps.load(name).qc_attributes.items():
         scaled = {rule.from_key, *rule.alternates} & _MULTIQC_MILLION_SCALED_COUNTS
         assert not scaled, f"{name}: {attribute} reads {sorted(scaled)}, which MultiQC prints in millions"
+
+
+def _output_rule_sources(pipeline_map):
+    """(sample_type::attribute, source) for every source an output rule names,
+    each entry of a fallback list included."""
+    rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
+    return [(f"{r.sample_type}::{a}", option) for r in rules
+            for a, v in r.attributes.items() for option in maps.ref_options(v)]
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_no_output_rule_reads_a_million_scaled_multiqc_count(name):
+    bad = [f"{where} = {src}" for where, src in _output_rule_sources(maps.load(name))
+           if isinstance(src, str) and src.startswith("$metrics.")
+           and src[len("$metrics."):].split("@")[0] in _MULTIQC_MILLION_SCALED_COUNTS]
+    assert not bad, f"{name}: output rules read counts MultiQC prints in millions: {bad}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_output_rule_derived_ref_names_a_real_derived_metric(name):
+    bad = [f"{where} = {src}" for where, src in _output_rule_sources(maps.load(name))
+           if isinstance(src, str) and src.startswith("$derived.")
+           and src.split(".", 1)[1] not in derived.DERIVED_METRICS]
+    assert not bad, f"{name}: unknown derived metric(s): {bad}"
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)

@@ -20,37 +20,38 @@ def _run(metrics=None, derived=None, params=None, software_versions=None,
 
 
 def test_a_committed_rule_maps_and_is_marked_origin_map():
-    result = mapper.apply(_run(metrics={"star-uniquely_mapped_percent": 91.4}),
+    result = mapper.apply(_run(metrics={"samtools_stats-error_rate": 0.59}),
                           maps.load("rnaseq"))
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
-    assert row.attributes["MappedPercent"].value == 91.4
-    assert row.attributes["MappedPercent"].origin == mapper.ORIGIN_MAP
-    assert row.attributes["MappedPercent"].raw_key == "star-uniquely_mapped_percent"
+    assert row.attributes["MismatchPercent"].value == 0.59
+    assert row.attributes["MismatchPercent"].origin == mapper.ORIGIN_MAP
+    assert row.attributes["MismatchPercent"].raw_key == "samtools_stats-error_rate"
 
 
 def test_the_alternate_is_used_when_the_primary_key_is_absent():
-    result = mapper.apply(_run(metrics={"samtools_stats-reads_mapped_percent": 88.0}),
+    result = mapper.apply(_run(metrics={"fastqc_raw-percent_gc@R1": 48.0}),
                           maps.load("rnaseq"))
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
-    assert row.attributes["MappedPercent"].value == 88.0
-    assert row.attributes["MappedPercent"].raw_key == "samtools_stats-reads_mapped_percent"
+    assert row.attributes["GCPercent"].value == 48.0
+    assert row.attributes["GCPercent"].raw_key == "fastqc_raw-percent_gc@R1"
 
 
 def test_5_3utr_reads_multiqc_1_22s_general_stats_column_name():
     # MultiQC 1.22 and earlier name the general-stats column <namespace>_<rid>,
-    # so the same Qualimap 5'-3' bias arrives under a different key.
+    # so the same Qualimap 5'-3' bias arrives under a different key. 5_3UTR is
+    # measured on the BAM, so it is written on the A.ALN row.
     old_key = "QualiMap_mqc-generalstats-qualimap-5_3_bias"
     result = mapper.apply(_run(metrics={old_key: 0.62}), maps.load("rnaseq"))
-    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    row = next(r for r in result.rows if r.sample_type == "A.ALN")
     assert row.attributes["5_3UTR"].value == 0.62
-    assert row.attributes["5_3UTR"].raw_key == old_key
+    assert row.attributes["5_3UTR"].raw_key == "$metrics." + old_key
     assert not any(u["raw_key"] == old_key for u in result.unmapped)
 
 
 def test_no_source_at_all_yields_no_attribute_rather_than_a_zero():
     result = mapper.apply(_run(metrics={}), maps.load("rnaseq"))
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
-    assert "MappedPercent" not in row.attributes
+    assert "MismatchPercent" not in row.attributes
 
 
 def test_an_unknown_metric_key_lands_in_unmapped_with_its_evidence():
@@ -77,22 +78,15 @@ def test_a_deliberately_unmapped_key_is_never_proposed():
 
 # MultiQC general-stats keys whose quantity D.SEQ already records another way.
 COVERED_RNASEQ_KEYS = (
-    "qualimap_rnaseq-reads_aligned",
-    "qualimap_rnaseq-reads_aligned_exonic",
-    "qualimap_rnaseq-reads_aligned_intronic",
-    "qualimap_rnaseq-reads_aligned_intergenic",
     "qualimap_rnaseq-reads_aligned_overlapping_exon",
     "star-mapped",
-    "salmon-strand_mapping_bias",
 )
 
 # Keys judged not worth recording on D.SEQ: sums of recorded values, counts
 # in millions or of BAM records, near-constant shares, and Salmon diagnostics.
 LOW_VALUE_RNASEQ_KEYS = (
-    "star-mapped_percent",
     "salmon-num_mapped",
     "salmon-compatible_fragment_ratio",
-    "salmon-library_types",
     "samtools_flagstat-flagstat_total",
     "samtools_flagstat-mapped_passed",
     "samtools_flagstat-mapped_passed_pct",
@@ -114,12 +108,8 @@ def test_a_key_d_seq_already_covers_is_ruled_out_and_never_queued(raw_key):
 
 
 @pytest.mark.parametrize("attribute, metrics, derived, expected, raw_key", [
-    ("DuplicationPercent", {"picard_mark_duplicates-PERCENT_DUPLICATION": 76.4293}, {},
-     76.4293, "picard_mark_duplicates-PERCENT_DUPLICATION"),
     ("MismatchPercent", {"samtools_stats-error_rate": 0.5994653}, {},
      0.5994653, "samtools_stats-error_rate"),
-    ("DupRadarIntercept", {"custom_content_dupradar-dupRadar_intercept": 0.653985557}, {},
-     0.653985557, "custom_content_dupradar-dupRadar_intercept"),
     ("MultimappedPercent", {}, {"multimapped_pct": 9.3038}, 9.3038, "$derived.multimapped_pct"),
     ("Strandedness", {}, {"strandedness": "reverse"}, "reverse", "$derived.strandedness"),
 ])
@@ -142,8 +132,8 @@ def test_star_multimapped_millions_stay_out_of_multimapped_percent():
 
 def test_an_approved_rule_applies_and_is_marked_origin_approved():
     # approved_rules is keyed BY attribute, so the rule carries only its source.
-    # The map's own ContamPercent rule reads "kraken2-pct_unclassified", which is
-    # absent here, so the committed rule finds nothing and the approved rule applies.
+    # The rnaseq map writes nothing to ContamPercent (the in-house QC report
+    # owns it), so the approved rule is the only source here.
     approved = {"ContamPercent": maps.AttributeRule(
         **{"from": "Kraken2_bracken_fraction", "target": "D.SEQ",
            "datatype": "number", "provenance": "approved 2026-09-15 by tester"})}
@@ -282,15 +272,15 @@ def test_aln_software_reads_the_star_version_as_a_real_run_spells_it():
 # produce a value for the same attribute, the committed map rule must win. ---
 
 def test_a_committed_rule_wins_over_a_contested_approved_rule():
-    approved = {"ContamPercent": maps.AttributeRule(
-        **{"from": "Kraken2_bracken_fraction", "target": "D.SEQ",
+    approved = {"MismatchPercent": maps.AttributeRule(
+        **{"from": "Some_other_error_rate", "target": "D.SEQ",
            "datatype": "number", "provenance": "approved 2026-09-15 by tester"})}
     result = mapper.apply(
-        _run(metrics={"kraken2-pct_unclassified": 4.5, "Kraken2_bracken_fraction": 3.2}),
+        _run(metrics={"samtools_stats-error_rate": 0.59, "Some_other_error_rate": 3.2}),
         maps.load("rnaseq"), approved_rules=approved)
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
-    assert row.attributes["ContamPercent"].value == 4.5
-    assert row.attributes["ContamPercent"].origin == mapper.ORIGIN_MAP
+    assert row.attributes["MismatchPercent"].value == 0.59
+    assert row.attributes["MismatchPercent"].origin == mapper.ORIGIN_MAP
 
 
 # --- The "raw_key in claimed or raw_key in ruled_out" skip is meant to be
@@ -574,12 +564,12 @@ def test_a_d_seq_parent_produces_no_warnings():
     # manifest has no outputs, so the output rules' "matched no file" warnings
     # are expected and are not what this guards.
     result = mapper.apply(
-        _run(metrics={"star-uniquely_mapped_percent": 91.4,
-                      "kraken2-pct_unclassified": 4.5}),
+        _run(metrics={"samtools_stats-error_rate": 0.59,
+                      "fastqc_raw-percent_gc": 48.0}),
         maps.load("rnaseq"))
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
-    assert row.attributes["MappedPercent"].value == 91.4
-    assert row.attributes["ContamPercent"].value == 4.5
+    assert row.attributes["MismatchPercent"].value == 0.59
+    assert row.attributes["GCPercent"].value == 48.0
     assert [w for w in result.warnings if "matched no file" not in w] == []
 
 
@@ -1881,8 +1871,9 @@ def _qc_run(pipeline, version, metrics, derived=None, outputs=()):
     ("rnaseq", "3.22.2",
      # paired-end: FastQC writes on <sample>_1 / <sample>_2, folded as @R1 / @R2
      {"fastqc_raw-percent_gc@R1": 46.0, "fastqc_raw-avg_sequence_length@R1": 150.0,
-      "fastqc_raw-avg_sequence_length@R2": 149.0, "star-uniquely_mapped_percent": 91.0},
-     {}, {"GCPercent": 46.0, "F_bp": 150.0, "R_bp": 149.0, "MappedPercent": 91.0}),
+      "fastqc_raw-avg_sequence_length@R2": 149.0, "fastqc_raw-percent_gc@R2": 47.0},
+     {}, {"GCPercent": 46.0, "GCPercent_R1": 46.0, "GCPercent_R2": 47.0,
+          "F_bp": 150.0, "R_bp": 149.0}),
     ("rnaseq", "3.22.2",
      # single-end: FastQC's row is the sample's own row, no @R1
      {"fastqc_raw-percent_gc": 44.0, "fastqc_raw-avg_sequence_length": 75.0},
@@ -1951,7 +1942,7 @@ def test_rnavar_writes_snpeffs_ts_tv_ratio_on_the_vcf_row():
     ("rnafusion", "4.1.3", "picard_insertsizemetrics-summed_median"),
     ("rnaseq", "3.22.2", "fastqc_raw-percent_fails"),
     ("rnaseq", "3.22.2", "fastqc_trimmed-percent_gc"),
-    ("rnaseq", "3.22.2", "cutadapt-percent_trimmed"),
+    ("rnaseq", "3.22.2", "kraken2-pct_unclassified"),
     ("rnasplice", "1.0.4", "Samtools_mqc-generalstats-samtools-raw_total_sequences"),
     ("rnavar", "1.3.0", "snpeff-Change_rate"),
     ("scrnaseq", "4.1.0", "cell_ranger_count-count_q30_bc"),
@@ -2200,3 +2191,171 @@ def test_a_url_run_dir_keeps_its_scheme_in_the_data_file_links():
     assert mapper.run_file_path(run, "preprocessing/S1.cram") == "s3://bucket/sarek/results-1/test_full/preprocessing/S1.cram"
     run.run_dir = "/net/cluster/runs/r/"
     assert mapper.run_file_path(run, "./x/../y.bam") == "/net/cluster/runs/r/y.bam"
+
+
+# --- Output-rule fallbacks: an output attribute may list sources in order --------------------
+
+def test_an_output_attribute_list_takes_the_first_source_present():
+    rule = {"id": "r", "sample_type": "A.ALN", "primary_data": True,
+            "candidates": ["aln/*.bam"],
+            "attributes": {"MappedPercent": ["$metrics.star-uniquely_mapped_percent",
+                                             "$metrics.samtools_stats-reads_mapped_percent"]}}
+    run = _run_with(["aln/S1.bam"])
+    run.samples[0].metrics = {"samtools_stats-reads_mapped_percent": 88.0}
+    (row,) = _out_rows(mapper.apply(run, _v2map([rule])), "r")
+    assert row.attributes["MappedPercent"].value == 88.0
+    assert row.attributes["MappedPercent"].raw_key == "$metrics.samtools_stats-reads_mapped_percent"
+
+
+def test_an_output_attribute_list_prefers_its_first_source():
+    rule = {"id": "r", "sample_type": "A.ALN", "primary_data": True,
+            "candidates": ["aln/*.bam"],
+            "attributes": {"MappedPercent": ["$metrics.a", "$metrics.b"]}}
+    run = _run_with(["aln/S1.bam"])
+    run.samples[0].metrics = {"a": 91.0, "b": 88.0}
+    (row,) = _out_rows(mapper.apply(run, _v2map([rule])), "r")
+    assert row.attributes["MappedPercent"].value == 91.0
+
+
+def test_an_output_attribute_list_with_no_source_present_writes_nothing():
+    rule = {"id": "r", "sample_type": "A.ALN", "primary_data": True,
+            "candidates": ["aln/*.bam"], "attributes": {"MappedPercent": ["$metrics.a", "$metrics.b"]}}
+    (row,) = _out_rows(mapper.apply(_run_with(["aln/S1.bam"]), _v2map([rule])), "r")
+    assert "MappedPercent" not in row.attributes
+
+
+def test_every_source_in_an_output_attribute_list_is_claimed():
+    m = _v2map([{"id": "r", "sample_type": "A.ALN", "candidates": ["aln/*.bam"],
+                 "attributes": {"X": ["$metrics.a@R1", "$metrics.a"]}}])
+    assert {"a@R1", "a"} <= mapper.claimed_raw_keys(m)
+
+
+def test_an_unknown_computed_name_inside_an_output_list_fails_map_load():
+    with pytest.raises(ValueError, match="unknown computed value"):
+        _v2map([{"id": "r", "sample_type": "A.ALN", "candidates": ["aln/*.bam"],
+                 "attributes": {"Name": ["@no_such_token", "x"]}}])
+
+
+def test_a_derived_metrics_general_stats_inputs_are_claimed():
+    """Harvest folds a per-read column only when something claims it; the
+    raw-read metrics read the @R1/@R2 FastQC rows."""
+    claimed = mapper.claimed_raw_keys(maps.load("rnaseq"))
+    assert {"fastqc_raw-total_sequences@R1", "fastqc_raw-total_sequences@R2"} <= claimed
+
+
+# --- rnaseq: each QC value on the sample type it describes (#181) --------------------------------
+
+def _rnaseq_run(metrics=None, derived=None, outputs=()):
+    run = _run(metrics=metrics, derived=derived)
+    run.outputs = [manifest.OutputRecord(path=p, bytes=10, sample="CONTROL_REP1") for p in outputs]
+    return run
+
+
+_BAM = "star_salmon/CONTROL_REP1.markdup.sorted.bam"
+_QUANT = "star_salmon/CONTROL_REP1/quant.sf"
+
+
+def _rows(result, sample_type):
+    return [r for r in result.rows if r.sample_type == sample_type]
+
+
+@pytest.mark.parametrize("attribute, metrics, derived, expected", [
+    ("rRNAPercent", {"custom_content_biotype_counts-percent_rRNA": 2.1}, {}, 2.1),
+    ("DupRadarIntercept", {"custom_content_dupradar-dupRadar_intercept": 0.65}, {}, 0.65),
+    ("DuplicationPercent", {"picard_mark_duplicates-PERCENT_DUPLICATION": 76.4}, {}, 76.4),
+    ("5_3UTR", {"qualimap_rnaseq-5_3_bias": 0.62}, {}, 0.62),
+    ("TotalReads", {}, {"total_reads": 4763343}, 4763343),
+    ("NumAligned", {}, {"uniquely_mapped_reads": 4000000}, 4000000),
+    ("MappedPercent", {"star-uniquely_mapped_percent": 91.4}, {}, 91.4),
+    ("STARMappedPercent", {"star-mapped_percent": 95.1}, {}, 95.1),
+    ("TrimmedBasesPercent_R1", {"cutadapt-percent_trimmed@R1": 3.2}, {}, 3.2),
+    ("TrimmedBasesPercent_R2", {"cutadapt-percent_trimmed@R2": 3.4}, {}, 3.4),
+])
+def test_rnaseq_writes_bam_measured_values_on_a_aln_not_d_seq(attribute, metrics, derived, expected):
+    result = mapper.apply(_rnaseq_run(metrics, derived, [_BAM]), maps.load("rnaseq"))
+    (aln,) = _rows(result, "A.ALN")
+    assert aln.attributes[attribute].value == expected
+    assert all(attribute not in r.attributes for r in _rows(result, "D.SEQ"))
+    assert result.unmapped == []
+
+
+def test_rnaseq_a_aln_mapped_percent_falls_back_to_samtools():
+    result = mapper.apply(_rnaseq_run({"samtools_stats-reads_mapped_percent": 88.0}, None, [_BAM]),
+                          maps.load("rnaseq"))
+    (aln,) = _rows(result, "A.ALN")
+    assert aln.attributes["MappedPercent"].value == 88.0
+
+
+def test_rnaseq_single_end_trimming_is_read_1_from_the_sample_row():
+    result = mapper.apply(_rnaseq_run({"cutadapt-percent_trimmed": 2.9}, None, [_BAM]),
+                          maps.load("rnaseq"))
+    (aln,) = _rows(result, "A.ALN")
+    assert aln.attributes["TrimmedBasesPercent_R1"].value == 2.9
+    assert "TrimmedBasesPercent_R2" not in aln.attributes
+
+
+@pytest.mark.parametrize("attribute, metrics, derived, expected", [
+    ("QualimapAlignedReads", {}, {"qualimap_aligned_reads": 4763343}, 4763343),
+    ("ExonicFraction", {}, {"exonic_fraction": 0.75}, 0.75),
+    ("IntronicFraction", {}, {"intronic_fraction": 0.1875}, 0.1875),
+    ("IntergenicFraction", {}, {"intergenic_fraction": 0.0625}, 0.0625),
+    ("RawSeqDuplicationPercent_R1", {"fastqc_raw-percent_duplicates@R1": 41.0}, {}, 41.0),
+    ("RawSeqDuplicationPercent_R2", {"fastqc_raw-percent_duplicates@R2": 39.0}, {}, 39.0),
+    ("GCPercent_R1", {"fastqc_raw-percent_gc@R1": 48.0}, {}, 48.0),
+    ("GCPercent_R2", {"fastqc_raw-percent_gc@R2": 49.0}, {}, 49.0),
+    ("RawReads_R1", {}, {"raw_reads_r1": 5000000}, 5000000),
+    ("RawReads_R2", {}, {"raw_reads_r2": 5000000}, 5000000),
+])
+def test_rnaseq_writes_the_new_raw_read_qc_on_d_seq(attribute, metrics, derived, expected):
+    result = mapper.apply(_rnaseq_run(metrics, derived), maps.load("rnaseq"))
+    (dseq,) = _rows(result, "D.SEQ")
+    assert dseq.attributes[attribute].value == expected
+    assert result.unmapped == []
+
+
+def test_rnaseq_single_end_raw_fastqc_is_read_1_from_the_sample_row():
+    result = mapper.apply(_rnaseq_run({"fastqc_raw-percent_duplicates": 30.0,
+                                       "fastqc_raw-percent_gc": 47.0}), maps.load("rnaseq"))
+    (dseq,) = _rows(result, "D.SEQ")
+    assert dseq.attributes["RawSeqDuplicationPercent_R1"].value == 30.0
+    assert dseq.attributes["GCPercent_R1"].value == 47.0
+    assert "GCPercent_R2" not in dseq.attributes
+
+
+def test_rnaseq_makes_a_per_sample_a_gex_from_each_quant_sf():
+    metrics = {"salmon-percent_mapped": 85.0, "salmon-library_types": "ISR",
+               "salmon-strand_mapping_bias": 0.02, "cutadapt-percent_trimmed@R1": 3.2,
+               "cutadapt-percent_trimmed@R2": 3.4}
+    result = mapper.apply(_rnaseq_run(metrics, None, [_BAM, _QUANT]), maps.load("rnaseq"))
+    (quant,) = [r for r in result.rows if r.rule_id == "quant"]
+    assert quant.sample_type == "A.GEX"
+    values = {k: v.value for k, v in quant.attributes.items()}
+    assert values["File_PrimaryData"] == "quant.sf"
+    assert values["PseudoalignedPercent"] == 85.0
+    assert values["SalmonLibraryType"] == "ISR"
+    assert values["StrandMappingBias"] == 0.02
+    assert values["TrimmedBasesPercent_R1"] == 3.2
+    assert values["TrimmedBasesPercent_R2"] == 3.4
+    assert values["Matrix"] == "transcript_quant"
+    assert result.unmapped == []
+
+
+def test_rnaseq_salmon_only_runs_take_the_pseudo_aligner_quant_sf():
+    result = mapper.apply(_rnaseq_run({}, None, ["salmon/CONTROL_REP1/quant.sf"]),
+                          maps.load("rnaseq"))
+    (quant,) = [r for r in result.rows if r.rule_id == "quant"]
+    assert quant.attributes["File_PrimaryData"].value == "quant.sf"
+
+
+def test_rnaseq_a_run_without_salmon_has_no_quant_rows_and_no_warning():
+    result = mapper.apply(_rnaseq_run({}, None, [_BAM]), maps.load("rnaseq"))
+    assert not [r for r in result.rows if r.rule_id == "quant"]
+    assert not [w for w in result.warnings if '"quant"' in w]
+
+
+def test_rnaseq_writes_no_kraken2_value_into_contam_percent():
+    """ContamPercent on D.SEQ is the in-house QC value; reingest leaves it alone."""
+    result = mapper.apply(_rnaseq_run({"kraken2-pct_unclassified": 75.0}, {"contam_pct": 0.5}),
+                          maps.load("rnaseq"))
+    assert all("ContamPercent" not in r.attributes for r in result.rows)
+    assert result.unmapped == []
