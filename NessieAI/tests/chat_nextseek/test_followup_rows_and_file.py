@@ -276,6 +276,18 @@ def test_the_turn_debug_records_each_computation(tmp_path):
     assert payload["bundle_id"] == 1, "a computation makes no bundle of its own"
 
 
+def test_the_turn_debug_keeps_a_failed_query_s_error(tmp_path):
+    failed = {"ok": False, "error": "no query could be generated for that question", "seed_mode": "uids"}
+
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
+        return {"reply": "x", "caveats": [], "computes": [],
+                "queries": [{"question": "q", "seeded": True, "result": failed}],
+                "tool_calls": ["run_new_query", "answer"]}
+
+    payload, _session, _ = _run_followup_turn(tmp_path, fake_followup)
+    assert payload["debug"]["followup"]["queries"][0]["error"] == failed["error"]
+
+
 def test_a_follow_up_that_queried_attaches_the_rows_of_its_last_successful_query(tmp_path):
     def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         first = run_query(question="how many downstream samples", seed_uids=PRIOR_UIDS)

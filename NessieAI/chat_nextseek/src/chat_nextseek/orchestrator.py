@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import time
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, replace as _replace_fields
 from datetime import datetime, timezone
@@ -101,6 +102,7 @@ from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uid
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .agents.entity import carry_code_owned_types
+from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -725,6 +727,15 @@ def _count_text(value: Any) -> str | None:
     return f"{value:,}" if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _seed_type_codes(uids: list[str], question: str) -> list[str]:
+    """The sample type codes of a seed's UIDs (<TYPE>-<YYMMDD><LAB>-<n>, ``helpers/uid_check.py``), the ones the
+    question names first, then the most common. Context for the graph agent's catalog sections only, never a
+    filter: ``graph_context.resolved_type_codes`` drops codes the catalog does not know and keeps MAX_TYPES."""
+    counts = Counter(u.split("-", 1)[0] for u in uids if isinstance(u, str) and "-" in u)
+    named = [c for c in counts if re.search(rf"(?<![\w.]){re.escape(c)}(?![\w.])", question or "")]
+    return named + [c for c, _n in counts.most_common() if c not in named]
+
+
 def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: int | None,
                          total: Any, partial: bool, scoped: bool) -> str | None:
     """What the loop's model must know about how a query was scoped; None when nothing.
@@ -872,7 +883,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             )
         else:
             seed_mode = "none"
-        entity = EntityAgentOutput()
+        entity = (EntityAgentOutput(sampletypes=[EntityItem(code=c) for c in _seed_type_codes(seed_uids, question)])
+                  if seed_mode == "uids" else EntityAgentOutput())
         parser_plan = ParserPlan(mode="graph_query", intent_summary=question)
         graph_plan = graph_agent(config, question, entity, parser_plan, refine_context=refine)
         if not graph_plan.cypher:
@@ -2567,6 +2579,7 @@ def run_query(
                          "count": (q.get("result") or {}).get("count"),
                          "uids_applied": (q.get("result") or {}).get("uids_applied"),
                          "seed_mode": (q.get("result") or {}).get("seed_mode"),
+                         "error": (q.get("result") or {}).get("error"),
                          "review_verdict": _review_verdict(q.get("result"))}
                         for q in followup_outcome.get("queries") or []
                     ],
