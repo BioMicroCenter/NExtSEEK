@@ -259,6 +259,21 @@ def rewrite_container_paths(text: Any, path_mappings: Mapping[str, Any] | None) 
     return re.sub("|".join(alternatives), lambda m: roots[m.lastgroup], text)
 
 
+def drop_scratch_paths(text: Any, path_mappings: Mapping[str, Any] | None) -> Any:
+    """Q1 (2026-11-20): a reply names a handed-over file by its name; the user cannot open the server's folder.
+    Run after ``rewrite_container_paths``, so a container path is already this turn's scratch root. The folder in
+    parentheses is dropped, a bare folder becomes "the downloads under this reply", a file keeps its name (and
+    any sub-folder). Another turn's scratch and the output root are left alone."""
+    root = (((path_mappings or {}).get("scratch") or {}).get("logical_root")
+            if isinstance(path_mappings, Mapping) else None)
+    if not isinstance(text, str) or not isinstance(root, str) or not root:
+        return text
+    r = re.escape(root.rstrip("/"))
+    text = re.sub(rf"\s*\(\s*`?{r}/?`?\s*\)", "", text)  # "(`<folder>/`)"
+    text = re.sub(rf"`?{r}/?`?(?=[\s.,;:)]|$)", "the downloads under this reply", text)  # a bare folder
+    return re.sub(rf"{r}/", "", text)  # a file: its name
+
+
 _ONTOLOGIES_JSON = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/context/ONTOLOGIES.json"
 _MD_LINK = re.compile(r"\[([^\]\n]*)\]\(([^)\s]*)\)")
 
@@ -1730,8 +1745,8 @@ def run_cc_turn(
             # far it got, with the agent's own words left only in the transcript row.
             partial = ""
             try:
-                partial = fix_ontology_links(
-                    rewrite_container_paths(translator.partial_reply(), path_mappings))
+                partial = fix_ontology_links(drop_scratch_paths(
+                    rewrite_container_paths(translator.partial_reply(), path_mappings), path_mappings))
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
             # Review M2: stopped while Claude Code was still retrying a model call, the
@@ -1770,7 +1785,8 @@ def run_cc_turn(
             data["mode"] = "cc"
             # D7: the reply names this turn's real paths, never the container's, and it
             # is rewritten here, before on_turn_complete persists it.
-            data["reply"] = fix_ontology_links(rewrite_container_paths(data.get("reply"), path_mappings))
+            data["reply"] = fix_ontology_links(drop_scratch_paths(
+                rewrite_container_paths(data.get("reply"), path_mappings), path_mappings))
             data["artifacts"] = result["artifacts"] or None
             data["cc_raw_files"] = result["raw"]
         if event == "query_complete" and on_turn_complete and chat_session is not None:

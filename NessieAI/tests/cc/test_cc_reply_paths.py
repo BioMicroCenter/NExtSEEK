@@ -239,12 +239,13 @@ def test_the_completed_reply_is_rewritten_before_it_is_persisted_and_sent(tmp_pa
                          "result": reply, "session_id": "sid-1"})]
     events, payloads = _drive(tmp_path, monkeypatch, lines, persist=True)
     scratch, _ = _real_roots(tmp_path)
-    expected = (f"Wrote {scratch}/nhp58.csv, also at {scratch}/nhp58.csv; "
+    # Q1: the scratch folder is dropped; the file keeps its name.
+    expected = (f"Wrote nhp58.csv, also at nhp58.csv; "
                 f"mapped with [{title}]({url})")
 
     complete = [d for e, d in events if e == "query_complete"]
     assert len(complete) == 1
-    assert complete[0]["reply"] == expected
+    assert complete[0]["reply"] == expected and scratch not in complete[0]["reply"]
     assert len(payloads) == 1
     assert payloads[0].assistant_reply == expected
 
@@ -267,4 +268,5 @@ def test_a_timed_out_turns_partial_reply_is_rewritten(tmp_path, monkeypatch):
     scratch, _ = _real_roots(tmp_path)
     [error] = [d for e, d in events if e == "query_error"]
     assert error["reason"] == "exec_timeout"
-    assert error["partial_reply"] == f"So far I wrote {scratch}/part.csv with [{title}]({url})"
+    assert error["partial_reply"] == f"So far I wrote part.csv with [{title}]({url})"
+    assert scratch not in error["partial_reply"]
