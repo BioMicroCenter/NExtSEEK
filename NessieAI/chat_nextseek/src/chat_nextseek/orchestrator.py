@@ -1902,6 +1902,7 @@ def _execute_graph_turn(
         if (asks_for_tree_of(user_text, debug_payload["subject_check"]["term"])
                 and not adds_a_condition(plan, root_type, None, None)):
             debug_payload["subject_tree_by_retrieve"] = root
+            send_event("agent_complete", {"agent": "graph", "summary": None})  # the progress panel closes the step
             return SubjectTree(plan=plan.model_copy(update={
                 "mode": "new_search", "target_endpoint": "/nextseek_api/samples/retrieve/",
                 "filters": plan.filters.model_copy(update={"uids": [root], "keywords": []})}),

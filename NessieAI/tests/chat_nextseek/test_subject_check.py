@@ -189,7 +189,8 @@ def _turn(monkeypatch, tmp_path, *, user_text, plan, g, **kwargs):
     outcome = orch._execute_graph_turn(
         config=_config(), session={}, user_text=user_text, entity_result=EntityAgentOutput(), plan=plan,
         log_dir=str(tmp_path), artifact_store=MagicMock(register_path=MagicMock(return_value=None)),
-        send_event=lambda *a, **k: None, debug_payload=debug, t_total_start=time.perf_counter(), **kwargs)
+        send_event=lambda *a, **k: seen.setdefault("events", []).append(a), debug_payload=debug,
+        t_total_start=time.perf_counter(), **kwargs)
     seen["outcome"] = outcome
     return debug, seen
 
@@ -321,6 +322,7 @@ def test_the_tree_of_a_named_subject_is_answered_by_the_lookup(monkeypatch, tmp_
     assert any("/seek/sampletree/uid=PAT-990101ZZZ-1/" in n for n in out.notes)
     assert debug["subject_tree_by_retrieve"] == "PAT-990101ZZZ-1"
     assert "plan" not in seen                      # the graph agent was never asked
+    assert ("agent_complete", {"agent": "graph", "summary": None}) in seen["events"]  # F16: the step closes
 
 
 def test_the_tree_of_a_named_animal_written_with_a_dash_is_answered_by_the_lookup(monkeypatch, tmp_path):
