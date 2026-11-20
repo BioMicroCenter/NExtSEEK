@@ -151,6 +151,11 @@ def build_tables_from_bundle(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     ``reporter_result`` (summary_sql / Impact mode).  Used by the
     download endpoint to generate xlsx files.
     """
+    if bundle.get("mode") == "graph_query":
+        return _graph_tables(bundle)
+    if _is_people_bundle(bundle):
+        return _people_tables(bundle)
+
     rwo = bundle.get("report_writer_output")
     if isinstance(rwo, dict):
         tables = flatten_report_to_tables(rwo)
@@ -258,12 +263,13 @@ def _read_workbook_preview(filepath: str | Path, max_rows: int = 5) -> list[dict
     return sheets
 
 
-def _graph_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
-    """One table artifact for a graph turn, from the rows it stored.
+def _graph_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """The whole table of a graph turn, from the rows it stored, in the shape the chat renders
+    (key, label, columns, data as a list of dicts; the same as a reporter table).
 
     Reads the bundle's own rows rather than the artifact file, so a turn whose file write
-    failed still shows its rows. MAX_INLINE_ROWS and the "Showing first N of M rows" footer
-    are the reporter path's and work here unchanged.
+    failed still shows its rows. ``extract_table_artifacts`` caps it at MAX_INLINE_ROWS;
+    the download keeps every row.
     """
     rows = ((bundle.get("graph_result") or {}).get("data")) or []
     rows = [r for r in rows if isinstance(r, dict)]
@@ -273,29 +279,27 @@ def _graph_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     columns: list[str] = []
     for row in rows:
         for key in row:
-            if key not in columns:
+            if str(key) not in columns:
                 columns.append(str(key))
     if not columns:
         return []
 
-    total = (bundle.get("graph_result") or {}).get("total")
-    total = total if isinstance(total, int) else len(rows)
-    shown = rows[:MAX_INLINE_ROWS]
     return [{
-        "type": "table",
-        "title": "Graph query results",
+        "key": "graph_table",
+        "label": "Graph query results",
         "columns": columns,
-        "rows": [[row.get(c) for c in columns] for row in shown],
-        "total_rows": total,
-        "footer": (f"Showing first {len(shown)} of {total} rows"
-                   if len(shown) < total else f"{total} rows"),
+        "data": [{c: row.get(c) for c in columns} for row in rows],
     }]
 
 
 PEOPLE_PATH = "/nextseek_api/people/"
 
 
-def _people_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+def _is_people_bundle(bundle: dict[str, Any]) -> bool:
+    return bundle.get("mode") == "new_search" and str(bundle.get("endpoint") or "").rstrip("/") + "/" == PEOPLE_PATH
+
+
+def _people_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     """One table of EVERY account the people list returned (id, name), uncapped: the list is short, the reply says
     the full list is in the table, and a cap would make that false."""
     from chat_nextseek.artifacts import load_api_result_full
@@ -306,13 +310,28 @@ def _people_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     if not rows:
         return []
     return [{
-        "type": "table",
-        "title": "Registered user accounts",
+        "key": "people_table",
+        "label": "Registered user accounts",
         "columns": ["id", "name"],
-        "rows": [[r.get("id"), (r.get("attributes") or {}).get("title")] for r in rows],
-        "total_rows": len(rows),
-        "footer": f"{len(rows)} rows",
+        "data": [{"id": r.get("id"), "name": (r.get("attributes") or {}).get("title")} for r in rows],
     }]
+
+
+def _inline_table(table: dict[str, Any], cap: int | None = MAX_INLINE_ROWS) -> dict[str, Any]:
+    """A table as the chat artifact: capped at ``cap`` rows (None = whole), with truncated/total_rows when cut."""
+    data = table["data"]
+    truncated = cap is not None and len(data) > cap
+    artifact: dict[str, Any] = {
+        "artifact_type": "table",
+        "key": table["key"],
+        "label": table["label"],
+        "columns": table["columns"],
+        "data": data[:cap] if truncated else data,
+    }
+    if truncated:
+        artifact["truncated"] = True
+        artifact["total_rows"] = len(data)
+    return artifact
 
 
 def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
@@ -329,11 +348,12 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     # and the payload carried no artifacts -- so the frontend, which renders `artifacts` and
     # nothing else, showed a researcher none of the hundreds of rows their query returned.
     if mode == "graph_query":
-        return _graph_table_artifacts(bundle)
+        return [_inline_table(t) for t in _graph_tables(bundle)]
 
     # R4 (U3b): the people list is returned whole, so it is shown whole.
-    if mode == "new_search" and str(bundle.get("endpoint") or "").rstrip("/") + "/" == PEOPLE_PATH:
-        return _people_table_artifacts(bundle)
+    # The people table is whole: no cap, because the reply says the full list is in it.
+    if _is_people_bundle(bundle):
+        return [{**_inline_table(t, None), "total_rows": len(t["data"])} for t in _people_tables(bundle)]
 
     if mode not in ("reporter", "report_generation", "sql_report"):
         return []
