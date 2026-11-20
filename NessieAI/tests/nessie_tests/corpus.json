@@ -3934,7 +3934,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": true,
@@ -3956,19 +3958,14 @@
                   "value": "\\b593\\b"
                 },
                 {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)TEST_SOP"
-                },
-                {
                   "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "graph_query"
+                  "value": "reporter"
                 }
               ]
             }
           ],
-          "_why": "175 SOP rows, of which 34 are TEST_SOP.docx (22) and TEST_SOP_2.docx (12); 141 are real protocols. Only 137 are attached to any assay. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sops)=175; title LIKE 'TEST_SOP%' = 34. || TESTS: whether the engine reports the raw row count or notices the junk in it. || Re-keyed 2026-09-23 against production (fairdata): 593 SOP rows, 593 distinct titles, none titled TEST_SOP% or containing 'test' (seek_production MySQL, read-only: COUNT(sops); title LIKE 'TEST_SOP%' = 0), so the honest answer is 593 with no test artifacts; was 141 real of 175.",
+          "_why": "593 SOP records on production (seek_production MySQL, read-only, 2026-09-23: COUNT(sops) = 593, 593 distinct titles, none titled TEST_SOP% or containing 'test'). || Round 2, P4 task 7 (2026-11-20 ruling): 'How many SOPs are on file' with no other condition goes to the reporter's protocols summary, which counts the SOP records over every project the caller reads; the graph only knows the 128 protocol titles samples used (dev). The second half of the question (are any test artifacts) is not answered by that report, so the case no longer pins TEST_SOP. || WAS: mode graph_query and the literal TEST_SOP, which this note said prod does not hold. || A production number: the case runs only with NESSIE_ON_PROD.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -5955,7 +5952,9 @@
           "expected_behavior": null,
           "hibayes_subtype": null,
           "origin": "overlay",
-          "requires_env": [],
+          "requires_env": [
+            "NESSIE_ON_PROD"
+          ],
           "retirement": null,
           "status": "active",
           "is_bayesian": false,
@@ -5985,12 +5984,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b1(0,?872|2,?244)\\b\\D{0,60}records?"
+                  "value": "(?is)\\b7,?032\\b\\D{0,60}samples?"
                 }
               ]
             }
           ],
-          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project. || 2026-10-13 (review R10): the records branch also accepts 12,244 (D.FLOW + D.FCS + D.CYTOF, the count fix 7 asks for).",
+          "_why": "7,032 distinct IMPAcTb samples sit above a flow-family data record (D.FLOW, D.CYTOF or D.FCS), with the data types themselves left out: TIS 3,513, MUS 1,403, CEL 995, PAV 461, AB 330, PAT 129, NHP 116, ABP 80, BAC 5. The data records are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34 (12,244). Measured 2026-11-20 on production (fairdata), read-only (CI-reports/prod-check2-20261120/pin-remeasure/prod_count.out). || WAS: 8,372, which counted the D.FCS records themselves as samples; the case also accepted the records count (10,872 or 12,244), which is how the reply that listed data records passed on 2026-11-19. Both are gone: the answer is the samples, not the records (round 2, P4 task 5). || TESTS: the count of samples, not data records, over the whole project. A production number: the case runs only with NESSIE_ON_PROD.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 437 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         },
         {

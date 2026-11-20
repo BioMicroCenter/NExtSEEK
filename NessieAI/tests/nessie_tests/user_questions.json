@@ -344,7 +344,8 @@
     "uq.condition_dropped.3",
     "uq.condition_dropped.s1",
     "fu.cc_mice_with_transcriptomics",
-    "tree.patients_upstream_of_a_model"
+    "tree.patients_upstream_of_a_model",
+    "uq.condition_dropped.s2"
    ],
    "run2": [
     "uq.condition_dropped.3",
@@ -367,7 +368,9 @@
    "cases": [
     "uq.data_kind_in_project.1",
     "uq.data_kind_in_project.2",
-    "uq.data_kind_in_project.s1"
+    "uq.data_kind_in_project.s1",
+    "uq.data_kind_in_project.s2",
+    "uq.data_kind_in_project.s3"
    ],
    "run2": [
     "uq.data_kind_in_project.2",
@@ -389,7 +392,8 @@
    "what": "\"Subjects who convert to Mtb infection positive\": the words must map to a recorded field.",
    "cases": [
     "uq.plain_words_condition.s1",
-    "search.mtb_converters"
+    "search.mtb_converters",
+    "uq.plain_words_condition.s2"
    ],
    "run2": [
     "search.mtb_converters",
@@ -530,7 +534,8 @@
    "what": "Flow / CyTOF data found, but called D.FCS in the reply.",
    "cases": [
     "graph.project_samples_with_flow_or_cytof",
-    "graph.impact_monkeys_with_sequencing_stays_dseq"
+    "graph.impact_monkeys_with_sequencing_stays_dseq",
+    "uq.wrong_data_type_named.s1"
    ],
    "run2": [
     "graph.project_samples_with_flow_or_cytof",
@@ -710,6 +715,18 @@
     }
    ],
    "status": "fixed"
+  },
+  "sop_records_on_file": {
+   "name": "SOP records on file counted as protocol titles on edges",
+   "what": "'How many SOPs are on file' counted the protocol titles used on sample links (graph) instead of the SOP records.",
+   "cases": [
+    "cat.sops_including_test_artifacts",
+    "uq.sop_records_on_file.s1",
+    "uq.sop_records_on_file.s2"
+   ],
+   "run2": [],
+   "history": [],
+   "status": "open"
   }
  },
  "include_ids": [
@@ -1427,6 +1444,44 @@
       }
      ],
      "_why": "Round 2, 3b: a list cut at 5,000 rows is described by counts over the whole result, never as all one value because the first rows were."
+    },
+    {
+     "id": "uq.plain_words_condition.s2",
+     "family": "sample_search",
+     "name": "A vaccination status in plain words",
+     "tags": [
+      "user",
+      "issue:plain_words_condition",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "show samples for human subjects who were BCG vaccinated",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(BCG|vaccin)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!\\s*\\**\\s*(0|no|zero)\\b)"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4d): a coded status is matched against the field's stored values, which the retry now reads; a bare 0 where the field is filled is the failure. No count pinned: the stored values were not read."
     }
    ]
   },
@@ -2406,6 +2461,148 @@
       }
      ],
      "_why": "Prod, read 2026-11-18: 4,274 samples in Cancer_Systems_Biology_Consortium(CSBC)."
+    },
+    {
+     "id": "uq.condition_dropped.s2",
+     "family": "graph_traversal",
+     "name": "A describing word no record holds",
+     "tags": [
+      "user",
+      "issue:condition_dropped",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Show me all sequencing files derived from mouse liver resections",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)liver"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!\\s*\\**\\s*(0|no|zero)\\b)"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4b): a describing word that no field holds must not end the answer in a bare 0 when liver tissues with sequencing exist; the reply says no record mentions it, then gives the files, or says 0 with the count without the word."
+    },
+    {
+     "id": "uq.data_kind_in_project.s2",
+     "family": "graph_traversal",
+     "name": "Existence of a technique the catalog does not name",
+     "tags": [
+      "user",
+      "issue:data_kind_in_project",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Do we have any CRISPR screen data?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!\\s*\\**\\s*yes\\b)"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4c): when the only hits are records whose text mentions the technique, the reply opens with no record being typed or assayed as that data, never with Yes."
+    },
+    {
+     "id": "uq.data_kind_in_project.s3",
+     "family": "graph_traversal",
+     "name": "Existence of a technique the catalog does name",
+     "tags": [
+      "user",
+      "issue:data_kind_in_project",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Is there any ribosome profiling data?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*No record here is typed, assayed or labelled as)"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4c) guard: the catalog has this assay, so the answer comes from the assay and carries no mention-only note."
+    },
+    {
+     "id": "uq.wrong_data_type_named.s1",
+     "family": "graph_traversal",
+     "name": "Samples that have a kind of data",
+     "tags": [
+      "user",
+      "issue:wrong_data_type_named",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which samples have mass spectrometry data?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)\\bsamples?\\b"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(these are data records|not samples that have))"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4a): the answer is the samples above the mass spectrometry records, by type, with the record count beside them; not the data records."
     }
    ]
   },
@@ -3091,6 +3288,72 @@
       }
      ],
      "_why": "Round 2, 3a: people are named in Scientist and each lab code carries its lab's name; the reply never says no names are stored."
+    },
+    {
+     "id": "uq.sop_records_on_file.s1",
+     "family": "catalog_browse",
+     "name": "SOP records on file, asked as protocols",
+     "tags": [
+      "user",
+      "issue:sop_records_on_file",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many protocols are on file?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "reporter"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4e): the count of SOP records goes to the protocols report, not the graph."
+    },
+    {
+     "id": "uq.sop_records_on_file.s2",
+     "family": "catalog_browse",
+     "name": "Which protocols samples used stays on the graph",
+     "tags": [
+      "user",
+      "issue:sop_records_on_file",
+      "sibling",
+      "unverified"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which protocols did the tissue samples use?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "graph_query"
+        }
+       ]
+      }
+     ],
+     "_why": "Round 2, P4 (4e) guard: what samples used is read on the graph, not the SOP records."
     }
    ]
   },
