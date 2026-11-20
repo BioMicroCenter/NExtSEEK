@@ -1088,6 +1088,11 @@ def _apply_parser_guardrails(
             report_mode=None,
             report_type=None,
         )
+    elif (plan.mode == "unsupported" and not (plan.metadata or {}).get("failure")
+          and BULK_EXPORT_NOTE not in (plan.notes or "")
+          and _is_unscoped_bulk_export_request(user_query, "new_search", plan.filters)):
+        # the routing prompt tells the model to refuse it itself: the same note, so the reply names what to narrow (D1)
+        plan = plan.model_copy(update={"notes": ((plan.notes + " | ") if plan.notes else "") + BULK_EXPORT_NOTE})
     plan = _seen("unscoped_bulk_export", before_bulk, plan)
     plan = _seen("retired_sample_search", plan, _route_retired_sample_search(session, plan))
     plan = _seen("route_by_kind", plan, _route_by_kind(user_query, plan, config))
