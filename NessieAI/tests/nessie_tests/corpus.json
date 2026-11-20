@@ -2710,6 +2710,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)\\A(?!.*(not found|could not find|unable to find|no (catalog )?entry))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)scientist field"
                 }
               ]
             }
