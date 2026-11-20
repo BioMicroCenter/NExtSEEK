@@ -7330,6 +7330,54 @@
           ],
           "_why": "MDL-250912LAU-1's lineage holds no NHP at all: its ancestors are 304 patients and 95 mice (see tree.patients_upstream_of_a_model). So the honest answer is that the scope is empty and what the model does derive from, not a count; no zero is pinned. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: (m)-[:DERIVED_FROM*1..15]->(n:T_NHP) returns no rows. || WAS: the graph query ran (total 0) but the reply model returned 503 and the user saw a pipeline error (A1). || TESTS: an empty scope is named as empty.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 463 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "id": "tree.lineage_of_a_data_record",
+          "family": "lineage_tree",
+          "name": "Lineage of a data record: records above it are not called derived from it",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What's the lineage of D.MSP-230828GRI-4-PUB?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "new_search"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.MSP-230828GRI-4\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)(ancestor|above|upstream)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*every(thing)? derived from (this|the) (record|sample))"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
         }
       ]
     },
@@ -14264,11 +14312,6 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
                   "value": "(\\.rds\\b|/net/)"
                 },
                 {
@@ -14316,11 +14359,6 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file)"
                 },
                 {
                   "field": "last_reply",
@@ -14385,12 +14423,55 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(File_PrimaryData|Link_PrimaryData|link|path|file location|ImmPort)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "https?://"
                 }
               ]
             }
           ],
           "_why": "PAT-230323BOO-74 has two D.FLOW descendants, D.FLOW-230330BOO-56 and D.FLOW-230330BOO-57, both carrying File_PrimaryData and Link_PrimaryData (no D.FCS). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (p:Sample {uuid:'PAT-230323BOO-74'}) MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(p) RETURN f.uuid. || WAS: the reply explained how to look for the D.FLOW child records but named none and gave no download path (C1). || TESTS: the patient is walked to its data records and their file fields.",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 452 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian true: the one member of this new family in the paired selection, which must represent every measurable family."
+        },
+        {
+          "id": "file.where_is_a_sequencing_file",
+          "family": "data_file_location",
+          "name": "Where a sequencing data file is stored, printed as stored",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Where is the raw data file for D.SEQ-221031SHA-67-PUB stored? I want to download it.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.SEQ-221031SHA-67\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(https?://|/net/)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
         }
       ]
     },
