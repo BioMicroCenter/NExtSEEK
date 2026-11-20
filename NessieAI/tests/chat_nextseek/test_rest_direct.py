@@ -144,7 +144,8 @@ def test_the_people_table_holds_every_row_even_past_the_inline_cap():
     n = MAX_INLINE_ROWS + 50
     bundle = {"mode": "new_search", "endpoint": PEOPLE, "api_result_full": _people(n)}
     (table,) = extract_table_artifacts(bundle)
-    assert table["total_rows"] == n and len(table["rows"]) == n and table["rows"][3] == ["3", "Quill 3"]
+    assert table["total_rows"] == n and len(table["data"]) == n and table["data"][3] == {"id": "3", "name": "Quill 3"}
+    assert "truncated" not in table  # so the chat shows no "Showing first N" note
     assert extract_table_artifacts({"mode": "new_search", "endpoint": RETRIEVE, "api_result_full": _people(3)}) == []
 
 
@@ -264,3 +265,20 @@ def test_the_sop_list_on_the_graph_drops_no_constraint():
                               "RETURN DISTINCT r.protocol_title AS protocol_title", "parameters": {}},
         user_query="What SOPs are on file?")
     assert scope.not_applied == []
+
+
+def test_the_people_table_has_the_shape_the_chat_renders():
+    """The chat renders only artifact_type "table" with key, label, columns and data (a list of dicts)."""
+    from nextseek_api.assistant.excel_export import extract_table_artifacts
+
+    (table,) = extract_table_artifacts({"mode": "new_search", "endpoint": PEOPLE, "api_result_full": _people(2)})
+    assert table["artifact_type"] == "table" and table["key"] and table["label"]
+    assert table["columns"] == ["id", "name"] and all(set(r) == {"id", "name"} for r in table["data"])
+
+
+def test_the_people_table_can_be_downloaded_by_its_key():
+    from nextseek_api.assistant.excel_export import build_tables_from_bundle, extract_table_artifacts
+
+    bundle = {"mode": "new_search", "endpoint": PEOPLE, "api_result_full": _people(3)}
+    (table,) = extract_table_artifacts(bundle)
+    assert [t["key"] for t in build_tables_from_bundle(bundle)] == [table["key"]]
