@@ -512,7 +512,7 @@
    "cases": [
     "uq.reply_explains_internals.1",
     "uq.field_values_across_set.1",
-    "uq.field_values_across_set.s1",
+    "uq.field_values_across_set.s2",
     "uq.field_values_across_set.s1"
    ],
    "run2": [
@@ -1414,7 +1414,7 @@
      "_why": "Cell (CEL) records with bronchoalveolar lavage in the protocol."
     },
     {
-     "id": "uq.field_values_across_set.s1",
+     "id": "uq.field_values_across_set.s2",
      "family": "sample_search",
      "name": "A list over the cap described by its whole-result split",
      "tags": [
