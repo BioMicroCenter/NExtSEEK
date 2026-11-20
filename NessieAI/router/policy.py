@@ -146,6 +146,36 @@ def _is_named_sop_file(query: str | None) -> bool:
     return not (_SUPPLIED_CONTENT.search(rest) or len([ln for ln in q.splitlines() if ln.strip()]) > 2)
 
 
+# File-request rule (round 2, 2026-11-20): a request to MAKE a new spreadsheet, workbook or CSV of sample metadata is
+# Container-CC's work even when the samples it should cover are not in the message yet; Container-CC asks for them.
+# The router's primary model reads such a request without its inputs as a how-to (it sent it to NExtSEEK, which cannot
+# hand over an xlsx for it). This only ever moves an NS-bound turn to CC. A how-to opener, and files other rules own
+# (a stored file or an SOP, a repository deposit, an nf-core samplesheet, a formal report, an upload, template or
+# harmonization workbook), keep the router's choice.
+# ponytail: a word list; a request it misses keeps the router's call. Widen it from a real miss, never a guess.
+_NEW_FILE_NOUN = (r"(?:spread\s?sheets?|excel(?:\s+(?:files?|sheets?|workbooks?|spreadsheets?))?|xlsx|csv|tsv|"
+                  r"workbooks?|(?:metadata|data|summary|output)\s+sheets?)")
+_MAKE = (r"(?:download|export|make|create|build|generate|produce|prepare|write|give|send|get|provide|compile|"
+         r"put\s+together)")
+_FILE_ASK = re.compile(
+    rf"\b{_MAKE}\s+(?:me\s+|us\s+)?(?:\S+\s+){{0,4}}?{_NEW_FILE_NOUN}\b"
+    rf"|\b{_MAKE}\b[^?.!\n]{{0,80}}?\b(?:to|into|as|in)\s+(?:an?\s+)?(?:excel|csv|xlsx|tsv|spread\s?sheet|workbook)\b"
+    rf"|\b(?:i|we)\s*(?:want|need|['’]d\s+like|would\s+like)\s+(?:an?\s+|the\s+)?(?:\S+\s+){{0,2}}?{_NEW_FILE_NOUN}\b",
+    re.IGNORECASE)
+_HOWTO_OPENER = re.compile(
+    r"^\W*(?:how\b|where\b|is\s+there\b|what(?:'|’)?s\s+the\s+(?:best\s+)?way\b|can\s+i\b|could\s+i\b"
+    r"|do\s+you\s+know\s+how)", re.IGNORECASE)
+_OTHER_FILE_RULES = re.compile(
+    r"\b(?:nf-?core|samplesheets?|sample\s+sheets?|geo|sra|pride|deposits?|submissions?|nih|rppr|progress\s+reports?|"
+    r"annual\s+reports?|sops?|protocols?|uploads?|batch|harmoni[sz]\w*|templates?)\b", re.IGNORECASE)
+
+
+def _is_new_file_request(query: str | None) -> bool:
+    """True for a request to make a new spreadsheet, workbook or CSV that no other routing rule owns."""
+    q = " ".join(str(query or "").split())
+    return bool(_FILE_ASK.search(q)) and not _HOWTO_OPENER.search(q) and not _OTHER_FILE_RULES.search(q)
+
+
 def _decide_route(user, req, *, force_cc: bool, session=None,
                   history: list[router_context.HistoryTurn] | None = None,
                   chat_log: list[dict] | None = None) -> cc_router.RouteDecision:
@@ -273,6 +303,12 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     except Exception:  # noqa: BLE001 - routing must never crash on a shape check
         logger.warning("CC router: follow-up shape check failed", exc_info=True)
     guard_source = ("sticky" if on_cc else "followup") if cue else None
+    if not cue and decision.route == cc_router.ROUTE_NS:
+        try:
+            if _is_new_file_request(req.query):
+                cue, guard_source = "new-file", "file_request"
+        except Exception:  # noqa: BLE001 - routing must never crash on a cue check
+            logger.warning("CC router: file-request check failed", exc_info=True)
     if (
         session is not None
         and pipeline_agent.is_active(session)
@@ -312,11 +348,11 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             **cc_router.router_record(decision),
         )
     if cue:
+        label = "file_request" if guard_source == "file_request" else ("sticky_cc" if on_cc else "followup_cc")
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_CC, model_class="opus",
             model_id=cc_router._resolve_cc_model_id(),
-            reasoning=(f"{'sticky_cc' if on_cc else 'followup_cc'} ({cue}); "
-                       f"router said ns ({decision.reasoning})"),
+            reasoning=(f"{label} ({cue}); router said ns ({decision.reasoning})"),
             source=guard_source,
             task_family=decision.task_family,
             family_source=decision.family_source,
@@ -332,7 +368,7 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
 #: Sources of a CC decision this module made out of an NS one. Only these fall back.
 #: `reingest` does not: NExtSEEK cannot register a run's outputs, and its reporter
 #: would open a new pipeline wizard instead.
-POLICY_CC_SOURCES = frozenset({"sticky", "followup"})
+POLICY_CC_SOURCES = frozenset({"sticky", "followup", "file_request"})
 
 
 def _fallback_when_cc_unavailable(decision: cc_router.RouteDecision,

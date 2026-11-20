@@ -125,6 +125,13 @@ def test_any_follow_up_in_a_chat_on_cc_runs_on_cc_when_the_build_lets_it_go(monk
     assert d.source == "pipeline" and d.attempted_route == cc_router.ROUTE_CC and d.attempted_source == "sticky"
 
 
+def test_an_open_build_sees_a_file_request_first(monkeypatch):
+    _router_says_ns(monkeypatch)
+    d = _kept_build("Make me a spreadsheet of the zeta samples", [])
+    assert d.source == "pipeline"
+    assert d.attempted_route == cc_router.ROUTE_CC and d.attempted_source == "file_request"
+
+
 def test_a_follow_up_nextseek_can_answer_stays_on_the_ns_path_after_a_handoff(monkeypatch):
     _router_says_ns(monkeypatch)
     d = _kept_build("how many of those are female", _answered(cc_router.ROUTE_NS))
