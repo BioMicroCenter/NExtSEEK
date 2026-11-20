@@ -773,3 +773,29 @@ def test_the_turn_records_the_fields_named_block(monkeypatch, tmp_path):
     plan = GraphAgentPlan(cypher=cypher, context_mode="catalog", fields_named=record)
     run = _graph_turn(monkeypatch, tmp_path, [plan], [_proven(1, cypher)])
     assert run.debug["fields_named"] == record
+
+
+def _capped(cypher="MATCH (s:T_TIS) RETURN s.uuid AS uuid, s.type AS type", *, truncated=True):
+    result = _proven(3, cypher, data=[{"uuid": f"TIS-200101QQZ-{i}", "type": "TIS"} for i in range(3)])
+    return {**result, "truncated": truncated, "total": 9 if truncated else 3}
+
+
+_BREAKDOWN = {"samples": 7, "unit": "samples", "columns": {"type": [["TIS", 7]]}, "more": [], "elapsed_ms": 1}
+
+
+def test_a_capped_list_hands_the_reply_its_whole_result_counts(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(orch, "whole_result_breakdown", lambda *a, **k: seen.append((a, k)) or _BREAKDOWN)
+    cypher = "MATCH (s:T_TIS) RETURN s.uuid AS uuid, s.type AS type"
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(cypher)], [_capped(cypher)])
+    assert len(seen) == 1
+    assert run.chatter_kwargs[0]["graph_result"]["breakdown"] == _BREAKDOWN
+    assert run.debug["graph_breakdown"] == _BREAKDOWN
+
+
+def test_a_list_that_fit_gets_no_breakdown_read(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(orch, "whole_result_breakdown", lambda *a, **k: seen.append(1) or _BREAKDOWN)
+    cypher = "MATCH (s:T_TIS) RETURN s.uuid AS uuid, s.type AS type"
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(cypher)], [_capped(cypher, truncated=False)])
+    assert seen == [] and "graph_breakdown" not in run.debug

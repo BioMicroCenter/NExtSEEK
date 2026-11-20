@@ -64,7 +64,7 @@ from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
                            check_binding, check_premise, holding_study_note, review_compute, review_tier1,
                            with_checks)
-from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2
+from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2, whole_result_breakdown
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
@@ -1905,6 +1905,13 @@ def _execute_graph_turn(
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]
+    if graph_result.get("ok") and graph_result.get("truncated"):
+        # A list cut at its cap is described by counts over the WHOLE result, not by the rows returned (3b).
+        inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
+        breakdown = whole_result_breakdown(config, graph_plan.cypher, inp.parameters, inp.rows, elapsed_ms=elapsed_ms)
+        if breakdown:
+            graph_result = {**graph_result, "breakdown": breakdown}
+            debug_payload["graph_breakdown"] = breakdown
     # A number found by a changed filter may not mean what the question asked, so the
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
