@@ -166,3 +166,28 @@ def test_no_cypher_error_never_carries_the_graph_agents_exception_text():
     plan = GraphAgentPlan(cypher="", explanation="Graph agent error: Connection refused to bolt://internal-host:7687")
     out = granular._run_plan(plan, lambda *a, **k: {}, None, None)[3]
     assert out["error"] == "graph agent produced no cypher"
+
+
+def test_a_uid_column_built_from_the_record_number_reads_the_uid():
+    assert granular._uid_column("MATCH (s:T_X) RETURN s.id AS uid, s.Colour AS value", {}) == \
+        "MATCH (s:T_X) RETURN s.uuid AS uid, s.Colour AS value"
+    assert granular._uid_column("RETURN s.UID AS UID", {}) == "RETURN s.uuid AS UID"
+    assert granular._uid_column("RETURN s.id as `uid`", {}) == "RETURN s.uuid as `uid`"
+
+
+def test_other_columns_are_left_alone():
+    for q in ("RETURN s.id AS id, s.uuid AS uuid ORDER BY id", "RETURN st.title AS uid", "RETURN s.id AS uid_count"):
+        assert granular._uid_column(q, {}) == q
+
+
+def test_the_graph_op_hands_the_uid_column_rule_to_the_chain(monkeypatch):
+    seen = {}
+
+    def fake_chain(query, **kw):
+        seen["prepare_cypher"] = kw.get("prepare_cypher")
+        return _answer()
+
+    monkeypatch.setattr(granular, "run_graph_question", fake_chain)
+    granular._graph({"query": "list the colours"}, None, None, lambda *a: None,
+                    lambda config, cypher, params: {"ok": True, "data": []}, None)
+    assert seen["prepare_cypher"] is granular._uid_column
