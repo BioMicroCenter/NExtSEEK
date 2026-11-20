@@ -378,3 +378,22 @@ def test_the_routing_prompt_says_a_topic_keeps_sops_on_the_graph():
     assert ("Which protocols samples used, and SOPs about a topic or a word, are graph_query; which SOPs exist or how "
             "many, with no other condition, and the SOPs registered to a project are reporter.") in text
     assert "with no sample condition" not in text
+
+
+# The parser model may pick reporter for the bare SOP count itself: the plan still carries the note, which makes the
+# orchestrator run the protocols report (test_sop_count_runs_the_protocols_report.py).
+@pytest.mark.parametrize("report_mode", [None, "summary"])
+def test_a_bare_sop_count_the_model_sent_to_the_reporter_carries_the_note(report_mode):
+    from chat_nextseek.agents.parser import SOP_RECORDS_NOTE
+
+    p = ParserPlan(mode="reporter", report_mode=report_mode, intent_summary="x")
+    out = route("How many SOPs are on file?", p)
+    assert (out.mode, out.report_mode) == ("reporter", "summary")
+    assert SOP_RECORDS_NOTE in out.notes
+
+
+def test_a_reporter_plan_for_an_sop_topic_or_a_report_is_left_alone():
+    for q, p in (("Which biosafety SOPs exist?", ParserPlan(mode="reporter", report_mode="summary", intent_summary="x")),
+                 ("How many SOPs are on file?", ParserPlan(mode="reporter", report_mode="report_generation",
+                                                           intent_summary="x"))):
+        assert "SOP records on file" not in (route(q, p).notes or ""), q

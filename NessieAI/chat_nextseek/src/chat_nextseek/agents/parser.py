@@ -971,7 +971,10 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
         return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
     # "How many SOPs are on file", "which protocols are registered": the SOP records, which the protocols report counts
     # over every project the caller reads. What samples used, one named SOP's file, a word search or a topic is not this.
-    if (plan.mode in ("new_search", "graph_query") and _SOP_RECORDS.search(q) and _SOP_LIST_ASK.search(q)
+    # A reporter plan the model picked itself gets the note too, which makes the orchestrator run the protocols report.
+    sop_mode = plan.mode in ("new_search", "graph_query") or (
+        plan.mode == "reporter" and getattr(plan, "report_mode", None) != "report_generation")
+    if (sop_mode and _SOP_RECORDS.search(q) and _SOP_LIST_ASK.search(q)
             and not has_sample and not named and not projects and not _SOP_USE.search(q)
             and not filters.sampletype_code and not filters.assay_codes and not sop_id_in(q)
             and not (sop_ref_in(q) and _SOP_FILE_WORD.search(q)) and _bare_sop_ask(q)):

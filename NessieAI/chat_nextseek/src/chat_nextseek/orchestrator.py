@@ -99,7 +99,7 @@ from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_no
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
-from .agents.parser import adds_a_condition
+from .agents.parser import SOP_RECORDS_NOTE, adds_a_condition
 from .helpers.subject_check import asks_for_tree_of, check_subject, plan_with_subject, subject_notes
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
@@ -2762,6 +2762,8 @@ def run_query(
             _t0 = time.perf_counter()
             reporter_plan = reporter_agent(config, user_text, plan)
             print(f"[TIMING][REPORTER] {time.perf_counter() - _t0:.2f}s")
+            if SOP_RECORDS_NOTE in (plan.notes or ""):  # the bare SOP count is the protocols report, not the model's pick
+                reporter_plan = reporter_plan.model_copy(update={"reporter_mode": "summary", "summary_mode": "protocols"})
             debug_payload["reporter_plan"] = reporter_plan.model_dump()
             reporter_mode = reporter_plan.reporter_mode or plan.report_mode or "summary"
             if reporter_mode == "summary_sql":  # legacy alias
