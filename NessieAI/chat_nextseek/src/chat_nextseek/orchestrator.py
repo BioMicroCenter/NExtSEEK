@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import time
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, replace as _replace_fields
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from .chat_memory import (
     append_turn,
     build_tool_summary_for_mode,
     bundle_rows,
+    bundle_uids,
     named_bundle,
     next_turn_id,
     plan_step_extent,
@@ -35,6 +37,7 @@ from .chat_memory import (
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
+    _column_summary,
     describe_stored_result,
     preview_rows,
     resolve_followup_outcome,
@@ -100,6 +103,7 @@ from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uid
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .agents.entity import carry_code_owned_types
+from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -645,6 +649,10 @@ FOLLOWUP_GRAPH_LEAD_NAMED = ("This question points at the result of the earlier 
                              "earlier search.\n")
 #: Follows the earlier Cypher with its values: a filter written as ``$inv`` is no filter without its value.
 FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
+#: Follows the earlier statement when it bound $uids: the UIDs are bound by code (`parameters_extra`), never pasted.
+FOLLOWUP_GRAPH_UIDS = ("The earlier result's {n} sample UIDs are ALREADY BOUND as the query parameter $uids. To keep "
+                       "that set, filter with `WHERE s.uuid IN $uids`; never paste UIDs into the query text. A few "
+                       "of them, so you can see their shape: {shown}")
 
 
 def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, dict] | None:
@@ -658,8 +666,11 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
     list (``NessieAI.router.followup.followup_cue``) decide, and then the earlier search is the newest turn's
     bundle: a Container-CC turn or an aside writes no bundle, so after one there is no context rather than an
     older answer than the one the question points at. The search is carried as a refine carries it
-    (``_build_graph_refine_context``) plus its parameters. A statement bound to ``$uids`` is not carried: the
-    session keeps those UIDs only as a placeholder. Returns (context, debug record)."""
+    (``_build_graph_refine_context``) plus its parameters. A statement bound to ``$uids`` is carried with its UIDs
+    (debug record ``uids``, bound by the caller, never pasted): a graph turn stores the list it bound, and a follow-up
+    loop's bundle stores a placeholder, so its list is the one of the bundle it ran over
+    (``search_context.followup_of_bundle``). With no list to be found it is not carried. Returns (context, debug
+    record)."""
     try:
         history = session.get("results_history") or []
         named = named_bundle(history, getattr(plan, "target_result_id", None))
@@ -681,12 +692,27 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
             by = "cue"
         graph_plan = last.get("graph_plan") or {}
         cypher = graph_plan.get("cypher") or ""
+        parameters = dict(graph_plan.get("parameters") or {})
+        bound: list[str] = []
         if re.search(r"\$uids\b", cypher):
-            return None
+            stored = parameters.pop("uids", None)
+            # A graph turn keeps the list it bound. A follow-up loop's bundle keeps only a count of it
+            # (_followup_result_bundle), and the loop bound every row UID of the bundle it was about, which the
+            # bundle names as search_context.followup_of_bundle. Never this bundle's own rows: a lineage
+            # statement's rows are other samples than the ones it bound.
+            if isinstance(stored, list):
+                bound = [u for u in stored if isinstance(u, str) and u]
+            else:
+                source = named_bundle(history, (last.get("search_context") or {}).get("followup_of_bundle"))
+                bound = bundle_uids(source) if source is not None else []
+            if not bound:
+                return None
         context = (FOLLOWUP_GRAPH_LEAD_NAMED if by == "parser" else FOLLOWUP_GRAPH_LEAD) \
             + _build_graph_refine_context(last)
-        if cypher and graph_plan.get("parameters"):
-            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(graph_plan["parameters"], default=str, sort_keys=True)
+        if cypher and parameters:
+            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(parameters, default=str, sort_keys=True)
+        if bound:
+            context += "\n" + FOLLOWUP_GRAPH_UIDS.format(n=len(bound), shown=", ".join(bound[:10]))
         summary = getattr(plan, "intent_summary", None) if by == "parser" else None
         # R9: a summary that names an endpoint path is REST prose (agents/graph.py keeps intent_summary out of the
         # graph agent for that reason), so it is left out.
@@ -695,7 +721,10 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
     except Exception as exc:  # the earlier search is help, never the reason a turn fails
         print(f"[DEBUG][FOLLOWUP] could not build the earlier search's context: {exc!r}")
         return None
-    return context, {"cue": cue, "by": by, "bundle_id": last.get("id")}
+    record = {"cue": cue, "by": by, "bundle_id": last.get("id")}
+    if bound:
+        record["uids"] = bound
+    return context, record
 
 
 #: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
@@ -722,6 +751,15 @@ def _stored_query_refine(stored_query: dict) -> str:
 
 def _count_text(value: Any) -> str | None:
     return f"{value:,}" if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _seed_type_codes(uids: list[str], question: str) -> list[str]:
+    """The sample type codes of a seed's UIDs (<TYPE>-<YYMMDD><LAB>-<n>, ``helpers/uid_check.py``), the ones the
+    question names first, then the most common. Context for the graph agent's catalog sections only, never a
+    filter: ``graph_context.resolved_type_codes`` drops codes the catalog does not know and keeps MAX_TYPES."""
+    counts = Counter(u.split("-", 1)[0] for u in uids if isinstance(u, str) and "-" in u)
+    named = [c for c in counts if re.search(rf"(?<![\w.]){re.escape(c)}(?![\w.])", question or "")]
+    return named + [c for c, _n in counts.most_common() if c not in named]
 
 
 def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: int | None,
@@ -871,7 +909,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             )
         else:
             seed_mode = "none"
-        entity = EntityAgentOutput()
+        entity = (EntityAgentOutput(sampletypes=[EntityItem(code=c) for c in _seed_type_codes(seed_uids, question)])
+                  if seed_mode == "uids" else EntityAgentOutput())
         parser_plan = ParserPlan(mode="graph_query", intent_summary=question)
         graph_plan = graph_agent(config, question, entity, parser_plan, refine_context=refine)
         if not graph_plan.cypher:
@@ -934,6 +973,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "scope_note": scope_note,
             "review": as_debug(review),
         }
+        if len(shown) < len(rows):
+            payload["column_summary"], payload["columns_omitted"] = _column_summary(rows)
         if run.changed_answer:
             payload["retry_note"] = run.spelling_note or RETRY_CHANGED_ANSWER_NOTE
         if run.scope_repair_note:
@@ -1769,6 +1810,7 @@ def _execute_graph_turn(
     offer_suggestions: bool = True,
     graph_plan: GraphAgentPlan | None = None,
     count_stop: bool = True,
+    parameters_extra: dict | None = None,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
 
@@ -1860,7 +1902,7 @@ def _execute_graph_turn(
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     # The retry loop (a Cypher error, a zero-row result) is shared with the follow-up loop's queries.
-    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, None,
+    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, parameters_extra,
                                   graph_plan=graph_plan)
     graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
     elapsed_ms = run.elapsed_ms
@@ -1981,9 +2023,17 @@ def _execute_graph_turn(
     )
     if rows_entry:
         result_files.append(rows_entry)
+    # A graph turn stores the plan the agent wrote. UIDs bound by code (the agent never wrote them) are stored too, so
+    # the next link of a follow-up chain still has the list.
+    # ponytail: the real list is stored, as when the agent writes it itself (a 5,000-UID list is about 100 KB of
+    # results_history). Switch to a pointer if a session row grows too large.
+    plan_dump = graph_plan.model_dump()
+    bound_uids = (run.parameters or {}).get("uids") if parameters_extra else None
+    if isinstance(bound_uids, list):
+        plan_dump["parameters"] = {**(plan_dump.get("parameters") or {}), "uids": bound_uids}
     bundle = build_metadata_bundle(
         bundle_id=bundle_id, mode="graph_query", user_query=user_text,
-        parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),
+        parser_plan=plan.model_dump(), graph_plan=plan_dump,
         graph_result=graph_result, terminal_reply=None,
         search_context={"endpoint": "neo4j"}, files=result_files,
         paths={"graph_debug_path": graph_debug_path},
@@ -2564,6 +2614,7 @@ def run_query(
                          "count": (q.get("result") or {}).get("count"),
                          "uids_applied": (q.get("result") or {}).get("uids_applied"),
                          "seed_mode": (q.get("result") or {}).get("seed_mode"),
+                         "error": (q.get("result") or {}).get("error"),
                          "review_verdict": _review_verdict(q.get("result"))}
                         for q in followup_outcome.get("queries") or []
                     ],
@@ -2933,8 +2984,14 @@ def run_query(
         if mode == "graph_query":
             current_agent = "graph"
             followup = _followup_graph_context(session, user_text, plan)
+            seed = None
             if followup:
-                debug_payload["followup_context"] = followup[1]
+                record = dict(followup[1])
+                uids = record.pop("uids", None)
+                if uids:
+                    record["uids_bound"] = len(uids)
+                    seed = {"uids": uids}
+                debug_payload["followup_context"] = record
             outcome = _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
@@ -2942,6 +2999,7 @@ def run_query(
                 debug_payload=debug_payload, t_total_start=_t_total_start,
                 refine_context=followup[0] if followup else None,
                 note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
+                parameters_extra=seed,
             )
             if not isinstance(outcome, GraphScopeFallback):
                 return outcome
