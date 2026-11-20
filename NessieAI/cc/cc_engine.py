@@ -270,7 +270,7 @@ def drop_scratch_paths(text: Any, path_mappings: Mapping[str, Any] | None) -> An
         return text
     r = re.escape(root.rstrip("/"))
     text = re.sub(rf"\s*\(\s*`?{r}/?`?\s*\)", "", text)  # "(`<folder>/`)"
-    text = re.sub(rf"`?{r}/?`?(?=[\s.,;:)]|$)", "the downloads under this reply", text)  # a bare folder
+    text = re.sub(rf"`?{r}/?`?(?=[\s.,;:)*\"'>\]]|$)", "the downloads under this reply", text)  # a bare folder
     return re.sub(rf"{r}/", "", text)  # a file: its name
 
 

@@ -35,3 +35,11 @@ def test_a_turn_with_no_scratch_mapping_or_a_non_string_is_unchanged():
     assert drop_scratch_paths(f"{ROOT}/x.csv", {"output": MAP["output"]}) == f"{ROOT}/x.csv"
     assert drop_scratch_paths(None, MAP) is None
     assert drop_scratch_paths("x", None) == "x"
+
+
+# Round 2 F12: a bare folder in bold, quotes, <> or a link's text is still the server's folder.
+@pytest.mark.parametrize("text", [f"Saved in **{ROOT}**.", f'Saved in "{ROOT}".', f"Saved in '{ROOT}/'.",
+                                  f"Saved in <{ROOT}>.", f"Saved in [{ROOT}].", f"Saved in **`{ROOT}/`**."])
+def test_a_bare_folder_in_bold_or_quotes_is_not_shown(text):
+    out = drop_scratch_paths(text, MAP)
+    assert ROOT not in out and "the downloads under this reply" in out
