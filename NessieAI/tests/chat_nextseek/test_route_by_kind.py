@@ -14,6 +14,7 @@ from chat_nextseek.agents.parser import (
     _apply_multi_parser_guardrails,
     _apply_parser_guardrails,
     _route_by_kind,
+    TREE_BY_UID_NOTE,
 )
 from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.schemas import EntityAgentOutput, MultiParserPlan, ParserCandidate, ParserFilters, ParserPlan
@@ -48,9 +49,61 @@ def test_sample_type_list_count_goes_to_the_system_agent(q):
 
 
 @pytest.mark.parametrize("uid", ["ZZZ-990101ABC-1-PUB", "QQQ-990202XYZ-4-PUB"])
-def test_tree_goes_to_the_graph_and_keeps_the_uid(uid):
+def test_tree_goes_to_retrieve_and_keeps_the_uid(uid):
     out = route(f"Show me the tree of {uid}", plan(endpoint=f"/nextseek_api/sample-tree/{uid}/tree/"))
-    assert out.mode == "graph_query" and out.filters.uids == [uid]
+    assert out.mode == "new_search" and out.target_endpoint == RETRIEVE and out.filters.uids == [uid]
+
+
+# P6 T2: a tree or lineage question about ONE UID, with no other condition, is answered by samples/retrieve.
+# "Derived from", "children of" and "descendants of" stay on the graph (operator 2026-11-20).
+def _lookup_plan(uid, **filters):
+    return ParserPlan(mode="graph_query", intent_summary="x", filters=ParserFilters(uids=[uid], **filters),
+                      resolved=EntityAgentOutput(keywords=[uid]))
+
+
+@pytest.mark.parametrize("q,uid", [
+    ("Show me the sample tree for ZZZ-990101ABC-1-PUB", "ZZZ-990101ABC-1-PUB"),
+    ("ZZZ-990101ABC-1-PUB's lineage", "ZZZ-990101ABC-1-PUB"),
+    ("What is the lineage of ZZZ-990101ABC-1?", "ZZZ-990101ABC-1"),
+    ("ZZZ-990101ABC-1 sample tree", "ZZZ-990101ABC-1"),
+])
+def test_the_tree_of_one_uid_is_its_lineage_lookup(q, uid):
+    out = route(q, _lookup_plan(uid))
+    assert out.mode == "new_search" and out.target_endpoint == RETRIEVE
+    assert out.filters.uids == [uid] and out.filters.keywords == []
+    assert TREE_BY_UID_NOTE in out.notes
+
+
+def test_the_tree_of_a_dotted_prefix_uid_is_its_lineage_lookup():
+    q, uid = "Can you retrieve the full sample tree for Q.XYZ-990202ABC-4", "Q.XYZ-990202ABC-4"
+    out = route(q, _lookup_plan(uid, sampletype_code="Q.XYZ"))
+    assert out.mode == "new_search" and out.target_endpoint == RETRIEVE and out.filters.uids == [uid]
+    assert TREE_BY_UID_NOTE in out.notes
+
+
+@pytest.mark.parametrize("q", ["Show me everything derived from ZZZ-990101ABC-1-PUB.", "children of ZZZ-990101ABC-1-PUB",
+                               "descendants of ZZZ-990101ABC-1-PUB", "What is ZZZ-990101ABC-1-PUB derived from?"])
+def test_derived_children_and_descendants_of_one_uid_stay_on_the_graph(q):
+    out = route(q, _lookup_plan("ZZZ-990101ABC-1-PUB"))
+    assert out.mode == "graph_query" and TREE_BY_UID_NOTE not in (out.notes or "")
+
+
+def test_a_tree_question_with_any_other_condition_stays_on_the_graph():
+    u = "ZZZ-990101ABC-1-PUB"
+    two = route("Show me the tree for ZZZ-990101ABC-1-PUB and QQQ-990202XYZ-4-PUB", _lookup_plan(u))
+    typed = route(f"Show me the tissue samples in the tree of {u}", _lookup_plan(u, sampletype_code="TIS"))
+    kw = route(f"Show me the tree of {u} for lung", ParserPlan(
+        mode="graph_query", filters=ParserFilters(uids=[u]), resolved=EntityAgentOutput(keywords=[u, "lung"])))
+    proj = route(f"Show me the tree of {u}", ParserPlan(
+        mode="graph_query", filters=ParserFilters(uids=[u]), resolved=EntityAgentOutput(projects=["Zeta"])))
+    assert [x.mode for x in (two, typed, kw, proj)] == ["graph_query"] * 4
+
+
+def test_a_multi_plan_candidate_is_not_rerouted_by_the_tree_words():
+    cand = ParserCandidate(mode="graph_query", filters=ParserFilters(uids=["ZZZ-990101ABC-1-PUB"]))
+    multi = MultiParserPlan(candidates=[cand], resolved=EntityAgentOutput())
+    out = _apply_multi_parser_guardrails("Show me the tree of ZZZ-990101ABC-1-PUB", multi, config=ADMIN)
+    assert all(c.mode == "graph_query" for c in out.candidates)
 
 
 def test_investigation_and_project_lists_go_to_the_graph():

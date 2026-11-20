@@ -79,6 +79,18 @@ class SubjectCheck:
     truncated: bool = False        # the lookup hit LOOKUP_CAP
 
 
+#: The same two shapes, for the tree and lineage words only. "Derived from", "children of" and "descendants of"
+#: stay graph questions (operator 2026-11-20), so the one-UID tree route reads these, not _BEFORE_TREE.
+_BEFORE_TREE_WORDS = re.compile(r"(?:trees?|lineage)\s+(?:of|for|from|under)\s+(?:(?:the|a|an)\s+)?(?:[\w.'-]+\s+)?$",
+                                re.IGNORECASE)
+_AFTER_TREE_WORDS = re.compile(r"^(?:'s)?\s+(?:sample\s*)?(?:trees?|lineage)\b", re.IGNORECASE)
+
+
+def tree_named_at(question: str, start: int, end: int) -> bool:
+    """A name at ``question[start:end]`` is the subject of a tree or lineage ask: "tree of X", "X's lineage"."""
+    return bool(_BEFORE_TREE_WORDS.search(question[:start]) or _AFTER_TREE_WORDS.match(question[end:]))
+
+
 def asks_about_one_subject(question: str | None, term: str, words: frozenset[str] = frozenset()) -> bool:
     """The question asks for the tree or lineage of ``term`` (written with any separators), or for the samples, data
     or records of it written after one of ``words`` (``subject_words``), or is only the tree page's name."""
