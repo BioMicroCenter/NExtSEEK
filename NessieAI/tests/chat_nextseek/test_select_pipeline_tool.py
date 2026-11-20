@@ -236,7 +236,7 @@ def test_a_pooled_library_is_offered_with_a_question_and_nothing_built(monkeypat
     out = _call_real_decide(
         monkeypatch, '{"pipelines": ["rnaseq", "differentialabundance"], '
                      '"reason": "counts, then DE", "sample_pools": true}',
-        state=state, extra_pipelines={"scrnaseq": {"revision": "2.7.1"}})
+        state=state, extra_pipelines={"scrnaseq": {"revision": "4.2.0"}})
     assert out["verdict"] == "chosen" and out["pipelines"] == ["scrnaseq"]
     assert out["sample_pools"] is True and state["selection"]["sample_pools"] is True
     assert state["selection"]["pipelines"] == ["scrnaseq"]
@@ -253,7 +253,7 @@ def test_a_pooled_library_is_offered_with_a_question_and_nothing_built(monkeypat
 def test_an_unpooled_library_gets_no_pool_message(monkeypatch):
     out = _call_real_decide(
         monkeypatch, '{"pipelines": ["rnaseq"], "reason": "3\' tag counts with UMIs", '
-                     '"sample_pools": false}', extra_pipelines={"scrnaseq": {"revision": "2.7.1"}})
+                     '"sample_pools": false}', extra_pipelines={"scrnaseq": {"revision": "4.2.0"}})
     assert out["verdict"] == "chosen" and out["pipelines"] == ["rnaseq"]
     assert "sample_pools" not in out
     assert out["message"] == agent_tools._SELECTION_NEXT_STEP["chosen"]

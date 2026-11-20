@@ -1,6 +1,6 @@
 {
   "report_type": "NFCORE_RIBOSEQ_SAMPLESHEET",
-  "description": "nf-core/riboseq samplesheet context, aligned to the pinned 1.2.0 schema. Ribosome profiling (Ribo-seq).",
+  "description": "nf-core/riboseq samplesheet context, aligned to the pinned 2.0.0 schema. Ribosome profiling (Ribo-seq).",
   "params": {
     "aligner": {
       "type": "enum",
@@ -25,6 +25,12 @@
       "type": "bool",
       "default": false,
       "steerable": true
+    },
+    "run_ribotricer": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "also call ORFs with Ribotricer. 2.0.0 made it opt-in (1.x ran it by default): its ORF score is rank-unstable across replicates, so the pipeline warns and leaves that score out of cross-caller ranking. Ribo-TISH and RiboCode run either way."
     }
   },
   "reference_resources": [
@@ -38,7 +44,7 @@
     "repository": "https://github.com/nf-core/riboseq",
     "documentation_url": "https://nf-co.re/riboseq/latest/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Columns are sample, fastq_1, fastq_2, strandedness, type. strandedness and type are REQUIRED and enum-constrained.",
+    "core_rule": "Columns are sample, fastq_1, fastq_2, strandedness, type. strandedness and type are REQUIRED and enum-constrained. with_umi (true or false) and trim_length are optional per-library columns.",
     "required_columns": [
       "sample",
       "fastq_1",
@@ -47,6 +53,8 @@
     ],
     "optional_columns": [
       "fastq_2",
+      "with_umi",
+      "trim_length",
       "sample_description",
       "pair",
       "treatment"
@@ -79,7 +87,7 @@
     "type must be one of: riboseq, rnaseq, tiseq \u2014 and must reflect the real assay, not a default.",
     "A cohort containing only rnaseq-type rows is an ordinary RNA-seq experiment: use nf-core/rnaseq instead."
   ],
-  "notes": "Ribosome profiling. star_index and salmon_index are built from FASTA+GTF when absent; the Luria refs tree has no prebuilt indices, so expect a build on first run per genome.",
+  "notes": "Ribosome profiling. star_index and salmon_index are built from FASTA+GTF when absent; the Luria refs tree has no prebuilt indices, so expect a build on first run per genome. 2.0.0 needs Nextflow 25.10.4 or later. Its default ORF callers are Ribo-TISH and RiboCode, and plastid P-sites are computed by default.",
   "sources": [
     {
       "label": "nf-core/riboseq usage docs",
@@ -87,13 +95,13 @@
       "notes": "Workflow overview and samplesheet description."
     },
     {
-      "label": "nf-core/riboseq nextflow_schema.json @ 1.2.0",
-      "url": "https://raw.githubusercontent.com/nf-core/riboseq/1.2.0/nextflow_schema.json",
+      "label": "nf-core/riboseq nextflow_schema.json @ 2.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/riboseq/2.0.0/nextflow_schema.json",
       "notes": "Authoritative param names, types and defaults for the pinned revision."
     },
     {
-      "label": "nf-core/riboseq assets/schema_input.json @ 1.2.0",
-      "url": "https://raw.githubusercontent.com/nf-core/riboseq/1.2.0/assets/schema_input.json",
+      "label": "nf-core/riboseq assets/schema_input.json @ 2.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/riboseq/2.0.0/assets/schema_input.json",
       "notes": "Authoritative required/optional samplesheet columns and allowed values."
     }
   ],

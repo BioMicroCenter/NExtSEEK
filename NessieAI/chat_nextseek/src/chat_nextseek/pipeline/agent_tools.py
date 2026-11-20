@@ -57,6 +57,8 @@ from ..seqera.pairing import TABLE, pairing_question, tool_names
 from ..seqera.contrasts import (
     CONTRASTS_FILENAME,
     CONTRASTS_PARAM,
+    R_NAME_RE,
+    R_NAME_RULE,
     condition_problems,
     is_user_path,
     parse_contrasts,
@@ -321,6 +323,15 @@ _ARCHIVE_ACCESSION_RE = re.compile(
 # user to narrow the set instead (matches the "be specific / start from D.SEQ" flow).
 MAX_RESOLVE_LEAVES = 75
 
+# A record whose primary file is at GDC is a controlled-access BAM no run can read, and GDC holds no FASTQ for it,
+# so it never becomes a row: the agent gets this to say instead of offering the run.
+_GDC_HOST = "gdc.cancer.gov"
+_GDC_BAM_NOTE = (
+    "These samples link to controlled-access BAM files at GDC, so no run can read them and no FASTQ is held for them. "
+    "Say so and do not offer a run on them. To make FASTQ from a BAM, see "
+    "https://gdc.cancer.gov/content/how-can-i-access-gdc-sequencing-data-fastq-format"
+)
+
 _NARROW_ERROR = (
     "Resolved {n} sequencing samples — more than the "
     "{cap}-sample limit for an interactive build. Ask the user to "
@@ -420,6 +431,10 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
 
     annotated = annotate_metadata_with_sampletypes(config, raw)
     leaves = enumerate_lineage_leaves(annotated, accepted_types=_accepted_types_for(pipeline_key))
+    gdc_leaves = [leaf for leaf in leaves if _GDC_HOST in str((leaf.get("metadata") or {}).get("Link_PrimaryData") or "").lower()]
+    if gdc_leaves:
+        gdc_uids = {leaf["uid"] for leaf in gdc_leaves}
+        leaves = [leaf for leaf in leaves if leaf["uid"] not in gdc_uids]
 
     if len(leaves) > MAX_RESOLVE_LEAVES:
         # Building the per-leaf table for this many leaves would overflow the model's
@@ -505,7 +520,9 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     # A zero-leaf resolution is almost always a type mismatch, and the agent cannot
     # see which types this pipeline filters on. Say so, or it retries the same UIDs.
     no_leaf_hint = ""
-    if not table:
+    if not table and gdc_leaves:
+        no_leaf_hint = _GDC_BAM_NOTE
+    elif not table:
         no_leaf_hint = (
             f"No {'/'.join(accepted_types) or 'matching'} samples were found under those UIDs. "
             f"{pipeline_key} builds its rows from {'/'.join(accepted_types) or 'archive accessions'}. "
@@ -538,6 +555,11 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         "grouping_fields": grouping_fields,
         "source_uids_with_no_leaves": orphans,
         **({"no_leaf_hint": no_leaf_hint} if no_leaf_hint else {}),
+        **({"excluded_gdc_bams": {
+            "count": len(gdc_leaves),
+            "example_uids": [leaf["uid"] for leaf in gdc_leaves[:5]],
+            "note": _GDC_BAM_NOTE,
+        }} if gdc_leaves else {}),
         "detected_species": detected_species,
         "bundle_key": bundle_key,
         "param_menu": ctx.get("params", {}),
@@ -657,6 +679,15 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
                 "rnasplice needs a non-blank 'condition' on every row (it defines the two "
                 f"groups to compare); missing on: {', '.join(map(str, missing_cond))}. "
                 "Set a condition per sample, or group the cohort so each sample gets one."]})
+        # 2.0.0's contrastsheet takes only R names as treatment and control, and both must be
+        # conditions here, so a condition that is not one could never be compared.
+        bad_cond = list(dict.fromkeys(str(r.get("condition")).strip() for r in merged_rows
+                                      if not R_NAME_RE.match(str(r.get("condition")).strip())))
+        if bad_cond:
+            return json.dumps({"ok": False, "errors": [
+                f"rnasplice conditions must each be {R_NAME_RULE} (its contrasts file compares "
+                f"conditions by name); not one: {', '.join(bad_cond)}. Rename them, for example "
+                "0h -> h0 or wild-type -> wild_type."]})
 
     # ENA route retired: Luria resolves fastqs from a local /net/bmc-* path (filled here)
     # or fetches SRR accessions on-cluster (run.sh fetchngs pre-stage). No ENA URL synthesis.
@@ -1395,8 +1426,8 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     # (iGenomes, non-GENCODE) but wrong for our local GENCODE refs.
     if "gencode" in launch_params and gencode_for_genome_key(genome):
         launch_params["gencode"] = True
-    # Per-protocol process ext.args the curated pipeline JSON declares (e.g. scrnaseq dropseq ->
-    # SIMPLEAF_QUANT --knee); the submitter renders these into the run's -c config.
+    # Per-protocol process ext.args the curated pipeline JSON declares ('protocol_process_args',
+    # {PROCESS: ext_args} per protocol); the submitter renders these into the run's -c config.
     process_args = process_args_for(state.get("pipeline_key") or "", launch_params.get("protocol"))
     tool_input = tool_input or {}
     reasons: list = []

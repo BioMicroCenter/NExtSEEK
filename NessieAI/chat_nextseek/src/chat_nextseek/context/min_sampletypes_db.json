@@ -49,6 +49,13 @@
     "Tags": "sequence alignment analysis, genome alignment, read mapping, BAM file analysis, SAM analysis, aligned reads, reference mapping, short read alignment, bowtie, BWA, STAR alignment, A.ALN, BAM, CRAM, HISAT2"
   },
   {
+    "SampleType": "A.ATAC",
+    "ID": null,
+    "Name": "ATAC-seq Analysis",
+    "Description": "An ATAC-seq file contains reads or results from an assay of open chromatin, in which a transposase inserts sequencing adapters into accessible DNA. It represents where the genome of one sample or library is accessible, for studying regulatory elements. Each file typically corresponds to a single sequencing library.\nTypical file types: .bam, .bigWig, .bed\nThe TCGA records link to controlled-access BAM files at GDC, with no FASTQ available.",
+    "Tags": "ATAC-seq, ATACseq, ATAC-seq analysis, assay for transposase-accessible chromatin, chromatin accessibility, open chromatin, accessible chromatin, Tn5, regulatory element analysis, peak calling, MACS2, nf-core/atacseq, A.ATAC"
+  },
+  {
     "SampleType": "A.CCE",
     "ID": 85,
     "Name": "Cancer Cell Extravasation Assay Analysis",
@@ -66,8 +73,8 @@
     "SampleType": "A.CHRM",
     "ID": 133,
     "Name": "Chromatin Sequencing Analysis",
-    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv",
-    "Tags": "chromatin sequencing analysis, ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ATACseq analysis, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2"
+    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv\nATAC-seq files are A.ATAC, not A.CHRM.",
+    "Tags": "chromatin sequencing analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2"
   },
   {
     "SampleType": "A.CLOT",
@@ -563,7 +570,7 @@
     "SampleType": "D.SEQ",
     "ID": 33,
     "Name": "Sequencing Data",
-    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz",
+    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz\nSome records link to a controlled-access BAM at the data source instead, with no FASTQ available.",
     "Tags": "sequencing data, FASTQ, raw reads, NGS data, next-generation sequencing, short-read sequencing, Illumina data, RNA-seq raw, WGS, whole genome sequencing, WES, whole exome sequencing, long-read sequencing, Oxford Nanopore, D.SEQ"
   },
   {

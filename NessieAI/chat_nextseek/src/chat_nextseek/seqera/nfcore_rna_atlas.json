@@ -76,7 +76,7 @@
       }
     },
     "scrnaseq": {
-      "revision": "2.7.1",
+      "revision": "4.2.0",
       "answers": "How much of each gene is expressed, cell by cell?",
       "assumes_prep": "Droplet or plate-based single-cell library with cell barcodes and usually UMIs. Also a pooled, sample-barcoded 3' library (prime-seq, BRB-seq and similar): each sample's barcode, carried on the oligo(dT) primer at reverse transcription, plays the cell barcode's part, so barcode-aware counting splits each FASTQ into one count table per sample. That needs the barcode layout and the list of sample barcodes from the user.",
       "input_you_must_have": "FASTQ pairs where one read carries the cell barcode.",
@@ -218,10 +218,10 @@
       "species_constraint": "HUMAN ONLY. nextflow.config pins genome = 'GRCh38' and the README states plainly \"GRCh38 is the only supported reference\". The fusion callers depend on human-specific databases (CTAT, FusionCatcher). A mouse, macaque or any other non-human cohort cannot be run, however good its RNA is."
     },
     "rnasplice": {
-      "revision": "1.0.4",
+      "revision": "2.0.0",
       "answers": "Which isoforms or splicing events changed between two named groups of samples?",
       "assumes_prep": "Bulk RNA library, paired-end preferred, with at least two distinguishable sample groups and replicates within each.",
-      "input_you_must_have": "FASTQ, plus a condition assigned to every sample and an explicit contrast naming which two conditions to compare.",
+      "input_you_must_have": "FASTQ, plus a condition assigned to every sample (a name starting with a letter, with no spaces or hyphens) and an explicit contrast naming which two conditions to compare.",
       "data_signals": {
         "library_strategy": [
           "RNA-Seq"
@@ -289,10 +289,10 @@
       }
     },
     "riboseq": {
-      "revision": "1.2.0",
-      "answers": "Which transcripts and open reading frames are actively being translated, where do the ribosomes sit on them (P-site offset and reading frame), and, when matched RNA-seq libraries are included, how translational efficiency changes between two treatment groups?",
+      "revision": "2.0.0",
+      "answers": "Which transcripts and open reading frames are actively being translated (Ribo-TISH and RiboCode by default; Ribotricer, PRICE and Rp-Bp only when asked for), where do the ribosomes sit on them (P-site offset and reading frame), and, when matched RNA-seq libraries are included, how translational efficiency changes between two treatment groups (anota2seq by default, or deltaTE). Since 2.0.0 the Ribo-seq side of that test counts in-frame P-sites by default, so its counts are not comparable with a 1.x run's STAR and Salmon counts unless the run asks for the alignment method.",
       "assumes_prep": "Ribosome profiling (Ribo-seq): polysomes nuclease-digested to leave ribosome-protected footprints of roughly 28nt, short-read Illumina, single- or paired-end. TI-seq (translation initiation sites) is accepted as its own library type. Ordinary RNA-seq libraries from the same samples may be run alongside as type rnaseq; a cohort holding only RNA-seq libraries is an rnaseq question.",
-      "input_you_must_have": "Gzipped FASTQ per library, each with a type (riboseq, tiseq or rnaseq) and a strandedness (forward, reverse, unstranded, or auto to infer it). Translational efficiency (anota2seq) needs matched Ribo-seq and RNA-seq libraries of the same samples, a samplesheet column naming the two treatment groups, and a contrasts file. A reference genome FASTA and GTF; the STAR and Salmon indices are built from them when absent.",
+      "input_you_must_have": "Gzipped FASTQ per library, each with a type (riboseq, tiseq or rnaseq) and a strandedness (forward, reverse, unstranded, or auto to infer it); an optional with_umi column marks which libraries carry UMIs. Translational efficiency (anota2seq or deltaTE) needs matched Ribo-seq and RNA-seq libraries of the same samples, a samplesheet column naming the two treatment groups, and a contrasts file. A reference genome FASTA and GTF; the STAR and Salmon indices are built from them when absent.",
       "data_signals": {
         "library_strategy": [
           "Ribo-Seq",

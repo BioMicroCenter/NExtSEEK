@@ -252,7 +252,7 @@
             }
           },
           "ask": {
-            "definition": "Each library's strand-specificity, a required samplesheet column. rnasplice 1.0.4 accepts only forward, reverse or unstranded (no auto), and rMATS needs every sample to share one. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field), or from a kit whose strand is fixed (dUTP kits such as TruSeq Stranded or NEBNext Ultra II Directional are reverse).",
+            "definition": "Each library's strand-specificity, a required samplesheet column. rnasplice 2.0.0 accepts only forward, reverse or unstranded (no auto), and rMATS needs every sample to share one. NExtSEEK knows it when an earlier rnaseq run measured it (the D.SEQ Strandedness field), or from a kit whose strand is fixed (dUTP kits such as TruSeq Stranded or NEBNext Ultra II Directional are reverse).",
             "on_conflict": "This sample's measured strandedness and its library kit disagree. Which is it: forward, reverse or unstranded?",
             "on_absent": "No earlier run measured these libraries' strandedness, their kit does not fix it, and rnasplice cannot infer it. Which is it: forward, reverse or unstranded?"
           },
