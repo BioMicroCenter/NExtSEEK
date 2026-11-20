@@ -28,7 +28,8 @@ class _StubSeekDB:
         self._boom = boom
         self._current_user = current_user
 
-    def getCurrentUser(self):
+    def getCurrentUser(self, timeout=None):
+        self.last_timeout = timeout
         if self._boom:
             raise RuntimeError("SEEK unreachable")
         if self._current_user is not None:
@@ -126,3 +127,100 @@ def test_custom_personal_prefix():
     )
 
     assert project.id == "priv-dave"
+
+
+# P6 T6: the failure names its step and how long it took, and reaches django.log.
+def test_a_failure_names_its_step_and_how_long_it_took():
+    class _NotJson(_StubSeekDB):
+        def getCurrentUser(self, timeout=None):
+            raise ValueError("not JSON")
+
+    with pytest.raises(ProjectResolutionError, match=r"^SEEK /people/current failed after \d+\.\ds: ValueError"):
+        resolve_user_project("alice", "pw", seekdb_factory=lambda s, u, p: _NotJson(s, u, p))
+
+
+def test_a_title_failure_names_its_step():
+    class _NoTitle(_StubSeekDB):
+        def getProjectName(self, projectid):
+            raise KeyError(projectid)
+
+    factory = lambda s, u, p: _NoTitle(s, u, p, membership=[{"id": "42"}])  # noqa: E731
+    with pytest.raises(ProjectResolutionError, match=r"^SEEK project title failed after \d+\.\ds: KeyError"):
+        resolve_user_project("alice", "pw", seekdb_factory=factory)
+
+
+def test_cc_warnings_reach_django_log():
+    from django.conf import settings
+
+    assert settings.LOGGING["loggers"]["NessieAI.cc"]["handlers"] == ["logfile_warnings"]
+
+
+def test_the_membership_read_is_bounded():
+    made = []
+
+    def factory(s, u, p):
+        made.append(_StubSeekDB(s, u, p))
+        return made[0]
+
+    resolve_user_project("alice", "pw", seekdb_factory=factory)
+    assert made[0].last_timeout == (10, 60)
+
+
+# P6 T8: one retry of the membership read on a transient SEEK failure (dev 11-20: SEEK answered non-JSON while its
+# workers recycled). The retry runs the same read and the same checks; a refusal or a malformed answer is not retried.
+class _Flaky(_StubSeekDB):
+    calls = 0
+
+    def __init__(self, *a, first=None, **k):
+        super().__init__(*a, **k)
+        self._first = first
+
+    def getCurrentUser(self, timeout=None):
+        type(self).calls += 1
+        if type(self).calls == 1 and self._first is not None:
+            raise self._first
+        return super().getCurrentUser(timeout=timeout)
+
+
+def _not_json(status):
+    from seek.seekapi import SeekNotJSON
+
+    err = SeekNotJSON(f"SEEK /people/current answered {status} (text/html), not JSON")
+    err.status_code = status
+    return err
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    waited = []
+    monkeypatch.setattr("NessieAI.cc.cc_provision.time.sleep", waited.append)
+    _Flaky.calls = 0
+    return waited
+
+
+@pytest.mark.parametrize("first", [__import__("requests").ConnectionError("reset"),
+                                   __import__("requests").Timeout("slow"), "502"])
+def test_a_transient_failure_is_retried_once(no_sleep, first):
+    err = _not_json(502) if first == "502" else first
+    factory = lambda s, u, p: _Flaky(s, u, p, first=err, membership=[{"id": "42"}], titles={"42": "Zeta"})  # noqa: E731
+    project = resolve_user_project("alice", "pw", seekdb_factory=factory)
+    assert project.id == "42" and _Flaky.calls == 2 and no_sleep == [2]
+
+
+def test_a_second_failure_still_stops_the_turn(no_sleep):
+    class _Down(_Flaky):
+        def getCurrentUser(self, timeout=None):
+            _Flaky.calls += 1
+            raise _not_json(503)
+
+    with pytest.raises(ProjectResolutionError, match="SEEK /people/current failed"):
+        resolve_user_project("alice", "pw", seekdb_factory=lambda s, u, p: _Down(s, u, p))
+    assert _Flaky.calls == 2
+
+
+@pytest.mark.parametrize("err", [_not_json(401), KeyError("data"), ValueError("not JSON")])
+def test_a_refusal_or_a_malformed_answer_is_not_retried(no_sleep, err):
+    factory = lambda s, u, p: _Flaky(s, u, p, first=err)  # noqa: E731
+    with pytest.raises(ProjectResolutionError):
+        resolve_user_project("alice", "pw", seekdb_factory=factory)
+    assert _Flaky.calls == 1 and no_sleep == []
