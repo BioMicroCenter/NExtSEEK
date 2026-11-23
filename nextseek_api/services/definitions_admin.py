@@ -78,9 +78,26 @@ def _one(sql: str, params) -> dict | None:
         return dict(zip([d[0] for d in cur.description], row)) if row else None
 
 
+_ST_COLS = ", ".join(["id", "sample_type"] + list(SAMPLE_TYPE_TEXT.values()) + list(TIER_COLUMNS.values()))
+
+
 def sample_type_row(code: str) -> dict | None:
-    cols = ", ".join(["sample_type"] + list(SAMPLE_TYPE_TEXT.values()) + list(TIER_COLUMNS.values()))
-    return _one(f"SELECT {cols} FROM sample_types_context WHERE sample_type = %s", [code])
+    """The row for a code. MySQL may match it in another case or with trailing spaces, so callers read the row's
+    own ``sample_type`` and address it by ``id`` from here on."""
+    return _one(f"SELECT {_ST_COLS} FROM sample_types_context WHERE sample_type = %s", [code])
+
+
+def _sample_type_by_id(row_id: int) -> dict | None:
+    return _one(f"SELECT {_ST_COLS} FROM sample_types_context WHERE id = %s", [row_id])
+
+
+def seek_attribute_titles(code: str) -> tuple[list[str], set[str]]:
+    """The type's SEEK attribute titles, stripped, in SEEK's order, and the required ones. Joined by the exact
+    title, lowest id first, as the context step joins."""
+    ids = [t["id"] for t in sources.sample_types() if t["title"] == code]
+    attrs = [a for a in sources.sample_attributes() if ids and a["sample_type_id"] == min(ids)]
+    titles = list(dict.fromkeys(a["title"].strip() for a in attrs if a["title"].strip()))
+    return titles, {a["title"].strip() for a in attrs if a["required"]}
 
 
 def assay_row(row_id: int) -> dict | None:
@@ -121,20 +138,18 @@ def update_sample_type(code: str, body: DefinitionSampleTypeUpdateRequest) -> tu
              if getattr(body, f) is not None}
     if body.tiers is not None:
         tiers = body.tiers.model_dump()
-        ids = [t["id"] for t in sources.sample_types() if t["title"] == code]
-        seek_required = {a["title"] for a in sources.sample_attributes()
-                         if ids and a["sample_type_id"] == min(ids) and a["required"]}
+        _, seek_required = seek_attribute_titles(row["sample_type"])
         _check_tiers(row, tiers, seek_required)
         cells.update({col: _cell(tiers.get(tier, [])) for tier, col in TIER_COLUMNS.items()})
     node_changed = any(row.get(col) != cells[col] for col in SAMPLE_TYPE_TEXT.values() if col in cells)
-    _write_sample_type(code, cells)
-    return sample_type_row(code), node_changed
+    _write_sample_type(row["id"], cells)
+    return _sample_type_by_id(row["id"]), node_changed
 
 
-def _write_sample_type(code: str, cells: dict) -> None:
+def _write_sample_type(row_id: int, cells: dict) -> None:
     sets = ", ".join(f"{col} = %s" for col in cells)
     with transaction.atomic(using=settings.NEXTSEEK_DATABASE), _cursor() as cur:
-        cur.execute(f"UPDATE sample_types_context SET {sets} WHERE sample_type = %s", [*cells.values(), code])
+        cur.execute(f"UPDATE sample_types_context SET {sets} WHERE id = %s", [*cells.values(), row_id])
 
 
 def _column(sql: str) -> list[str]:

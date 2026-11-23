@@ -206,3 +206,14 @@ def test_attention_offers_no_create_for_a_title_that_differs_only_in_spelling():
                        internal_assays=[{"id": 27, "internal_assay_title": "FC Receptor Binding Assay"}])
     assert out["needs_definition"]["assays"] == []
     assert out["spelling"] == [{"assay_map": "FC Receptor Binding Assay", "definition": "Fc Receptor Binding Assay"}]
+
+
+def test_a_case_folded_url_code_still_keeps_seek_required_titles_required(tables, monkeypatch):
+    """MySQL finds BAC for /sample_types/bac/; the SEEK ids must come from the row's own code, not the URL's."""
+    real = da.sample_type_row
+    monkeypatch.setattr(da, "sample_type_row", lambda code: real("BAC" if code == "bac" else code))
+    monkeypatch.setattr(sources, "sample_attributes", lambda: [{**a, "title": a["title"] + " "} for a in SEEK_ATTRS])
+    r = _patch_type("bac", {"tiers": {"required": [], "standard": ["UID", "Species"], "possible": ["Notes"]}})
+    assert r.status_code == 422 and "required tier" in r.data["errors"][0]["detail"]
+    ok = _patch_type("bac", {"name": "Bacteria"})
+    assert ok.status_code == 200 and ok.data["row"]["sample_type"] == "BAC" and ok.data["row"]["name"] == "Bacteria"

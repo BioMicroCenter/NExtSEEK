@@ -95,7 +95,8 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
     row = next((r for r in context_rows if r["sample_type"] == selected_type), None)
     if row:
         ids = [t["id"] for t in seek_types if t["title"] == row["sample_type"]]
-        required = {a["title"] for a in seek_attrs if ids and a["sample_type_id"] == min(ids) and a["required"]}
+        required = {a["title"].strip() for a in seek_attrs
+                    if ids and a["sample_type_id"] == min(ids) and a["required"]}
         code = row["sample_type"]
         ctx["type"] = {
             "row": row,
