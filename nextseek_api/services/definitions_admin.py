@@ -137,11 +137,26 @@ def _write_sample_type(code: str, cells: dict) -> None:
         cur.execute(f"UPDATE sample_types_context SET {sets} WHERE sample_type = %s", [*cells.values(), code])
 
 
+def _column(sql: str) -> list[str]:
+    with _cursor() as cur:
+        cur.execute(sql)
+        return [r[0] for r in cur.fetchall() if r[0] is not None]
+
+
+def _existing(title: str, names: list[str], fix: str) -> None:
+    """Refuse a title a row already holds, or holds but for case or spacing. Compared in Python: MySQL's _ci
+    collation ignores case and trailing spaces, so a SQL ``=`` would call them the same title."""
+    if title in names:
+        raise FileExistsError(f"{title!r} already has a definition")
+    near = [n for n in names if _norm(n) == _norm(title)]
+    if near:
+        raise FileExistsError(f"{title!r} differs only in case or spacing from the definition {near[0]!r}; {fix}")
+
+
 def create_sample_type(code: str) -> dict:
     if code not in {t["title"] for t in sources.sample_types()}:
         raise Invalid(f"{code!r} is not a SEEK sample type title on this box")
-    if sample_type_row(code) is not None:
-        raise FileExistsError(code)
+    _existing(code, _column("SELECT sample_type FROM sample_types_context"), "rename the type in SEEK")
     with transaction.atomic(using=settings.NEXTSEEK_DATABASE), _cursor() as cur:
         cur.execute("INSERT INTO sample_types_context (sample_type) VALUES (%s)", [code])
     return sample_type_row(code)
@@ -168,18 +183,14 @@ def _write_assay(row_id: int, cells: dict) -> None:
 
 
 def create_assay(title: str) -> dict:
-    with _cursor() as cur:
-        cur.execute("SELECT 1 FROM internal_assays WHERE internal_assay_title = %s", [title])
-        if cur.fetchone() is None:
-            raise Invalid(f"{title!r} is not an internal assay on this box")
-        cur.execute("SELECT 1 FROM assay_context WHERE assay_name = %s", [title])
-        if cur.fetchone() is not None:
-            raise FileExistsError(title)
+    if title not in _column("SELECT internal_assay_title FROM internal_assays"):
+        raise Invalid(f"{title!r} is not an internal assay on this box")
+    _existing(title, _column("SELECT assay_name FROM assay_context"), "rename it on the Assay map tab")
     with transaction.atomic(using=settings.NEXTSEEK_DATABASE), _cursor() as cur:
         cur.execute("INSERT INTO assay_context (assay_name) VALUES (%s)", [title])
     with _cursor() as cur:
-        cur.execute("SELECT MAX(id) FROM assay_context WHERE assay_name = %s", [title])
-        return assay_row(cur.fetchone()[0])
+        cur.execute("SELECT id, assay_name FROM assay_context ORDER BY id DESC")
+        return assay_row(next(i for i, n in cur.fetchall() if n == title))
 
 
 # --- the "Needs attention" list ----------------------------------------------------------------------------------
@@ -223,10 +234,15 @@ def attention(*, context_rows, assay_rows, seek_types, seek_attributes, type_cla
                        for n in by_norm.get(_norm(r["internal_assay_title"]), ())
                        if n != r["internal_assay_title"]})
 
+    needs = context_derived.needs_definition([t["title"] for t in seek_types], context_rows, internal_assays,
+                                             assay_rows)
+    # A title that differs from a definition only by case or spacing gets no Create (it would answer 409): it is
+    # listed under spelling, to be renamed.
+    clash = {a for a, _ in spelling}
+    needs["assays"] = [t for t in needs["assays"] if t not in clash]
     return {
         "undesigned": {a: sorted(set(p)) for a, p in sorted(undesigned.items())},
-        "needs_definition": context_derived.needs_definition([t["title"] for t in seek_types], context_rows,
-                                                             internal_assays, assay_rows),
+        "needs_definition": needs,
         "would_drop": would_drop,
         "spelling": [{"assay_map": a, "definition": d} for a, d in spelling],
     }
@@ -318,8 +334,8 @@ class DefinitionSampleTypesViewSet(_SuperuserViewSet):
             row = create_sample_type(body.code)
         except Invalid as exc:
             return _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request", str(exc))
-        except FileExistsError:
-            return _error(status.HTTP_409_CONFLICT, "Already defined", f"{body.code!r} already has a definition")
+        except FileExistsError as exc:
+            return _error(status.HTTP_409_CONFLICT, "Already defined", str(exc))
         hooks.enqueue("context", "*")
         return Response({"row": row, "enqueued": ["context"]}, status=status.HTTP_201_CREATED)
 
@@ -377,9 +393,8 @@ class DefinitionAssaysViewSet(_SuperuserViewSet):
             row = create_assay(body.internal_assay_title)
         except Invalid as exc:
             return _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request", str(exc))
-        except FileExistsError:
-            return _error(status.HTTP_409_CONFLICT, "Already defined",
-                          f"{body.internal_assay_title!r} already has a definition")
+        except FileExistsError as exc:
+            return _error(status.HTTP_409_CONFLICT, "Already defined", str(exc))
         hooks.enqueue("context", "*")
         hooks.enqueue("assay_map", "*")
         return Response({"row": row, "enqueued": ["context", "assay_map"]}, status=status.HTTP_201_CREATED)

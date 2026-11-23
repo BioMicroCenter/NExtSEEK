@@ -149,8 +149,8 @@ def test_create_makes_a_bare_row_for_a_seek_type_or_internal_assay(tables):
 
 
 def test_attention_lists_what_a_person_must_fix():
-    context_rows = [{"sample_type": "BAC", "sampletype_id": 7, "child_sampletypes": "DNA, RNA"},
-                    {"sample_type": "DNA", "sampletype_id": 11}]
+    context_rows = [{"id": 1, "sample_type": "BAC", "sampletype_id": 7, "child_sampletypes": "DNA, RNA"},
+                    {"id": 2, "sample_type": "DNA", "sampletype_id": 11}]
     assay_rows = [{"id": 3, "assay_name": "DNA Extraction", "Required_Parent_Sample_Types": "BAC",
                    "Children_Sample_Types": "DNA", "internal_assay_id": 5},
                   {"id": 4, "assay_name": "Fc Receptor Binding Assay", "internal_assay_id": None}]
@@ -180,3 +180,29 @@ def test_the_four_operations_and_their_models_are_in_the_openapi_document():
     for model in ("PatchedDefinitionSampleTypeUpdateRequest", "PatchedDefinitionAssayUpdateRequest",
                   "DefinitionSampleTypeCreateRequest", "DefinitionAssayCreateRequest", "DefinitionRowResponse"):
         assert model in schema["components"]["schemas"]
+
+
+def _post(viewset, path, body, user=SUPER):
+    return _call(viewset, "create", "post", path, body, user)
+
+
+def test_create_compares_titles_exactly_and_names_a_spelling_clash(tables):
+    """MySQL's _ci collation ignores case and trailing spaces, so titles are compared in Python, as sources.py does."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO internal_assays VALUES (27, 'FC Receptor Binding Assay')")
+        cur.execute("INSERT INTO assay_context (id, assay_name) VALUES (9, 'Fc Receptor Binding Assay')")
+    a = "/nextseek_api/definitions/assays/"
+    clash = _post(da.DefinitionAssaysViewSet, a, {"internal_assay_title": "FC Receptor Binding Assay"})
+    assert clash.status_code == 409 and "Assay map" in clash.data["errors"][0]["detail"]
+    assert _post(da.DefinitionAssaysViewSet, a, {"internal_assay_title": "library prep "}).status_code == 422
+    st = "/nextseek_api/definitions/sample_types/"
+    assert _post(da.DefinitionSampleTypesViewSet, st, {"code": "bac"}).status_code == 422
+    assert tables == []
+
+
+def test_attention_offers_no_create_for_a_title_that_differs_only_in_spelling():
+    out = da.attention(context_rows=[], assay_rows=[{"id": 9, "assay_name": "Fc Receptor Binding Assay"}],
+                       seek_types=[], seek_attributes=[], type_clades={}, connection_rows=[],
+                       internal_assays=[{"id": 27, "internal_assay_title": "FC Receptor Binding Assay"}])
+    assert out["needs_definition"]["assays"] == []
+    assert out["spelling"] == [{"assay_map": "FC Receptor Binding Assay", "definition": "Fc Receptor Binding Assay"}]
