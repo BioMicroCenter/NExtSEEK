@@ -62,12 +62,23 @@ def _last_tool_result(client, call_index) -> str:
     return json.dumps(last["content"])
 
 
+def _zzz_snapshot():
+    """A catalog with one type, ZZZ, holding StatusFoo."""
+    from types import MappingProxyType
+
+    from chat_nextseek import graph_catalog as gcat
+    row = gcat.TypeIndexRow(title="ZZZ", label="T_ZZZ", name=None, clade=None, sample_count=10, deprecated=False,
+                            attributes_with_values=1)
+    return gcat.CatalogSnapshot(catalog_hash="h1", synced_at=None, has_usage=False, index=(row,),
+                                guard=MappingProxyType({"T_ZZZ": frozenset({"StatusFoo"})}))
+
+
 @pytest.fixture
 def wired(monkeypatch):
     """Context and guard stubbed; Neo4j answered by ``state['answer'](cypher, parameters)``."""
     state = {"ran": [], "answer": lambda cypher, params: {"ok": True, "data": [{"n": 0}], "count": 1}}
     monkeypatch.setattr(gs, "_context", lambda config, q, e, p, refine=None: gs._Ctx(
-        system="SYS", opening="QUESTION", snapshot=None, scoped=False, procedures=frozenset(),
+        system="SYS", opening="QUESTION", snapshot=_zzz_snapshot(), scoped=False, procedures=frozenset(),
         project_titles={}, fields_named={}))
     monkeypatch.setattr(gs, "_guard", lambda ctx, cypher, params: (cypher, None))
 
@@ -104,24 +115,40 @@ def test_the_agent_reads_stored_values_before_it_filters(wired):
     assert [s["tool"] for s in out.steps] == ["field_values", "finish"]
 
 
-def test_find_word_shows_the_text_it_matched_not_the_whole_record(wired):
-    def answer(cypher, params):
-        return {"ok": True, "data": [{"uuid": "ZZZ-1", "text": "Splenocytes (Balb/C)\nfreezer 3"}], "count": 1,
-                "total": 1}
-
-    wired["answer"] = answer
+def test_find_word_shows_the_values_that_hold_the_letters_and_whether_the_word_is_whole(wired):
+    wired["answer"] = lambda cypher, params: {"ok": True, "count": 2, "data": [
+        {"v": "Splenocytes (Balb/C)", "n": 1}, {"v": "BAL fluid", "n": 4}]}
     client = _Client([_use("find_word", {"word": "bal", "sample_types": ["ZZZ"]}),
                       _finish("", explanation="no record holds the word itself")])
     out = _run(client)
-    seen = _last_tool_result(client, 1)
-    assert "Splenocytes (Balb/C)" in seen
-    assert "freezer 3" not in seen
-    assert len(wired["ran"]) == 1  # one statement per type: its rows and its total
-    assert '\\"records\\": 1' in seen
-    assert all(p == {"w": "bal"} for _, p, _ in wired["ran"])
-    # A finish with no query is the agent's reasoned refusal: no statement, its reason kept.
+    seen = json.loads(json.loads(_last_tool_result(client, 1))[0]["content"])
+    by_type = seen["by_type"][0]
+    assert by_type["records_with_the_whole_word"] == 4 and by_type["records_with_the_letters_only"] == 1
+    assert {"value": "Splenocytes (Balb/C)", "records": 1, "whole_word": False} in by_type["values"]
+    assert len(wired["ran"]) == 1 and "UNWIND" in wired["ran"][0][0]  # one aggregate statement per type
+    assert wired["ran"][0][1] == {"w": "bal"}
+    # A finish with no query and a reason is the agent's reasoned refusal: no statement, its reason kept.
     assert out.plan.cypher == "" and out.result is None
     assert "no record holds" in out.plan.explanation
+
+
+def test_find_word_names_codes_the_catalog_does_not_have_and_accepts_a_label(wired):
+    client = _Client([_use("find_word", {"word": "x", "sample_types": ["T_ZZZ", "Mouse"]}),
+                      _finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    _run(client)
+    seen = json.loads(json.loads(_last_tool_result(client, 1))[0]["content"])
+    assert [c for c, _, _ in wired["ran"]][0].startswith("MATCH (s:T_ZZZ)")
+    assert {"sample_type": "Mouse", "error": "not a type code in the type index"} in seen["by_type"]
+
+
+def test_field_values_says_when_the_list_is_cut(wired):
+    from chat_nextseek.graph_review import VALUES_CAP
+    wired["answer"] = lambda cypher, params: {"ok": True, "data": [{"v": str(i), "n": 1} for i in range(VALUES_CAP)]}
+    client = _Client([_use("field_values", {"sample_type": "ZZZ", "field": "StatusFoo"}),
+                      _finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    _run(client)
+    seen = json.loads(json.loads(_last_tool_result(client, 1))[0]["content"])
+    assert seen["complete"] is False and "run_query" in seen["note"]
 
 
 def test_find_project_gives_the_same_answer_every_time(monkeypatch):
@@ -158,6 +185,16 @@ def test_a_final_query_that_fails_goes_back_to_the_model(wired):
     assert out.result["data"] == [{"n": 3}]
 
 
+def test_a_look_reads_a_capped_number_of_rows(wired):
+    client = _Client([_use("run_query", {"cypher": "MATCH (s:T_ZZZ) RETURN s.id AS id"}),
+                      _use("run_query", {"cypher": "MATCH (s:T_ZZZ) RETURN s.id AS id LIMIT 5"}, i="t2"),
+                      _finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    _run(client)
+    assert wired["ran"][0][0].endswith(f"LIMIT {gs.LOOK_ROWS_READ}")
+    assert wired["ran"][1][0].endswith("LIMIT 5")
+    assert not wired["ran"][2][0].endswith(f"LIMIT {gs.LOOK_ROWS_READ}")  # the final query is not capped
+
+
 def test_rows_shown_to_the_model_are_capped_and_the_total_is_said(wired):
     wired["answer"] = lambda cypher, params: {"ok": True, "data": [{"id": i} for i in range(50)], "count": 50,
                                               "total": 50}
@@ -174,6 +211,87 @@ def test_a_look_query_has_a_time_limit(wired):
                       _finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
     _run(client)
     assert wired["ran"][0][2].get("timeout_s") == gs.LOOK_TIMEOUT_S
+
+
+def test_a_refused_final_with_no_cure_goes_to_the_turns_own_refusal_handling(wired, monkeypatch):
+    refused = {"ok": False, "error": "refused", "data": [], "scope": {"decision": "refused", "codes": ["x"]}}
+    wired["answer"] = lambda cypher, params: refused
+    monkeypatch.setattr(gs, "scope_repair_context", lambda result: None)
+    client = _Client([_finish("MATCH (st:Study) RETURN count(*) AS n")])
+    out = _run(client)
+    assert out.plan.cypher == "MATCH (st:Study) RETURN count(*) AS n" and out.result is refused
+    assert len(client.sent) == 1
+
+
+def test_a_curable_refusal_gets_one_rewrite_then_is_final(wired, monkeypatch):
+    refused = {"ok": False, "error": "refused", "data": [], "scope": {"decision": "refused", "codes": ["x"]}}
+    wired["answer"] = lambda cypher, params: refused
+    monkeypatch.setattr(gs, "scope_repair_context", lambda result: "REWRITE IT ONCE")
+    client = _Client([_finish("MATCH (a) RETURN 1"), _finish("MATCH (b) RETURN 1", i="t2")])
+    out = _run(client)
+    assert "REWRITE IT ONCE" in _last_tool_result(client, 1)
+    assert out.plan.cypher == "MATCH (b) RETURN 1" and out.result is refused
+
+
+def test_bad_finish_input_goes_back_to_the_model_and_a_json_string_is_read(wired, monkeypatch):
+    client = _Client([_use("finish", {"cypher": "MATCH (s:T_ZZZ) RETURN 1", "explanation": "e", "parameters": "nope"}),
+                      _use("finish", {"cypher": "MATCH (s:T_ZZZ) WHERE s.StatusFoo = $v RETURN 1", "explanation": "e",
+                                      "parameters": "{\"v\": \"1\"}"}, i="t2")])
+    out = _run(client)
+    assert "parameters must be a JSON object" in _last_tool_result(client, 1)
+    assert out.parameters == {"v": "1"}
+
+
+def test_a_guard_that_raises_goes_back_to_the_model(wired, monkeypatch):
+    def guard(ctx, cypher, params):
+        if "boom" in cypher:
+            raise RuntimeError("regex tripped")
+        return cypher, None
+
+    monkeypatch.setattr(gs, "_guard", guard)
+    client = _Client([_finish("MATCH (boom) RETURN 1"), _finish("MATCH (s:T_ZZZ) RETURN 1", i="t2")])
+    out = _run(client)
+    assert "regex tripped" in _last_tool_result(client, 1)
+    assert out.plan.cypher == "MATCH (s:T_ZZZ) RETURN 1"
+
+
+def test_a_finish_with_no_query_and_no_reason_hands_back(wired):
+    out = _run(_Client([_use("finish", {})]))
+    assert out.plan is None and "no query and no reason" in out.fallback
+
+
+def test_a_finish_beside_looks_is_sent_back(wired):
+    client = _Client([{"stop_reason": "tool_use", "content": [
+        {"type": "tool_use", "id": "a", "name": "field_values", "input": {"sample_type": "ZZZ", "field": "StatusFoo"}},
+        {"type": "tool_use", "id": "b", "name": "finish", "input": {"cypher": "MATCH (s) RETURN 1", "explanation": "e"}}]},
+        _finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    out = _run(client)
+    assert "Read your looks first" in _last_tool_result(client, 1)
+    assert out.plan.cypher == "MATCH (s:T_ZZZ) RETURN count(*) AS n"
+
+
+def test_a_statement_that_timed_out_is_never_sent_again(wired):
+    wired["answer"] = lambda cypher, params: ({"ok": False, "error": "TransactionTimedOut", "data": []}
+                                              if "slow" in cypher else {"ok": True, "data": [{"n": 1}], "count": 1})
+    slow = {"cypher": "MATCH (s:T_ZZZ) WHERE s.slow = 1 RETURN count(*) AS n"}
+    client = _Client([_use("run_query", slow), _use("run_query", slow, i="t2"),
+                      _finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    _run(client)
+    assert sum("slow" in c for c, _, _ in wired["ran"]) == 1
+    assert "already ran out of time" in _last_tool_result(client, 2)
+
+
+def test_past_the_soft_budget_the_model_is_told_to_finish(wired, monkeypatch):
+    monkeypatch.setattr(gs, "SOFT_BUDGET_S", -1)
+    client = _Client([_finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    _run(client)
+    assert "last step" in json.dumps(client.sent[0]).lower()
+
+
+def test_past_the_hard_budget_the_turn_goes_back(wired, monkeypatch):
+    monkeypatch.setattr(gs, "HARD_BUDGET_S", -1)
+    out = _run(_Client([]))
+    assert out.plan is None and "budget" in out.fallback
 
 
 def test_no_finish_within_the_step_cap_hands_back_to_the_one_shot_agent(wired):
@@ -199,7 +317,7 @@ def test_the_switch_is_off_unless_set_to_stepwise():
 # --- the orchestrator's graph turn ----------------------------------------------------------------------------
 
 
-def _turn(monkeypatch, tmp_path, *, mode, outcome=None):
+def _turn(monkeypatch, tmp_path, *, mode, outcome=None, refine_context=None, parameters_extra=None):
     calls = {"one_shot": 0, "stepwise": 0, "neo4j": 0}
 
     def one_shot(config, user_text, entity_result, plan, retry_context=None, refine_context=None):
@@ -228,7 +346,8 @@ def _turn(monkeypatch, tmp_path, *, mode, outcome=None):
         config=config, session={}, user_text="how many", entity_result=EntityAgentOutput(),
         plan=ParserPlan(mode="graph_query", intent_summary="count"), log_dir=str(tmp_path),
         artifact_store=MagicMock(register_path=MagicMock(return_value=None)),
-        send_event=lambda *a, **k: None, debug_payload=debug, t_total_start=time.perf_counter())
+        send_event=lambda *a, **k: None, debug_payload=debug, t_total_start=time.perf_counter(),
+        refine_context=refine_context, parameters_extra=parameters_extra)
     return debug, calls
 
 
@@ -261,17 +380,7 @@ def test_switch_on_falls_back_to_the_one_shot_agent_and_says_why(monkeypatch, tm
 
 
 def _real_ctx():
-    from types import MappingProxyType
-
-    from chat_nextseek import graph_catalog as gcat
-
-    def row(title):
-        return gcat.TypeIndexRow(title=title, label="T_" + title, name=None, clade=None, sample_count=10,
-                                 deprecated=False, attributes_with_values=1)
-
-    snapshot = gcat.CatalogSnapshot(catalog_hash="h1", synced_at=None, has_usage=False, index=(row("ZZZ"),),
-                                    guard=MappingProxyType({"T_ZZZ": frozenset({"StatusFoo"})}))
-    return gs._Ctx(system="", opening="", snapshot=snapshot, scoped=False, procedures=frozenset(),
+    return gs._Ctx(system="", opening="", snapshot=_zzz_snapshot(), scoped=False, procedures=frozenset(),
                    project_titles={}, fields_named={})
 
 
@@ -301,8 +410,10 @@ def test_the_real_guard_passes_the_field_values_statement():
 def test_the_look_statements_are_scoped_for_a_member_not_refused(cypher):
     from chat_nextseek.cypher_scope import Scoped, scope_cypher
     from chat_nextseek.graph_scope import GraphScope
+    from chat_nextseek.graph_scope import SCOPE_PARAM
     out = scope_cypher(cypher, {"w": "x"} if "$w" in cypher else {}, GraphScope.for_projects([1], source="test"))
     assert isinstance(out, Scoped), out
+    assert SCOPE_PARAM in out.cypher and out.parameters.get(SCOPE_PARAM) == [1]  # the scope is in the statement
 
 
 def test_the_context_carries_the_graph_prompt_the_look_rules_and_the_question(monkeypatch):
@@ -332,3 +443,28 @@ def test_the_context_carries_the_graph_prompt_the_look_rules_and_the_question(mo
     assert "ZZZ: StatusFoo" in ctx.opening and "Alpha Cohort" in ctx.opening and "UID CHECK" in ctx.opening
     assert ctx.opening.endswith("how many ZZZ hold StatusFoo 1")
     assert ctx.project_titles == {"Alpha": "ALPHAc"}
+
+
+@pytest.mark.parametrize("kw", [{"refine_context": "FOLLOW-UP CONTEXT"},
+                                {"refine_context": "FOLLOW-UP CONTEXT", "parameters_extra": {"uids": ["ZZZ-1"]}},
+                                {"parameters_extra": {"uids": ["ZZZ-1"]}}])
+def test_follow_ups_refines_and_chip_reruns_stay_on_the_one_shot_agent(monkeypatch, tmp_path, kw):
+    debug, calls = _turn(monkeypatch, tmp_path, mode="stepwise", **kw)
+    assert calls["stepwise"] == 0 and calls["one_shot"] == 1
+    assert "graph_engine" not in debug
+
+
+def test_the_reviewer_reads_the_stepwise_result(monkeypatch, tmp_path):
+    seen = {}
+    real = orch._review_graph_turn
+
+    def review(config, user_text, graph_plan, graph_result, **kw):
+        seen["cypher"], seen["result"] = graph_plan.cypher, graph_result
+        return real(config, user_text, graph_plan, graph_result, **kw)
+
+    monkeypatch.setattr(orch, "_review_graph_turn", review)
+    plan = GraphAgentPlan(cypher="MATCH (s:T_ZZZ) RETURN count(*) AS n", context_mode="catalog")
+    result = {"ok": True, "count": 1, "data": [{"n": 9}]}
+    _turn(monkeypatch, tmp_path, mode="stepwise",
+          outcome=gs.StepwiseOutcome(plan=plan, result=result, elapsed_ms=3, parameters={}, steps=[]))
+    assert seen["cypher"] == plan.cypher and seen["result"]["data"] == [{"n": 9}]

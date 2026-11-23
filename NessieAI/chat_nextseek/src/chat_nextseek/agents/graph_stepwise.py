@@ -28,7 +28,9 @@ from typing import Any
 
 from .. import cypher_text, graph_catalog, graph_context
 from ..graph_contract import schema
-from ..helpers.tools.neo4j import tool_neo4j_query
+from ..graph_retry import normalized_cypher, scope_repair_context, timed_out
+from ..graph_review import VALUES_CAP
+from ..helpers.tools.neo4j import is_scope_refusal, tool_neo4j_query
 from ..schemas.graph import GraphAgentPlan
 from ..tool_loop import call_tools
 from . import graph as one_shot
@@ -47,8 +49,16 @@ VALUE_CHARS = 160
 LOOK_TIMEOUT_S = 10
 #: Types one find_word may name.
 WORD_TYPES_MAX = 6
-#: Records whose matching values find_word shows, per type.
-WORD_EXAMPLES = 3
+#: Distinct matching values find_word shows per type, most records first.
+WORD_VALUES = 15
+#: One find_word call's Neo4j time; types not reached in it are reported as not checked.
+WORD_CALL_BUDGET_S = 15
+#: Rows a look reads at most (a LIMIT is added to a look that has none); the tool then probes the true total.
+LOOK_ROWS_READ = ROWS_SHOWN + 1
+#: The loop's wall clock: past the soft mark the next model turn is told to finish, past the hard one the turn goes
+#: back to the one-shot agent (whose own retries then start).
+SOFT_BUDGET_S = 35
+HARD_BUDGET_S = 75
 #: Candidates find_project lists when no title is the name itself.
 PROJECT_CANDIDATES = 8
 
@@ -83,6 +93,9 @@ class _Ctx:
     procedures: frozenset
     project_titles: dict
     fields_named: dict
+    #: Loop state: statements Neo4j stopped for time (never sent again), and whether the one scope rewrite was used.
+    timed_out: set = field(default_factory=set)
+    scope_repaired: bool = False
 
 
 # --- context and guards ------------------------------------------------------------------------------------------
@@ -142,30 +155,52 @@ TOOLS = [
          "required": ["cypher"]}},
     {"name": "field_values",
      "description": "The values one field stores on one sample type, most frequent first, with how many samples hold "
-                    "each. Use it before filtering a field on a value you have not seen.",
+                    f"each (at most {VALUES_CAP}; 'complete' says whether that is all of them). Use it before "
+                    "filtering a field on a value you have not seen.",
      "input_schema": {"type": "object", "properties": {
          "sample_type": {"type": "string", "description": "The type code, e.g. MUS or D.SEQ."},
          "field": {"type": "string", "description": "The attribute name exactly as the type's section lists it."}},
          "required": ["sample_type", "field"]}},
     {"name": "find_word",
-     "description": "How many records of each named type hold a word or phrase anywhere in their values, and the "
-                    "stored values that hold it on a few of them. Use it before keeping or dropping a word no field "
-                    "is known to hold, and to see whether a match is the word itself or a longer one.",
+     "description": "For each named type: the stored values that contain a word or phrase, most records first, each "
+                    "with how many records hold it and whether it holds the word as a whole word. Use it before "
+                    "keeping or dropping a word no field is known to hold, and to tell the word itself from longer "
+                    "words that contain its letters.",
      "input_schema": {"type": "object", "properties": {
          "word": {"type": "string"},
-         "sample_types": {"type": "array", "items": {"type": "string"}, "maxItems": WORD_TYPES_MAX}},
+         "sample_types": {"type": "array", "items": {"type": "string"}, "maxItems": WORD_TYPES_MAX,
+                          "description": "Type codes, e.g. TIS or D.SEQ."}},
          "required": ["word", "sample_types"]}},
     {"name": "find_project",
      "description": "The project, investigation or study a name is stored as in this graph. Same answer every time.",
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
     {"name": "finish",
-     "description": "The final query, which returns the answer itself, and what it matches. An empty cypher with the "
-                    "reason in explanation means the graph cannot answer.",
+     "description": "The final query, which returns the answer itself, and what it matches. Call it alone, after you "
+                    "have read your looks. An empty cypher with the reason in explanation means the graph cannot "
+                    "answer.",
      "input_schema": {"type": "object", "properties": {
          "cypher": {"type": "string"}, "explanation": {"type": "string"}, "parameters": {"type": "object"},
          "keyword_fields": {"type": "object"}},
          "required": ["cypher", "explanation"]}},
 ]
+
+
+class _BadInput(ValueError):
+    """A tool input the model can fix: sent back to it as the tool's error."""
+
+
+def _mapping(value, name: str) -> dict:
+    """A tool's object argument: a dict, a JSON object in a string, or nothing."""
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise _BadInput(f"{name} must be a JSON object") from None
+    if not isinstance(value, dict):
+        raise _BadInput(f"{name} must be a JSON object")
+    return dict(value)
 
 
 def _cut(value) -> Any:
@@ -178,89 +213,145 @@ def _cut(value) -> Any:
     return value
 
 
+def _total(result: dict):
+    """The result's total when the tool knows it, else None (never the number of rows shown)."""
+    rows = list(result.get("data") or [])
+    if result.get("total") is not None:
+        return result["total"]
+    return None if result.get("truncated") or len(rows) >= LOOK_ROWS_READ else len(rows)
+
+
 def _shown(result: dict) -> dict:
-    """A tool_neo4j_query result as the model sees it: ok, the total, the first ``ROWS_SHOWN`` rows, the error and a
-    refusal's reasons."""
+    """A tool_neo4j_query result as the model sees it: ok, the total (None when unknown), the first ``ROWS_SHOWN``
+    rows, the error, a refusal's reasons."""
     if not result.get("ok"):
         scope = result.get("scope") if isinstance(result.get("scope"), dict) else {}
         return {"ok": False, "error": _cut(str(result.get("error") or "failed")),
+                "timed_out": timed_out(result),
                 "refused_because": list(scope.get("reasons") or ())[:5] if scope.get("decision") == "refused" else []}
     rows = list(result.get("data") or [])
-    total = result.get("total") if result.get("total") is not None else result.get("count", len(rows))
-    return {"ok": True, "total": total, "truncated": bool(result.get("truncated")),
-            "rows": [_cut(r) for r in rows[:ROWS_SHOWN]]}
+    return {"ok": True, "total": _total(result), "rows": [_cut(r) for r in rows[:ROWS_SHOWN]]}
 
 
-def _label(code: str) -> str | None:
-    code = str(code or "").strip()
-    return schema.type_label(code) if code else None
+_TRAILING_LIMIT = re.compile(r"\bLIMIT\s+(\d+|\$\w+)\s*;?\s*$", re.IGNORECASE)
+
+
+def _capped(cypher: str) -> str:
+    """A look reads at most ``LOOK_ROWS_READ`` rows: a statement with no trailing LIMIT gets one."""
+    return cypher if _TRAILING_LIMIT.search(cypher) else f"{cypher.rstrip().rstrip(';')} LIMIT {LOOK_ROWS_READ}"
+
+
+def _labels(ctx: _Ctx, codes) -> tuple[list[tuple[str, str]], list[str]]:
+    """Each named type as ``(code, label)`` when the catalog has it; the codes it does not have. ``T_MUS`` and
+    ``MUS`` both name MUS."""
+    known = {getattr(row, "label", None): getattr(row, "title", None) for row in getattr(ctx.snapshot, "index", ())}
+    found, unknown = [], []
+    for raw in codes or ():
+        code = str(raw or "").strip()
+        title = code[2:] if code.startswith("T_") and code not in {t for t in known.values()} else code
+        label = schema.type_label(title) if title else None
+        if label in known:
+            found.append((known[label] or title, label))
+        elif code:
+            unknown.append(code)
+    return found, unknown
+
+
+def _run(config, ctx: _Ctx, cypher: str, parameters: dict, **kw) -> dict:
+    """One statement through the scope; a statement Neo4j stopped for time is never sent again."""
+    key = normalized_cypher(cypher)
+    if key in ctx.timed_out:
+        return {"ok": False, "error": "This statement already ran out of time once; write a cheaper one.",
+                "data": []}
+    result = tool_neo4j_query(config, cypher, parameters, **kw)
+    if timed_out(result):
+        ctx.timed_out.add(key)
+    return result
 
 
 def _run_query(config, ctx: _Ctx, inp: dict, step: dict) -> str:
-    cypher, parameters = str(inp.get("cypher") or ""), dict(inp.get("parameters") or {})
+    cypher, parameters = str(inp.get("cypher") or ""), _mapping(inp.get("parameters"), "parameters")
     cypher, problem = _guard(ctx, cypher, parameters)
     if problem:
-        step["guard"] = True
+        step.update(guard=True, ok=False)
         return json.dumps({"ok": False, "not_run": problem})
+    cypher = _capped(cypher)
     t0 = time.perf_counter()
-    result = tool_neo4j_query(config, cypher, parameters, timeout_s=LOOK_TIMEOUT_S)
+    result = _run(config, ctx, cypher, parameters, timeout_s=LOOK_TIMEOUT_S)
+    shown = _shown(result)
     step.update(cypher=cypher, ms=int((time.perf_counter() - t0) * 1000), ok=bool(result.get("ok")),
-                total=_shown(result).get("total"))
-    return json.dumps(_shown(result), default=str)
+                total=shown.get("total"))
+    return json.dumps(shown, default=str)
 
 
 def _field_values(config, ctx: _Ctx, inp: dict, step: dict) -> str:
-    label, attribute = _label(inp.get("sample_type")), str(inp.get("field") or "")
-    if not label or not _NAME.match(attribute):
-        return json.dumps({"ok": False, "error": "name one sample type code and one attribute name"})
+    found, unknown = _labels(ctx, [inp.get("sample_type")])
+    attribute = str(inp.get("field") or "")
+    if unknown or not found or not _NAME.match(attribute):
+        step["ok"] = False
+        return json.dumps({"ok": False, "error": "name one sample type code from the type index and one attribute "
+                                                 "name from its section" + (f"; unknown type: {unknown}" if unknown else "")})
     from ..graph_review_counts import values_statement
-    cypher = values_statement(label, attribute)
-    cypher, problem = _guard(ctx, cypher, {})
+    cypher, problem = _guard(ctx, values_statement(found[0][1], attribute), {})
     if problem:
+        step.update(guard=True, ok=False)
         return json.dumps({"ok": False, "not_run": problem})
     t0 = time.perf_counter()
-    result = tool_neo4j_query(config, cypher, {}, timeout_s=LOOK_TIMEOUT_S)
+    result = _run(config, ctx, cypher, {}, timeout_s=LOOK_TIMEOUT_S)
     step.update(cypher=cypher, ms=int((time.perf_counter() - t0) * 1000), ok=bool(result.get("ok")))
     if not result.get("ok"):
         return json.dumps(_shown(result), default=str)
     values = [{"value": _cut(r.get("v")), "samples": r.get("n")} for r in result.get("data") or []]
-    return json.dumps({"ok": True, "sample_type": inp.get("sample_type"), "field": attribute, "values": values},
+    complete = len(values) < VALUES_CAP
+    return json.dumps({"ok": True, "sample_type": found[0][0], "field": attribute, "values": values,
+                       "complete": complete,
+                       **({} if complete else {"note": f"Only the {VALUES_CAP} most frequent values are listed; a "
+                                                       "value not listed may still be stored: check it with run_query."})},
                       default=str)
 
 
-def _matching_values(text: Any, word: str) -> list[str]:
-    """The stored values (``search_text`` holds one per line) that contain ``word``, case folded."""
-    w = word.lower()
-    return [_cut(line) for line in str(text or "").splitlines() if w in line.lower()][:5]
-
-
 def word_statement(label: str) -> str:
-    """The records of one type whose stored values hold ``$w`` (folded), a few at a time."""
+    """The stored values of one type's records that contain ``$w`` (folded), each with how many records hold it, most
+    first. One scan; the cap sits inside, so the tool runs no second scan for a total."""
     return (f"MATCH (s:{label}) WHERE toLower(s.search_text) CONTAINS $w "
-            f"RETURN s.uuid AS uuid, s.search_text AS text ORDER BY s.uuid LIMIT {WORD_EXAMPLES}")
+            "UNWIND [v IN split(s.search_text, '\\n') WHERE toLower(v) CONTAINS $w] AS v "
+            f"WITH v, count(DISTINCT s) AS n ORDER BY n DESC, v LIMIT {WORD_VALUES} RETURN v, n")
+
+
+def _whole_word(value: str, word: str) -> bool:
+    return re.search(r"(?<![a-z0-9])" + re.escape(word.lower()) + r"(?![a-z0-9])", str(value or "").lower()) is not None
 
 
 def _find_word(config, ctx: _Ctx, inp: dict, step: dict) -> str:
     word = str(inp.get("word") or "").strip()
-    codes = [str(c) for c in (inp.get("sample_types") or []) if str(c).strip()][:WORD_TYPES_MAX]
-    if not word or not codes:
-        return json.dumps({"ok": False, "error": "name a word and at least one sample type"})
-    out, t0 = [], time.perf_counter()
-    for code in codes:
-        # One statement per type: its first rows are the examples, and the tool's total probe is the count.
-        rows = tool_neo4j_query(config, word_statement(_label(code)), {"w": word.lower()}, timeout_s=LOOK_TIMEOUT_S)
-        if not rows.get("ok"):
-            out.append({"sample_type": code, **_shown(rows)})
+    found, unknown = _labels(ctx, (inp.get("sample_types") or [])[:WORD_TYPES_MAX])
+    if not word or not (found or unknown):
+        step["ok"] = False
+        return json.dumps({"ok": False, "error": "name a word and at least one sample type code"})
+    out, t0, all_ok = [], time.perf_counter(), True
+    for code, label in found:
+        if time.perf_counter() - t0 > WORD_CALL_BUDGET_S:
+            out.append({"sample_type": code, "not_checked": "time ran out in this look; ask again for this type"})
+            all_ok = False
             continue
-        data = list(rows.get("data") or [])
-        n = rows.get("total") if rows.get("total") is not None else len(data)
-        entry: dict[str, Any] = {"sample_type": code, "records": n}
-        if data:
-            entry["examples"] = [{"uuid": r.get("uuid"), "values_holding_it": _matching_values(r.get("text"), word)}
-                                 for r in data]
-        out.append(entry)
-    step.update(ms=int((time.perf_counter() - t0) * 1000), ok=True)
-    return json.dumps({"ok": True, "word": word, "by_type": out}, default=str)
+        result = _run(config, ctx, word_statement(label), {"w": word.lower()}, timeout_s=LOOK_TIMEOUT_S)
+        if not result.get("ok"):
+            out.append({"sample_type": code, **_shown(result)})
+            all_ok = False
+            continue
+        values = [{"value": _cut(r.get("v")), "records": r.get("n"), "whole_word": _whole_word(r.get("v"), word)}
+                  for r in result.get("data") or []]
+        out.append({"sample_type": code, "values": values, "complete": len(values) < WORD_VALUES,
+                    "records_with_the_whole_word": sum(v["records"] or 0 for v in values if v["whole_word"]),
+                    "records_with_the_letters_only": sum(v["records"] or 0 for v in values if not v["whole_word"])})
+    for code in unknown:
+        out.append({"sample_type": code, "error": "not a type code in the type index"})
+        all_ok = False
+    step.update(ms=int((time.perf_counter() - t0) * 1000), ok=all_ok,
+                statements=[word_statement(label) for _, label in found])
+    return json.dumps({"ok": True, "word": word, "by_type": out,
+                       "note": "Record counts are per value; a record holding two matching values counts in both."},
+                      default=str)
 
 
 def _containers(config) -> tuple[dict, list]:
@@ -305,57 +396,89 @@ _LOOKS = {"run_query": _run_query, "field_values": _field_values, "find_word": _
 # --- the loop ----------------------------------------------------------------------------------------------------
 
 
+class _HandBack(Exception):
+    """The turn goes to the one-shot agent, for the reason given."""
+
+
 def _finish(config, ctx: _Ctx, inp: dict, step: dict) -> tuple[StepwiseOutcome | None, str]:
-    """``(outcome, "")`` when the final query is settled; ``(None, message)`` to send back to the model."""
+    """``(outcome, "")`` when the final query is settled; ``(None, message)`` to send back to the model. Raises
+    ``_HandBack`` for a finish with neither a query nor a reason."""
     cypher = str(inp.get("cypher") or "").strip()
-    parameters = dict(inp.get("parameters") or {})
+    parameters = _mapping(inp.get("parameters"), "parameters")
     explanation = str(inp.get("explanation") or "")
-    keyword_fields = inp.get("keyword_fields") if isinstance(inp.get("keyword_fields"), dict) else {}
+    keyword_fields = _mapping(inp.get("keyword_fields"), "keyword_fields")
     base = dict(explanation=explanation, parameters=parameters, keyword_fields=keyword_fields,
                 context_mode=one_shot.CONTEXT_CATALOG, project_titles=ctx.project_titles,
                 fields_named=ctx.fields_named)
     if not cypher:
+        if not explanation.strip():
+            raise _HandBack("finish carried no query and no reason")
         step.update(ok=True, refusal=True)
         return StepwiseOutcome(plan=GraphAgentPlan(cypher="", **base)), ""
     cypher, problem = _guard(ctx, cypher, parameters)
     if problem:
-        step["guard"] = True
+        step.update(guard=True, ok=False)
         return None, json.dumps({"ok": False, "not_run": problem})
     t0 = time.perf_counter()
-    result = tool_neo4j_query(config, cypher, parameters)
+    result = _run(config, ctx, cypher, parameters)
     ms = int((time.perf_counter() - t0) * 1000)
     step.update(cypher=cypher, ms=ms, ok=bool(result.get("ok")))
+    outcome = StepwiseOutcome(plan=GraphAgentPlan(cypher=cypher, **base), result=result, elapsed_ms=ms,
+                              parameters=parameters)
+    if is_scope_refusal(result):
+        # One rewrite, told the check's own reasons, when the refusal is about how the statement is written; any
+        # other refusal is final and goes to the graph turn's own refusal handling (member types, refused counts,
+        # the graph_search fallback), as a one-shot refusal does.
+        repair = None if ctx.scope_repaired else scope_repair_context(result)
+        if repair is None:
+            step["refused"] = True
+            return outcome, ""
+        ctx.scope_repaired = True
+        return None, json.dumps({"ok": False, "refused": repair})
     if not result.get("ok"):
         return None, json.dumps({"ok": False, "final_query_failed": _shown(result)}, default=str)
-    return StepwiseOutcome(plan=GraphAgentPlan(cypher=cypher, **base), result=result, elapsed_ms=ms,
-                           parameters=parameters), ""
+    return outcome, ""
+
+
+_LAST_STEP = ("This is your last step: call finish now, with your best query, or with an empty cypher and the reason "
+              "only if the graph cannot answer.")
 
 
 def stepwise_graph_agent(config, user_query: str, entity_result, parser_plan, refine_context: str | None = None
                          ) -> StepwiseOutcome:
-    """Look, then finish, in at most ``MAX_STEPS`` model turns. See the module docstring."""
+    """Look, then finish, in at most ``MAX_STEPS`` model turns and ``HARD_BUDGET_S``. See the module docstring.
+    Never raises: anything unexpected hands the turn back."""
     steps: list[dict] = []
+    started = time.perf_counter()
 
     def back(reason: str) -> StepwiseOutcome:
         print(f"[GRAPH][STEPWISE] handing back to the one-shot agent: {reason}")
         return StepwiseOutcome(plan=None, steps=steps, fallback=reason)
 
-    client, model_name, thinking = config.get_agent_model(AGENT_KEY)
-    if not callable(getattr(client, "chat_with_tools", None)):
-        return back("the stepwise model has no tool surface in this profile")
-    entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else dict(entity_result or {})
-    plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else dict(parser_plan or {})
     try:
+        client, model_name, thinking = config.get_agent_model(AGENT_KEY)
+        if not callable(getattr(client, "chat_with_tools", None)):
+            return back("the stepwise model has no tool surface in this profile")
+        entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else dict(entity_result or {})
+        plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else dict(parser_plan or {})
         ctx = _context(config, user_query, entity_dict, plan_dict, refine_context)
-    except Exception as exc:  # noqa: BLE001 (the one-shot agent has its own fallback path)
-        return back(f"context failed: {type(exc).__name__}: {exc}")
-    if ctx is None:
-        return back("the live catalog is unavailable")
+        if ctx is None:
+            return back("the live catalog is unavailable")
+        return _loop(config, ctx, client, model_name, thinking, steps, started, back)
+    except _HandBack as hb:
+        return back(str(hb))
+    except Exception as exc:  # noqa: BLE001 (a bug here must never cost the user the one-shot answer)
+        return back(f"stepwise failed: {type(exc).__name__}: {str(exc)[:200]}")
 
+
+def _loop(config, ctx: _Ctx, client, model_name, thinking, steps: list, started: float, back) -> StepwiseOutcome:
     messages: list[dict] = [{"role": "user", "content": ctx.opening}]
     for turn in range(MAX_STEPS):
-        if turn == MAX_STEPS - 1:
-            note = {"type": "text", "text": "This is your last step: call finish now."}
+        elapsed = time.perf_counter() - started
+        if elapsed > HARD_BUDGET_S:
+            return back(f"over the {HARD_BUDGET_S} s budget after {turn} steps")
+        if turn == MAX_STEPS - 1 or elapsed > SOFT_BUDGET_S:
+            note = {"type": "text", "text": _LAST_STEP}
             last = messages[-1]
             if isinstance(last.get("content"), list):
                 last["content"].append(note)
@@ -372,25 +495,36 @@ def stepwise_graph_agent(config, user_query: str, entity_result, parser_plan, re
         messages.append({"role": "assistant", "content": content})
         if not uses:
             messages.append({"role": "user", "content": [
-                {"type": "text", "text": "Use a look tool, or call finish with the final query."}]})
+                {"type": "text", "text": "Use a look tool, or call finish with the final query. Never write the "
+                                         "query as text."}]})
             continue
+        with_looks = any(b.get("name") != "finish" for b in uses)
         results = []
         for block in uses:
             name, inp = block.get("name"), block.get("input") or {}
             step: dict[str, Any] = {"tool": name, "input": _cut(inp)}
             steps.append(step)
-            if name == "finish":
-                outcome, message = _finish(config, ctx, inp, step)
-                if outcome is not None:
-                    outcome.steps = steps
-                    return outcome
-            elif name in _LOOKS:
-                try:
+            try:
+                if not isinstance(inp, dict):
+                    raise _BadInput("the tool input must be a JSON object")
+                if name == "finish":
+                    if with_looks:
+                        step["ok"] = False
+                        message = json.dumps({"ok": False, "error": "Read your looks first, then call finish alone."})
+                    else:
+                        outcome, message = _finish(config, ctx, inp, step)
+                        if outcome is not None:
+                            outcome.steps = steps
+                            return outcome
+                elif name in _LOOKS:
                     message = _LOOKS[name](config, ctx, inp, step)
-                except Exception as exc:  # noqa: BLE001 (a look that breaks is the model's to work around)
-                    message = json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
-            else:
-                message = json.dumps({"ok": False, "error": f"no tool named {name}"})
+                else:
+                    message = json.dumps({"ok": False, "error": f"no tool named {name}"})
+            except _HandBack:
+                raise
+            except Exception as exc:  # noqa: BLE001 (bad input or a broken look: the model's to work around)
+                step["ok"] = False
+                message = json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
             results.append({"type": "tool_result", "tool_use_id": block.get("id"), "content": message})
         messages.append({"role": "user", "content": results})
     return back(f"no finish within {MAX_STEPS} steps")

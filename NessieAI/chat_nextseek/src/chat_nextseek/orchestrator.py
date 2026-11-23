@@ -1923,10 +1923,15 @@ def _execute_graph_turn(
     # The stepwise agent (look, then finish) when the switch is on; it hands back to the one-shot agent when it
     # cannot finish, and the turn says why (graph_stepwise.py).
     stepwise = None
-    if graph_plan is None and graph_stepwise.enabled(config):
+    # A fresh question only: a follow-up, a graph refine and a chip click carry the caller's refine_context (and a
+    # follow-up its bound $uids), which this engine does not bind; they stay on the one-shot path.
+    if graph_plan is None and refine_context is None and not parameters_extra and graph_stepwise.enabled(config):
         print("\n[GRAPH] Running the stepwise graph agent...")
-        stepwise = graph_stepwise.stepwise_graph_agent(config, user_text, entity_result, plan,
-                                                       refine_context=agent_context)
+        try:
+            stepwise = graph_stepwise.stepwise_graph_agent(config, user_text, entity_result, plan,
+                                                           refine_context=agent_context)
+        except Exception as exc:  # noqa: BLE001 (it never raises by contract; a bug still hands back)
+            stepwise = graph_stepwise.StepwiseOutcome(plan=None, fallback=f"stepwise failed: {type(exc).__name__}")
         debug_payload["graph_steps"] = stepwise.steps
         if stepwise.plan is not None:
             debug_payload["graph_engine"] = "stepwise"
