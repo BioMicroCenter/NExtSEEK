@@ -264,10 +264,14 @@
     return fetch(url, {method: method, credentials: 'same-origin',
                        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
                        body: JSON.stringify(body)})
-      .then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+      // A non-JSON body (a proxy page, a 500) still says its status.
+      .then(function (r) { return r.json().catch(function () { return {}; })
+                                   .then(function (j) { return {ok: r.ok, code: r.status, j: j}; }); })
       .then(function (res) {
         if (res.ok) { status.textContent = 'Saved. The sync picks it up in seconds.'; location.reload(); return; }
-        status.textContent = (res.j.errors && res.j.errors[0].detail) || 'Not saved.';
+        // JSON:API errors, else DRF's own {detail} (a CSRF or permission 403), else the bare status.
+        var why = (res.j.errors && res.j.errors[0] && res.j.errors[0].detail) || res.j.detail;
+        status.textContent = 'Not saved (HTTP ' + res.code + ')' + (why ? ': ' + why : '.');
       })
       .catch(function () { status.textContent = 'Not saved: the server did not answer.'; })
       .then(function () { if (button) { button.disabled = false; } });

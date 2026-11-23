@@ -146,3 +146,10 @@ def test_with_the_switch_off_the_page_says_so_and_the_tier_card_shows_new_and_st
     assert "not in SEEK" in html and 'type="hidden" name="tier" data-field="Notes" value="possible"' in html
     monkeypatch.setenv("NEXTSEEK_GRAPH_SYNC_CONTEXT", "write")
     assert "NEXTSEEK_GRAPH_SYNC_CONTEXT=write" not in render_page().content.decode()
+
+
+def test_the_save_script_reports_drf_detail_and_the_http_status(catalog):
+    """A CSRF 403 answers {"detail": ...}, not JSON:API errors; a proxy error page is not JSON at all."""
+    html = render_page().content.decode()
+    assert "res.j.detail" in html and "'Not saved (HTTP ' + res.code + ')'" in html
+    assert "r.json().catch(" in html
