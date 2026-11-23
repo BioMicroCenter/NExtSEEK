@@ -104,6 +104,9 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     # catalog's _fallback block).
     "followup": CallBudget(first_try_s=60, moved_s=60),
     "pipeline_agent": CallBudget(first_try_s=120, moved_s=120),
+    # The stepwise graph agent, per step (agents/graph_stepwise.py): Sonnet 5.5 primary, Opus 5.5 the move. Sized
+    # like the one-shot graph agent, whose prod max was 12 s.
+    "graph_stepwise": CallBudget(first_try_s=60, moved_s=90),
 }
 
 

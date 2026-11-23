@@ -51,6 +51,8 @@ RULED = {
     "report_writer": (240, 180),
     "followup": (60, 60),
     "pipeline_agent": (120, 120),
+    # The stepwise graph agent (2026-11-23), per step: sized like the one-shot graph agent.
+    "graph_stepwise": (60, 90),
 }
 
 

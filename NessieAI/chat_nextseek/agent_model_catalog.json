@@ -18,7 +18,7 @@
       "global.anthropic.claude-sonnet-5-5": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["memory", "system"]
+        "agents": ["memory", "system", "graph_stepwise"]
       },
       "us.anthropic.claude-opus-5-5": [
         {
@@ -62,7 +62,7 @@
       "us.anthropic.claude-opus-4-7": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["system", "pipeline_agent", "followup"]
+        "agents": ["system", "pipeline_agent", "followup", "graph_stepwise"]
       }
     }
   },
@@ -82,7 +82,7 @@
       "us.anthropic.claude-opus-4-7": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["system", "pipeline_agent", "followup"]
+        "agents": ["system", "pipeline_agent", "followup", "graph_stepwise"]
       }
     }
   },
@@ -92,7 +92,7 @@
       "global.anthropic.claude-sonnet-5-5": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "graph_stepwise"]
       },
       "us.anthropic.claude-opus-4-7": [
         {
@@ -114,7 +114,7 @@
       "anthropic.claude-sonnet-4-5-20250929-v1:0": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "graph_stepwise"]
       },
       "anthropic.claude-opus-4-5-20251101-v1:0": [
         {
@@ -133,6 +133,7 @@
   "_fallback": {
     "_comment": "Not a profile. The model a call moves to on a timeout, an empty body, a 5xx, a 429 or a connection error, consulted before the profile chains in schemas/schema_helper.py. Only the tool loops need one: they can move only to a tool-capable (Bedrock) model, and their profile chains lead back to an Opus (the one that failed, outside the default profile), or to nothing (operator ruling 2026-09-25). The system agent runs on Sonnet 5.5, so it moves to Opus 5.5 (2026-10-02). It applies in every profile, the aws:* one included, where these two agents had no chain and now move to Sonnet 5.5; the other agents keep aws:*'s no-chain behaviour (accepted in review, 2026-09-25).",
     "followup": {"provider": "anth", "model": "global.anthropic.claude-sonnet-5-5", "thinking_level": null},
+    "graph_stepwise": {"provider": "anth", "model": "us.anthropic.claude-opus-5-5", "thinking_level": null},
     "pipeline_agent": {"provider": "anth", "model": "global.anthropic.claude-sonnet-5-5", "thinking_level": null},
     "system": {"provider": "anth", "model": "us.anthropic.claude-opus-5-5", "thinking_level": null}
   },
@@ -142,7 +143,7 @@
       "__default__": {
         "provider": null,
         "thinking_level": null,
-        "agents": ["entity", "parser", "api", "reporter", "report_writer", "report_coder", "chatter", "memory", "memory_coder", "graph", "system", "multi_parser", "planner", "context_engineer", "evaluator", "seqera_agent", "pipeline_agent", "followup"]
+        "agents": ["entity", "parser", "api", "reporter", "report_writer", "report_coder", "chatter", "memory", "memory_coder", "graph", "system", "multi_parser", "planner", "context_engineer", "evaluator", "seqera_agent", "pipeline_agent", "followup", "graph_stepwise"]
       }
     }
   }

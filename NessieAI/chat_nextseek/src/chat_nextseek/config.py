@@ -342,6 +342,9 @@ class ChatConfig:
         self.MEMORY_SYSTEM_PROMPT = self._load_prompt("memory_agent.txt")
         self.MEMORY_CODER_SYSTEM_PROMPT = self._load_prompt("memory_coder_agent.txt")
         self.GRAPH_AGENT_SYSTEM_PROMPT = self._load_prompt("graph_agent.txt")
+        # The graph step's engine: "single" (the one-shot graph agent) unless NESSIE_GRAPH_AGENT_MODE is "stepwise"
+        # (agents/graph_stepwise.py: look at the data, then write the final query).
+        self.GRAPH_AGENT_MODE = (os.getenv("NESSIE_GRAPH_AGENT_MODE") or "single").strip().lower()
         # F1: the promoted prompt set is what v2/v3 ran, and both declared
         # project_parser_plan. The graph agent reads it through
         # agents/graph.py::_projects_parser_plan, which defaults False when the
