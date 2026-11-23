@@ -1,8 +1,18 @@
 # context/
 
-Hand-owned source of truth for NExtSEEK's catalog context. Edit these files; do not edit the
-database tables or the exported JSON directly. Whatever is in these files is what the
-database will hold.
+The catalog context NExtSEEK's tables are built from. Two rules, by table:
+
+- **`sample_types.json` and `assays.json` are a snapshot of production's database**, which is
+  their source of truth (decided 2026-11-23). Their hand text is edited on the site; their derived
+  columns (ids, clade, metadata membership, the parent, child and assay lists, `internal_assay_id`)
+  are kept current by graph_sync's context step (`nextseek_api/graph_sync/context_derived.py`). To
+  refresh the files, save `GET /nextseek_api/definitions/export/` from production and run
+  `python scripts/context_gen.py --emit snapshot --from <that file>`, then `--emit exports` in the
+  same change. A box other than production takes its text from that snapshot with `--emit update`.
+  Before the first snapshot, the rows git holds that production lacks land there once, with a
+  signed-off `--emit update`.
+- **`projects.json` and `assay_mappings.json` are still hand-owned here.** Edit these files; do not
+  edit their tables directly. Whatever is in these files is what the database will hold.
 
 `scripts/context_gen.py` is the generator that gets them there:
 
@@ -11,7 +21,11 @@ python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
 python scripts/context_gen.py --emit seed --table all
 python scripts/context_gen.py --emit exports --table all
 python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
+python scripts/context_gen.py --emit snapshot --from /tmp/definitions-export.json
 ```
+
+`--emit snapshot` rewrites `sample_types.json` and `assays.json` from a saved definitions export,
+keeping each file's column order and sorting rows by key case-folded.
 
 `--emit update` writes re-runnable SQL for a live database; the operator applies it.
 `--emit seed` rewrites the held `startup/seed/sql/*_context.curated.sql` files, which no

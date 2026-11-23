@@ -2328,16 +2328,61 @@ def emit_exports(tables: list[str], out=None) -> int:
     return 0
 
 
+SNAPSHOT_TABLES = ("sample_types", "assays")
+
+
+def emit_snapshot(export_path, out=None) -> int:
+    """Rewrite context/sample_types.json and context/assays.json from a definitions export.
+
+    The database is the source of truth for these two tables (decided 2026-11-23): their hand text is edited on
+    the site and their derived columns are kept by graph_sync's context step, so git holds a snapshot of
+    production's rows, taken from ``GET /nextseek_api/definitions/export/``. Each row gets every column of its
+    table, in the order the file already uses (else ``TABLES``' order), absent ones null, so a snapshot diff shows
+    only changed values; JSON columns parsed back to objects, rows sorted by their key
+    case-folded, written as the files always are. A column the table does not list is refused, so git never drops
+    a database column silently. ``out`` is a directory standing in for the repository root (tests).
+    """
+    doc = json.loads(Path(export_path).read_text(encoding="utf-8"))
+    root = Path(out) if out else REPO_ROOT
+    for table in SNAPSHOT_TABLES:
+        spec = TABLES[table]
+        path = root / spec.source
+        order = spec.columns
+        if path.exists():
+            first = (json.loads(path.read_text(encoding="utf-8")) or [{}])[0]
+            if set(first) == set(spec.columns):
+                order = tuple(first)
+        rows = []
+        for source in doc[table]:
+            unknown = sorted(set(source) - set(spec.columns) - {"id"})
+            if unknown:
+                raise ValueError(f"{table}: the export has columns {unknown} that {spec.source} does not list; "
+                                 f"add them to TABLES first")
+            row = {column: source.get(column) for column in order}
+            for column in spec.json_columns:
+                if isinstance(row[column], str) and row[column].strip():
+                    row[column] = json.loads(row[column])
+            rows.append(row)
+        rows.sort(key=lambda r: str(r[spec.key]).casefold())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return 0
+
+
 def main(argv=None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--emit", required=True,
-                        choices=("update", "seed", "exports", "capabilities"),
+                        choices=("update", "seed", "exports", "capabilities", "snapshot"),
                         help="update: SQL for a live database. seed: a fresh install's "
                              "file. exports: the committed JSON context files Nessie and the "
                              "cc-agent read. capabilities: the investigation block in "
-                             "capabilities.md.")
+                             "capabilities.md. snapshot: context/sample_types.json and "
+                             "context/assays.json rewritten from a definitions export (--from).")
+    parser.add_argument("--from", dest="source", default=None, metavar="EXPORT_JSON",
+                        help="for --emit snapshot: the body of GET /nextseek_api/definitions/export/ "
+                             "saved from production, the source of truth for both files")
     parser.add_argument("--table", default="all",
                         choices=("all",) + tuple(TABLES) + tuple(TABLES_EXTRA),
                         help="which table, or all of them")
@@ -2355,6 +2400,10 @@ def main(argv=None) -> int:
                              "--emit capabilities")
     args = parser.parse_args(argv)
 
+    if args.emit == "snapshot":
+        if not args.source:
+            parser.error("--emit snapshot needs --from: the saved definitions export")
+        return emit_snapshot(args.source, args.out)
     if args.emit == "capabilities":
         if not args.counts:
             parser.error("--emit capabilities needs --counts: without evidence that a "
