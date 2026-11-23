@@ -145,7 +145,8 @@ def test_create_makes_a_bare_row_for_a_seek_type_or_internal_assay(tables):
     assert r.status_code == 201 and r.data["row"]["assay_name"] == "Library Prep"
     assert post(da.DefinitionAssaysViewSet, a, {"internal_assay_title": "Library Prep"}).status_code == 409
     assert post(da.DefinitionAssaysViewSet, a, {"internal_assay_title": "Nothing"}).status_code == 422
-    assert tables == [("context", "*"), ("context", "*"), ("assay_map", "*")]
+    # a new sample type row flips SampleType.has_context, so catalog too
+    assert tables == [("context", "*"), ("catalog", "*"), ("context", "*"), ("assay_map", "*")]
 
 
 def test_attention_lists_what_a_person_must_fix():

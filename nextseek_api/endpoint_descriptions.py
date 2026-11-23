@@ -1657,7 +1657,7 @@ DEFINITIONS_SAMPLE_TYPE_CREATE_DESC = (
     "only.\n\n"
     "**USE WHEN:** The Definitions page lists a SEEK sample type under \"Needs a definition\".\n\n"
     "**ACCEPTS:** JSON `{\"code\": \"<SEEK sample type title>\"}`.\n\n"
-    "**RETURNS:** `row` (the new row; hand text empty) and `enqueued` (`context`).\n\n"
+    "**RETURNS:** `row` (the new row; hand text empty) and `enqueued` (`context`, `catalog`).\n\n"
     "**ERROR CODES:** 401 without a login; 403 for a non-superuser; 409 when the code already has a row; 422 when "
     "the code is not a SEEK sample type title on this box.\n\n"
     "**TRIGGER PHRASES:** create sample type definition, define sample type\n\n"

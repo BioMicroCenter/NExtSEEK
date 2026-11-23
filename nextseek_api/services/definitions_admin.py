@@ -350,7 +350,7 @@ class DefinitionSampleTypesViewSet(_SuperuserViewSet):
             OpenApiExample("Create A.ATAC", request_only=True, value={"code": "A.ATAC"}),
             OpenApiExample("Created", response_only=True, status_codes=["201"],
                            value={"row": {"sample_type": "A.ATAC", "name": None, "description": None},
-                                  "enqueued": ["context"]}),
+                                  "enqueued": ["context", "catalog"]}),
         ],
     )
     def create(self, request):
@@ -364,7 +364,8 @@ class DefinitionSampleTypesViewSet(_SuperuserViewSet):
         except FileExistsError as exc:
             return _error(status.HTTP_409_CONFLICT, "Already defined", str(exc))
         hooks.enqueue("context", "*")
-        return Response({"row": row, "enqueued": ["context"]}, status=status.HTTP_201_CREATED)
+        hooks.enqueue("catalog", "*")   # the new row flips SampleType.has_context
+        return Response({"row": row, "enqueued": ["context", "catalog"]}, status=status.HTTP_201_CREATED)
 
 
 class DefinitionAssaysViewSet(_SuperuserViewSet):
