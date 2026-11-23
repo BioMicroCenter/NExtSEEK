@@ -243,7 +243,7 @@ def update_sql(table: str = "all") -> str:
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        assert cg.main(["--emit", "update", "--table", table]) == 0
+        assert cg.main(["--emit", "update", "--table", table, "--snapshot-copy"]) == 0
     return buffer.getvalue()
 
 

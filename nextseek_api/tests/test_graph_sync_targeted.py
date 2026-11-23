@@ -1188,16 +1188,26 @@ def test_the_row_a_hub_partner_is_handed_off_on_hands_nothing_back(with_assay, t
     assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
 
 
-def test_an_ok_write_queues_the_context_step_and_a_refused_one_does_not(with_assay, tmp_path, monkeypatch):
-    """A by-id sync or retire may add or remove a DERIVED_FROM edge, so an ``ok`` one queues ``context`` (the observed
-    connections of the context tables); one that wrote nothing queues none."""
+def test_only_an_ok_write_that_changed_an_edge_queues_the_context_step(monkeypatch):
+    """The observed connections change only when an edge is added, removed or relabelled, or a sample retired; a
+    write that changed none, or one refused for a busy lock, queues no 10 s scan (the nightly reconcile queues one)."""
+    queued = []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key, kw)) or True)
+    for key in targeted.EDGE_CHANGE_KEYS:
+        targeted._queue_context({"status": targeted.OK, key: 1})
+    assert queued == [("context", "*", {"delay_s": targeted.CONTEXT_DELAY_S})] * len(targeted.EDGE_CHANGE_KEYS)
+    queued.clear()
+    targeted._queue_context({"status": targeted.OK, "labels_edges": 3, "lineage_created": 0})
+    targeted._queue_context({"status": targeted.LOCK_TIMEOUT, "lineage_created": 1})
+    assert queued == []
+
+
+def test_a_sync_that_labels_an_edge_queues_the_context_step(with_assay, tmp_path, monkeypatch):
     graph, queued = with_assay.graph, []
     monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
-    assert targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))["status"] == targeted.OK
-    assert ("context", "*") in queued
-    queued.clear()
-    targeted.sync_samples(graph, DB, [], run_dir=str(tmp_path))
-    assert queued == []
+    result = targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
+    assert result["status"] == targeted.OK
+    assert (("context", "*") in queued) == any(result.get(k) for k in targeted.EDGE_CHANGE_KEYS)
 
 
 def test_a_type_sync_reads_the_mapping_again_for_each_chunk(with_assay, tmp_path, monkeypatch):

@@ -1,5 +1,5 @@
 {
- "note": "a slice of fairdata-dev's remote_export.py bundle, 2026-11-23 (catalog rows only; host dropped)",
+ "note": "a slice of fairdata-dev's remote_export.py bundle, 2026-11-23 (catalog rows only; host dropped); sample_count reduced to 0 or 1",
  "exported_at": "2026-11-23T17:11:58+00:00",
  "sample_types": [
   {
@@ -467,7 +467,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The identifier the submitting lab uses for this sample.",
-   "sample_count": 1872
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -483,7 +483,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The lab member responsible for this sample.",
-   "sample_count": 1872
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -499,7 +499,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The date this sample itself was created, as distinct from when the record was entered.",
-   "sample_count": 1147
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -515,7 +515,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The SOP followed, as a filename or a link to the SOP record. BMC data specialists can handle this section if given all protocols used.",
-   "sample_count": 1860
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -531,7 +531,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The species, as the scientific binomial where possible, e.g. Macaca mulatta.",
-   "sample_count": 21
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -595,7 +595,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "UID(s) of the sample(s) this one was derived from. Semicolon-separate when several.",
-   "sample_count": 1851
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -659,7 +659,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The observed phenotype of this subject or cell line, e.g. Epithelial, LTBI.",
-   "sample_count": 5
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -675,7 +675,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The morphology of the organism or cell type, e.g. Bacillus, epithelial.",
-   "sample_count": 20
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -707,7 +707,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The culture medium and conditions used to grow this organism.",
-   "sample_count": 4
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -771,7 +771,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "Any additional information.",
-   "sample_count": 209
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -803,7 +803,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The strain designation of the animal or organism, e.g. C57BL/6J, H37Rv.",
-   "sample_count": 21
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -819,7 +819,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The NCBI Taxonomy identifier for the organism, e.g. 83332 for M. tuberculosis H37Rv.",
-   "sample_count": 17
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -835,7 +835,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The Gram stain result for this organism, e.g. Positive, Acid Fast.",
-   "sample_count": 11
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -851,7 +851,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The nucleotide barcode identifying this sample within a pooled run, e.g. GAATTGCT.",
-   "sample_count": 5
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -867,7 +867,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The quantification tag sequence used for this strain.",
-   "sample_count": 5
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -883,7 +883,7 @@
    "declared": true,
    "seek_description": null,
    "meaning": "The lab that owns or generated this sample.",
-   "sample_count": 1853
+   "sample_count": 1
   },
   {
    "sample_type": "BAC",
@@ -915,7 +915,7 @@
    "declared": false,
    "seek_description": null,
    "meaning": null,
-   "sample_count": 421
+   "sample_count": 1
   }
  ],
  "graph_meta": {
