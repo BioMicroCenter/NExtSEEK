@@ -191,6 +191,8 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
         "no_seek_type": sorted(no_seek_type),
         "unknown_codes": sorted(unknown),
         "assay_title_mismatch": mismatch,
+        "assay_changes": [{"id": a["id"], "assay_name": a["assay_name"], **out.assays[a["id"]]}
+                          for a in assay_rows if a["id"] in out.assays],
         "needs_definition": needs_definition(seek_id, context_rows, internal_assays,
                                              [{**a, **out.assays.get(a["id"], {})} for a in assay_rows]),
     }
@@ -267,8 +269,7 @@ def sync_context(driver, db, *, dry_run: bool = False, run_dir=None, inputs: dic
 
     result = derive(**(inputs if inputs is not None else read_inputs(driver, db)))
     report = {"kind": "context", **result.report, "status": "dry_run" if dry_run else "ok",
-              "changes": {"sample_types": result.sample_types,
-                          "assays": {str(k): v for k, v in result.assays.items()}}}
+              "changes": {"sample_types": result.sample_types}}
     if dry_run:
         return report
     write(result)
