@@ -304,8 +304,8 @@ def test_no_finish_within_the_step_cap_hands_back_to_the_one_shot_agent(wired):
 
 
 def test_a_model_without_tools_hands_back_to_the_one_shot_agent(wired):
-    out = gs.stepwise_graph_agent(_Cfg(object()), "q", EntityAgentOutput(), {})
-    assert out.plan is None and out.fallback
+    out = gs.stepwise_graph_agent(_Cfg(object()), "q", EntityAgentOutput(), {})  # no tool-capable client anywhere
+    assert out.plan is None and "no tool-capable model" in out.fallback
 
 
 def test_the_switch_is_off_unless_set_to_stepwise():
@@ -468,3 +468,30 @@ def test_the_reviewer_reads_the_stepwise_result(monkeypatch, tmp_path):
     _turn(monkeypatch, tmp_path, mode="stepwise",
           outcome=gs.StepwiseOutcome(plan=plan, result=result, elapsed_ms=3, parameters={}, steps=[]))
     assert seen["cypher"] == plan.cypher and seen["result"]["data"] == [{"n": 9}]
+
+
+def test_a_box_catalog_without_the_agents_row_uses_the_packaged_row_loudly(wired):
+    """Dev 11-23: the box's CATALOG_FILE predated the agent, so the config gave it the global Gemini client."""
+    bedrock = _Client([_finish("MATCH (s:T_ZZZ) RETURN count(*) AS n")])
+    seen = {}
+    real = bedrock.chat_with_tools
+
+    def chat_with_tools(**kw):
+        seen["model"] = kw["model"]
+        return real(**kw)
+
+    bedrock.chat_with_tools = chat_with_tools
+
+    class Box(_Cfg):
+        LLM_CLIENTS = {"anth": bedrock, "gcp": object()}
+
+    out = gs.stepwise_graph_agent(Box(object()), "q", EntityAgentOutput(), {})
+    assert out.plan is not None and out.plan.cypher == "MATCH (s:T_ZZZ) RETURN count(*) AS n"
+    assert seen["model"] == gs._packaged_rows()[0][1]
+    assert out.steps[0]["tool"] == "_model" and "packaged row" in out.steps[0]["note"]
+
+
+def test_the_packaged_catalog_names_a_tool_model_for_the_agent():
+    rows = gs._packaged_rows()
+    assert rows and rows[0] == ("anth", "global.anthropic.claude-sonnet-5-5")
+    assert rows[-1] == ("anth", "us.anthropic.claude-opus-5-5")

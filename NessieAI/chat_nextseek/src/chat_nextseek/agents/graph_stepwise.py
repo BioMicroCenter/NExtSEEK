@@ -24,6 +24,8 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from .. import cypher_text, graph_catalog, graph_context
@@ -63,6 +65,47 @@ HARD_BUDGET_S = 75
 PROJECT_CANDIDATES = 8
 
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+#: The model catalog this package ships (``NessieAI/chat_nextseek/agent_model_catalog.json``), read when a box's own
+#: catalog file has no tool-capable row for this agent.
+PACKAGED_CATALOG = Path(__file__).resolve().parents[3] / "agent_model_catalog.json"
+
+
+@lru_cache(maxsize=1)
+def _packaged_rows() -> tuple[tuple[str, str], ...]:
+    """``(provider, model)`` for this agent in the packaged catalog: its default profile's row, then its _fallback."""
+    try:
+        catalog = json.loads(PACKAGED_CATALOG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    rows = []
+    for model, groups in ((catalog.get("default") or {}).get("models") or {}).items():
+        for group in groups if isinstance(groups, list) else [groups]:
+            if AGENT_KEY in (group.get("agents") or ()) and group.get("provider"):
+                rows.append((group["provider"], model))
+    fallback = (catalog.get("_fallback") or {}).get(AGENT_KEY) or {}
+    if fallback.get("provider") and fallback.get("model"):
+        rows.append((fallback["provider"], fallback["model"]))
+    return tuple(rows)
+
+
+def _model(config) -> tuple[Any, str, Any, str | None]:
+    """``(client, model, thinking budget, note)`` for the loop. A box whose catalog file predates this agent has no
+    row for it, and the config then lands it on the global model, which may have no tool surface (dev 11-23: a
+    hand-made all-Sonnet catalog gave it the Gemini client). Then the packaged catalog's row is used, loudly, and
+    ``note`` says so; with no tool-capable client at all the client is None."""
+    client, model_name, thinking = config.get_agent_model(AGENT_KEY)
+    if callable(getattr(client, "chat_with_tools", None)):
+        return client, model_name, thinking, None
+    for provider, name in _packaged_rows():
+        alt = (getattr(config, "LLM_CLIENTS", None) or {}).get(provider)
+        if callable(getattr(alt, "chat_with_tools", None)):
+            note = (f"this box's model catalog has no tool-capable {AGENT_KEY} row ({model_name}); "
+                    f"used the packaged row {name}")
+            log.warning(note)
+            return alt, name, None, note
+    return None, model_name, thinking, None
 
 
 def enabled(config) -> bool:
@@ -456,9 +499,11 @@ def stepwise_graph_agent(config, user_query: str, entity_result, parser_plan, re
         return StepwiseOutcome(plan=None, steps=steps, fallback=reason)
 
     try:
-        client, model_name, thinking = config.get_agent_model(AGENT_KEY)
-        if not callable(getattr(client, "chat_with_tools", None)):
-            return back("the stepwise model has no tool surface in this profile")
+        client, model_name, thinking, note = _model(config)
+        if client is None:
+            return back("no tool-capable model for the stepwise agent in this box's catalog or the packaged one")
+        if note:
+            steps.append({"tool": "_model", "note": note})
         entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else dict(entity_result or {})
         plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else dict(parser_plan or {})
         ctx = _context(config, user_query, entity_dict, plan_dict, refine_context)
