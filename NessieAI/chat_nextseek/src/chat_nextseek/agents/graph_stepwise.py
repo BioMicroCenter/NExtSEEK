@@ -234,6 +234,12 @@ def _matching_values(text: Any, word: str) -> list[str]:
     return [_cut(line) for line in str(text or "").splitlines() if w in line.lower()][:5]
 
 
+def word_statement(label: str) -> str:
+    """The records of one type whose stored values hold ``$w`` (folded), a few at a time."""
+    return (f"MATCH (s:{label}) WHERE toLower(s.search_text) CONTAINS $w "
+            f"RETURN s.uuid AS uuid, s.search_text AS text ORDER BY s.uuid LIMIT {WORD_EXAMPLES}")
+
+
 def _find_word(config, ctx: _Ctx, inp: dict, step: dict) -> str:
     word = str(inp.get("word") or "").strip()
     codes = [str(c) for c in (inp.get("sample_types") or []) if str(c).strip()][:WORD_TYPES_MAX]
@@ -241,21 +247,17 @@ def _find_word(config, ctx: _Ctx, inp: dict, step: dict) -> str:
         return json.dumps({"ok": False, "error": "name a word and at least one sample type"})
     out, t0 = [], time.perf_counter()
     for code in codes:
-        label = _label(code)
-        count = tool_neo4j_query(config, f"MATCH (s:{label}) WHERE toLower(s.search_text) CONTAINS $w "
-                                         "RETURN count(s) AS n", {"w": word.lower()}, timeout_s=LOOK_TIMEOUT_S)
-        if not count.get("ok"):
-            out.append({"sample_type": code, **_shown(count)})
+        # One statement per type: its first rows are the examples, and the tool's total probe is the count.
+        rows = tool_neo4j_query(config, word_statement(_label(code)), {"w": word.lower()}, timeout_s=LOOK_TIMEOUT_S)
+        if not rows.get("ok"):
+            out.append({"sample_type": code, **_shown(rows)})
             continue
-        n = ((count.get("data") or [{}])[0] or {}).get("n", 0)
+        data = list(rows.get("data") or [])
+        n = rows.get("total") if rows.get("total") is not None else len(data)
         entry: dict[str, Any] = {"sample_type": code, "records": n}
-        if n:
-            rows = tool_neo4j_query(config, f"MATCH (s:{label}) WHERE toLower(s.search_text) CONTAINS $w "
-                                            f"RETURN s.uuid AS uuid, s.search_text AS text ORDER BY s.id "
-                                            f"LIMIT {WORD_EXAMPLES}", {"w": word.lower()},
-                                    timeout_s=LOOK_TIMEOUT_S)
+        if data:
             entry["examples"] = [{"uuid": r.get("uuid"), "values_holding_it": _matching_values(r.get("text"), word)}
-                                 for r in rows.get("data") or []] if rows.get("ok") else []
+                                 for r in data]
         out.append(entry)
     step.update(ms=int((time.perf_counter() - t0) * 1000), ok=True)
     return json.dumps({"ok": True, "word": word, "by_type": out}, default=str)

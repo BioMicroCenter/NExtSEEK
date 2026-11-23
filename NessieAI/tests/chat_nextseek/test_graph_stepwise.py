@@ -106,9 +106,8 @@ def test_the_agent_reads_stored_values_before_it_filters(wired):
 
 def test_find_word_shows_the_text_it_matched_not_the_whole_record(wired):
     def answer(cypher, params):
-        if "count(s)" in cypher:
-            return {"ok": True, "data": [{"n": 1}], "count": 1}
-        return {"ok": True, "data": [{"uuid": "ZZZ-1", "text": "Splenocytes (Balb/C)\nfreezer 3"}], "count": 1}
+        return {"ok": True, "data": [{"uuid": "ZZZ-1", "text": "Splenocytes (Balb/C)\nfreezer 3"}], "count": 1,
+                "total": 1}
 
     wired["answer"] = answer
     client = _Client([_use("find_word", {"word": "bal", "sample_types": ["ZZZ"]}),
@@ -117,6 +116,8 @@ def test_find_word_shows_the_text_it_matched_not_the_whole_record(wired):
     seen = _last_tool_result(client, 1)
     assert "Splenocytes (Balb/C)" in seen
     assert "freezer 3" not in seen
+    assert len(wired["ran"]) == 1  # one statement per type: its rows and its total
+    assert '\\"records\\": 1' in seen
     assert all(p == {"w": "bal"} for _, p, _ in wired["ran"])
     # A finish with no query is the agent's reasoned refusal: no statement, its reason kept.
     assert out.plan.cypher == "" and out.result is None
@@ -288,3 +289,46 @@ def test_the_real_guard_passes_the_field_values_statement():
     from chat_nextseek.graph_review_counts import values_statement
     cypher, problem = gs._guard(_real_ctx(), values_statement("T_ZZZ", "StatusFoo"), {})
     assert problem is None and "StatusFoo" in cypher
+
+
+# --- a member's scope, and the real prompt and catalog context ---------------------------------------------------
+
+
+@pytest.mark.parametrize("cypher", [
+    gs.word_statement("T_ZZZ"),
+    __import__("chat_nextseek.graph_review_counts", fromlist=["values_statement"]).values_statement("T_ZZZ", "StatusFoo"),
+])
+def test_the_look_statements_are_scoped_for_a_member_not_refused(cypher):
+    from chat_nextseek.cypher_scope import Scoped, scope_cypher
+    from chat_nextseek.graph_scope import GraphScope
+    out = scope_cypher(cypher, {"w": "x"} if "$w" in cypher else {}, GraphScope.for_projects([1], source="test"))
+    assert isinstance(out, Scoped), out
+
+
+def test_the_context_carries_the_graph_prompt_the_look_rules_and_the_question(monkeypatch):
+    from pathlib import Path
+
+    from chat_nextseek import graph_catalog, graph_context
+    from chat_nextseek.agents import graph as one_shot
+
+    prompts = Path(gs.__file__).resolve().parent.parent / "prompts"
+    snapshot = _real_ctx().snapshot
+    catalog = one_shot.CatalogContext(
+        snapshot=snapshot, schema="STRUCTURE\n\n" + graph_context.RESOLVED_TYPES_HEADING + "\nZZZ: StatusFoo",
+        vocabulary="Investigation: Alpha Cohort", project_titles={"Alpha": "ALPHAc"}, fields_named={})
+    monkeypatch.setattr(one_shot, "resolve_catalog_context", lambda *a, **k: catalog)
+    monkeypatch.setattr(graph_catalog, "shows_committed_vocabulary", lambda config: True)
+
+    class Cfg:
+        GRAPH_AGENT_SYSTEM_PROMPT = (prompts / "graph_agent.txt").read_text(encoding="utf-8")
+
+        def _load_prompt(self, name):
+            return (prompts / name).read_text(encoding="utf-8")
+
+    ctx = gs._context(Cfg(), "how many ZZZ hold StatusFoo 1", {}, {"mode": "graph_query"}, refine="UID CHECK: none")
+    assert "You are the Graph Agent" in ctx.system
+    assert "look, then answer" in ctx.system and str(gs.MAX_STEPS) in ctx.system and "{max_steps}" not in ctx.system
+    assert "STRUCTURE" in ctx.system and "ZZZ: StatusFoo" not in ctx.system  # the resolved types vary: opening
+    assert "ZZZ: StatusFoo" in ctx.opening and "Alpha Cohort" in ctx.opening and "UID CHECK" in ctx.opening
+    assert ctx.opening.endswith("how many ZZZ hold StatusFoo 1")
+    assert ctx.project_titles == {"Alpha": "ALPHAc"}
