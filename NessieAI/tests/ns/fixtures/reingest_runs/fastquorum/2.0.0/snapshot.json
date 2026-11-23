@@ -1,0 +1,19 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.ALN"
+  }
+ },
+ "warnings": []
+}

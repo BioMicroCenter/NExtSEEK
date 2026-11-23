@@ -1,0 +1,189 @@
+{
+  "report_type": "NFCORE_VARIANTBENCHMARKING_SAMPLESHEET",
+  "description": "nf-core/variantbenchmarking samplesheet context, aligned to the pinned 1.6.1 schema. One row per test VCF (an A.VCF record, usually a sarek caller's output), scored against one truth set the user names: precision, recall and F1 per caller.",
+  "params": {
+    "analysis": {
+      "type": "enum",
+      "allowed": [
+        "germline",
+        "somatic"
+      ],
+      "default": null,
+      "steerable": true,
+      "help": "Required, no pipeline default. germline for a single sample's calls (sarek's haplotypecaller, deepvariant, freebayes, strelka germline, manta); somatic for tumour-versus-normal calls scored against a somatic truth set such as SEQC2. The param atlas reads it from the A.VCF Software."
+    },
+    "variant_type": {
+      "type": "enum",
+      "allowed": [
+        "small",
+        "snv",
+        "indel",
+        "structural",
+        "copynumber"
+      ],
+      "default": null,
+      "steerable": true,
+      "help": "Required, no pipeline default. One kind per run: small for VCFs holding SNVs and indels together (every sarek small-variant caller), structural for SV callers (manta, tiddit). A cohort holding both kinds of VCF is two runs. The param atlas reads it from the A.VCF Software."
+    },
+    "method": {
+      "type": "string",
+      "default": "truvari,svanalyzer,happy,rtgtools,wittyer,sompy,bndeval",
+      "steerable": true,
+      "help": "Comma list of benchmarking tools; each runs only for the variant types it serves (germline small: happy and rtgtools; somatic small: sompy and rtgtools; structural: truvari, svanalyzer, wittyer, bndeval). aardvark adds a third small-variant engine. Do not add concordance or intersect: the reingest map rules their outputs out and they need no truth set."
+    },
+    "truth_id": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Label of the truth sample, used in every output name and written over the truth VCF's sample column. GIAB: HG001 is NA12878, HG002 is NA24385. The param atlas reads it from the sample's name when it names a GIAB sample."
+    },
+    "truth_vcf": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "REQUIRED, no default, nothing staged. The truth (gold standard) VCF on the cluster, on the same genome build and contig names as the test VCFs (GATK GRCh38 for sarek's calls). Supplied by the user."
+    },
+    "regions_bed": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "REQUIRED here, no default, nothing staged. The truth set's confident-regions BED on the cluster (GIAB's *_benchmark.bed). Without it every call outside the truth set's confident regions counts as a false positive."
+    },
+    "high_conf": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "true (the pipeline's default) treats regions_bed as confident regions: hap.py/som.py -f, rtgtools --evaluation-regions. Keep true for a GIAB or SEQC2 confident-regions BED."
+    },
+    "targets_bed": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Only for exome or panel calls: the capture kit's target BED on the cluster, so the score covers only what the assay could call (hap.py/som.py -T). Leave unset for whole-genome calls."
+    },
+    "happy_comparison_engine": {
+      "type": "enum",
+      "allowed": [
+        "default",
+        "xcmp",
+        "vcfeval"
+      ],
+      "default": "default",
+      "steerable": true,
+      "help": "hap.py's matching engine: default is xcmp; vcfeval follows the GA4GH small-variant benchmarking practice. Germline small variants only."
+    },
+    "preprocess": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Comma list from split_multiallelic, normalize, deduplicate, filter_contigs, applied to the test and truth VCFs alike. nf-core's own germline tests use normalize,deduplicate; GA4GH-style runs add split_multiallelic. Unset, nothing is applied."
+    },
+    "min_sv_size": {
+      "type": "int",
+      "default": 0,
+      "steerable": true,
+      "help": "Structural runs only: smallest SV benchmarked (SURVIVOR filter); 0 keeps all. GIAB SV truth sets start at 50 bp."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
+  },
+  "required_user_params": [
+    {
+      "name": "truth_vcf",
+      "scope": "run",
+      "definition": "Path on the cluster to the truth VCF the calls are scored against, for the same individual and the same genome build and contig names as the test VCFs. For NA12878 on GRCh38 that is GIAB's HG001 benchmark VCF (for example NISTv4.2.1 HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz). No truth set is staged on the cluster; a truth VCF of another individual or build scores every call wrong without an error.",
+      "example": "/net/bmc-pub10/data1/bmc/refs/giab/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+      "pattern": "^/\\S+\\.vcf(\\.gz)?$",
+      "pattern_hint": "an absolute path on the cluster ending in .vcf or .vcf.gz"
+    },
+    {
+      "name": "regions_bed",
+      "scope": "run",
+      "definition": "Path on the cluster to the truth set's confident-regions BED, released with the truth VCF (GIAB: HG001_GRCh38_1_22_v4.2.1_benchmark.bed). Calls outside it are not scored; without it, every call where the truth set makes no claim counts as a false positive and the precision is wrong.",
+      "example": "/net/bmc-pub10/data1/bmc/refs/giab/HG001_GRCh38_1_22_v4.2.1_benchmark.bed",
+      "pattern": "^/\\S+\\.bed(\\.gz)?$",
+      "pattern_hint": "an absolute path on the cluster ending in .bed or .bed.gz"
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/variantbenchmarking",
+    "repository": "https://github.com/nf-core/variantbenchmarking",
+    "documentation_url": "https://nf-co.re/variantbenchmarking/1.6.1/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "One row per test VCF: id, test_vcf, caller, in that order (docs/usage.md: the first three columns are strict). id is unique per row (schema_input.json uniqueEntries), so a sample with calls from two callers has two ids. caller is the variant caller's name with no spaces, lowercase (the pipeline tests it against strelka, manta, delly and others), or unknown.",
+    "required_columns": [
+      "id",
+      "caller"
+    ],
+    "optional_columns": [
+      "test_vcf",
+      "subsample"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "id": null,
+      "test_vcf": null,
+      "caller": null
+    }
+  ],
+  "examples": {
+    "germline_small": {
+      "id": "A.VCF-260403BMC-11-PUB",
+      "test_vcf": "/net/bmc-pub10/data1/bmc/runs/sarek/variant_calling/haplotypecaller/D.SEQ-260403BMC-1-PUB/D.SEQ-260403BMC-1-PUB.haplotypecaller.filtered.vcf.gz",
+      "caller": "haplotypecaller"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV) with the header id,test_vcf,caller first.",
+    "id is the A.VCF record's UID: unique per row, no spaces.",
+    "test_vcf is the A.VCF's primary VCF (.vcf, .vcf.gz, .bcf), never its .g.vcf.gz (a gVCF's reference blocks are not calls) and never an index.",
+    "caller is the lowercase caller name read from the A.VCF Software: haplotypecaller, deepvariant, freebayes, strelka, manta, mutect2, tiddit, else unknown.",
+    "All rows of one run share variant_type: small-variant VCFs and structural-variant VCFs are separate runs.",
+    "All rows are on one genome build, the run's genome, and the truth VCF and regions_bed are on that build too. Liftover is not offered: its chain and rename files are not staged.",
+    "truth_vcf and regions_bed are the user's paths on the cluster; never guess them and never use a truth set of another individual.",
+    "For exome or panel calls give targets_bed the kit's target BED; never score capture calls genome-wide."
+  ],
+  "notes": "Scores existing calls; calls nothing. On Luria the GRCh38 run uses the GATK GRCh38 bundle sarek calls on (refs/GATK.GRCh38, luria/refs/stage_dna_refs.sh): its FASTA and the required --fai. rtgtools builds its SDF from the FASTA on every run (references/rtgtools/), and no truth set or stratification BED is staged.",
+  "sources": [
+    {
+      "label": "nf-core/variantbenchmarking usage docs @ 1.6.1",
+      "url": "https://nf-co.re/variantbenchmarking/1.6.1/docs/usage/",
+      "notes": "Samplesheet columns, truth data, regions_bed and targets_bed roles, methods per variant type."
+    },
+    {
+      "label": "nf-core/variantbenchmarking nextflow_schema.json @ 1.6.1",
+      "url": "https://raw.githubusercontent.com/nf-core/variantbenchmarking/1.6.1/nextflow_schema.json",
+      "notes": "Authoritative param names, enums, patterns and defaults; analysis, variant_type, method, fasta and fai are required."
+    },
+    {
+      "label": "nf-core/variantbenchmarking assets/schema_input.json @ 1.6.1",
+      "url": "https://raw.githubusercontent.com/nf-core/variantbenchmarking/1.6.1/assets/schema_input.json",
+      "notes": "id and caller required, test_vcf or test_regions, id unique."
+    },
+    {
+      "label": "nf-core/variantbenchmarking workflows/variantbenchmarking.nf @ 1.6.1",
+      "url": "https://raw.githubusercontent.com/nf-core/variantbenchmarking/1.6.1/workflows/variantbenchmarking.nf",
+      "notes": "Any of truvari, svanalyzer, happy, sompy, rtgtools, wittyer in --method stops the run without truth_vcf and truth_id."
+    }
+  ],
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/variantbenchmarking samplesheet from resolved NExtSEEK A.VCF records.",
+    "workflow_role": "Selected to score variant calls that already exist against a truth set (GIAB HG001 for NA12878). With no VCF yet, sarek calls the variants first.",
+    "output_expectation": "CSV with header id,test_vcf,caller.",
+    "population_priority": [
+      "One row per A.VCF record of the chosen variant type; id = the A.VCF UID.",
+      "test_vcf from the A.VCF's primary data path; caller from its Software.",
+      "Ask for truth_vcf and regions_bed; say plainly that no truth set is staged."
+    ],
+    "final_checks": [
+      "Header begins id,test_vcf,caller.",
+      "No two rows share an id; no test_vcf is a .g.vcf.gz.",
+      "Every row's A.VCF ReferenceGenome is the run's genome."
+    ]
+  }
+}

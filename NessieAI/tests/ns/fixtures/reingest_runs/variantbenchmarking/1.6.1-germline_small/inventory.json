@@ -1,0 +1,838 @@
+[
+ {
+  "path": "pipeline_info/nf_core_variantbenchmarking_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/done",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/format.log",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/mainIndex",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/nameIndex0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/namedata0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/namepointer0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/progress",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/reference.txt",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqdata0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqdata1",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqdata2",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqdata3",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqpointer0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqpointer1",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqpointer2",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/seqpointer3",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/sequenceIndex0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/suffixIndex0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/suffixdata0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/suffixpointer0",
+  "bytes": 0
+ },
+ {
+  "path": "references/rtgtools/genome.sdf/summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/HG002/preprocess/HG002.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/HG002/preprocess/HG002.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/HG002/stats/bcftools/HG002.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools-stats-subtypes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools_stats_indel-lengths.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools_stats_variant_depths.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools_stats_vqc_Count_Indels.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools_stats_vqc_Count_SNP.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools_stats_vqc_Count_Transitions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/bcftools_stats_vqc_Count_Transversions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/happy_indel_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/happy_snp_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_general_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_variant_calling_summary_aardvark.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_data/multiqc_variant_calling_summary_rtgtools.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools-stats-subtypes-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools-stats-subtypes-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_variant_depths.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Indels.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_SNP.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transitions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transversions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/happy_indel_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/happy_snp_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/variant_calling_summary_aardvark.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/pdf/variant_calling_summary_rtgtools.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools-stats-subtypes-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools-stats-subtypes-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_variant_depths.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Indels.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_SNP.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transitions.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transversions.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/happy_indel_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/happy_snp_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/variant_calling_summary_aardvark.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/png/variant_calling_summary_rtgtools.png",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools-stats-subtypes-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools-stats-subtypes-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_variant_depths.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Indels.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_SNP.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transitions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transversions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/happy_indel_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/happy_snp_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/variant_calling_summary_aardvark.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_plots/svg/variant_calling_summary_rtgtools.svg",
+  "bytes": 0
+ },
+ {
+  "path": "small/multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/aardvark/aardvark.FN.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/aardvark/aardvark.FP.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/aardvark/aardvark.TP_base.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/aardvark/aardvark.TP_comp.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/happy/happy.FN.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/happy/happy.FP.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/happy/happy.TP_base.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/happy/happy.TP_comp.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/rtgtools/rtgtools.FN.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/rtgtools/rtgtools.FP.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/rtgtools/rtgtools.TP_base.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/comparisons/rtgtools/rtgtools.TP_comp.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/aardvark_summary/config.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/aardvark_summary/data/data_1.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/aardvark_summary/functions.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/aardvark_summary/index_1.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/aardvark_summary/plots/plots.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/index.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/aardvark/static/bundle.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/index.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/static/bundle.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/test/config.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/test/data/data_1.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/test/functions.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/test/index_1.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/happy/test/plots/plots.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/index.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/static/bundle.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/test/config.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/test/data/data_1.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/test/functions.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/test/index_1.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/datavzrd/rtgtools/test/plots/plots.js",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/small_lenght_aardvark.FN.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/small_lenght_aardvark.FP.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/small_lenght_aardvark.TP_base.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/small_lenght_aardvark.TP_comp.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/upset_aardvark_tp_fn_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/upset_aardvark_tp_fp_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/aardvark/variant_metrics_aardvark_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/small_lenght_happy.FN.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/small_lenght_happy.FP.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/small_lenght_happy.TP_base.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/small_lenght_happy.TP_comp.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/upset_happy_tp_fn_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/upset_happy_tp_fp_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/happy/variant_metrics_happy_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/small_lenght_rtgtools.FN.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/small_lenght_rtgtools.FP.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/small_lenght_rtgtools.TP_base.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/small_lenght_rtgtools.TP_comp.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/upset_rtgtools_tp_fn_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/upset_rtgtools_tp_fp_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/plots/rtgtools/variant_metrics_rtgtools_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/reports/happy/happy_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/tables/aardvark/aardvark.summary.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/tables/happy/happy.summary.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/summary/tables/rtgtools/rtgtools.summary.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/aardvark/test6.HG002.strelka.cli_settings.json",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/aardvark/test6.HG002.strelka.query.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/aardvark/test6.HG002.strelka.region_sequences.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/aardvark/test6.HG002.strelka.region_summary.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/aardvark/test6.HG002.strelka.summary.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/aardvark/test6.HG002.strelka.truth.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.extended.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.metrics.json.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.roc.Locations.INDEL.PASS.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.roc.Locations.INDEL.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.roc.Locations.SNP.PASS.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.roc.Locations.SNP.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.roc.all.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.runinfo.json",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.summary.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/happy/test6.HG002.strelka.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.fn.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.fn.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.fp.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.fp.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.non_snp_roc.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.phasing.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.snp_roc.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.tp-baseline.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.tp-baseline.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.tp.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.tp.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/benchmarks/rtgtools/test6.HG002.strelka.weighted_roc.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/preprocess/test6.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/preprocess/test6.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test6/stats/bcftools/test6.strelka.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/aardvark/test7.HG002.bcftools.cli_settings.json",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/aardvark/test7.HG002.bcftools.query.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/aardvark/test7.HG002.bcftools.region_sequences.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/aardvark/test7.HG002.bcftools.region_summary.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/aardvark/test7.HG002.bcftools.summary.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/aardvark/test7.HG002.bcftools.truth.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.extended.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.metrics.json.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.roc.Locations.INDEL.PASS.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.roc.Locations.INDEL.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.roc.Locations.SNP.PASS.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.roc.Locations.SNP.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.roc.all.csv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.runinfo.json",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.summary.csv",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/happy/test7.HG002.bcftools.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.fn.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.fn.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.fp.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.fp.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.non_snp_roc.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.phasing.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.snp_roc.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.tp-baseline.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.tp-baseline.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.tp.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.tp.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/benchmarks/rtgtools/test7.HG002.bcftools.weighted_roc.tsv.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/preprocess/test7.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/preprocess/test7.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "small/test7/stats/bcftools/test7.bcftools.bcftools_stats.txt",
+  "bytes": 0
+ }
+]

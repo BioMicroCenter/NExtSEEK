@@ -1,0 +1,5 @@
+sample,bam,cram
+sample1,/RUN/inputs/test.paired_end.recalibrated.sorted.bam
+sample2,/RUN/inputs/test2.paired_end.recalibrated.sorted.bam
+sample3,,/RUN/inputs/test.paired_end.markduplicates.sorted.cram
+sample4,,/RUN/inputs/test2.paired_end.markduplicates.sorted.cram

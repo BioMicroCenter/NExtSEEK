@@ -1,0 +1,9 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test dataset profile",
+ "input": "/RUN/samplesheet.csv",
+ "outdir": "/RUN",
+ "skip_fetch_eatlas_accessions": true,
+ "skip_id_mapping": true,
+ "species": "solanum tuberosum"
+}

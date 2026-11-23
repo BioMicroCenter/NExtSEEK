@@ -1,0 +1,130 @@
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/nf-core-tumourevo_logo_dark.png">
+    <img alt="nf-core/tumourevo" src="docs/images/nf-core-tumourevo_logo_light.png">
+  </picture>
+</h1>
+
+[![Open in GitHub Codespaces](https://img.shields.io/badge/Open_In_GitHub_Codespaces-black?labelColor=grey&logo=github)](https://github.com/codespaces/new/nf-core/tumourevo)
+[![GitHub Actions CI Status](https://github.com/nf-core/tumourevo/actions/workflows/nf-test.yml/badge.svg)](https://github.com/nf-core/tumourevo/actions/workflows/nf-test.yml)
+[![GitHub Actions Linting Status](https://github.com/nf-core/tumourevo/actions/workflows/linting.yml/badge.svg)](https://github.com/nf-core/tumourevo/actions/workflows/linting.yml)[![AWS CI](https://img.shields.io/badge/CI%20tests-full%20size-FF9900?labelColor=000000&logo=Amazon%20AWS)](https://nf-co.re/tumourevo/results)[![Cite with Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.XXXXXXX-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.XXXXXXX)
+[![nf-test](https://img.shields.io/badge/unit_tests-nf--test-337ab7.svg)](https://www.nf-test.com)
+
+[![Nextflow](https://img.shields.io/badge/version-%E2%89%A525.10.4-green?style=flat&logo=nextflow&logoColor=white&color=%230DC09D&link=https%3A%2F%2Fnextflow.io)](https://www.nextflow.io/)
+[![nf-core template version](https://img.shields.io/badge/nf--core_template-4.1.0-green?style=flat&logo=nfcore&logoColor=white&color=%2324B064&link=https%3A%2F%2Fnf-co.re)](https://github.com/nf-core/tools/releases/tag/4.1.0)
+[![run with conda](http://img.shields.io/badge/run%20with-conda-3EB049?labelColor=000000&logo=anaconda)](https://docs.conda.io/en/latest/)
+[![run with docker](https://img.shields.io/badge/run%20with-docker-0db7ed?labelColor=000000&logo=docker)](https://www.docker.com/)
+[![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
+[![Launch on Seqera Platform](https://img.shields.io/badge/Launch%20%F0%9F%9A%80-Seqera%20Platform-%234256e7)](https://cloud.seqera.io/launch?pipeline=https://github.com/nf-core/tumourevo)
+
+[![Get help on Slack](http://img.shields.io/badge/slack-nf--core%20%23tumourevo-4A154B?labelColor=000000&logo=slack)](https://nfcore.slack.com/channels/tumourevo)[![Follow on Bluesky](https://img.shields.io/badge/bluesky-%40nf__core-1185fe?labelColor=000000&logo=bluesky)](https://bsky.app/profile/nf-co.re)[![Follow on Mastodon](https://img.shields.io/badge/mastodon-nf__core-6364ff?labelColor=FFFFFF&logo=mastodon)](https://mstdn.science/@nf_core)[![Watch on YouTube](http://img.shields.io/badge/youtube-nf--core-FF0000?labelColor=000000&logo=youtube)](https://www.youtube.com/c/nf-core)
+
+## Introduction
+
+**nf-core/tumourevo** is a bioinformatics pipeline to model tumour evolution from whole-genome sequencing (WGS) data. The pipeline performs state-of-the-art downstream analysis of variant and copy-number calls from tumour-normal matched sequencing assays, reconstructing the evolutionary processes leading to the observed tumour genome. This analysis can be done at the level of single samples, multiple samples from the same patient (multi-region/longitudinal assays), and of multiple patients from distinct cohorts.
+
+The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool to run tasks across multiple compute infrastructures in a very portable manner.
+It comes with docker containers making installation trivial and results highly reproducible. The [Nextflow DSL2](<[https://www.nextflow.io](https://www.nextflow.io/docs/latest/dsl1.html)>)
+implementation of this pipeline uses one container per process which makes it easier to maintain and update software dependencies. Where possible, these processes have been submitted to and
+installed from [nf-core/modules](https://github.com/nf-core/modules) in order to make them available to all nf-core pipelines, and to everyone within the Nextflow community!
+
+## Pipeline Summary
+
+The tumourevo pipeline supports variant annotation, driver annotation, quality control processes, subclonal deconvolution and signature deconvolution analysis through various tools.
+It can be used to analyse both single sample experiments and longitudinal/multi-region assays, in which multiple samples of the same patient are avaiable.
+As input, you must provide at least information on the samples, the VCF file from one of the supported callers and the output of one of the supported copy number caller.
+By default, if multiple samples from the same patient are provided, they will be analysed in a multivariate framework (which affects in particular the subclonal deconvolution deconvolution steps)
+to retrieve information useful in the reconstruction of the evolutionary process. Depending on the variant calling strategy (single sample or multi sample) and the provided input files,
+different strategies will be applied.
+
+![tumourevo workflow](docs/images/nf-core-tumourevo_metromap.png)
+
+- Variant Annotation (`VEP`)
+- Quality Control (`CNAqc`, `TINC`)
+- Driver Annotation
+- Subclonal Deconvolution (`PyClone`, `MOBSTER`, `VIBER`)
+- Clone Tree Inference (`ctree`)
+- Signature Deconvolution (`SparseSignatures`, `SigProfiler`)
+
+## Usage
+
+> [!NOTE]
+> If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/get_started/environment_setup/overview) on how to set-up Nextflow. Make sure to [test your setup](https://nf-co.re/docs/get_started/run-your-first-pipeline) with `-profile test` before running the workflow on actual data.
+
+First, prepare a samplesheet with your input data that looks as follows:
+
+`samplesheet.csv`:
+
+```csv
+dataset,patient,tumour_sample,normal_sample,vcf,tbi,cna_segments,cna_extra,cna_caller,cancer_type
+dataset1,patient1,sample1,N1,patient1_sample1.vcf.gz,patient1_sample1.vcf.gz.tbi,/CNA/patient1/sample1/segments.txt,CNA/patient1/sample1/purity_ploidy.txt,caller,PANCANCER
+dataset1,patient1,sample2,N1,patient1_sample2.vcf.gz,patient1_sample2.vcf.gz.tbi,/CNA/patient1/sample2/segments.txt,CNA/patient1/sample2/purity_ploidy.txt,caller,PANCANCER
+```
+
+Now, you can run the pipeline using:
+
+```bash
+nextflow run nf-core/tumourevo \
+   -profile <docker/singularity/.../institute> \
+   --input samplesheet.csv \
+   --outdir <OUTDIR> \
+   --genome GRCh37 \
+   --fasta <PATH>
+```
+
+> [!WARNING]
+> Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_; see [docs](https://nf-co.re/docs/running/run-pipelines#using-parameter-files).
+
+For more details and further functionality, please refer to the [usage documentation](https://nf-co.re/tumourevo/usage) and the [parameter documentation](https://nf-co.re/tumourevo/parameters).
+
+## Pipeline output
+
+To see the results of an example test run with a full size dataset refer to the [results](https://nf-co.re/tumourevo/results) tab on the nf-core website pipeline page.
+For more details about the output files and reports, please refer to the
+[output documentation](https://nf-co.re/tumourevo/output).
+
+## Credits
+
+nf-core/tumourevo was originally written by Elena Buscaroli, Katsiaryna Davydzenka, Giorgia Gandolfi, Virginia Gazziero, Lucrezia Valeriani, Nicola Calonaci and Giulio Caravagna at [Cancer Data Science Laboratory](https://www.caravagnalab.org) at University of Trieste with the support of AIRC, Orfeo HPC platform at AREA Science Park and Human Technopole.
+
+Main developers:
+
+- [Elena Buscaroli](https://github.com/elena-buscaroli)
+- [Katsiaryna Davydzenka](https://github.com/kdavydzenka)
+- [Giorgia Gandolfi](https://github.com/giorgiagandolfi)
+- [Virginia Gazziero](https://github.com/vvvirgy)
+- [Lucrezia Valeriani](https://github.com/valerianilucrezia)
+- [Nicola Calonaci](https://github.com/nicola-calonaci)
+
+We thank the following people for their assistance in the development of this pipeline:
+
+- [Rodolfo Tolloi](https://github.com/RodTol)
+- [Davide Rambaldi](https://github.com/tucano)
+- [Brandon Hasting](https://github.com/brandon-hastings)
+- [Chela James](https://github.com/chelauk)
+- [Maxime U Garcia](https://github.com/maxulysse)
+- [Raquel Manzano](https://github.com/RaqManzano)
+- [Phil Ewels](https://github.com/ewels)
+- [Simon Pearce](https://github.com/SPPearce)
+- [Matthias Hörtenhuber](https://github.com/mashehu)
+- [Friederike Hanssen](https://github.com/FriederikeHanssen)
+
+We acknowledge Andrea Sottoriva, Trevor Graham, Guido Sanguinetti, Giovanni Tonon, Stefano Cozzini, Niccolò Tosato and Alberto Cazzaniga.
+
+## Contributions and Support
+
+If you would like to contribute to this pipeline, please see the [contributing guidelines](docs/CONTRIBUTING.md).
+
+For further information or help, don't hesitate to get in touch on the [Slack `#tumourevo` channel](https://nfcore.slack.com/channels/tumourevo) (you can join with [this invite](https://nf-co.re/join/slack)).
+
+## Citations
+
+An extensive list of references for the tools used by the pipeline can be found in the [`CITATIONS.md`](CITATIONS.md) file.
+
+You can cite the `nf-core` publication as follows:
+
+> **The nf-core framework for community-curated bioinformatics pipelines.**
+>
+> Philip Ewels, Alexander Peltzer, Sven Fillinger, Harshil Patel, Johannes Alneberg, Andreas Wilm, Maxime Ulysse Garcia, Paolo Di Tommaso & Sven Nahnsen.
+>
+> _Nat Biotechnol._ 2020 Feb 13. doi: [10.1038/s41587-020-0439-x](https://dx.doi.org/10.1038/s41587-020-0439-x).

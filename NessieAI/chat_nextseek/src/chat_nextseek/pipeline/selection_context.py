@@ -38,6 +38,8 @@ SECTION_NAMES: tuple[str, ...] = ("atlas", "digest", "docs", "schemas")
 RICH_PIPELINES: tuple[str, ...] = (
     "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
     "atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript",
+    "fastquorum", "variantbenchmarking", "oncoanalyser", "createpanelrefs", "tumourevo",
+    "variantprioritization", "rnadnavar", "stableexpression",
 )
 
 #: The payload (atlas + digest + docs + schemas of every RICH_PIPELINES entry) grows with each

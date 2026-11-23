@@ -10,6 +10,9 @@
     "smallrna": {"description": "Small-RNA libraries", "uids": ["D.SEQ-261026NA-19", "D.SEQ-261026NA-20"]},
     "riboseq": {"description": "Ribosome profiling", "uids": ["D.SEQ-261026NA-17", "D.SEQ-261026NA-18"]},
     "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": ["D.SEQ-261026NA-15", "D.SEQ-261026NA-16"]},
-    "cutandrun": {"description": "CUT&Tag for two histone marks with an IgG control, paired-end", "uids": ["D.SEQ-261116BMC-1", "D.SEQ-261116BMC-2", "D.SEQ-261116BMC-3", "D.SEQ-261116BMC-4"]}
+    "cutandrun": {"description": "CUT&Tag for two histone marks with an IgG control, paired-end", "uids": ["D.SEQ-261116BMC-1", "D.SEQ-261116BMC-2", "D.SEQ-261116BMC-3", "D.SEQ-261116BMC-4"]},
+    "giab_hg001_vcf": {"description": "NA12878 (GIAB HG001) whole-genome germline: two D.SEQ libraries, each with A.VCF children from a reingested sarek 3.10.0 run (haplotypecaller and deepvariant).", "uids": []},
+    "normal_bams": {"description": "Two human blood-normal WGS libraries registered as aligned BAMs (D.SEQ DataType BAM), the shape of TCGA's GDC blood normals. Stand-ins from nf-core test-datasets (both are the same test individual on a small chr22 genome), for selection stories only.", "uids": []},
+    "tumour_normal_rna": {"description": "One patient: tumour RNA-seq, tumour exome and matched blood exome, all linked to the patient (rnadnavar's input)", "uids": []}
   }
 }

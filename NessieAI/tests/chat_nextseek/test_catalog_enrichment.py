@@ -14,7 +14,8 @@ NEW_FIELDS = (
     "pipeline_kind_description",
 )
 
-VALID_INPUT_KINDS = {"fastq", "bam", "accession"}
+# vcf: variantbenchmarking's A.VCF leaves; fastq_or_bam: rnadnavar's FASTQ, else BAM, per library.
+VALID_INPUT_KINDS = {"fastq", "bam", "accession", "vcf", "fastq_or_bam"}
 
 
 @pytest.mark.parametrize("key,entry", list(NFCORE_PIPELINE_CATALOG.items()))

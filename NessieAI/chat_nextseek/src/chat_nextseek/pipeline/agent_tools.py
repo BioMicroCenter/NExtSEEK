@@ -667,6 +667,18 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
                   for uid, param, val in ddp["corrections"]]
         return json.dumps({"ok": False, "errors": errors})
 
+    # fastquorum needs every row's fgbio read structure: it places the UMI, nothing in
+    # NExtSEEK's metadata records it, and a wrong one groups reads into the wrong molecules
+    # without an error. Fail closed so the agent asks instead of guessing.
+    if pipeline_key == "fastquorum":
+        rs_errors = _fastquorum_read_structure_errors(merged_rows)
+        if rs_errors:
+            return json.dumps({"ok": False, "errors": rs_errors})
+    pre_errors = {"variantbenchmarking": lambda rows: _variantbenchmarking_sheet_errors(rows),
+                  "rnadnavar": lambda rows: _rnadnavar_status_errors(rows)}.get(pipeline_key)
+    if pre_errors and (found := pre_errors(merged_rows)):
+        return json.dumps({"ok": False, "errors": found})
+
     # rnasplice needs a non-blank 'condition' per row (it defines the comparison).
     # Nothing derives it yet, so fail closed early rather than emit a samplesheet
     # nf-schema rejects late. (Deriving condition from the cohort grouping is a follow-up.)
@@ -897,6 +909,20 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         sheet_errors = _cutandrun_sheet_errors(merged.get("use_control"), _samplesheet_rows(state))
         if sheet_errors:
             return json.dumps({"ok": False, "errors": sheet_errors})
+    if pipeline_key == "fastquorum":
+        sheet_errors = _fastquorum_read_structure_errors(_samplesheet_rows(state), count_fastqs=True)
+        if sheet_errors:
+            return json.dumps({"ok": False, "errors": sheet_errors})
+    if pipeline_key in ("variantbenchmarking", "oncoanalyser", "createpanelrefs", "rnadnavar"):
+        written = _samplesheet_rows(state)
+        sheet_errors = {
+            "variantbenchmarking": lambda: _variantbenchmarking_sheet_errors(written, check_paths=True),
+            "oncoanalyser": lambda: _oncoanalyser_sheet_errors(written) + _oncoanalyser_reference_errors(),
+            "createpanelrefs": lambda: _createpanelrefs_run_errors(merged, written),
+            "rnadnavar": lambda: _rnadnavar_status_errors(written) + _rnadnavar_file_errors(written),
+        }[pipeline_key]()
+        if sheet_errors:
+            return json.dumps({"ok": False, "errors": list(dict.fromkeys(sheet_errors))})
 
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (seqera.pairing).
@@ -1079,6 +1105,270 @@ def _atacseq_control_errors(with_control: Any, rows: list[dict]) -> list[str]:
                 "is not a sample and replicate of this samplesheet; name the control's own sample "
                 "and replicate values, and include the control as a row.")
     return errors
+
+
+#: One fgbio read-structure segment: fixed-length parts (<n><op>), optionally ending in one
+#: "+<op>" for the rest of the read. Operators: T template, B sample barcode, M molecular
+#: barcode (UMI), S skip, C cellular barcode (fgbio's Read-Structures wiki).
+_READ_SEGMENT = re.compile(r"^(?:[1-9]\d*[TBMSC])*(?:[1-9]\d*[TBMSC]|\+[TBMSC])$")
+_FASTQ_COLUMNS = ("fastq_1", "fastq_2", "fastq_3", "fastq_4")
+
+
+def _fastquorum_read_structure_errors(rows: list[dict], *, count_fastqs: bool = False) -> list[str]:
+    """Why fastquorum 2.0.0 would refuse or misread these rows' read structures ([] if none).
+
+    Every row needs one (assets/schema_input.json requires it), each segment must parse as
+    fgbio's grammar and hold a UMI somewhere in the structure (M), and the rows of one sample
+    must agree, since they are merged into one library (docs/usage.md). With `count_fastqs`
+    (the written samplesheet, whose FASTQ paths are filled), the segment count must equal the
+    FASTQs on the row; a row with no FASTQ yet (an accession to fetch) is not counted.
+    """
+    errors: list[str] = []
+    by_sample: dict[str, set[str]] = {}
+    for row in rows:
+        sample = str(row.get("sample") or row.get("Sample") or "?")
+        structure = " ".join(str(row.get("read_structure") or "").split())
+        if not structure:
+            errors.append(f"row {sample!r}: no read_structure. fastquorum needs the library's fgbio "
+                          "read structure (where the UMI sits in each read, e.g. \"8M1S+T 8M1S+T\"); "
+                          "nothing in NExtSEEK's metadata records it, so take it from the protocol "
+                          "text or ask the user. Do not guess.")
+            continue
+        segments = structure.split(" ")
+        bad = [seg for seg in segments if not _READ_SEGMENT.match(seg)]
+        if bad:
+            errors.append(f"row {sample!r}: read_structure {structure!r} is not an fgbio read "
+                          f"structure (bad segment {bad[0]!r}); see "
+                          "https://github.com/fulcrumgenomics/fgbio/wiki/Read-Structures.")
+            continue
+        if "M" not in structure:
+            errors.append(f"row {sample!r}: read_structure {structure!r} names no UMI (M); "
+                          "fastquorum groups reads by their UMI, so a library without one "
+                          "cannot run it.")
+        by_sample.setdefault(sample, set()).add(structure)
+        fastqs = [c for c in _FASTQ_COLUMNS if str(row.get(c) or "").strip()]
+        if count_fastqs and fastqs and len(fastqs) != len(segments):
+            errors.append(f"row {sample!r}: read_structure {structure!r} has {len(segments)} "
+                          f"segment(s) but the row has {len(fastqs)} FASTQ(s); give one segment "
+                          "per FASTQ (paired-end: two).")
+    for sample, structures in by_sample.items():
+        if len(structures) > 1:
+            errors.append(f"sample {sample!r}: its rows give different read structures "
+                          f"({', '.join(sorted(structures))}); rows of one sample are one library, "
+                          "merged before grouping, so they must share one.")
+    return list(dict.fromkeys(errors))
+
+
+#: assets/schema_input.json at 1.6.1: test_vcf matches \S+\.(vcf|bcf)(\.gz)?$.
+_VB_VCF_EXTS = (".vcf", ".vcf.gz", ".bcf", ".bcf.gz")
+_VB_GVCF_EXTS = (".g.vcf", ".g.vcf.gz", ".gvcf", ".gvcf.gz")
+
+
+def _variantbenchmarking_sheet_errors(rows: list[dict], *, check_paths: bool = False) -> list[str]:
+    """Why nf-core/variantbenchmarking 1.6.1 would refuse or misread these rows ([] if none).
+
+    assets/schema_input.json: id (the row's sample, renamed on the CSV) has no spaces and is unique
+    across rows (uniqueEntries), so one sample with two callers' VCFs needs two ids, the A.VCF UIDs;
+    caller has no spaces, and is lowercase because prepare_vcfs_test and sv_vcf_conversion compare
+    it with strelka, manta, delly and the other caller names. With `check_paths` (the written
+    samplesheet), test_vcf must be a VCF or BCF and never a gVCF, whose reference blocks are not calls.
+    """
+    errors: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        rid = str(row.get("id") or row.get("sample") or row.get("Sample") or "")
+        if not rid or any(ch.isspace() for ch in rid):
+            errors.append(f"row {rid!r}: id must be the A.VCF UID, with no spaces.")
+        elif rid in seen:
+            errors.append(f"id {rid!r} appears twice; each test VCF needs its own id (its A.VCF UID).")
+        seen.add(rid)
+        caller = str(row.get("caller") or "")
+        if not caller or any(ch.isspace() for ch in caller) or caller != caller.lower():
+            errors.append(f"row {rid!r}: caller {caller!r} must be the lowercase caller name with no "
+                          "spaces (haplotypecaller, deepvariant, strelka, manta ...), or unknown.")
+        if check_paths:
+            vcf = str(row.get("test_vcf") or "").strip()
+            low = vcf.lower()
+            if not vcf:
+                errors.append(f"row {rid!r}: no VCF path; the A.VCF record names no file on the cluster.")
+            elif low.endswith(_VB_GVCF_EXTS):
+                errors.append(f"row {rid!r}: {vcf} is a gVCF; give the A.VCF's called VCF, not its gVCF.")
+            elif not low.endswith(_VB_VCF_EXTS):
+                errors.append(f"row {rid!r}: {vcf} is not a VCF or BCF (.vcf, .vcf.gz, .bcf).")
+    return list(dict.fromkeys(errors))
+
+
+_ONCO_FASTQ = re.compile(r"\.(fastq|fq)\.gz$", re.I)
+
+
+def _oncoanalyser_sheet_errors(rows: list[dict]) -> list[str]:
+    """Why nf-core/oncoanalyser 3.0.0 would refuse these FASTQ rows, or why this launch (WGS
+    tumour/normal pairs from FASTQ; owner's ruling 2026-11-18) does not take them ([] if none).
+
+    lib/Utils.groovy parseInput: subject_id is one value per group_id; one sample_id per
+    sample_type and sequence_type in a group; a FASTQ row needs info keys library_id and lane and
+    exactly two ';'-separated paths; library_id + lane (+ flowcell) is unique within a sample.
+    validateInput refuses a group with a normal and no tumour. assets/schema_input.json: no cell
+    holds a space. usage.md "FASTQ": gzipped, non-interleaved paired-end only.
+    """
+    errors: list[str] = []
+    groups: dict[str, dict] = {}
+    seen: set[tuple] = set()
+    for row in rows:
+        sample = str(row.get("sample_id") or row.get("sample") or "?")
+        for column, value in row.items():
+            if value is not None and " " in str(value).strip():
+                errors.append(f"row {sample!r}: {column} holds a space; oncoanalyser refuses any cell with one.")
+        group = str(row.get("group_id") or "").strip()
+        if not group:
+            errors.append(f"row {sample!r}: no group_id (the patient: the PAT UID in the lineage).")
+            continue
+        entry = groups.setdefault(group, {"subjects": set(), "types": {}})
+        entry["subjects"].add(str(row.get("subject_id") or "").strip())
+        sample_type = str(row.get("sample_type") or "").strip().lower()
+        if sample_type not in ("tumor", "normal"):
+            errors.append(f"row {sample!r}: sample_type {row.get('sample_type')!r} must be tumor or normal.")
+        else:
+            entry["types"].setdefault(sample_type, set()).add(sample)
+        if str(row.get("sequence_type") or "").strip().lower() != "dna":
+            errors.append(f"row {sample!r}: sequence_type must be dna; this launch takes DNA libraries only.")
+        if str(row.get("filetype") or "").strip().lower() != "fastq":
+            errors.append(f"row {sample!r}: filetype must be fastq; this launch takes FASTQ only.")
+        paths = [p.strip() for p in str(row.get("filepath") or "").split(";") if p.strip()]
+        if len(paths) != 2 or not all(_ONCO_FASTQ.search(p) for p in paths):
+            errors.append(f"row {sample!r}: filepath must be read 1 and read 2, gzipped FASTQ, joined by "
+                          "one ';'; oncoanalyser takes paired-end FASTQ only (a FASTQ still to be "
+                          "fetched cannot be written this way).")
+        info = {}
+        for part in str(row.get("info") or "").split(";"):
+            key, _, value = part.partition(":")
+            if key.strip():
+                info[key.strip().lower()] = value.strip()
+        if not info.get("library_id") or not info.get("lane"):
+            errors.append(f"row {sample!r}: info needs library_id:<id>;lane:<lane> on every FASTQ row.")
+        else:
+            key = (sample, info["library_id"], info["lane"], info.get("flowcell", ""))
+            if key in seen:
+                errors.append(f"row {sample!r}: library_id {info['library_id']!r} with lane {info['lane']!r} "
+                              "repeats within the sample; each FASTQ pair needs its own lane.")
+            seen.add(key)
+    for group, entry in groups.items():
+        if len(entry["subjects"]) > 1:
+            errors.append(f"group {group!r}: rows give different subject_ids "
+                          f"({', '.join(sorted(entry['subjects']))}); it must be one value per group.")
+        tumours = entry["types"].get("tumor", set())
+        normals = entry["types"].get("normal", set())
+        for label, ids in (("tumor", tumours), ("normal", normals)):
+            if len(ids) > 1:
+                errors.append(f"group {group!r}: {len(ids)} {label} samples ({', '.join(sorted(ids))}); "
+                              "oncoanalyser takes one per group, so give each tumour its own group.")
+            if not ids:
+                errors.append(f"group {group!r}: no {label} sample; this launch runs whole-genome "
+                              "tumour/normal pairs only.")
+        both = tumours & normals
+        if both:
+            errors.append(f"group {group!r}: {', '.join(sorted(both))} is both tumor and normal.")
+    return list(dict.fromkeys(errors))
+
+
+def _oncoanalyser_reference_errors() -> list[str]:
+    """oncoanalyser 3.0.0 reads its genome and the Hartwig WiGiTS data from ref_data_* params that
+    default to data.oncoanalyser.com (conf/hmf_genomes.config, nextflow.config ref_data_base), so a
+    launch with no staged GRCh38_hmf bundle downloads it into the work folder unasked. Refused until
+    one is registered in luria.run_script.LURIA_GENOME_RESOURCES."""
+    from ..luria.run_script import LURIA_GENOME_RESOURCES
+    if "GRCh38_hmf" in LURIA_GENOME_RESOURCES:
+        return []
+    return ["oncoanalyser cannot launch yet: its GRCh38_hmf reference bundle (the Hartwig genome, "
+            "BWA-MEM2 and GRIDSS indexes and the WiGiTS resource data) is not staged on the cluster, "
+            "and without it every run downloads the bundle from oncoanalyser's servers. Tell the user "
+            "the references need staging first; the samplesheet is built and can be kept."]
+
+
+_CPR_OFFERED = ("mutect2", "cnvkit")
+_CPR_NOT_OFFERED = {
+    "germlinecnvcaller": "it needs gcnv_ploidy_priors, a contig-ploidy priors table that is not staged",
+    "gens": "it builds a reference for the GENS viewer, which NExtSEEK does not use",
+}
+
+
+def _createpanelrefs_run_errors(params: dict, rows: list[dict]) -> list[str]:
+    """Why a createpanelrefs 1.1.0 run would fail ([] if none). tools is required
+    (nextflow_schema.json) and limited here to mutect2 and cnvkit; cnvkit with --cnvkit_method hybrid
+    or amplicon needs --cnvkit_targets (docs/usage.md "cnvkit"); every row needs a BAM or a CRAM
+    (assets/schema_input.json oneOf bam | cram)."""
+    errors: list[str] = []
+    tools = [t.strip().lower() for t in str(params.get("tools") or "").split(",") if t.strip()]
+    if not tools:
+        errors.append("tools is required: mutect2 (a Mutect2 panel of normals), cnvkit, or both.")
+    for tool in tools:
+        if tool in _CPR_NOT_OFFERED:
+            errors.append(f"{tool} is not offered: {_CPR_NOT_OFFERED[tool]}.")
+        elif tool not in _CPR_OFFERED:
+            errors.append(f"{tool!r} is not a createpanelrefs tool (mutect2, cnvkit).")
+    if ("cnvkit" in tools and str(params.get("cnvkit_method") or "wgs") in ("hybrid", "amplicon")
+            and not str(params.get("cnvkit_targets") or "").strip()):
+        errors.append(f"cnvkit_method {params.get('cnvkit_method')} needs cnvkit_targets: the kit's "
+                      "target BED as a path on the cluster.")
+    for row in rows:
+        if not (str(row.get("bam") or "").strip() or str(row.get("cram") or "").strip()):
+            errors.append(f"row {row.get('sample')!r}: no BAM or CRAM on the cluster for this normal; "
+                          "createpanelrefs takes alignments only.")
+    return list(dict.fromkeys(errors))
+
+
+#: rnadnavar 1.0.0 docs/usage.md: status 0 normal DNA, 1 tumour DNA, 2 tumour RNA.
+_RNADNAVAR_STATUS = {"0": "normal DNA", "1": "tumour DNA", "2": "tumour RNA"}
+
+
+def _rnadnavar_status_errors(rows: list[dict]) -> list[str]:
+    """Why rnadnavar 1.0.0 would refuse or misread these rows' patient and status ([] if none).
+
+    status is written on every row: assets/schema_input.json defaults it to 1 and docs/usage.md
+    says 0, so a blank is read differently by the two. No one rule of the param atlas reads it yet
+    (it is tissue times molecule), so the agent sets it from the metadata and the user's word, and
+    this check refuses what the pipeline would: a status outside 0/1/2, no patient, and a patient
+    with a tumour (1 or 2) but no normal DNA (validateSamplesheetComposition: "The current release
+    requires a matched normal sample for each tumor patient")."""
+    errors: list[str] = []
+    by_patient: dict[str, set[str]] = {}
+    for row in rows:
+        sample = str(row.get("sample") or row.get("Sample") or "?")
+        patient = str(row.get("patient") or "").strip()
+        status = str(row.get("status") if row.get("status") is not None else "").strip()
+        if not patient:
+            errors.append(f"row {sample!r}: no patient. Use the PAT UID in the lineage, so one "
+                          "person's RNA, tumour DNA and normal DNA share it.")
+        if status not in _RNADNAVAR_STATUS:
+            errors.append(f"row {sample!r}: status {status!r} must be 0 (normal DNA), 1 (tumour DNA) "
+                          "or 2 (tumour RNA); an RNA library from normal tissue has no status and "
+                          "cannot be used. Ask the user when the metadata does not say.")
+            continue
+        if patient:
+            by_patient.setdefault(patient, set()).add(status)
+    for patient, statuses in sorted(by_patient.items()):
+        if statuses & {"1", "2"} and "0" not in statuses:
+            errors.append(f"patient {patient!r}: a tumour ({', '.join(_RNADNAVAR_STATUS[s] for s in sorted(statuses))}) "
+                          "but no normal DNA (status 0); rnadnavar calls every tumour against its "
+                          "patient's normal DNA.")
+    if by_patient and not any(s & {"1", "2"} for s in by_patient.values()):
+        errors.append("no tumour row (status 1 or 2): rnadnavar finds somatic mutations of tumours.")
+    return list(dict.fromkeys(errors))
+
+
+def _rnadnavar_file_errors(rows: list[dict]) -> list[str]:
+    """Rows of the written sheet rnadnavar 1.0.0 would drop or stop on: samplesheet_to_channel takes
+    a FASTQ row only with lane and fastq_2 (paired-end only) and a BAM row only with lane."""
+    errors: list[str] = []
+    for row in rows:
+        sample = str(row.get("sample") or "?")
+        if str(row.get("fastq_1") or "").strip():
+            if not str(row.get("fastq_2") or "").strip():
+                errors.append(f"row {sample!r}: no fastq_2. rnadnavar runs paired-end reads only.")
+        elif not str(row.get("bam") or "").strip():
+            errors.append(f"row {sample!r}: neither FASTQ nor BAM on the cluster for this library.")
+    return list(dict.fromkeys(errors))
+
 
 
 def _cutandrun_sheet_errors(use_control: Any, rows: list[dict]) -> list[str]:

@@ -1,0 +1,12 @@
+{
+ "analysis": "germline",
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "genome": "GRCh38",
+ "input": "/RUN/samplesheet.csv",
+ "method": "happy,rtgtools,aardvark",
+ "outdir": "/RUN",
+ "preprocess": "normalize,deduplicate",
+ "truth_id": "HG002",
+ "variant_type": "small"
+}

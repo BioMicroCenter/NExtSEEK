@@ -1,0 +1,120 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/rnadnavar",
+  "applies_to_versions": ">=1.0,<1.1",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "inventory_globs": ["**/reports/multiqc_report.html"],
+  "multiqc_data_dirs": ["reports/multiqc_data/"],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "variant_calling/*",
+      "why": "Tumour-vs-normal pair outputs (<tumour>_vs_<normal>/ VCFs from Strelka2, Mutect2, SAGE and Manta, with their filtering stats and contamination tables) and Mutect2's per-sample pileup tables, an input to its contamination estimate. A pair's row needs two parents, which no rule can express yet (as for sarek); see the README, rnadnavar."
+    },
+    {
+      "glob": "normalised/*",
+      "why": "The pair VCFs decomposed and normalised with vt (tools norm): pair-level copies of the variant_calling calls, waiting for the same pair-level rule."
+    },
+    {
+      "glob": "annotation/*",
+      "why": "VEP-annotated copies of the normalised pair VCFs (tools vep): pair-level, and the launch template does not offer vep because no VEP cache is staged."
+    },
+    {
+      "glob": "consensus/*",
+      "why": "Per-caller MAFs from vcf2maf and the cross-caller consensus MAFs, named after a pair or after DNA and RNA pairs joined with _with_: pair-level results waiting for a pair-level rule, and MAF is no DataType a sample type holds yet."
+    },
+    {
+      "glob": "filtering/*",
+      "why": "The filtered MAFs (tools filtering), per pair or per DNA-and-RNA pair set, and the RNA-filtered MAFs (tools rna_filtering) under <tumour RNA>_with_<realigned>/: the pipeline's final somatic calls, pair-level, waiting for a pair-level rule and a MAF type."
+    },
+    {
+      "glob": "preprocessing/*_realign/*",
+      "why": "The realignment pass (tools realignment): reads extracted around the first pass's calls and realigned with HISAT2, published per <sample>_realign (MarkDuplicates and SplitNCigarReads CRAMs, the regions BED and read ids). A subset of one sample's reads, not its alignment; the harvest would credit them to <sample> by name, so they are ruled out before any rule sees them."
+    },
+    {
+      "glob": "convert/*",
+      "why": "<sample>_realign.bam: the realignment pass's CRAM converted to BAM for its callers, a subset of the sample's reads like the preprocessing/*_realign/ files."
+    },
+    {
+      "glob": "preprocessing/recal_table/*",
+      "why": "GATK BaseRecalibrator tables: the model ApplyBQSR used to make the registered recalibrated CRAM, an intermediate of that file."
+    },
+    {
+      "glob": "preprocessing/{mapped,converted,star}/*",
+      "why": "Alignments before duplicate marking, kept only with save_mapped, save_align_intermeds or a BAM-to-CRAM conversion: intermediates of the markduplicates CRAM the aln rule reads."
+    },
+    {
+      "glob": "csv/*",
+      "why": "rnadnavar's restart samplesheets (markduplicates, recalibrated, variantcalled, consensus and the others): inputs for a later rnadnavar step, not results."
+    },
+    {
+      "glob": "reports/*",
+      "why": "Per-tool QC reports (FastQC, fastp, MarkDuplicates metrics, mosdepth, samtools, bcftools, VCFtools, VEP, the consensus PDFs) and MultiQC's report and data: their numbers are read through MultiQC (multiqc_data_dirs), and the report is Link_QC, resolved by name from the inventory, not by a rule."
+    },
+    {
+      "glob": "samtools/*",
+      "why": "samtools flagstat of the RNA sample's STAR alignment, published by the default publishDir: a QC count, not a result."
+    },
+    {
+      "glob": "{unzip,gunzip,reference}/*",
+      "why": "Unpacked reference and annotation inputs (the VEP cache, SAGE's Ensembl data, a gunzipped FASTA) and the indexes rnadnavar built (with save_reference): reference files, not sample data."
+    }
+  ],
+  "outputs": [
+    {
+      "id": "aln",
+      "optional": true,
+      "skip_samples_without_file": true,
+      "candidates": [
+        "preprocessing/recalibrated/*/*.recal.cram",
+        "preprocessing/splitncigarreads/*/*.sncr.cram",
+        "preprocessing/markduplicates/*/*.md.cram"
+      ],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "preprocessing/recalibrated/*/*.recal.cram.crai"},
+        {"glob": "preprocessing/splitncigarreads/*/*.sncr.cram.crai"},
+        {"glob": "preprocessing/markduplicates/*/*.md.cram.crai"}
+      ],
+      "attributes": {
+        "DataType": "CRAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Genome": "$params.genome",
+        "Software": "nf-core/rnadnavar"
+      }
+    }
+  ],
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    },
+    "DuplicationPercent": {
+      "from": "gatk4_markduplicates_mark_duplicates-PERCENT_DUPLICATION",
+      "target": "D.SEQ",
+      "datatype": "number",
+      "note": "GATK MarkDuplicates on the sample's own general-stats row (its <sample>.md.cram.metrics), a percentage: seen in nf-core's AWS results for 1.0.0 (reports/multiqc_data/multiqc_general_stats.txt)",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": [
+    {"key": "samtools_flagstat_stats-reads_mapped_percent", "why": "On the <sample>.md row, which this map does not fold. STAR writes no unmapped reads here (no --outSAMunmapped in conf/modules/alignment/bam_align.config), so an RNA sample reads about 100% mapped whatever its quality, and one D.SEQ attribute cannot hold the DNA and RNA meanings apart."},
+    {"key": "samtools_flagstat_stats-error_rate", "why": "On the <sample>.md row, which this map does not fold: the mismatch rate of the alignment before recalibration, and for an RNA sample before SplitNCigarReads, so RNA editing and splice overhangs inflate it."}
+  ]
+}

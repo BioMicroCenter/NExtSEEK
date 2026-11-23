@@ -1,0 +1,3 @@
+sample,bam,bai
+normal,/RUN/inputs/test.paired_end.recalibrated.sorted.bam,/RUN/inputs/test.paired_end.recalibrated.sorted.bam.bai
+tumour,/RUN/inputs/test2.paired_end.recalibrated.sorted.bam,/RUN/inputs/test2.paired_end.recalibrated.sorted.bam.bai

@@ -1,0 +1,362 @@
+[
+ {
+  "path": "consensus/vcf2maf/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.maf",
+  "bytes": 0
+ },
+ {
+  "path": "consensus/vcf2maf/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.maf",
+  "bytes": 0
+ },
+ {
+  "path": "csv/markduplicates.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/markduplicates_no_table.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/recalibrated.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/variantcalled.csv",
+  "bytes": 0
+ },
+ {
+  "path": "filtering/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.filtered.maf",
+  "bytes": 0
+ },
+ {
+  "path": "filtering/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.filtered.maf",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_rnadnavar_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/TCRBOA7-N/TCRBOA7-N.md.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/TCRBOA7-N/TCRBOA7-N.md.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/TCRBOA7-T/TCRBOA7-T.md.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/TCRBOA7-T/TCRBOA7-T.md.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recal_table/TCRBOA7-N/TCRBOA7-N.recal.table",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recal_table/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.table",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recal_table/TCRBOA7-T/TCRBOA7-T.recal.table",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/TCRBOA7-N/TCRBOA7-N.recal.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/TCRBOA7-N/TCRBOA7-N.recal.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/TCRBOA7-T/TCRBOA7-T.recal.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/TCRBOA7-T/TCRBOA7-T.recal.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/splitncigarreads/TCRBOA7-T-RNA/TCRBOA7-T-RNA.sncr.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/splitncigarreads/TCRBOA7-T-RNA/TCRBOA7-T-RNA.sncr.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/strelka/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.variants.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/strelka/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.variants.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-N/TCRBOA7-N-LX.fastp.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-N/TCRBOA7-N-LX.fastp.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-N/TCRBOA7-N-LX.fastp.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-T-RNA/TCRBOA7-T-RNA-LX.fastp.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-T-RNA/TCRBOA7-T-RNA-LX.fastp.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-T-RNA/TCRBOA7-T-RNA-LX.fastp.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-T/TCRBOA7-T-LX.fastp.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-T/TCRBOA7-T-LX.fastp.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/TCRBOA7-T/TCRBOA7-T-LX.fastp.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-N-LX/TCRBOA7-N-LX_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-N-LX/TCRBOA7-N-LX_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-N-LX/TCRBOA7-N-LX_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-N-LX/TCRBOA7-N-LX_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-LX/TCRBOA7-T-LX_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-LX/TCRBOA7-T-LX_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-LX/TCRBOA7-T-LX_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-LX/TCRBOA7-T-LX_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-RNA-LX/TCRBOA7-T-RNA-LX_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-RNA-LX/TCRBOA7-T-RNA-LX_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-RNA-LX/TCRBOA7-T-RNA-LX_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/TCRBOA7-T-RNA-LX/TCRBOA7-T-RNA-LX_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/markduplicates/TCRBOA7-N/TCRBOA7-N.md.cram.metrics",
+  "bytes": 0
+ },
+ {
+  "path": "reports/markduplicates/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.cram.metrics",
+  "bytes": 0
+ },
+ {
+  "path": "reports/markduplicates/TCRBOA7-T/TCRBOA7-T.md.cram.metrics",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.md.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.md.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.md.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.md.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.recal.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.recal.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.recal.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-N/TCRBOA7-N.recal.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T-RNA/TCRBOA7-T-RNA.recal.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.md.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.md.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.md.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.md.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.recal.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.recal.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.recal.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/TCRBOA7-T/TCRBOA7-T.recal.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc_data",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc_plots",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.variants.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.variants.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.variants.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.variants.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.variants.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.variants.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "samtools/TCRBOA7-T-RNA.flagstat",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.variants.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/TCRBOA7-T-RNA_vs_TCRBOA7-N/TCRBOA7-T-RNA_vs_TCRBOA7-N.strelka.variants.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.variants.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/TCRBOA7-T_vs_TCRBOA7-N/TCRBOA7-T_vs_TCRBOA7-N.strelka.variants.vcf.gz.tbi",
+  "bytes": 0
+ }
+]

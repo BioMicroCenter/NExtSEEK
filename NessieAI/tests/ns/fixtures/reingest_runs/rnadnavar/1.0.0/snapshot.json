@@ -1,0 +1,23 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "Software"
+   ],
+   "rows": 3,
+   "sample_type": "A.ALN"
+  }
+ },
+ "warnings": [
+  "TCRBOA7-N: no Notes on A.ALN; also in run: preprocessing/markduplicates/TCRBOA7-N/TCRBOA7-N.md.cram.crai, preprocessing/markduplicates/TCRBOA7-N/TCRBOA7-N.md.cram",
+  "TCRBOA7-T-RNA: no Notes on A.ALN; also in run: preprocessing/splitncigarreads/TCRBOA7-T-RNA/TCRBOA7-T-RNA.sncr.cram.crai, preprocessing/markduplicates/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.cram.crai, preprocessing/splitncigarreads/TCRBOA7-T-RNA/TCRBOA7-T-RNA.sncr.cram, preprocessing/markduplicates/TCRBOA7-T-RNA/TCRBOA7-T-RNA.md.cram",
+  "TCRBOA7-T: no Notes on A.ALN; also in run: preprocessing/markduplicates/TCRBOA7-T/TCRBOA7-T.md.cram.crai, preprocessing/markduplicates/TCRBOA7-T/TCRBOA7-T.md.cram"
+ ]
+}

@@ -1,0 +1,77 @@
+{
+  "name": "giab_hg001_vcf",
+  "description": "NA12878 (Genome in a Bottle HG001) whole-genome germline, two libraries. Its A.VCF children come from a sarek run reingested onto these D.SEQ (variantbenchmarking's input); stand-in reads from nf-core sarek test data",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-GIAB-GM12878",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "GM12878",
+          "Type": "Lymphoblastoid cell line (NA12878, GIAB HG001)",
+          "Tissue": "Blood"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-GIAB-HG001-lib1",
+          "Parent": "NTC-GIAB-GM12878",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA PCR-Free, 500 ng input",
+          "Lab": "Test Lab"
+        },
+        {
+          "Name": "NTC-GIAB-HG001-lib2",
+          "Parent": "NTC-GIAB-GM12878",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA PCR-Free, 500 ng input",
+          "Lab": "Test Lab"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-GIAB-NA12878-WGS-rep1",
+          "Parent": "NTC-GIAB-HG001-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-GIAB-rep1_R1.fastq.gz, NTC-GIAB-rep1_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 151,
+          "R_bp": 151
+        },
+        {
+          "Name": "NTC-GIAB-NA12878-WGS-rep2",
+          "Parent": "NTC-GIAB-HG001-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-GIAB-rep2_R1.fastq.gz, NTC-GIAB-rep2_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 151,
+          "R_bp": 151
+        }
+      ]
+    }
+  ]
+}

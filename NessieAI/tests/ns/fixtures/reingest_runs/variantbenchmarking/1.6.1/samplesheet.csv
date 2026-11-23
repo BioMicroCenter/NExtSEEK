@@ -1,0 +1,4 @@
+id,test_vcf,caller
+test1,/RUN/inputs/HG002_delly_SV_hg19.chr21.vcf.gz,delly
+test2,/RUN/inputs/HG002_lumpy_SV_hg19.sorted.vcf.gz,lumpy
+test3,/RUN/inputs/HG002_manta_SV_hg19_genotype.chr21.vcf.gz,manta

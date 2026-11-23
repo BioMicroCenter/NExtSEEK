@@ -1,0 +1,354 @@
+[
+ {
+  "path": "pipeline_info/nf_core_variantbenchmarking_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "structural/HG002/preprocess/HG002.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/HG002/preprocess/HG002.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "structural/HG002/stats/bcftools/HG002.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/HG002/stats/survivor/HG002_mqc.stats",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/bcftools_stats_indel-lengths.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/bcftools_stats_vqc_Count_Indels.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/bcftools_stats_vqc_Count_SNP.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/bcftools_stats_vqc_Count_Transitions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/bcftools_stats_vqc_Count_Transversions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_general_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_survivor.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_data/multiqc_variant_calling_summary_svbenchmark.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Indels.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_SNP.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transitions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transversions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/survivor-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/survivor-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/pdf/variant_calling_summary_svbenchmark.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Indels.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_SNP.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transitions.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transversions.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/survivor-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/survivor-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/png/variant_calling_summary_svbenchmark.png",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Indels.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_SNP.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transitions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transversions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/survivor-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/survivor-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_plots/svg/variant_calling_summary_svbenchmark.svg",
+  "bytes": 0
+ },
+ {
+  "path": "structural/multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/comparisons/svbenchmark/svbenchmark.FN.csv",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/comparisons/svbenchmark/svbenchmark.FP.csv",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/comparisons/svbenchmark/svbenchmark.TP_base.csv",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/comparisons/svbenchmark/svbenchmark.TP_comp.csv",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/structural_lenght_svbenchmark.FN.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/structural_lenght_svbenchmark.FP.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/structural_lenght_svbenchmark.TP_base.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/structural_lenght_svbenchmark.TP_comp.mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/upset_svbenchmark_tp_fn_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/upset_svbenchmark_tp_fp_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/plots/svbenchmark/variant_metrics_svbenchmark_mqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "structural/summary/tables/svbenchmark/svbenchmark.summary.csv",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/benchmarks/svanalyzer/test1.HG002.delly.distances",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/benchmarks/svanalyzer/test1.HG002.delly.falsenegatives.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/benchmarks/svanalyzer/test1.HG002.delly.falsepositives.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/benchmarks/svanalyzer/test1.HG002.delly.log",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/benchmarks/svanalyzer/test1.HG002.delly.report",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/preprocess/test1.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/preprocess/test1.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/stats/bcftools/test1.delly.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test1/stats/survivor/test1.delly_mqc.stats",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/benchmarks/svanalyzer/test2.HG002.lumpy.distances",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/benchmarks/svanalyzer/test2.HG002.lumpy.falsenegatives.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/benchmarks/svanalyzer/test2.HG002.lumpy.falsepositives.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/benchmarks/svanalyzer/test2.HG002.lumpy.log",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/benchmarks/svanalyzer/test2.HG002.lumpy.report",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/preprocess/test2.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/preprocess/test2.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/stats/bcftools/test2.lumpy.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test2/stats/survivor/test2.lumpy_mqc.stats",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/benchmarks/svanalyzer/test3.HG002.manta.distances",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/benchmarks/svanalyzer/test3.HG002.manta.falsenegatives.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/benchmarks/svanalyzer/test3.HG002.manta.falsepositives.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/benchmarks/svanalyzer/test3.HG002.manta.log",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/benchmarks/svanalyzer/test3.HG002.manta.report",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/preprocess/test3.filtermissing.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/preprocess/test3.filtermissing.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/stats/bcftools/test3.manta.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "structural/test3/stats/survivor/test3.manta_mqc.stats",
+  "bytes": 0
+ }
+]

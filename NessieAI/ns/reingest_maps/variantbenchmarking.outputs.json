@@ -1,0 +1,69 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/variantbenchmarking",
+  "applies_to_versions": ">=1.6,<1.7",
+  "accepts_parent_types": ["A.VCF"],
+  "samplesheet_sample_column": "id",
+  "claims_every_file": true,
+  "inventory_globs": [],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/*/benchmarks/*",
+      "why": "Per test VCF and per benchmarking tool (hap.py, som.py, rtgtools vcfeval/bndeval/cnveval, aardvark, truvari, svanalyzer, wittyer): precision, recall, F1 and TP/FP/FN counts, ROC curves, run settings and logs, and the test calls labelled TP, FP or FN against the truth set. No sample type holds benchmark metrics (a variant benchmark type is proposed in the README, variantbenchmarking), and a labelled comparison VCF is not a sample's variant calls, so it is not an A.VCF (G-5)."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/summary/tables/*",
+      "why": "The merged per-tool summary tables (<tool>.summary.csv: one row per test VCF, variant class and filter, with TP, FP, FN, precision, recall and F1): the run's main result, but no sample type has attributes for benchmark metrics; a variant benchmark type is proposed in the README, variantbenchmarking."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/summary/comparisons/*",
+      "why": "Per-tool tables listing which test VCFs share each TP, FP and FN variant (built from the labelled VCFs under benchmarks/): a cross-caller comparison with no sample type."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/summary/plots/*",
+      "why": "Interactive HTML plots of the summary tables (metrics, upset and variant-length plots), also embedded in the MultiQC report: views of the same results, not results to register."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/summary/datavzrd/*",
+      "why": "datavzrd's static HTML views of the summary tables (index.html plus its scripts and data): views of the same results, not results to register."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/summary/reports/*",
+      "why": "hap.py's stratified HTML report (happy_report.html, germline small variants only): a view of the hap.py results under benchmarks/, not a result to register."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/*/preprocess/*",
+      "why": "Each test VCF, and the truth VCF under its truth_id folder, after the pipeline's own preprocessing (missing genotypes filtered, normalised, deduplicated, contigs filtered, lifted over): intermediates of the registered A.VCF parent and of the staged truth set, not new calls."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/*/stats/*",
+      "why": "bcftools stats (and SURVIVOR stats for structural runs) of each preprocessed test VCF and of the truth VCF: read through MultiQC. The A.VCF parent keeps the TsTvRatio of the file it registers, which preprocessing changes, so these are not written back to it."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/*/concordance/*",
+      "why": "GATK Concordance between pairs of test VCFs (--method concordance, no truth set): agreement counts with no sample type, and the tpfn/tpfp VCFs are labelled comparisons, not a sample's calls."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/*/intersect/*",
+      "why": "bedtools intersection of test regions with regions_bed (--method intersect, for CNV callers) and the test VCFs converted to BED: overlap statistics with no sample type."
+    },
+    {
+      "glob": "{small,snv,indel,structural,copynumber}/multiqc/*",
+      "why": "MultiQC's report and data for this variant type: the benchmark report. Its parents are A.VCF records, which have no Link_QC attribute, and it is no QC of a sequencing run, so it is not linked to D.SEQ; no table it holds has a target attribute."
+    },
+    {
+      "glob": "references/*",
+      "why": "rtgtools' SDF of the FASTA (references/rtgtools/genome.sdf/) and Picard's sequence dictionary (references/dictionary/), rebuilt by the run when not given: reference indexes, not results."
+    },
+    {
+      "glob": "pipeline_info/*",
+      "why": "Run provenance (software versions, params, execution reports), read by the harvest, not registered."
+    }
+  ],
+  "outputs": [],
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

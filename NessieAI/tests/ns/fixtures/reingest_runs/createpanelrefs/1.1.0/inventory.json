@@ -1,0 +1,86 @@
+[
+ {
+  "path": "cnvkit/cnvkit.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/sample3.antitargetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/sample3.targetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/sample4.antitargetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/sample4.targetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/test.paired_end.recalibrated.sorted.antitargetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/test.paired_end.recalibrated.sorted.targetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/test2.paired_end.recalibrated.sorted.antitargetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "cnvkit/test2.paired_end.recalibrated.sorted.targetcoverage.cnn",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_createpanelrefs_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "references/cnvkit/genome.antitarget.bed",
+  "bytes": 0
+ },
+ {
+  "path": "references/cnvkit/genome.bed",
+  "bytes": 0
+ },
+ {
+  "path": "references/cnvkit/genome.target.bed",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/multiqc/multiqc_report.html",
+  "bytes": 0
+ }
+]

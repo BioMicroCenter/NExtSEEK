@@ -1,0 +1,44 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/variantprioritization",
+  "applies_to_versions": ">=1.0,<1.1",
+  "accepts_parent_types": ["A.VCF"],
+  "claims_every_file": true,
+  "inventory_globs": [],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "pcgr/*",
+      "why": "PCGR's per-tumour report, annotated and PASS VCFs, MAF, tier, TMB, MSI, signature and CNA tables, named <patient>.<sample> (PCGR_RUN ext.prefix). The harvest cannot attribute that name to the samplesheet's sample, so no per-sample row can find them; see the README, variantprioritization."
+    },
+    {
+      "glob": "cpsr/*",
+      "why": "CPSR's per-germline-VCF report, classification and PASS tables and VCFs, named <patient>.<sample> (CPSR_RUN ext.prefix), which the harvest cannot attribute to a samplesheet sample; see the README, variantprioritization."
+    },
+    {
+      "glob": "custom/*",
+      "why": "Caller VCFs reformatted for PCGR, the caller-support keys, the merged PCGR-ready VCF and the allele-specific CNA table (REFORMAT_VCF, INTERSECT_VCF, PCGR_PREPAREVCF, REFORMAT_CNA): inputs PCGR builds its own results from."
+    },
+    {
+      "glob": "bcftools/*",
+      "why": "Each input VCF left-normalised (bcftools norm) and depth-filtered (bcftools filter): working copies of call sets registered elsewhere, not new ones."
+    },
+    {
+      "glob": "tabix/*",
+      "why": "Tabix indexes made for input VCFs that came without one: indexes of files outside this run."
+    },
+    {
+      "glob": "multiqc/*",
+      "why": "MultiQC here lists only software versions and citations (no QC module reads VCFs in 1.0.0), and the run's parents are A.VCF rows, so there is no D.SEQ to carry Link_QC."
+    },
+    {
+      "glob": "reference/*",
+      "why": "The PCGR reference bundle and VEP cache, unpacked or downloaded (PCGR_GETREF, UNTAR_PCGR_DB, UNTAR_VEP_CACHE): reference files, not sample data."
+    }
+  ],
+  "outputs": [],
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

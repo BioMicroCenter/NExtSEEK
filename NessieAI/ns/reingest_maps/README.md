@@ -279,6 +279,33 @@ What blocks each row:
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
+| fastquorum | `filtering/align_consensus_bam/<id>/<id>.mapped.bam` (+ `.bai`) with `--mode ht`: that mode's final, aligned consensus. With `--mode ht`, `consensus_filtering/filtered/<id>/<id>.cons.filtered.bam` is the unmapped consensus before alignment, under the name `--mode rd` gives its final BAM | A.ALN | choice: a map cannot pick a candidate by a param, so the map registers `--mode rd` only and the launch template does not offer `mode`; a foreign `--mode ht` run would register its unmapped BAM |
+| fastquorum | `metrics/duplex_seq/<id>/*.duplex_seq_metrics.*.txt` (duplex yield, family sizes, UMI counts) | none | type: no sample type holds duplex yield metrics; ruled out in `unmapped_files` |
+| createpanelrefs | `gatk4/createsomaticpanelofnormals/<mutect2_pon_name>.vcf.gz` (+ `.tbi`), the Mutect2 panel of normals | none (proposal: a panel-of-normals type) | type: a `per_run` row parented by every normal; the type would hold the tool, the reference, the target BED and the number of normals |
+| createpanelrefs | `cnvkit/<cnvkit_pon_name>.cnn`, CNVkit's pooled reference | none (the same proposal) | type |
+| createpanelrefs | `germlinecnvcaller/determinecontigploidy/<gcnv_model_name>-model/` and `germlinecnvcaller/germlinecnvcaller/*-model/` (GATK gCNV cohort models; with `--tools germlinecnvcaller`, not offered) | none | type |
+| createpanelrefs | `gens/createreadcountpanelofnormals/<gens_pon_name>.hdf5` (with `--tools gens`, not offered) | none | type |
+| oncoanalyser | SNV/indel and SV calls of the pair: `<group_id>/purple/<tumor>.purple.somatic.vcf.gz` (final somatic SNVs and indels), `<tumor>.purple.sv.vcf.gz`, the germline `<tumor>.purple.germline.vcf.gz` and `.purple.sv.germline.vcf.gz`; their sources `sage/{somatic,germline}/`, `pave/{somatic,germline}/`, `esvee/<tumor>.esvee.{somatic,germline}.vcf.gz` | A.VCF | choice: a pair-level rule (#137) whose row names the tumour and normal D.SEQ; the pair is the samplesheet's `group_id` with `sample_type`, the files are named after the tumour, and one candidate per kind (PURPLE's final VCF first) |
+| oncoanalyser | `<group_id>/purple/<tumor>.purple.cnv.somatic.tsv`, `.purple.segment.tsv`, `.purple.cnv.gene.tsv` (copy number), `.purple.purity.tsv` (purity and ploidy) | A.CNV (`CNV_Detector` PURPLE) | choice: pair-level rule (#137); inventory; A.CNV has no purity or ploidy attribute (a schema request) |
+| oncoanalyser | `<group_id>/lilac/<tumor>.lilac.tsv` (HLA class I alleles) | A.HLA | inventory; a reader for its one-allele-per-row layout; pair-level parent (#137) |
+| oncoanalyser | `<group_id>/bamtools/<sample_id>/<sample_id>.bam_metric.summary.tsv` (whole-genome coverage) | A.ALN (`MedianCoverage`, `Coverage10xPercent`, `Coverage30xPercent`) | inventory; a `sample_files` reader for the table; units unchecked against a real run |
+| oncoanalyser | CHORD, Sigs, CUPPA, VIRUSBreakend/Virus Interpreter, TEAL, CIDER, Neo, PEACH, Isofox, LINX, QSEE and ORANGE outputs under `<group_id>/` | none | type |
+| all | oncoanalyser's parents: the samplesheet gives each FASTQ pair as `filepath` `<R1>;<R2>` (filetype fastq), and the harvest reads `fastq_1`, so no row resolves a D.SEQ and `@fastq_stem` is blank | every oncoanalyser row | parent: the harvest must split `filepath` into `fastq_1`/`fastq_2` for oncoanalyser |
+| rnadnavar | somatic pair outputs under `variant_calling/<caller>/<tumour>_vs_<normal>/`, `normalised/`, `annotation/`, and the MAFs under `consensus/` and `filtering/` (including the RNA-filtered `<tumour RNA>_with_<tumour RNA>_realign/*.rna_filt.maf`) | A.VCF; none for MAF | choice: a pair-level rule whose row names both samples as parents; type: no sample type holds a MAF. Until then `unmapped_files` rules them out |
+| rnadnavar | `preprocessing/{recalibrated,splitncigarreads,markduplicates}/<sample>/<sample>.{recal,sncr,md}.bam` (+ `.bai`, with `--save_output_as_bam`) | A.ALN | ready: a second rule with `DataType` BAM |
+| rnadnavar | `Aligner` on the A.ALN rows (BWA for status 0 and 1, STAR for status 2) | A.ALN | choice: a pipeline token reading each sample's samplesheet `status` (a new module `rnadnavar.py` under `NessieAI/ns/reingest/pipelines/`) |
+| stableexpression | `reporting/all_genes_summary.csv` (each gene's stability score, rank, section and expression statistics) | none | type: no sample type holds a gene-stability ranking; parent: its datasets name count files, not samples |
+| stableexpression | `merged_data/all_counts{,.imputed}.parquet` (all datasets' normalised counts) and `merged_data/whole_design.csv` | A.GEX | parent: no NExtSEEK sample behind the datasets (an A.GEX input would be the parent, which the lookup cannot reach); parquet is no DataType; inventory |
+| tumourevo | `subclonal_deconvolution/{mobster/<dataset>/<patient>/<sample>,pyclonevi/<dataset>/<patient>,viber/<dataset>/<patient>,ctree/<dataset>/<patient>}/` (cluster fits, clone trees, reports) | none (clonal structure) | type; ruled out in `unmapped_files` |
+| tumourevo | `signature_deconvolution/{sparsesignature,sigprofiler}/<dataset>/` (signature exposures and solutions) | none (mutational signatures) | type; ruled out in `unmapped_files` |
+| tumourevo | `driver_annotation/annotate_driver/<dataset>/<patient>/<sample>/*_driver.rds` (mutations flagged against IntOGen drivers) | none, or a driver attribute on a somatic A.VCF | type; ruled out in `unmapped_files` |
+| tumourevo | `qc/tinc/<dataset>/<patient>/<sample>/*_qc.csv` (tumour purity, tumour-in-normal contamination) | none (two attributes) | type: no attribute holds purity or contamination |
+| variantbenchmarking | each tool's per-test-VCF benchmark summary, `<variant_type>/<id>/benchmarks/{happy,rtgtools,sompy,aardvark,truvari,svanalyzer,wittyer}/<id>.<truth_id>.<caller>.*` (precision, recall, F1, TP/FP/FN, with the labelled TP/FP/FN VCFs as companions) | none (a variant benchmark type, proposed) | type: no sample type holds benchmark metrics; ruled out in `unmapped_files`. Also parent: `uid_resolve._PATH_COLUMNS` does not read `test_vcf`, so a foreign run resolves no A.VCF parent |
+| variantbenchmarking | `<variant_type>/summary/tables/<tool>/<tool>.summary.csv` (all test VCFs of the run, one row per VCF, variant class and filter) | none | type, as above; a per_run row, or folded into the per-VCF rows |
+| variantbenchmarking | `<variant_type>/<pair>/concordance/gatk4/*` (`--method concordance`) and `<variant_type>/<id>/intersect/*` (`--method intersect`) | none | type; the launch template does not offer either method |
+| variantprioritization | `pcgr/<patient>.<sample>/<patient>.<sample>.pcgr.<assembly>.pass.vcf.gz` (+ `.tbi`), with `.pass.tsv.gz`, `.html`, `.xlsx`, `.maf`, `.snv_indel_ann.tsv.gz`, `.tmb.tsv`, `.msigs.tsv.gz`, `.cna_gene*.tsv.gz`, `.cna_segment.tsv.gz`, `.conf.yaml` as companions | A.VCF? | parent: files are named `<patient>.<sample>`, which `harvest._sample_for_output_path` cannot attribute to a samplesheet sample; choice: whether PCGR's merged, annotated VCF is a new call set beside its input caller VCFs |
+| variantprioritization | `cpsr/<patient>.<sample>/<patient>.<sample>.cpsr.<assembly>.pass.vcf.gz` (+ `.tbi`), with `.classification.tsv.gz`, `.pass.tsv.gz`, `.html`, `.xlsx`, `.conf.yaml` | A.VCF? | parent (as for PCGR); choice: a predisposition-gene subset of a germline call set |
+| variantprioritization | TMB (`*.pcgr.<assembly>.tmb.tsv`), MSI status (in the PCGR report) and signature exposures (`*.msigs.tsv.gz`) | none (attributes) | type: A.VCF has no TMB, MSI or signature attribute |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | methylseq | Bismark's per-read, per-context calls `<aligner>/methylation_calls/methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz`, the targeted bedGraph `*.bedGraph.targeted.bedGraph` (with `--run_targeted_sequencing`), and `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`). The CpG coverage and bedGraph have rules (A.MSEQ); their MeanCpGMethylationPercent reads the general-stats column `bismark-percent_cpg_meth`, checked on `4.2.0-local-test` | A.MSEQ | choice: whether to register the per-read calls (large; summarised by the coverage file) and the genome-wide cytosine report, which would need a slot or Notes on A.MSEQ |
@@ -431,6 +458,155 @@ and leave the other caller's blank. The FRiP table's name is read off the releas
 AWS run wrote no FRiP table. A.CHRM has no attribute for the peak caller, so with `--peakcaller seacr,macs2` a
 replicate's two peak rows differ only by `DataType` and file. The spike-in alignment rate has no D.SEQ attribute
 and is ruled out. Antibody stays blank: the samplesheet has no antibody column.
+
+### fastquorum
+
+The 2.0.0 map (`applies_to_versions` `>=2.0,<2.1`) is checked against `2.0.0`, the release's default nf-test
+snapshot (`--mode rd`, `--duplex_seq true`, one paired-end library, read structure `10M1S+T 10M1S+T`). nf-core
+published no AWS results for 2.0.0, so no QC attribute is mapped: D.SEQ gets only `Link_QC`. Its MultiQC reads
+FastQC and fgbio GroupReadsByUmi's family sizes, and no D.SEQ attribute holds a family-size share; a real run's
+general stats go to the approval queue.
+
+The one rule registers each library's filtered, aligned consensus (`consensus_filtering/filtered/<id>/<id>.cons.filtered.bam`,
+with its `.bai`) as A.ALN under Genome Alignment, `Aligner` bwa mem. In `--mode rd` (the default and the only mode the
+launch template offers) FilterConsensusReads runs after the consensus is aligned, so that file is the end product and
+the earlier aligned consensus under `filtering/align_consensus_bam/` is ruled out. `--mode ht` reverses the order (see
+"Outputs with no rule yet"). Samples are `library_id` when the samplesheet gives one, else `sample`; NExtSEEK's
+launch writes `sample` only.
+
+### createpanelrefs
+
+The 1.1.0 map (`applies_to_versions` `>=1.1,<1.2`) has no output rule. Each product is a reference built from the
+whole set of normals: the Mutect2 panel of normals (`gatk4/createsomaticpanelofnormals/<mutect2_pon_name>.vcf.gz`),
+CNVkit's pooled `cnvkit/<cnvkit_pon_name>.cnn`, GATK gCNV's contig-ploidy and CNV models, and the GENS HDF5. No
+sample type means a panel of normals (an A.VCF holds one sample's variant calls), so by G-5 each is ruled out in
+`unmapped_files` with its reason and a new type is a schema request (see "Outputs with no rule yet"). The
+per-normal intermediates (Mutect2's tumour-only calls, the GenomicsDB workspace, CNVkit coverages, read counts) are
+ruled out as inputs, and `references/` as reference files.
+
+Checked against two snapshot fixtures: `1.1.0` (`tests/default.nf.test.snap`, test `-profile test --tools cnvkit
+--input tests/csv/1.0.0/bam_cram.csv`: two BAM and two CRAM rows) and `1.1.0-mutect2` (`tests/mutect2.nf.test.snap`,
+`-profile test --tools mutect2`). nf-core published no AWS results for 1.1.0, and the snapshots' MultiQC data holds
+software versions only, so D.SEQ gets only `Link_QC` (`reports/multiqc/multiqc_report.html`). A reingest of a run
+therefore links each normal's report and registers nothing else. Parents resolve through the samplesheet's `bam` or
+`cram` path (`uid_resolve._PATH_COLUMNS`).
+
+### oncoanalyser
+
+The 3.0.0 map (`applies_to_versions` `>=3.0,<3.1`) is checked against `3.0.0`, the release's `-profile test`
+nf-test snapshot (`tests/profile_test.nf.test.snap`: one group, `subject_a`, with tumour DNA, normal DNA and
+tumour RNA FASTQ, `--mode wgts --genome GRCh38_hmf`), imported with `import_evidence.py snapshot ... profile_test
+--samplesheet-url` because `conf/test.config` builds its input path from a param. The import kept only read 2 of
+each `filepath` cell, so the fixture's samplesheet was corrected by hand (its `EVIDENCE.txt` says so). The default
+`tests/default.nf.test.snap` is a `-stub` run; its file list is claimed by the same rulings. nf-core published no
+AWS results for 3.0.0, so no QC attribute is mapped: D.SEQ gets only `Link_QC`, from `multiqc_report.html`, which
+3.0.0 publishes at the results root (hence the map's `**/multiqc_report.html` inventory pattern).
+
+Samples are `sample_id` (`samplesheet_sample_column`); outputs live under `<group_id>/`. Two rules register each
+sample's own alignment as A.ALN under Genome Alignment, with its `.bai`: REDUX's
+`<group_id>/alignments/<sample_id>/<sample_id>.redux.bam` for DNA (`Aligner` BWA-MEM2) and Picard's
+`<sample_id>.md.bam` for RNA (`Aligner` STAR). Both are optional and skip the samples without the file. `Name` is
+the samplesheet's `sample_id`. REDUX's model tables beside the BAM are ruled out (A.ALN has one secondary slot and
+no Notes). Everything else oncoanalyser writes is made from the tumour/normal pair and named after the tumour:
+SAGE and PAVE SNVs and indels, ESVEE SVs, PURPLE's purity, ploidy, copy number, drivers and final VCFs, LINX,
+LILAC. They are ruled out until a pair-level rule exists (#137), as sarek's `_vs_` folders are; here the pair is
+the samplesheet's `group_id` with `sample_type`, not a folder name.
+
+The samplesheet names each FASTQ pair in one `filepath` cell, `<R1>;<R2>`, with no `fastq_1` column. Until the
+harvest splits it (see "Outputs with no rule yet", `all`), neither the launch-record match on `(sample, fastq_1)`
+nor the path lookup finds a parent, so oncoanalyser rows ship without `Parent`.
+
+### rnadnavar
+
+The 1.0.0 map (`applies_to_versions` `>=1.0,<1.1`) is checked against `1.0.0`, the release's default nf-test
+snapshot (`-profile test`: one patient, TCRBOA7, with normal DNA (status 0), tumour DNA (1) and tumour RNA (2),
+paired-end chr7 exome and RNA FASTQs, `--tools strelka,filtering`). Its one rule registers each sample's
+alignment as A.ALN under Genome Alignment: the recalibrated CRAM, with SplitNCigarReads' CRAM (RNA only) and
+MarkDuplicates' CRAM as losing candidates and their indexes as companions. The rule is `optional`: a run started
+at `--step variant_calling` or later writes no alignments (nf-core's own `test_full` starts there). `Aligner` is
+left blank: DNA rows are BWA and RNA rows STAR, and a map cannot tell rows apart by the samplesheet's status.
+
+Every somatic result is pair-level: the `<tumour>_vs_<normal>/` VCFs of each caller, their vt-normalised and VEP
+copies, the per-caller and consensus MAFs (named after a pair, or after DNA and RNA pairs joined with `_with_`),
+the filtered MAFs and the RNA-filtered MAF. They are ruled out in `unmapped_files`, as sarek's are, until a
+pair-level rule exists, and MAF is no DataType a sample type holds. The realignment pass publishes files named
+`<sample>_realign` (a subset of one sample's reads, realigned with HISAT2), which the harvest would credit to
+`<sample>` by name; they are ruled out before any rule sees them.
+
+The map was also checked by hand against nf-core's AWS results for 1.0.0 (`test_full`, published flat): every
+file is claimed or ruled out, and no `_realign` file reaches the aln rule. Those results are not committed as a
+fixture: `test_no_file_is_both_read_by_a_rule_and_ruled_out` would flag the `_realign` CRAMs, which the aln rule's
+globs also match. MultiQC publishes under `reports/` (`reports/multiqc_report.html`, `reports/multiqc_data/`),
+which the core inventory and the harvest's MultiQC folder do not reach, so the map adds an `inventory_globs`
+entry and `multiqc_data_dirs`. `DuplicationPercent` reads GATK MarkDuplicates' `PERCENT_DUPLICATION` from the
+sample's own general-stats row, the key and unit seen in those AWS results' `multiqc_general_stats.txt`; the
+samtools and mosdepth columns sit on `<sample>.md` rows, which the map does not fold, and the mapped share is
+ruled out because STAR writes no unmapped reads here.
+
+### stableexpression
+
+stableexpression is in the atlas with `launchable: false` (owner's ruling, 2026-11-18): it reads count tables or
+public Expression Atlas and GEO datasets, not NExtSEEK samples. The 1.1.0 map (`applies_to_versions`
+`>=1.1,<1.2`) has no output rule and claims every file. It is checked against `1.1.0-own-datasets`, the release's
+`-profile test_skip_id_mapping` nf-test (two count tables, an RNA-seq raw and a microarray normalised one, with
+their designs; `--skip_id_mapping`, `--skip_fetch_eatlas_accessions`), imported with `import_evidence.py --test
+--variant`. The default `-profile test` downloads public peach datasets and has no samplesheet, which the importer
+needs. Its datasets sheet names count files, not samples, so no row of a run can name a NExtSEEK parent, and its
+result, `reporting/all_genes_summary.csv` (each gene's stability score, rank and section), means no existing sample
+type: A.GEX holds abundance matrices and differential results. Both are listed under "Outputs with no rule yet".
+
+### tumourevo
+
+nf-core/tumourevo is in the atlas but cannot be launched (owner's ruling, 2026-11-18); the map exists for runs
+launched elsewhere (G-1). The 1.0.0 map (`applies_to_versions` `>=1.0,<1.1`) registers nothing. It is checked against
+`1.0.0`, the release's default nf-test snapshot (`-profile test` with `--tools tinc,mobster,pyclone-vi`: one dataset,
+three patients of two tumour samples each, ASCAT segments, two of them with tumour BAMs), and every file there is ruled
+out in `unmapped_files` (`claims_every_file`). nf-core published no AWS results for 1.0.0, and the pipeline runs no
+MultiQC, so there is no QC key and no `Link_QC`. A sample is the samplesheet's `tumour_sample`
+(`samplesheet_sample_column`), and its parent would be the input VCF's A.VCF, found by the `vcf` column
+(`accepts_parent_types` `A.VCF`); the `cna_segments` and `tumour_alignment` columns are not parent-lookup columns.
+
+None of its results has a sample type (G-5). The VEP-annotated VCF (`variant_annotation/vep/`) and the PASS-only
+`bcftools/filter/` VCF are copies of the input call set, ruled out as sarek's annotated copies are. CNAqc
+(`qc/cnaqc/`, `qc/join_cnaqc/`) checks the input segments and makes no new copy-number call, so it is not an A.CNV.
+Proposed types, for the owner (none exists, none is created by reingest): a clonal-structure analysis for MOBSTER,
+PyClone-VI and VIBER fits with ctree's clone trees (per sample or per patient, parented by the patient's somatic
+A.VCF rows); a mutational-signature analysis for SparseSignatures and SigProfiler (per dataset); and a driver-annotated
+somatic call set, or a driver attribute on a somatic A.VCF. TINC's tumour purity and tumour-in-normal contamination
+would be attributes, not a type. Each also waits for the inputs: no somatic A.VCF is registered (sarek's map rules out
+`*_vs_*` pair outputs) and nothing registers allele-specific copy number as A.CNV.
+
+### variantbenchmarking
+
+The 1.6.1 map (`applies_to_versions` `>=1.6,<1.7`) has no output rule. Its parents are A.VCF records (`accepts_parent_types`,
+`samplesheet_sample_column` `id`), and its results, precision, recall and F1 per test VCF, tool and variant class, fit no
+sample type: A.VCF's FilterMethod, FilterSet and Notes describe filtering, not scoring (G-5; a benchmark type is proposed in
+the issue drafts). Every file is ruled out in `unmapped_files`, checked against `1.6.1` (the default snapshot, germline
+structural) and `1.6.1-germline_small` (the small-variant snapshot, the launch case). nf-core's AWS `test_full` results
+exist, but their params name the GIAB files by `ftp://` URL, which the fixture sanitizer refuses; MultiQC sits under
+`<variant_type>/multiqc/`, which the harvest does not read, and A.VCF has no Link_QC, so no QC key is mapped.
+
+### variantprioritization
+
+nf-core/variantprioritization is in the atlas but cannot be launched (owner's ruling, 2026-11-18); the map exists for
+runs launched elsewhere (G-1). The 1.0.0 map (`applies_to_versions` `>=1.0,<1.1`) registers nothing yet. It is checked
+against `1.0.0`, the release's default nf-test snapshot (PCGR on one tumour, HCC1395T, from three caller VCFs with
+ASCAT segments), and `1.0.0-cpsr`, its CPSR test (two germline VCFs of NA12878, `panel_id` 21); every file of both is
+ruled out in `unmapped_files` (`claims_every_file`). nf-core published no AWS results for 1.0.0; its MultiQC lists only
+software versions, and its parents are A.VCF rows (`accepts_parent_types`, matched by the `vcf` column), so no D.SEQ
+takes `Link_QC`.
+
+PCGR and CPSR write every file as `<patient>.<sample>` (`ext.prefix` of `PCGR_RUN`, `CPSR_RUN`, `INTERSECT_VCF` and
+`PCGR_PREPAREVCF` in `conf/modules.config`), in a folder of the same name. The harvest attributes a file to a sample only
+when its name starts with `<sample>.` or `<sample>_`, or its folder is exactly `<sample>`
+(`harvest._sample_for_output_path`), so `HCC1395.HCC1395T.pcgr.grch38.pass.vcf.gz` belongs to no sample and a
+`per_sample` rule finds nothing. A `per_file` rule would parent each report by every sample of the run, a normal's
+germline VCF included. The rule waits for a way to name a run's samples `{patient}.{sample}`. Then the candidate is
+PCGR's `pcgr/*/*.pcgr.*.pass.vcf.gz` as A.VCF (with its `.tbi`, `pass.tsv.gz`, `.html`, `.xlsx`, `.maf` and the
+`snv_indel_ann`, `tmb`, `msigs` and `cna_*` tables as companions), parented by the tumour's caller VCFs, and CPSR's
+`cpsr/*/*.cpsr.*.pass.vcf.gz` likewise for a germline VCF. Whether PCGR's merged, annotated VCF is a call set of its own
+beside its inputs is the owner's choice: sarek's map rules out annotated copies, but PCGR's VCF merges several callers.
+TMB, MSI status and signature exposures have no A.VCF attribute.
 
 ### methylseq's variant fixtures
 

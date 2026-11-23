@@ -1,0 +1,21 @@
+{
+ "assay": "WES",
+ "cna_analysis": true,
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "control_af_tag": "NAF",
+ "control_dp_tag": "NDP",
+ "estimate_msi": true,
+ "estimate_signatures": true,
+ "estimate_tmb": true,
+ "genome": "GRCh38",
+ "input": "/RUN/samplesheet.csv",
+ "no_html": true,
+ "outdir": "/RUN",
+ "pcgr_bundleversion": 20250314,
+ "pcgr_download": false,
+ "vcf2maf": true,
+ "vep_cache_version": 113,
+ "vep_gencode_basic": true,
+ "vep_no_intergenic": true
+}

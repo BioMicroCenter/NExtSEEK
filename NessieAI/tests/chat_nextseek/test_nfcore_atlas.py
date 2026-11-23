@@ -88,7 +88,8 @@ def test_shipped_atlas_loads_clean(recwarn):
     out = load_atlas(ATLAS_PATH)
     assert set(out["pipelines"]) == {
         "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice",
-        "rnavar", "riboseq", "denovotranscript", "differentialabundance",
+        "rnavar", "riboseq", "denovotranscript", "differentialabundance", "rnadnavar",
+        "stableexpression",
     }
     assert [str(w.message) for w in recwarn.list] == []
 
@@ -205,14 +206,19 @@ def test_a_single_file_load_fails_loudly_on_a_malformed_sibling(tmp_path, monkey
         load_atlas(lone)
 
 
-NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript")
+NEW_CHOOSABLE = ("atacseq", "chipseq", "methylseq", "cutandrun", "rnavar", "riboseq", "denovotranscript",
+                 "fastquorum", "variantbenchmarking", "oncoanalyser", "createpanelrefs", "tumourevo",
+                 "variantprioritization", "rnadnavar", "stableexpression")
 
 
 @pytest.mark.parametrize("key", NEW_CHOOSABLE)
 def test_new_choosable_pipelines_are_in_the_merged_atlas_at_their_catalog_pin(key):
     from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
     entry = load_atlas()["pipelines"][key]
-    assert entry["revision"] == NFCORE_PIPELINE_CATALOG[key]["default_revision"]
+    if entry.get("launchable", True):
+        assert entry["revision"] == NFCORE_PIPELINE_CATALOG[key]["default_revision"]
+    else:   # choosable so the reply can say why not, never built
+        assert key not in NFCORE_PIPELINE_CATALOG and entry.get("launchable_why")
     for field in ("answers", "assumes_prep", "input_you_must_have", "data_signals", "species_constraint", "versus"):
         assert entry.get(field), (key, field)
 
@@ -221,6 +227,33 @@ def test_bisulfite_reads_are_kept_away_from_sarek_both_ways():
     pipelines = load_atlas()["pipelines"]
     assert "sarek" in pipelines["methylseq"]["versus"]
     assert "methylseq" in pipelines["sarek"]["versus"]
+
+
+@pytest.mark.parametrize("key, neighbour", [
+    ("variantbenchmarking", "sarek"), ("oncoanalyser", "sarek"), ("createpanelrefs", "sarek"),
+    ("tumourevo", "sarek"), ("variantprioritization", "sarek"), ("rnadnavar", "sarek"),
+    ("rnadnavar", "rnavar"), ("stableexpression", "rnaseq"), ("oncoanalyser", "tumourevo"),
+    ("oncoanalyser", "variantprioritization"), ("tumourevo", "variantprioritization"),
+    ("createpanelrefs", "oncoanalyser"),
+])
+def test_the_new_pipelines_and_their_neighbours_point_at_each_other(key, neighbour):
+    pipelines = load_atlas()["pipelines"]
+    assert neighbour in pipelines[key]["versus"] and key in pipelines[neighbour]["versus"]
+
+
+@pytest.mark.parametrize("key", ["tumourevo", "variantprioritization", "stableexpression"])
+def test_pipelines_without_inputs_here_are_choosable_but_not_launchable(key):
+    """Owner's ruling 2026-11-18: no NExtSEEK record can feed them yet (tumourevo and
+    variantprioritization need somatic VCFs and copy-number segments, stableexpression count
+    tables or public datasets), so the reply says why and builds nothing."""
+    entry = load_atlas()["pipelines"][key]
+    assert entry["launchable"] is False and entry["launchable_why"]
+
+
+def test_umi_libraries_are_told_apart_from_sarek_both_ways():
+    pipelines = load_atlas()["pipelines"]
+    assert pipelines["fastquorum"]["versus"]["sarek"]["ask_user"]
+    assert pipelines["sarek"]["versus"]["fastquorum"]["ask_user"]
 
 
 def test_atac_and_chip_point_at_each_other():

@@ -1,0 +1,23 @@
+{
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "download_cache_vep": false,
+ "filter": false,
+ "genome": "GRCh38",
+ "input": "/RUN/samplesheet.csv",
+ "outdir": "/RUN",
+ "pyclonevi_n_restarts": 50,
+ "qc_chr": false,
+ "sparsesignatures_K": "2:3",
+ "sparsesignatures_cross_validation_iterations": "3",
+ "sparsesignatures_cross_validation_repetitions": "5",
+ "sparsesignatures_iterations": "5",
+ "sparsesignatures_lambda_values_alpha": "c(0.00, 0.01)",
+ "sparsesignatures_lambda_values_beta": "c(0.01, 0.05)",
+ "sparsesignatures_max_iterations_lasso": "80",
+ "sparsesignatures_nmf_runs": "3",
+ "tools": "tinc,mobster,pyclone-vi",
+ "vep_cache_version": "110",
+ "vep_genome": "GRCh38",
+ "vep_species": "Homo_sapiens"
+}

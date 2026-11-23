@@ -281,7 +281,7 @@ def genome_ref_paths(genome: str, refs_root: str, *,
 # task, so nothing downstream ran and Nextflow still reported success (cause unknown). The
 # run that worked used the v2 parser; whether rnavar needs v2 is NOT established.
 _DEFAULT_LAUNCH = {"syntax_parser": "v1", "uncompressed_refs": False,
-                   "genome_alias": {}, "resource_params": {}}
+                   "genome_alias": {}, "resource_params": {}, "refs_params": {}}
 LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
     "nf-core/rnavar": {"syntax_parser": "v2", "uncompressed_refs": True},
     # nf-core/sarek 3.10.0 (NOT yet run on Luria). Its own key for GRCh38 is GATK.GRCh38,
@@ -299,6 +299,34 @@ LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
             "wgs_intervals": "intervals",
             "bwa": "bwa",
         },
+    },
+    # nf-core/rnadnavar 1.0.0 (NOT yet run on Luria): the same GATK bundle as sarek, whose
+    # dbSNP, known indels, gnomAD and PoN it takes under the same names (its nextflow_schema.json
+    # at 1.0.0 declares every name below). The bundle has no GTF and STAR needs one, so refs_params
+    # passes the GRCh38 bundle's GENCODE file, chr-named as the GATK FASTA is.
+    "nf-core/rnadnavar": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {
+            "fasta_fai": "fasta_fai", "dict": "dict",
+            "dbsnp": "dbsnp", "dbsnp_tbi": "dbsnp_tbi",
+            "known_indels": "known_indels", "known_indels_tbi": "known_indels_tbi",
+            "germline_resource": "germline_resource",
+            "germline_resource_tbi": "germline_resource_tbi",
+            "pon": "pon", "pon_tbi": "pon_tbi",
+            "bwa": "bwa",
+        },
+        "refs_params": {"gtf": "gencode.v46.basic.annotation.gtf.gz"},
+    },
+    # nf-core/createpanelrefs 1.1.0 and nf-core/variantbenchmarking 1.6.1 (NOT yet run on Luria):
+    # the GATK bundle sarek calls on, so a panel of normals or a benchmark shares sarek's
+    # contigs. Both name the FASTA index `fai`; variantbenchmarking's schema requires it.
+    "nf-core/createpanelrefs": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {"fasta_fai": "fai", "dict": "dict"},
+    },
+    "nf-core/variantbenchmarking": {
+        "genome_alias": {"GRCh38": "GATK.GRCh38"},
+        "resource_params": {"fasta_fai": "fai"},
     },
 }
 
@@ -343,9 +371,16 @@ def luria_resource_params(pipeline: str | None, genome: str | None, refs_root: s
     root = str(refs_root).rstrip("/")
     staged = LURIA_GENOME_RESOURCES.get(str(genome or ""), {})
     supplied = supplied or {}
-    return {param: f"{root}/{staged[kind]}"
-            for kind, param in luria_launch_profile(pipeline)["resource_params"].items()
-            if kind in staged and supplied.get(param) in (None, "")}
+    profile = luria_launch_profile(pipeline)
+    out = {param: f"{root}/{staged[kind]}"
+           for kind, param in profile["resource_params"].items()
+           if kind in staged and supplied.get(param) in (None, "")}
+    # A file under the refs root that the pipeline takes whatever the genome's own bundle holds
+    # (rnadnavar's GENCODE GTF beside the GATK bundle), only when the genome has staged resources.
+    if staged:
+        out.update({param: f"{root}/{path}" for param, path in profile["refs_params"].items()
+                    if supplied.get(param) in (None, "")})
+    return out
 
 
 def render_luria_config(refs_root: str, resources: dict | None = None) -> str:

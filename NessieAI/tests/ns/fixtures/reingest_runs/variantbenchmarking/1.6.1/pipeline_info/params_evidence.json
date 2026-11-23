@@ -1,0 +1,13 @@
+{
+ "analysis": "germline",
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "genome": "GRCh37",
+ "input": "/RUN/samplesheet.csv",
+ "method": "svanalyzer",
+ "outdir": "/RUN",
+ "preprocess": "normalize,deduplicate,filter_contigs",
+ "skip_reports": "datavzrd",
+ "truth_id": "HG002",
+ "variant_type": "structural"
+}

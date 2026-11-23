@@ -1,0 +1,276 @@
+# nf-core/createpanelrefs: Usage
+
+## :warning: Please read this documentation on the nf-core website: [https://nf-co.re/createpanelrefs/usage](https://nf-co.re/createpanelrefs/usage)
+
+> _Documentation of pipeline parameters is generated automatically from the pipeline schema and can no longer be found in markdown files._
+
+## Introduction
+
+## Samplesheet input
+
+You will need to create a samplesheet with information about the samples you would like to analyse before running the pipeline. Use the `--input` parameter to specify its location. It has to be a comma-separated file and recognizes the following fields as column headers.
+
+| Fields   | Description                    |
+| -------- | ------------------------------ |
+| `sample` | Custom sample name.            |
+| `bam`    | Alignment file in bam format.  |
+| `bai`    | bam file index.                |
+| `cram`   | Alignment file in cram format. |
+| `crai`   | cram file index.               |
+
+```bash
+--input '[path to samplesheet file]'
+```
+
+### Full samplesheet
+
+The pipeline will auto-detect whether a sample is aligned in bam/cram format using the information provided in the samplesheet. The samplesheet can have either bam/cram files with or without their indices.
+
+A final samplesheet file consisting of both single- and paired-end data may look something like the one below. This is for 3 samples, where one sample, `SAMPLE_1` is missing its index file.
+
+```csv title="samplesheet.csv"
+sample,bam,bai
+SAMPLE_1,sample1.bam,
+SAMPLE_2,sample2.bam,sample2.bam.bai
+SAMPLE_3,sample3.bam,sample3.bam.bai
+```
+
+An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline.
+
+## Running the pipeline
+
+The typical command for running the pipeline is as follows:
+
+```bash
+nextflow run nf-core/createpanelrefs --input ./samplesheet.csv --outdir ./results --genome GRCh37 -profile docker --tools cnvkit,germlinecnvcaller
+```
+
+This will launch the pipeline with the `docker` configuration profile, and generate reference files necessary for cnvkit and germlinecnvcaller. To learn more about what tool options are recognized by the pipeline, check the pipeline's documentation on the [nf-core website](https://nf-co.re/createpanelrefs/dev/parameters/).
+
+See below for more information about profiles.
+
+Note that the pipeline will create the following files in your working directory:
+
+```bash
+work                # Directory containing the nextflow working files
+<OUTDIR>            # Finished results in specified location (defined with --outdir)
+.nextflow_log       # Log file from Nextflow
+# Other nextflow hidden files, eg. history of pipeline runs and old logs.
+```
+
+If you wish to repeatedly use the same parameters for multiple runs, rather than specifying each flag in the command, you can specify these in a params file.
+
+Pipeline settings can be provided in a `yaml` or `json` file via `-params-file <file>`.
+
+> [!WARNING]
+> Do not use `-c <file>` to specify parameters as this will result in errors. Custom config files specified with `-c` must only be used for [tuning process resource specifications](https://nf-co.re/docs/running/run-pipelines#configuring-pipelines), other infrastructural tweaks (such as output directories), or module arguments (args).
+
+The above pipeline run specified with a params file in yaml format:
+
+```bash
+nextflow run nf-core/createpanelrefs -profile docker -params-file params.yaml
+```
+
+with:
+
+```yaml title="params.yaml"
+input: './samplesheet.csv'
+outdir: './results/'
+genome: 'GRCh37'
+<...>
+```
+
+You can also generate such `YAML`/`JSON` files via [nf-core/launch](https://nf-co.re/launch).
+
+### Updating the pipeline
+
+When you run the above command, Nextflow automatically pulls the pipeline code from GitHub and stores it as a cached version. When running the pipeline after this, it will always use the cached version if available - even if the pipeline has been updated since. To make sure that you're running the latest version of the pipeline, make sure that you regularly update the cached version of the pipeline:
+
+```bash
+nextflow pull nf-core/createpanelrefs
+```
+
+### Reproducibility
+
+It is a good idea to specify the pipeline version when running the pipeline on your data. This ensures that a specific version of the pipeline code and software are used when you run your pipeline. If you keep using the same tag, you'll be running the same version of the pipeline, even if there have been changes to the code since.
+
+First, go to the [nf-core/createpanelrefs releases page](https://github.com/nf-core/createpanelrefs/releases) and find the latest pipeline version - numeric only (eg. `1.3.1`). Then specify this when running the pipeline with `-r` (one hyphen) - eg. `-r 1.3.1`. Of course, you can switch to another version by changing the number after the `-r` flag.
+
+This version number will be logged in reports when you run the pipeline, so that you'll know what you used when you look back in the future. For example, at the bottom of the MultiQC reports.
+
+To further assist in reproducibility, you can use share and reuse [parameter files](#running-the-pipeline) to repeat pipeline runs with the same settings without having to write out a command with every single parameter.
+
+> [!TIP]
+> If you wish to share such profile (such as upload as supplementary material for academic publications), make sure to NOT include cluster specific paths to files, nor institutional specific profiles.
+
+## Workflow specific arguments
+
+### cnvkit
+
+The CNVkit sequencing method is set with `--cnvkit_method` and defaults to `wgs` (whole-genome sequencing).
+For targeted capture sequencing (most commonly, exomes or panels), use `--cnvkit_method hybrid`.
+For targeted amplicon sequencing, use `--cnvkit_method amplicon`.
+Both `hybrid` and `amplicon` require `--cnvkit_targets` as a BED file of the targeted regions.
+
+```bash
+nextflow run nf-core/createpanelrefs --input ./samplesheet.csv --outdir ./results --genome GRCh38 -profile docker --tools cnvkit --cnvkit_method hybrid --cnvkit_targets targets.bed
+```
+
+To label the target regions with gene names, provide a gene annotation file with `--cnvkit_annotate`.
+CNVkit accepts UCSC `refFlat.txt` or `ensFlat.txt` (preferred), BED, interval list or GFF/GTF files.
+`--cnvkit_annotate` requires `--cnvkit_targets`.
+
+### gens
+
+If you are running the pipeline to generate references for the GENS workflow, you should ensure that you have provided all the mandatory options specified in the table below.
+
+| Mandatory     | Optional                |
+| ------------- | ----------------------- |
+| fasta/genomes | fai                     |
+|               | dict                    |
+|               | gens_analysis_type      |
+|               | gens_bin_length         |
+|               | gens_pon_name           |
+|               | gens_readcount_format   |
+|               | gens_interval_list      |
+|               | gens_mosdepth_fast_mode |
+
+The GENS workflow creates a panel of normals for read-count denoising from normal samples. This panel can be used with GENS for somatic variant calling to reduce technical noise and improve variant detection. For more information, see the [GENS documentation](https://github.com/Clinical-Genomics-Lund/gens).
+
+> [!NOTE]
+> If `--gens_analysis_type` is set to 'lrs', this requires the sample ID set in the samplesheet to be equal to the `SM` tag in the BAM-file.
+
+With `--gens_analysis_type lrs`, coverage is computed with mosdepth using `--fast-mode` by default.
+`--fast-mode` skips internal CIGAR operations and mate-overlap correction, and overestimates coverage over deletions.
+Set `--gens_mosdepth_fast_mode false` to disable it.
+Use the same setting as for the coverage of the case samples, so that the bias cancels out during denoising.
+
+### germlinecnvcaller
+
+If you are running the pipeline to generate references for the GATK's germlinecnvcalling workflow, you should ensure that you have provided all the mandatory options specified in the table below.
+
+| Mandatory                      | Optional                                    |
+| ------------------------------ | ------------------------------------------- |
+| fasta/genomes                  | fai                                         |
+| gcnv_ploidy_priors<sup>1</sup> | dict                                        |
+|                                | gcnv_target_bed/gcnv_target_interval_list   |
+|                                | gcnv_exclude_bed/gcnv_exclude_interval_list |
+|                                | gcnv_bin_length                             |
+|                                | gcnv_mappable_regions                       |
+|                                | gcnv_padding                                |
+|                                | gcnv_model_name                             |
+|                                | gcnv_readcount_format                       |
+|                                | gcnv_scatter_content                        |
+|                                | gcnv_segmental_duplications                 |
+
+<sup>1</sup> To learn more about this file, see [this comment](https://gatk.broadinstitute.org/hc/en-us/community/posts/360074399831/comments/13441240230299) on GATK forum.<br />
+
+### mutect2
+
+If you are running the pipeline to generate references for the GATK's Mutect2 somatic variant calling workflow, you should ensure that you have provided all the mandatory options specified in the table below.
+
+| Mandatory     | Optional           |
+| ------------- | ------------------ |
+| fasta/genomes | fai                |
+|               | dict               |
+|               | mutect2_target_bed |
+|               | mutect2_pon_name   |
+
+The Mutect2 workflow creates a panel of normals from normal samples for somatic variant calling. This panel can be used with Mutect2 in case mode via the `--panel-of-normals` parameter to filter out common germline variants and sequencing artifacts. For more information, see the [GATK documentation](https://gatk.broadinstitute.org/hc/en-us/articles/360035894731-Mutect2).
+
+## Core Nextflow arguments
+
+> [!NOTE]
+> These options are part of Nextflow and use a _single_ hyphen (pipeline parameters use a double-hyphen)
+
+### `-profile`
+
+Use this parameter to choose a configuration profile. Profiles can give configuration presets for different compute environments.
+
+Several generic profiles are bundled with the pipeline which instruct the pipeline to use software packaged using different methods (Docker, Singularity, Podman, Shifter, Charliecloud, Apptainer, Conda) - see below.
+
+> [!IMPORTANT]
+> We highly recommend the use of Docker or Singularity containers for full pipeline reproducibility, however when this is not possible, Conda is also supported.
+
+The pipeline also dynamically loads configurations from [https://github.com/nf-core/configs](https://github.com/nf-core/configs) when it runs, making multiple config profiles for various institutional clusters available at run time. For more information and to check if your system is supported, please see the [nf-core/configs documentation](https://github.com/nf-core/configs#documentation).
+
+Note that multiple profiles can be loaded, for example: `-profile test,docker` - the order of arguments is important!
+They are loaded in sequence, so later profiles can overwrite earlier profiles.
+
+If `-profile` is not specified, the pipeline will run locally and expect all software to be installed and available on the `PATH`. This is _not_ recommended, since it can lead to different results on different machines dependent on the computer environment.
+
+- `test`
+  - A profile with a complete configuration for automated testing
+  - Includes links to test data so needs no other parameters
+- `docker`
+  - A generic configuration profile to be used with [Docker](https://docker.com/)
+- `singularity`
+  - A generic configuration profile to be used with [Singularity](https://sylabs.io/docs/)
+- `podman`
+  - A generic configuration profile to be used with [Podman](https://podman.io/)
+- `shifter`
+  - A generic configuration profile to be used with [Shifter](https://nersc.gitlab.io/development/shifter/how-to-use/)
+- `charliecloud`
+  - A generic configuration profile to be used with [Charliecloud](https://charliecloud.io/)
+- `apptainer`
+  - A generic configuration profile to be used with [Apptainer](https://apptainer.org/)
+- `wave`
+  - A generic configuration profile to enable [Wave](https://seqera.io/wave/) containers. Use together with one of the above (requires Nextflow `24.03.0-edge` or later).
+- `conda`
+  - A generic configuration profile to be used with [Conda](https://conda.io/docs/). Please only use Conda as a last resort i.e. when it's not possible to run the pipeline with Docker, Singularity, Podman, Shifter, Charliecloud, or Apptainer.
+
+### `-resume`
+
+Specify this when restarting a pipeline. Nextflow will use cached results from any pipeline steps where the inputs are the same, continuing from where it got to previously. For input to be considered the same, not only the names must be identical but the files' contents as well. For more info about this parameter, see [this blog post](https://www.nextflow.io/blog/2019/demystifying-nextflow-resume.html).
+
+You can also supply a run name to resume a specific run: `-resume [run-name]`. Use the `nextflow log` command to show previous run names.
+
+### `-c`
+
+Specify the path to a specific config file (this is a core Nextflow command). See the [nf-core website documentation](https://nf-co.re/usage/configuration) for more information.
+
+## Custom configuration
+
+### Resource requests
+
+Whilst the default requirements set within the pipeline will hopefully work for most people and with most input data, you may find that you want to customise the compute resources that the pipeline requests. Each step in the pipeline has a default set of requirements for number of CPUs, memory and time. For most of the pipeline steps, if the job exits with any of the error codes specified [here](https://github.com/nf-core/rnaseq/blob/4c27ef5610c87db00c3c5a3eed10b1d161abf575/conf/base.config#L18) it will automatically be resubmitted with higher resources request (2 x original, then 3 x original). If it still fails after the third attempt then the pipeline execution is stopped.
+
+To change the resource requests, please see the [max resources](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#set-max-resources) and [customise process resources](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#customize-process-resources) section of the nf-core website.
+
+### Custom Containers
+
+In some cases, you may wish to change the container or conda environment used by a pipeline steps for a particular tool. By default, nf-core pipelines use containers and software from the [biocontainers](https://biocontainers.pro/) or [bioconda](https://bioconda.github.io/) projects. However, in some cases the pipeline specified version maybe out of date.
+
+To use a different container from the default container or conda environment specified in a pipeline, please see the [updating tool versions](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#update-tool-versions) section of the nf-core website.
+
+### Custom Tool Arguments
+
+A pipeline might not always support every possible argument or option of a particular tool used in pipeline. Fortunately, nf-core pipelines provide some freedom to users to insert additional parameters that the pipeline does not include by default.
+
+To learn how to provide additional arguments to a particular tool of the pipeline, please see the [customising tool arguments](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#modifying-tool-arguments) section of the nf-core website.
+
+### nf-core/configs
+
+In most cases, you will only need to create a custom config as a one-off but if you and others within your organisation are likely to be running nf-core pipelines regularly and need to use the same settings regularly it may be a good idea to request that your custom config file is uploaded to the `nf-core/configs` git repository. Before you do this please can you test that the config file works with your pipeline of choice using the `-c` parameter. You can then create a pull request to the `nf-core/configs` repository with the addition of your config file, associated documentation file (see examples in [`nf-core/configs/docs`](https://github.com/nf-core/configs/tree/master/docs)), and amending [`nfcore_custom.config`](https://github.com/nf-core/configs/blob/master/nfcore_custom.config) to include your custom profile.
+
+See the main [Nextflow documentation](https://www.nextflow.io/docs/latest/config.html) for more information about creating your own configuration files.
+
+If you have any questions or issues please send us a message on [Slack](https://nf-co.re/join/slack) on the [`#configs` channel](https://nfcore.slack.com/channels/configs).
+
+## Running in the background
+
+Nextflow handles job submissions and supervises the running jobs. The Nextflow process must run until the pipeline is finished.
+
+The Nextflow `-bg` flag launches Nextflow in the background, detached from your terminal so that the workflow does not stop if you log out of your session. The logs are saved to a file.
+
+Alternatively, you can use `screen` / `tmux` or similar tool to create a detached session which you can log back into at a later time.
+Some HPC setups also allow you to run nextflow within a cluster job submitted your job scheduler (from where it submits more jobs).
+
+## Nextflow memory requirements
+
+In some cases, the Nextflow Java virtual machines can start to request a large amount of memory.
+We recommend adding the following line to your environment to limit this (typically in `~/.bashrc` or `~./bash_profile`):
+
+```bash
+NXF_OPTS='-Xms1g -Xmx4g'
+```

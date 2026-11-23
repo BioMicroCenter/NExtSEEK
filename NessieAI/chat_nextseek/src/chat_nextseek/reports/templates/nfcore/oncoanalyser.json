@@ -1,0 +1,80 @@
+{
+  "report_type": "NFCORE_ONCOANALYSER_SAMPLESHEET",
+  "description": "nf-core/oncoanalyser samplesheet context, aligned to the pinned 3.0.0 schema. Whole-genome tumour/normal DNA from FASTQ through the Hartwig WiGiTS tools: somatic SNVs, indels, SVs, copy number, purity and ploidy, drivers, HLA, signatures, HRD, tissue of origin and the ORANGE report.",
+  "params": {
+    "mode":              {"type": "enum", "allowed": ["wgts"], "default": "wgts", "steerable": false,
+                          "help": "Whole genome (and transcriptome) mode. The pipeline sets no default and stops without one. targeted mode is not offered: it needs a panel's resource files (only TSO500 on GRCh37 is built in), and purity_estimate, panel_resource_creation and prepare_reference are not analyses of these samples."},
+    "processes_exclude": {"type": "string", "default": null, "steerable": true,
+                          "help": "comma list of processes to skip, from lib/Constants.groovy Process: alignment, amber, bamtools, chord, cider, cobalt, cuppa, esvee, isofox, lilac, linx, multiqc, neo, orange, pave, peach, purple, qsee, redux, sage, sage_append, sage_visualiser, sigs, teal, virusinterpreter, wisp. Skipping an upstream process silently skips everything that needs it (the pipeline raises no error), so skip only report or annotation steps, e.g. virusinterpreter,orange."},
+    "multiqc_title":     {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/oncoanalyser",
+    "repository": "https://github.com/nf-core/oncoanalyser",
+    "documentation_url": "https://nf-co.re/oncoanalyser/3.0.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Long format, one row per FASTQ pair: group_id (the patient; the analysis unit and output folder), subject_id (the same value as group_id), sample_id (the D.SEQ UID), sample_type tumor or normal, sequence_type dna, filetype fastq, info library_id:<id>;lane:<lane>, and filepath <R1>;<R2>. Each group holds exactly one tumour DNA sample and one normal DNA sample here.",
+    "required_columns": ["group_id", "subject_id", "sample_id", "sample_type", "sequence_type", "filetype", "filepath"],
+    "optional_columns": ["info"]
+  },
+  "samplesheet_template": [{"group_id": null, "subject_id": null, "sample_id": null, "sample_type": null, "sequence_type": "dna", "filetype": "fastq", "info": null, "filepath": null}],
+  "examples": {
+    "tumour_row": {"group_id": "PAT-260711ENG-3-PUB", "subject_id": "PAT-260711ENG-3-PUB", "sample_id": "D.SEQ-260711ENG-12-PUB", "sample_type": "tumor", "sequence_type": "dna", "filetype": "fastq",
+                   "info": "library_id:D.SEQ-260711ENG-12-PUB;lane:001",
+                   "filepath": "/net/bmc-pub10/data1/bmc/fastq/t_L001_R1.fastq.gz;/net/bmc-pub10/data1/bmc/fastq/t_L001_R2.fastq.gz"},
+    "normal_row": {"group_id": "PAT-260711ENG-3-PUB", "subject_id": "PAT-260711ENG-3-PUB", "sample_id": "D.SEQ-260711ENG-13-PUB", "sample_type": "normal", "sequence_type": "dna", "filetype": "fastq",
+                   "info": "library_id:D.SEQ-260711ENG-13-PUB;lane:001",
+                   "filepath": "/net/bmc-pub10/data1/bmc/fastq/n_L001_R1.fastq.gz;/net/bmc-pub10/data1/bmc/fastq/n_L001_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "The header is exactly group_id,subject_id,sample_id,sample_type,sequence_type,filetype,info,filepath (usage.md, FASTQ).",
+    "No cell may contain a space (assets/schema_input.json pattern ^\\S+$), a comma, or a semicolon other than the ones below.",
+    "filetype is fastq on every row; filepath is read 1 and read 2, gzipped, joined by one ';' (exactly two paths: lib/Utils.groovy refuses any other count). Single-end or interleaved FASTQ cannot run.",
+    "info holds library_id:<id>;lane:<lane> on every FASTQ row (both keys are required). library_id + lane (+ flowcell when given) must differ between the rows of one sample.",
+    "sample_type is tumor or normal, from the param atlas verdict; never guess it from a name alone. A swapped tumour and normal gives a plausible, wrong somatic analysis.",
+    "Each group_id holds one tumour DNA sample_id and one normal DNA sample_id, and subject_id is the same on every row of a group. A group with only a normal stops the run; this launch also refuses a tumour with no normal.",
+    "sequence_type is dna. RNA libraries are not part of this launch.",
+    "Only whole-genome libraries (LibraryStrategy WGS). Exome or panel data in wgts mode gives wrong copy number and purity; targeted mode needs custom panel resources that are not built.",
+    "BAM or CRAM leaves (GDC/TCGA alignments) are not accepted: oncoanalyser needs alignments to its own bundled GRCh38_hmf genome with soft-clipped supplementary reads and mate CIGARs (usage.md, Sequencing technologies)."
+  ],
+  "notes": "Reference data: --genome GRCh38_hmf. Every genome file (FASTA, index, dict, BWA-MEM2 index, GRIDSS index) and the WiGiTS resource bundle default to URLs under data.oncoanalyser.com, which oncoanalyser downloads into the work directory on every run unless ref_data_genome_* and ref_data_hmf_data_path name local copies (usage.md, Staging reference data). That bundle is not staged on the cluster, so the launcher must pass those paths from a staged GRCh38_hmf bundle, and configure_run refuses oncoanalyser until one is registered. Nothing here downloads it.",
+  "sources": [
+    {"label": "nf-core/oncoanalyser usage docs @ 3.0.0", "url": "https://nf-co.re/oncoanalyser/3.0.0/docs/usage/", "notes": "Samplesheet, FASTQ rows, sample setups, reference data staging and URLs, modes, process selection."},
+    {"label": "nf-core/oncoanalyser nextflow_schema.json @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/oncoanalyser/3.0.0/nextflow_schema.json", "notes": "Authoritative param names; mode has no enum and no default."},
+    {"label": "nf-core/oncoanalyser assets/schema_input.json @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/oncoanalyser/3.0.0/assets/schema_input.json", "notes": "Columns and enums: sample_type normal|tumor|donor|tumor_normal, sequence_type dna|rna|dna_rna."},
+    {"label": "nf-core/oncoanalyser lib/Constants.groovy and lib/Utils.groovy @ 3.0.0", "url": "https://github.com/nf-core/oncoanalyser/tree/3.0.0/lib", "notes": "Valid filetypes, info keys and processes; FASTQ rows need library_id and lane and exactly two ';'-separated paths; one sample_id per sample_type and sequence_type in a group."}
+  ],
+  "schema": {"sections": {"samplesheet_columns": {
+    "description": "Column-level field dictionary for the nf-core/oncoanalyser input samplesheet (FASTQ rows).",
+    "fields": {
+      "group_id": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Groups a tumour and its normal into one analysis; names the output folder.", "validation_hints": "The UID of the PAT sample in the leaf's lineage, as sarek's patient. Never invent a shared id to make a pair.", "example": "PAT-260711ENG-3-PUB"},
+      "subject_id": {"required": "required", "position_rule": "Column 2", "expected_value": "string", "allowed_values": "", "description": "Patient id; must be the same within a group.", "validation_hints": "The same value as group_id.", "example": "PAT-260711ENG-3-PUB"},
+      "sample_id": {"required": "required", "position_rule": "Column 3", "expected_value": "string", "allowed_values": "", "description": "Sample id; output file prefix (tumour id for most files).", "validation_hints": "The NExtSEEK D.SEQ UID, repeated on every FASTQ row of that sample.", "example": "D.SEQ-260711ENG-12-PUB"},
+      "sample_type": {"required": "required", "position_rule": "Column 4", "expected_value": "tumor or normal", "allowed_values": "tumor, normal", "description": "Tumour or matched normal.", "validation_hints": "From the param atlas verdict; asked of the user when the metadata does not decide it.", "example": "tumor"},
+      "sequence_type": {"required": "required", "position_rule": "Column 5", "expected_value": "dna", "allowed_values": "dna", "description": "DNA libraries only in this launch.", "validation_hints": "Always dna.", "example": "dna"},
+      "filetype": {"required": "required", "position_rule": "Column 6", "expected_value": "fastq", "allowed_values": "fastq", "description": "Input file type.", "validation_hints": "Always fastq.", "example": "fastq"},
+      "info": {"required": "required for FASTQ", "position_rule": "Column 7", "expected_value": "library_id:<id>;lane:<lane>", "allowed_values": "", "description": "Library and lane of this FASTQ pair.", "validation_hints": "library_id = the D.SEQ UID; lane = the L00N token of the file name without the L, else 001, 002 in file order.", "example": "library_id:D.SEQ-260711ENG-12-PUB;lane:001"},
+      "filepath": {"required": "required", "position_rule": "Column 8", "expected_value": "<R1>;<R2>", "allowed_values": ".fastq.gz", "description": "Read 1 and read 2 of one pair, ';'-separated.", "validation_hints": "Absolute cluster paths from the sample's Link_PrimaryData / File_PrimaryData.", "example": "/net/bmc-pub10/data1/bmc/fastq/t_L001_R1.fastq.gz;/net/bmc-pub10/data1/bmc/fastq/t_L001_R2.fastq.gz"}
+    }}}},
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/oncoanalyser samplesheet from a resolved NExtSEEK D.SEQ cohort of whole-genome tumour and matched-normal DNA libraries.",
+    "workflow_role": "Selected for a whole cancer-genome analysis (somatic SNV/indel, SV, copy number, purity/ploidy, drivers, report) of WGS tumour/normal pairs. For germline calls, exomes or a run that can go now use sarek; for a panel of normals use createpanelrefs.",
+    "output_expectation": "CSV with header group_id,subject_id,sample_id,sample_type,sequence_type,filetype,info,filepath.",
+    "population_priority": [
+      "One row per FASTQ pair; sample_id = the D.SEQ UID; group_id = subject_id = the PAT UID in the lineage.",
+      "sample_type from the param atlas verdict (tumor or normal); ask where it is conflict or absent.",
+      "Say plainly that the Hartwig GRCh38_hmf reference bundle is not staged on the cluster, so the run cannot be submitted yet, and that nothing is downloaded."
+    ],
+    "final_checks": [
+      "Header is exactly: group_id,subject_id,sample_id,sample_type,sequence_type,filetype,info,filepath.",
+      "Every group has one tumor and one normal sample_id, sequence_type dna.",
+      "Every filepath holds exactly two .fastq.gz paths joined by ';'; every info holds library_id and lane, unique per sample."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node; not measured. oncoanalyser documents no runtimes; whole-genome tumour/normal from FASTQ (alignment, REDUX, GRIDSS-index-backed SV calling) is expected to take far longer than sarek germline calling.",
+    "setup_minutes": [0, 0], "setup_label": "",
+    "base_minutes": [30, 60], "per_sample_minutes": [480, 1440]
+  }
+}

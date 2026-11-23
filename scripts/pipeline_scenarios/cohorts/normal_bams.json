@@ -1,0 +1,104 @@
+{
+  "name": "normal_bams",
+  "description": "Two blood-normal WGS libraries registered as aligned BAMs (nf-core test data); each patient is the shared ancestor of its own normal",
+  "levels": [
+    {
+      "sample_type": "PAT",
+      "rows": [
+        {
+          "Name": "NTC-NB-patient1",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-NB-P1",
+          "Sex": "M"
+        },
+        {
+          "Name": "NTC-NB-patient2",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-NB-P2",
+          "Sex": "F"
+        }
+      ]
+    },
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-NB-p1-normal",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-NB-patient1",
+          "Type": "Blood Derived Normal",
+          "Tissue": "Blood",
+          "Source": "Peripheral blood draw"
+        },
+        {
+          "Name": "NTC-NB-p2-normal",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-NB-patient2",
+          "Type": "Blood Derived Normal",
+          "Tissue": "Blood",
+          "Source": "Peripheral blood draw"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-NB-p1-normal-lib",
+          "Parent": "NTC-NB-p1-normal",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA Prep, PCR-free",
+          "Lab": "Test Lab"
+        },
+        {
+          "Name": "NTC-NB-p2-normal-lib",
+          "Parent": "NTC-NB-p2-normal",
+          "Scientist": "Nessie Test",
+          "Protocol": "Illumina DNA Prep, PCR-free",
+          "Lab": "Test Lab"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-NB-p1-normal-WGS",
+          "Parent": "NTC-NB-p1-normal-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "BAM",
+          "File_PrimaryData": "test.paired_end.recalibrated.sorted.bam, test.paired_end.recalibrated.sorted.bam.bai",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/modules/data/genomics/homo_sapiens/illumina/bam/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        },
+        {
+          "Name": "NTC-NB-p2-normal-WGS",
+          "Parent": "NTC-NB-p2-normal-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "BAM",
+          "File_PrimaryData": "test.paired_end.sorted.bam, test.paired_end.sorted.bam.bai",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/modules/data/genomics/homo_sapiens/illumina/bam/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        }
+      ]
+    }
+  ]
+}

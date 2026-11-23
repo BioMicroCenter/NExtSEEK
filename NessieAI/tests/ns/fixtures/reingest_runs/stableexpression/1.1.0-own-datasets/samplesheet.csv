@@ -1,0 +1,3 @@
+counts,design,platform,normalised
+/RUN/inputs/microarray.normalised.csv,/RUN/inputs/microarray.normalised.design.csv,microarray,true
+/RUN/inputs/rnaseq.raw.csv,/RUN/inputs/rnaseq.raw.design.csv,rnaseq,false

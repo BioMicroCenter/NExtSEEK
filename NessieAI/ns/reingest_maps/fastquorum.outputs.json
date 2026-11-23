@@ -1,0 +1,88 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/fastquorum",
+  "applies_to_versions": ">=2.0,<2.1",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "inventory_globs": [],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "preprocessing/fastqc/*",
+      "why": "FastQC reports on the raw reads; their numbers are read through MultiQC."
+    },
+    {
+      "glob": "preprocessing/fastqtobam/*",
+      "why": "fgbio FastqToBam's unmapped BAM: the raw reads with their UMIs in the RX tag, an intermediate of consensus calling."
+    },
+    {
+      "glob": "preprocessing/correctumis/*",
+      "why": "fgbio CorrectUmis' corrected and rejected BAMs and its metrics (only for rows with a umi_file): intermediates of consensus calling."
+    },
+    {
+      "glob": "preprocessing/align_raw_bam/*",
+      "why": "The raw reads aligned and template-coordinate sorted for grouping: an intermediate, not the consensus result."
+    },
+    {
+      "glob": "preprocessing/merged/*",
+      "why": "Raw-read BAMs of one library merged across lanes or flowcells: an intermediate of grouping."
+    },
+    {
+      "glob": "grouping/groupreadsbyumi/*",
+      "why": "fgbio GroupReadsByUmi's grouped BAM (raw reads tagged with their molecule) and its family-size table: intermediates of consensus calling; the family sizes are read through MultiQC."
+    },
+    {
+      "glob": "consensus_calling/called/*",
+      "why": "The unmapped consensus reads (--mode rd), before alignment and filtering: the aln rule registers the filtered, aligned consensus."
+    },
+    {
+      "glob": "filtering/align_consensus_bam/*",
+      "why": "--mode rd: the consensus aligned before FilterConsensusReads, so the aln rule's filtered BAM supersedes it. --mode ht writes its final, aligned consensus here instead, which this map does not register: the launch template offers --mode rd only (see the README, fastquorum)."
+    },
+    {
+      "glob": "metrics/duplex_seq/*",
+      "why": "fgbio CollectDuplexSeqMetrics' per-library family-size, UMI-count and yield tables and their PDF (with --duplex_seq): no sample type has attributes for them, and MultiQC does not read them."
+    },
+    {
+      "glob": "multiqc/multiqc_data/*",
+      "why": "MultiQC's data tables; the harvest reads them itself, they are not results to register."
+    },
+    {
+      "glob": "pipeline_info/*",
+      "why": "Run provenance (software versions, params, execution reports), read by the harvest, not registered."
+    }
+  ],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["consensus_filtering/filtered/*/*.cons.filtered.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [
+        {"glob": "consensus_filtering/filtered/*/*.cons.filtered.bam.bai"}
+      ],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "bwa mem",
+        "Genome": "$params.genome",
+        "Software": "nf-core/fastquorum"
+      }
+    }
+  ],
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}

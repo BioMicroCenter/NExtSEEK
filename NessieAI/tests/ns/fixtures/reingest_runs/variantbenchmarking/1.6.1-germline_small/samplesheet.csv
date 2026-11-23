@@ -1,0 +1,3 @@
+id,test_vcf,caller,subsample
+test6,/RUN/inputs/HG002.strelka.variants.chr21.vcf.gz,strelka,
+test7,/RUN/inputs/HG002.bcftools.chr21.vcf.gz,bcftools,

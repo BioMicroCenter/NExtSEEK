@@ -1,0 +1,61 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/tumourevo",
+  "applies_to_versions": ">=1.0,<1.1",
+  "accepts_parent_types": ["A.VCF"],
+  "samplesheet_sample_column": "tumour_sample",
+  "claims_every_file": true,
+  "inventory_globs": [],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "provenance_attributes": {},
+  "unmapped_files": [
+    {
+      "glob": "variant_annotation/vep/*",
+      "why": "Ensembl VEP's annotated copy of the input somatic VCF (ENSEMBLVEP_VEP in conf/modules.config): the same calls with consequences added, not a second call set, as sarek's map rules out its annotated copies."
+    },
+    {
+      "glob": "bcftools/filter/*",
+      "why": "BCFTOOLS_VIEW -f PASS: the input VCF cut to its PASS calls, the pipeline's working copy of a call set registered elsewhere, not a new one."
+    },
+    {
+      "glob": "formatter/*",
+      "why": "vcf2cnaqc and cna2cnaqc RDS conversions of the input VCF and copy-number segments, and cnaqc2tsv's per-patient joint mutation table: format conversions read by the later steps."
+    },
+    {
+      "glob": "lifter/*",
+      "why": "bcftools mpileup of each sample's private mutations in the patient's other tumour BAMs, its stats, the position lists and RDS objects (only with tumour_alignment): intermediates merged back into the mutation tables."
+    },
+    {
+      "glob": "qc/tinc/*",
+      "why": "TINC's fit, plots and qc.csv: tumour-in-normal contamination and tumour purity estimates. No sample type has an attribute for either; a schema request, not a rule."
+    },
+    {
+      "glob": "qc/cnaqc/*",
+      "why": "CNAqc's per-sample objects and PDFs: a check of the input copy-number segments against the mutations' allele frequencies, not new copy-number calls, so not an A.CNV; no sample type holds a QC object."
+    },
+    {
+      "glob": "qc/join_cnaqc/*",
+      "why": "join_CNAqc's per-patient multi-sample CNAqc object, the input to subclonal deconvolution: an intermediate with no sample type."
+    },
+    {
+      "glob": "driver_annotation/*",
+      "why": "annotate_driver's RDS: each sample's mutations flagged against the IntOGen driver table for its cancer_type. No sample type means annotated driver calls (G-5); proposed as a new type in the tumourevo README section."
+    },
+    {
+      "glob": "subclonal_deconvolution/*",
+      "why": "MOBSTER, PyClone-VI and VIBER cluster fits, ctree clone trees, their reports, and SigProfiler's genome under this folder. No sample type means a clonal-structure result (G-5); proposed as a new type in the tumourevo README section."
+    },
+    {
+      "glob": "signature_deconvolution/*",
+      "why": "SparseSignatures and SigProfiler per-dataset signature extraction (counts, exposures, solutions). No sample type means mutational signatures (G-5); proposed as a new type in the tumourevo README section."
+    },
+    {
+      "glob": "references/*",
+      "why": "The VEP cache tumourevo downloaded or unpacked (ENSEMBLVEP_DOWNLOAD, UNTAR): reference files, not sample data."
+    }
+  ],
+  "outputs": [],
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}
