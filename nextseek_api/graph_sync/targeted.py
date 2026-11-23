@@ -637,13 +637,16 @@ def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_cha
 
 
 CONTEXT_DELAY_S = 60    # one 10 s observed-connections scan per minute of uploads, not one per drained row
+# The counts by which a by-id write says it added, removed or relabelled a DERIVED_FROM edge or a sample.
+EDGE_CHANGE_KEYS = ("lineage_created", "derived_from_deleted", "labels_written", "labels_refreshed",
+                    "retired_deleted", "retired_orphaned")
 
 
 def _queue_context(result: dict) -> dict:
-    """``result`` unchanged; a write that ended ``ok`` may have added or removed a DERIVED_FROM edge, so a ``context``
-    row is queued, held ``CONTEXT_DELAY_S`` so a burst of uploads shares one run, and the observed connections in the
-    context tables follow (``context_derived``)."""
-    if result.get("status") == OK:
+    """``result`` unchanged; a write that ended ``ok`` and added, removed or relabelled an edge changes the observed
+    connections, so a ``context`` row is queued, held ``CONTEXT_DELAY_S`` so a burst of uploads shares one run
+    (``context_derived``). A write that changed no edge queues nothing; the nightly reconcile queues one anyway."""
+    if result.get("status") == OK and any(result.get(key) for key in EDGE_CHANGE_KEYS):
         hooks.enqueue("context", "*", delay_s=CONTEXT_DELAY_S)
     return result
 

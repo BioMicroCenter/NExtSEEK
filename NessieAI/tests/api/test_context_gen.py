@@ -402,7 +402,7 @@ def _update_all() -> str:
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        assert cg.main(["--emit", "update", "--table", "all"]) == 0
+        assert cg.main(["--emit", "update", "--table", "all", "--snapshot-copy"]) == 0
     return buffer.getvalue()
 
 
@@ -2209,3 +2209,20 @@ def test_snapshot_keeps_the_column_order_the_file_already_uses(tmp_path):
     export = _export(tmp_path, sample_types=[], assays=[{"assay_name": "PCR", "internal_assay_id": 4}])
     cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
     assert list(json.loads(target.read_text(encoding="utf-8"))[0]) == order
+
+
+def test_update_refuses_the_two_tables_the_database_owns_without_snapshot_copy(capsys):
+    import pytest
+    for table in ("sample_types", "assays", "all"):
+        with pytest.raises(SystemExit):
+            cg.main(["--emit", "update", "--table", table])
+        assert "--snapshot-copy" in capsys.readouterr().err
+    assert cg.main(["--emit", "update", "--table", "projects"]) == 0
+
+
+def test_snapshot_writes_nothing_when_either_table_is_refused(tmp_path):
+    import pytest
+    export = _export(tmp_path, sample_types=[{"sample_type": "TIS"}], assays=[{"assay_name": "PCR", "bad": 1}])
+    with pytest.raises(ValueError):
+        cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
+    assert not (tmp_path / "context" / "sample_types.json").exists()

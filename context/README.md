@@ -8,16 +8,17 @@ The catalog context NExtSEEK's tables are built from. Two rules, by table:
   are kept current by graph_sync's context step (`nextseek_api/graph_sync/context_derived.py`). To
   refresh the files, save `GET /nextseek_api/definitions/export/` from production and run
   `python scripts/context_gen.py --emit snapshot --from <that file>`, then `--emit exports` in the
-  same change. A box other than production takes its text from that snapshot with `--emit update`.
+  same change. A box other than production takes its text from that snapshot with
+  `--emit update --snapshot-copy`; without that flag the update refuses these two tables.
   Before the first snapshot, the rows git holds that production lacks land there once, with a
-  signed-off `--emit update`.
+  signed-off `--emit update --snapshot-copy`.
 - **`projects.json` and `assay_mappings.json` are still hand-owned here.** Edit these files; do not
   edit their tables directly. Whatever is in these files is what the database will hold.
 
 `scripts/context_gen.py` is the generator that gets them there:
 
 ```
-python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
+python scripts/context_gen.py --emit update --table projects --out /tmp/context.sql
 python scripts/context_gen.py --emit seed --table all
 python scripts/context_gen.py --emit exports --table all
 python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json

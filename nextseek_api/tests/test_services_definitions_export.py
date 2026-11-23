@@ -81,7 +81,7 @@ def test_a_graph_that_cannot_be_read_is_a_502(monkeypatch):
     monkeypatch.setattr(definitions_export, "build_export", down)
     response = _get(DjangoUser(username="lab"))
     assert response.status_code == 502
-    assert response.data["errors"][0]["detail"] == "neo4j went away"
+    assert "neo4j went away" not in str(response.data)          # driver text stays in the log, not the body
 
 
 def test_the_schema_documents_the_route_and_its_models():

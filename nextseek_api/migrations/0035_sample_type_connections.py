@@ -6,11 +6,14 @@ from django.db import migrations, models
 
 
 def _byte_exact(apps, schema_editor):
-    """utf8mb4_bin on MySQL: codes and assay titles compare byte for byte, as graph_sync's titles do, whatever the
-    schema's default charset (dev's and production's dmac schemas hold legacy latin1 tables). Under a case-insensitive
-    collation two titles differing only in case or a trailing space would collide on the unique key."""
+    """utf8mb4_0900_bin on MySQL (8.0): codes and assay titles compare byte for byte and with NO PAD, as graph_sync's
+    titles do, whatever the schema's default charset (dev's and production's dmac schemas hold legacy latin1 tables).
+    Under a case-insensitive collation, or a PAD SPACE one such as utf8mb4_bin, two titles differing only in case or
+    a trailing space would collide on the unique key (dev holds "FC Receptor Binding Assay" beside "Fc Receptor
+    Binding Assay"). Three 255-character utf8mb4 columns make a 3,060-byte key, inside InnoDB's 3,072."""
     if schema_editor.connection.vendor == "mysql":
-        schema_editor.execute("ALTER TABLE sample_type_connections CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin")
+        schema_editor.execute("ALTER TABLE sample_type_connections CONVERT TO CHARACTER SET utf8mb4 "
+                              "COLLATE utf8mb4_0900_bin")
 
 
 class Migration(migrations.Migration):
@@ -27,9 +30,9 @@ class Migration(migrations.Migration):
             name='SampleTypeConnectionRow',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('parent_type', models.CharField(max_length=32)),
+                ('parent_type', models.CharField(max_length=255)),
                 ('assay', models.CharField(max_length=255)),
-                ('child_type', models.CharField(max_length=32)),
+                ('child_type', models.CharField(max_length=255)),
                 ('designed', models.BooleanField(default=False)),
                 ('observed', models.BooleanField(default=False)),
             ],

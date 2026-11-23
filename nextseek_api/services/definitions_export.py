@@ -15,6 +15,7 @@ shapes, so ``scripts/definitions_parity.py`` can compare the two field for field
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from django.conf import settings
@@ -33,6 +34,8 @@ from nextseek_api.graph_sync import sources
 from nextseek_api.graph_sync.context_derived import needs_definition
 from nextseek_api.graph_sync.models_db import SampleTypeConnectionRow
 from nextseek_api.models import DefinitionsExportResponse, JsonApiErrorResponse
+
+logger = logging.getLogger(__name__)
 
 GRAPH_TIMEOUT_S = 120
 GRAPH_META = ("MATCH (m:GraphMeta) RETURN m.schema_version AS schema_version, m.catalog_hash AS catalog_hash, "
@@ -152,6 +155,9 @@ class DefinitionsExportViewSet(viewsets.GenericViewSet):
     def export(self, request):
         try:
             return Response(build_export())
-        except Exception as exc:  # noqa: BLE001 - the graph or a table could not be read; say so, never a 500 page
-            return Response({"errors": [{"title": "Definitions export failed", "detail": str(exc)}]},
+        except Exception:  # noqa: BLE001 - the graph or a table could not be read; say so, never a 500 page
+            # The driver's text stays in the log: the body goes to any logged-in user.
+            logger.exception("definitions export failed")
+            return Response({"errors": [{"title": "Definitions export failed",
+                                         "detail": "The graph or a definitions table could not be read."}]},
                             status=status.HTTP_502_BAD_GATEWAY)

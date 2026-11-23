@@ -9,7 +9,7 @@ The five JSON files Nessie reads are exports, not source. Once per UTC day
 nothing that survives a day. `context/` is the hand-owned source; this program is
 how it reaches a database.
 
-    python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
+    python scripts/context_gen.py --emit update --table projects --out /tmp/context.sql   (sample_types, assays: --snapshot-copy)
     python scripts/context_gen.py --emit seed --table all
     python scripts/context_gen.py --emit exports --table all
     python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
@@ -2338,12 +2338,14 @@ def emit_snapshot(export_path, out=None) -> int:
     the site and their derived columns are kept by graph_sync's context step, so git holds a snapshot of
     production's rows, taken from ``GET /nextseek_api/definitions/export/``. Each row gets every column of its
     table, in the order the file already uses (else ``TABLES``' order), absent ones null, so a snapshot diff shows
-    only changed values; JSON columns parsed back to objects, rows sorted by their key
+    only changed values (the first snapshot also re-sorts ``assays.json``, whose rows were never fully sorted); JSON
+    columns parsed back to objects, rows sorted by their key
     case-folded, written as the files always are. A column the table does not list is refused, so git never drops
     a database column silently. ``out`` is a directory standing in for the repository root (tests).
     """
     doc = json.loads(Path(export_path).read_text(encoding="utf-8"))
     root = Path(out) if out else REPO_ROOT
+    ready = []      # every table built and checked before either file is written, so a refusal writes nothing
     for table in SNAPSHOT_TABLES:
         spec = TABLES[table]
         path = root / spec.source
@@ -2364,6 +2366,8 @@ def emit_snapshot(export_path, out=None) -> int:
                     row[column] = json.loads(row[column])
             rows.append(row)
         rows.sort(key=lambda r: str(r[spec.key]).casefold())
+        ready.append((path, rows))
+    for path, rows in ready:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return 0
@@ -2380,6 +2384,10 @@ def main(argv=None) -> int:
                              "cc-agent read. capabilities: the investigation block in "
                              "capabilities.md. snapshot: context/sample_types.json and "
                              "context/assays.json rewritten from a definitions export (--from).")
+    parser.add_argument("--snapshot-copy", action="store_true",
+                        help="for --emit update of sample_types or assays: these files are a fresh snapshot of "
+                             "production, being copied onto another box (or landed on production once). Without it "
+                             "the update refuses them, because the database is their source of truth")
     parser.add_argument("--from", dest="source", default=None, metavar="EXPORT_JSON",
                         help="for --emit snapshot: the body of GET /nextseek_api/definitions/export/ "
                              "saved from production, the source of truth for both files")
@@ -2428,6 +2436,12 @@ def main(argv=None) -> int:
         for table in tables:
             _emit(render_seed(table, rows_for(table)), directory / SEED_FILES[table])
         return 0
+    truth_in_db = sorted(set(tables) & set(SNAPSHOT_TABLES))
+    if truth_in_db and not args.snapshot_copy:
+        parser.error(f"--emit update refuses {', '.join(truth_in_db)}: the database is their source of truth "
+                     "(context/README.md), so writing git's rows over it would undo edits made on the site. Pass "
+                     "--snapshot-copy only to copy a fresh production snapshot onto another box, or for the one-time "
+                     "landing on production.")
     # Both files describe the same new internal assays; refuse if they disagree.
     assays = rows_for("assays")
     check_mapping_consistency(assays, rows_for("mappings"))

@@ -20,7 +20,7 @@ SEEK_ATTRS = (_attrs(7, "UID", "Name", "Scientist", "Species", "Strain", "Lab", 
 
 
 def _row(code, **cols):
-    base = {"sample_type": code, "sampletype_id": None, "clade": None, "required_metadata": None,
+    base = {"id": hash(code) % 10_000, "sample_type": code, "sampletype_id": None, "clade": None, "required_metadata": None,
             "standard_metadata": None, "possible_metadata_fields": None, "parent_sampletypes": None,
             "child_sampletypes": None, "associated_assay_parents": None, "associated_assay_children": None}
     base.update(cols)
@@ -165,6 +165,7 @@ def _conn(p, a, c, d, o):
 
 def test_write_changes_only_the_named_cells_and_replaces_the_connections(tables):
     result = Derived(sample_types={"BAC": {"sampletype_id": 7, "child_sampletypes": "DNA"}},
+                     row_ids={"BAC": Sample_types_context.objects.get(sample_type="BAC").id},
                      assays={1: {"internal_assay_id": 6}},
                      connections=[_conn("BAC", "DNA Extraction", "DNA", True, True)])
     context_derived.write(result)
@@ -184,7 +185,8 @@ def test_write_changes_only_the_named_cells_and_replaces_the_connections(tables)
 def test_sync_context_queues_the_graph_syncs_its_changes_need_and_a_dry_run_writes_nothing(tables, monkeypatch):
     queued = []
     monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append(kind) or True)
-    inputs = dict(context_rows=[_row("BAC", sampletype_id=131, child_sampletypes="RNA, DNA")],
+    bac = Sample_types_context.objects.get(sample_type="BAC").id
+    inputs = dict(context_rows=[_row("BAC", id=bac, sampletype_id=131, child_sampletypes="RNA, DNA")],
                   assay_rows=[_assay(1, "Library Prep")], seek_types=SEEK_TYPES, seek_attributes=[],
                   type_clades={}, internal_assays=INTERNAL, observed=[("BAC", "Library Prep", "DNA")])
 
@@ -201,7 +203,8 @@ def test_sync_context_queues_the_graph_syncs_its_changes_need_and_a_dry_run_writ
 def test_with_the_switch_off_only_the_connections_table_is_written(tables, monkeypatch):
     queued = []
     monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append(kind) or True)
-    inputs = dict(context_rows=[_row("BAC", sampletype_id=131, child_sampletypes="RNA, DNA")],
+    bac = Sample_types_context.objects.get(sample_type="BAC").id
+    inputs = dict(context_rows=[_row("BAC", id=bac, sampletype_id=131, child_sampletypes="RNA, DNA")],
                   assay_rows=[_assay(1, "Library Prep")], seek_types=SEEK_TYPES, seek_attributes=[],
                   type_clades={}, internal_assays=INTERNAL, observed=[("BAC", "Library Prep", "DNA")])
     for env in ({}, {"NEXTSEEK_GRAPH_SYNC_CONTEXT": "dry"}):
@@ -212,3 +215,38 @@ def test_with_the_switch_off_only_the_connections_table_is_written(tables, monke
     assert (row.sampletype_id, row.child_sampletypes) == (131, "RNA, DNA") and queued == []
     assert list(SampleTypeConnectionRow.objects.values_list("parent_type", "assay", "child_type")) == [
         ("BAC", "Library Prep", "DNA")]
+
+
+
+def test_a_seek_title_with_a_trailing_space_keeps_its_hand_tier_and_converges():
+    attrs = _attrs(7, "UID", "Manufacturer ", required=("UID",))     # dev's SUB holds "Manufacturer "
+    rows = [_row("BAC", sampletype_id=7, required_metadata="UID", standard_metadata="Manufacturer")]
+    first = run(rows, attrs=attrs)
+    assert "standard_metadata" not in first.sample_types.get("BAC", {})
+    applied = [{**r, **first.sample_types.get(r["sample_type"], {})} for r in rows]
+    assert run(applied, attrs=attrs).sample_types.get("BAC", {}) == {}
+
+
+def test_an_assay_with_children_only_still_lists_on_its_children():
+    assays = ASSAYS + [_assay(9, "Model Validation", None, "DNA")]          # no parents, as on dev
+    cells = run([_row("DNA", sampletype_id=9)], assays=assays).sample_types["DNA"]
+    assert "Model Validation" in cells["associated_assay_parents"]
+
+
+def test_an_assay_whose_other_end_this_box_lacks_still_lists_on_the_known_end():
+    assays = [_assay(4, "Voltammetry", "BAC", "D.VLT")]                    # D.VLT is no SEEK type here
+    cells = run([_row("BAC", sampletype_id=7)], assays=assays).sample_types["BAC"]
+    assert cells["associated_assay_children"] == "Voltammetry" and "child_sampletypes" not in cells
+
+
+def test_blank_keys_are_skipped_not_fatal():
+    rows = [_row("BAC", sampletype_id=7), {**_row(None), "sample_type": None}]
+    assays = ASSAYS + [_assay(8, None, "TIS", "BAC")]
+    out = run(rows, assays=assays, observed=[("TIS", None, "BAC")])
+    assert all(c["assay"] for c in out.connections) and None not in out.report["no_seek_type"]
+
+
+def test_a_stack_without_the_tables_is_skipped_quietly(monkeypatch):
+    monkeypatch.setattr(context_derived, "missing_tables", lambda: ["assay_context"])
+    report = context_derived.sync_context(None, None, env={"NEXTSEEK_GRAPH_SYNC_CONTEXT": "write"})
+    assert report["status"] == "ok" and report["skipped"] and report["missing_tables"] == ["assay_context"]

@@ -101,6 +101,7 @@ class Derived:
     sample_types: dict[str, dict] = field(default_factory=dict)   # code -> {column: new value}, changed cells only
     assays: dict[int, dict] = field(default_factory=dict)         # assay_context row id -> {"internal_assay_id": v}
     connections: list[dict] = field(default_factory=list)         # parent, assay, child, designed, observed
+    row_ids: dict[str, int] = field(default_factory=dict)         # code -> sample_types_context row id, for writes
     report: dict = field(default_factory=dict)
 
 
@@ -125,29 +126,46 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
         return False
 
     flags: dict[tuple[str, str, str], list[bool]] = {}
+    lists = {col: defaultdict(set) for col in CONNECTION_COLUMNS}
+
+    def ends(assay, parents, children):
+        # Each known side of an assay gets it, whether or not the other side is known on this box: an assay whose
+        # definition names children only (Model Validation makes MDL) is still an assay that makes them.
+        for p in parents:
+            lists["associated_assay_children"][p].add(assay)
+        for c in children:
+            lists["associated_assay_parents"][c].add(assay)
+
     for a in assay_rows:
+        name = a.get("assay_name")
+        if not name:
+            continue
         parents = _codes(a.get("Required_Parent_Sample_Types")) + _codes(a.get("Optional_Parent_Sample_Types"))
         children = _codes(a.get("Children_Sample_Types"))
         parents = [p for p in dict.fromkeys(parents) if known(p)]
         children = [c for c in children if known(c)]
+        ends(name, parents, children)
         for p in parents:
             for c in children:
-                flags.setdefault((p, a["assay_name"], c), [False, False])[0] = True
+                flags.setdefault((p, name, c), [False, False])[0] = True
     for p, assay, c in observed:
-        if assay and known(p) and known(c):
+        if not assay:
+            continue
+        p_known, c_known = known(p), known(c)
+        ends(assay, [p] if p_known else [], [c] if c_known else [])
+        if p_known and c_known:
             flags.setdefault((p, assay, c), [False, False])[1] = True
     out.connections = [{"parent": p, "assay": a, "child": c, "designed": d, "observed": o}
                        for (p, a, c), (d, o) in sorted(flags.items())]
-    lists = {col: defaultdict(set) for col in CONNECTION_COLUMNS}
     for p, assay, c in flags:
         lists["parent_sampletypes"][c].add(p)
         lists["child_sampletypes"][p].add(c)
-        lists["associated_assay_parents"][c].add(assay)
-        lists["associated_assay_children"][p].add(assay)
 
     no_seek_type = []
     for row in context_rows:
-        code = row["sample_type"]
+        code = row.get("sample_type")
+        if not code:
+            continue
         sid = seek_id.get(code)
         if sid is None:
             no_seek_type.append(code)
@@ -159,10 +177,12 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
         if clade and row.get("clade") != clade:
             cells["clade"] = clade
 
-        titles = [a["title"] for a in attrs.get(sid, [])]
+        # Stripped, as parse_list strips the hand lists: SEEK keeps "Manufacturer " on SUB, which would otherwise
+        # never match its hand entry and change on every run.
+        titles = list(dict.fromkeys(a["title"].strip() for a in attrs.get(sid, []) if a["title"].strip()))
         if titles:
             present = set(titles)
-            required_seek = [a["title"] for a in attrs[sid] if a["required"]]
+            required_seek = [a["title"].strip() for a in attrs[sid] if a["required"]]
             old = {col: parse_list(row.get(col)) for col in METADATA_COLUMNS}
             req = _merge(old["required_metadata"], (present & set(old["required_metadata"])) | set(required_seek),
                          titles)
@@ -179,6 +199,7 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
                 cells[col] = _cell(new)
         if cells:
             out.sample_types[code] = cells
+            out.row_ids[code] = row["id"]
             changed.update(cells.keys())
 
     title_by_id = {r["id"]: r["internal_assay_title"] for r in internal_assays}
@@ -218,9 +239,9 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
 def needs_definition(seek_titles, context_rows, internal_assays, assay_rows) -> dict:
     """The SEEK sample types with no context row, and the internal assays no assay_context row names (by id or by
     title): what the admin page lists as needing a definition."""
-    codes = {r["sample_type"] for r in context_rows}
+    codes = {r.get("sample_type") for r in context_rows}
     ids = {a.get("internal_assay_id") for a in assay_rows}
-    names = {a["assay_name"] for a in assay_rows}
+    names = {a.get("assay_name") for a in assay_rows}
     return {"sample_types": sorted(set(seek_titles) - codes),
             "assays": sorted(r["internal_assay_title"] for r in internal_assays
                              if r["id"] not in ids and r["internal_assay_title"] not in names)}
@@ -240,7 +261,7 @@ def read_inputs(driver, db) -> dict:
     from nextseek_api.graph_sync import sources, writer
 
     dmac = sources._dmac()
-    cols = ", ".join(("sample_type", "sampletype_id", "clade") + METADATA_COLUMNS + CONNECTION_COLUMNS)
+    cols = ", ".join(("id", "sample_type", "sampletype_id", "clade") + METADATA_COLUMNS + CONNECTION_COLUMNS)
     observed = writer._run(driver, db, OBSERVED_CYPHER, read=True)
     return {
         "context_rows": _dict_rows(dmac, f"SELECT {cols} FROM sample_types_context ORDER BY id"),
@@ -255,6 +276,18 @@ def read_inputs(driver, db) -> dict:
     }
 
 
+TABLES = ("sample_types_context", "assay_context", "internal_assays", "sample_type_connections")
+
+
+def missing_tables() -> list[str]:
+    """The dmac tables the step reads or writes that this stack lacks."""
+    from django.conf import settings
+
+    from nextseek_api.graph_sync import sources
+
+    return [t for t in TABLES if not sources.table_exists(settings.NEXTSEEK_DATABASE, t)]
+
+
 def write(result: Derived, *, columns: bool = True) -> None:
     """The whole connections table, and with ``columns`` the changed cells, in one dmac transaction."""
     from django.conf import settings
@@ -267,9 +300,10 @@ def write(result: Derived, *, columns: bool = True) -> None:
         from django.db import connections
         with connections[alias].cursor() as cur:
             for code, cells in (result.sample_types.items() if columns else ()):
+                # By row id: MySQL compares sample_type case- and trailing-space-insensitively.
                 sets = ", ".join(f"`{col}` = %s" for col in cells)
-                cur.execute(f"UPDATE sample_types_context SET {sets} WHERE sample_type = %s",
-                            [*cells.values(), code])
+                cur.execute(f"UPDATE sample_types_context SET {sets} WHERE id = %s",
+                            [*cells.values(), result.row_ids[code]])
             for row_id, cells in (result.assays.items() if columns else ()):
                 cur.execute("UPDATE assay_context SET internal_assay_id = %s WHERE id = %s",
                             [cells["internal_assay_id"], row_id])
@@ -284,6 +318,13 @@ def sync_context(driver, db, *, dry_run: bool = False, run_dir=None, inputs: dic
     then queue the graph syncs those need. Returns the report, which lists every cell that differs either way."""
     from nextseek_api.graph_sync import hooks
 
+    if inputs is None:
+        missing = missing_tables()
+        if missing:
+            # Soft, like sources.py on the dmac context tables: a stack without them has nothing to keep current.
+            log.warning("graph_sync context: skipped, missing tables %s", missing)
+            return {"kind": "context", "status": "dry_run" if dry_run else "ok", "skipped": True,
+                    "missing_tables": missing, "columns_written": False}
     result = derive(**(inputs if inputs is not None else read_inputs(driver, db)))
     columns = not dry_run and writes_columns(env)
     report = {"kind": "context", **result.report, "status": "dry_run" if dry_run else "ok",

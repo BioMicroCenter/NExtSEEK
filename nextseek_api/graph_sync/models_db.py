@@ -67,9 +67,9 @@ class SampleTypeConnectionRow(models.Model):
     DERIVED_FROM edge, or both. No counts (ruling 2026-10-30). Rewritten whole by ``context_derived.sync_context``;
     read by the definitions export and the admin page, so neither scans the graph."""
 
-    parent_type = models.CharField(max_length=32)
+    parent_type = models.CharField(max_length=255)     # a SEEK sample type title, up to sample_types.title's 255
     assay = models.CharField(max_length=255)
-    child_type = models.CharField(max_length=32)
+    child_type = models.CharField(max_length=255)
     designed = models.BooleanField(default=False)
     observed = models.BooleanField(default=False)
 
