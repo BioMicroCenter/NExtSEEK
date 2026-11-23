@@ -45,7 +45,7 @@
     ?embed=1: the page is framed by the Definitions admin page (seek/templates/definitions.html), which carries the
     sidebar, so the framed copy shows only its content.
     {% endcomment %}
-    {% if request.GET.embed == "1" %}<style>#sidebar, .sidebar-scrim, .mobile-topbar, #footer { display: none !important; } #main-wrapper { margin-left: 0 !important; }</style>{% endif %}
+    {% if "?embed=1" in request.get_full_path %}<style>#sidebar, .sidebar-scrim, .mobile-topbar, #footer { display: none !important; } #main-wrapper { margin-left: 0 !important; }</style>{% endif %}
 </head>
 
 <body class="nextseek-app {% block body_class %}{% endblock %}">
