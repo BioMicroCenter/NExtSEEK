@@ -60,6 +60,7 @@ from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .services.definitions_export import DefinitionsExportViewSet
+from .services.definitions_admin import DefinitionAssaysViewSet, DefinitionSampleTypesViewSet
 from .services.project_export import ProjectExportViewSet
 from .services.graph_sync_status import GraphSyncStatusViewSet
 from .services.nessie import NessieChatViewSet, NessieViewSet

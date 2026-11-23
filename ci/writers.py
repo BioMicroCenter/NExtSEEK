@@ -528,6 +528,21 @@ WRITERS: tuple[Writer, ...] = (
            note="graph_sync's context step: only the derived columns (ids, clade, metadata membership, the four "
                 "connection lists, internal_assay_id), never a hand column or a row; queues catalog when a column "
                 "the SampleType node reads changed and assay_map when an internal_assay_id did"),
+    Writer(id="WR-37",
+           sites=("nextseek_api/services/definitions_admin.py::_write_sample_type",
+                  "nextseek_api/services/definitions_admin.py::create_sample_type",
+                  "nextseek_api/services/definitions_admin.py::_write_assay",
+                  "nextseek_api/services/definitions_admin.py::create_assay"),
+           tables=("sample_types_context", "assay_context"),
+           how=("sql",),
+           hook="hooks.enqueue",
+           hook_site=("nextseek_api/services/definitions_admin.py::DefinitionSampleTypesViewSet.partial_update",
+                      "nextseek_api/services/definitions_admin.py::DefinitionSampleTypesViewSet.create",
+                      "nextseek_api/services/definitions_admin.py::DefinitionAssaysViewSet.partial_update",
+                      "nextseek_api/services/definitions_admin.py::DefinitionAssaysViewSet.create"),
+           note="the Definitions admin page: one row's hand columns (name, description, Tags, tiers; an assay's "
+                "text and designed connections) or a bare new row; queues context, plus catalog when a column the "
+                "SampleType node reads changed and assay_map after an assay write"),
 )
 
 
