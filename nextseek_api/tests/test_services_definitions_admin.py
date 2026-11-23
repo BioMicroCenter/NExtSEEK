@@ -167,3 +167,16 @@ def test_attention_lists_what_a_person_must_fix():
     assert "Library Prep" in out["needs_definition"]["assays"]
     assert {"sample_type": "BAC", "column": "child_sampletypes", "entry": "RNA"} in out["would_drop"]
     assert out["spelling"] == [{"assay_map": "FC Receptor  Binding Assay", "definition": "Fc Receptor Binding Assay"}]
+
+
+def test_the_four_operations_and_their_models_are_in_the_openapi_document():
+    from drf_spectacular.generators import SchemaGenerator
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    paths = schema["paths"]
+    st = next(p for p in paths if p.endswith("/definitions/sample_types/{id}/"))
+    assay = next(p for p in paths if p.endswith("/definitions/assays/{id}/"))
+    assert "patch" in paths[st] and "patch" in paths[assay]
+    assert "post" in paths[st.rsplit("{id}/", 1)[0]] and "post" in paths[assay.rsplit("{id}/", 1)[0]]
+    for model in ("PatchedDefinitionSampleTypeUpdateRequest", "PatchedDefinitionAssayUpdateRequest",
+                  "DefinitionSampleTypeCreateRequest", "DefinitionAssayCreateRequest", "DefinitionRowResponse"):
+        assert model in schema["components"]["schemas"]

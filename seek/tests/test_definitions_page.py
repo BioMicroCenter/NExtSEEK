@@ -71,12 +71,12 @@ def test_a_superuser_sees_the_page_with_the_selected_type(catalog):
         assert f'id="{tab}"' in html
     assert 'value="Bacteria Sample"' in html and "bacteria, pathogen, MTB" in html
     assert 'data-field="Species"' in html and "SEEK required" in html      # UID is SEEK-required: no select
-    assert "Library Prep</h3>" in html and "<li>BAC → D.BSRA</li>" in html   # seen, not designed
+    assert "Library Prep <span" in html and "<li>BAC → D.BSRA</li>" in html   # seen, not designed, no definition
     assert "child_sampletypes: RNA" in html                                  # hand-typed, nothing backs it
     assert "RNA · no assay or data backs it" in html
     assert 'data-create="sample-type" data-key="A.ATAC"' in html
     assert 'data-create="assay" data-key="Library Prep"' in html
-    assert "FC Receptor Binding Assay" in html and "Fc Receptor Binding Assay" in html
+    assert 'Assay map "FC Receptor Binding Assay" vs definition <a href="?assay=5#assays">' in html
 
 
 def test_an_assay_is_selected_by_row_id(catalog):

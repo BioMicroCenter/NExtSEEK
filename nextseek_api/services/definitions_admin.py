@@ -117,7 +117,8 @@ def update_sample_type(code: str, body: DefinitionSampleTypeUpdateRequest) -> tu
     row = sample_type_row(code)
     if row is None:
         raise LookupError(code)
-    cells = {SAMPLE_TYPE_TEXT[f]: getattr(body, f) for f in SAMPLE_TYPE_TEXT if getattr(body, f) is not None}
+    cells = {SAMPLE_TYPE_TEXT[f]: (getattr(body, f).strip() or None) for f in SAMPLE_TYPE_TEXT
+             if getattr(body, f) is not None}
     if body.tiers is not None:
         tiers = body.tiers.model_dump()
         ids = [t["id"] for t in sources.sample_types() if t["title"] == code]

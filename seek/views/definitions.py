@@ -59,7 +59,7 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
     assay_rows = _rows(ASSAY_SQL)
     internal = _rows("SELECT id, internal_assay_title FROM internal_assays ORDER BY id")
     conns = [{"parent": r.parent_type, "assay": r.assay, "child": r.child_type, "designed": r.designed,
-              "observed": r.observed} for r in SampleTypeConnectionRow.objects.all()]
+              "observed": r.observed} for r in SampleTypeConnectionRow.objects.using(settings.NEXTSEEK_DATABASE).all()]
     seek_types = sources.sample_types()
     seek_attrs = sources.sample_attributes()
     try:
@@ -69,6 +69,14 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
     except Exception:  # noqa: BLE001 - the list is advice; the editors still work without it
         logger.exception("definitions page: the Needs attention list could not be built")
         needs = None
+
+    if needs:   # each item links to the definition row that fixes it, where one exists
+        row_id = {}
+        for a in assay_rows:
+            row_id.setdefault(a["assay_name"], a["id"])
+        needs["undesigned"] = [{"assay": a, "id": row_id.get(a), "pairs": pairs}
+                               for a, pairs in needs["undesigned"].items()]
+        needs["spelling"] = [{**s, "id": row_id.get(s["definition"])} for s in needs["spelling"]]
 
     rank = {c: i for i, c in enumerate(CLADE_ORDER)}
     groups = defaultdict(list)
@@ -80,7 +88,7 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
            "counts": {"sample_types": len(context_rows), "assays": len(assay_rows),
                       "needs_types": len(needs["needs_definition"]["sample_types"]) if needs else 0,
                       "needs_assays": len(needs["needs_definition"]["assays"]) if needs else 0,
-                      "attention": sum(len(v) for v in needs["undesigned"].values()) + len(needs["would_drop"])
+                      "attention": sum(len(u["pairs"]) for u in needs["undesigned"]) + len(needs["would_drop"])
                       + len(needs["spelling"]) if needs else 0},
            "tab": "assays" if selected_assay else "sample-types"}
 

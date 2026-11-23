@@ -191,9 +191,9 @@
     <div class="defs-attn">
       <h2>Seen in data, allowed by no assay definition</h2>
       <p class="mb-1">Update the assay's definition, or fix the data.</p>
-      {% for assay_name, pairs in needs.undesigned.items %}
-        <h3>{{ assay_name }}</h3>
-        <ul>{% for p, c in pairs %}<li>{{ p }} → {{ c }}</li>{% endfor %}</ul>
+      {% for u in needs.undesigned %}
+        <h3>{% if u.id %}<a href="?assay={{ u.id }}#assays">{{ u.assay }}</a>{% else %}{{ u.assay }} <span class="defs-note">(no definition yet)</span>{% endif %}</h3>
+        <ul>{% for p, c in u.pairs %}<li>{{ p }} → {{ c }}</li>{% endfor %}</ul>
       {% empty %}<p class="text-muted mb-0">None.</p>{% endfor %}
     </div>
     <div class="defs-attn">
@@ -216,7 +216,7 @@
     </div>
     <div class="defs-attn">
       <h2>Names that differ only in case or spacing</h2>
-      <ul>{% for s in needs.spelling %}<li>Assay map "{{ s.assay_map }}" vs definition "{{ s.definition }}"</li>
+      <ul>{% for s in needs.spelling %}<li>Assay map "{{ s.assay_map }}" vs definition {% if s.id %}<a href="?assay={{ s.id }}#assays">"{{ s.definition }}"</a>{% else %}"{{ s.definition }}"{% endif %} <a href="#assay-map" data-tab="assay-map">(assay map)</a></li>
       {% empty %}<li class="text-muted">None.</li>{% endfor %}</ul>
     </div>
     {% endif %}
@@ -265,15 +265,25 @@
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var key = form.dataset.key, body = {}, url;
+      var status = form.querySelector('.defs-status');
       if (form.dataset.save === 'tiers') {
+        var moved = false;
         body.tiers = {required: [], standard: [], possible: []};
-        form.querySelectorAll('[name=tier]').forEach(function (el) { body.tiers[el.value].push(el.dataset.field); });
+        form.querySelectorAll('[name=tier]').forEach(function (el) {
+          body.tiers[el.value].push(el.dataset.field);
+          if (el.tagName === 'SELECT' && !el.options[el.selectedIndex].defaultSelected) { moved = true; }
+        });
+        if (!moved) { status.textContent = 'Nothing to save.'; return; }
       } else {
-        form.querySelectorAll('input[name], textarea[name]').forEach(function (el) { body[el.name] = el.value; });
+        // Only what changed: an untouched column is never rewritten (and never re-validated).
+        form.querySelectorAll('input[name], textarea[name]').forEach(function (el) {
+          if (el.value !== el.defaultValue) { body[el.name] = el.value; }
+        });
+        if (!Object.keys(body).length) { status.textContent = 'Nothing to save.'; return; }
       }
       url = form.dataset.save === 'assay' ? '/nextseek_api/definitions/assays/' + key + '/'
                                           : '/nextseek_api/definitions/sample_types/' + encodeURIComponent(key) + '/';
-      send('PATCH', url, body, form.querySelector('.defs-status'));
+      send('PATCH', url, body, status);
     });
   });
 
