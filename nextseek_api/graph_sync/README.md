@@ -56,7 +56,7 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, the assay layer, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
 | `--small-tables` | SEEK's small tables once (projects, investigations, people, memberships, every SEEK study's node), as an `isa` row and the nightly reconcile write them; `./startup.sh` runs it on local and dev right before the post-rebuild drift | yes |
-| `--context` | the context step once, as a `context` row runs it (`context_derived.py`): the derived columns of `sample_types_context` and `assay_context` and the `sample_type_connections` table; reads the graph, writes only MySQL; `--dry-run` reports every changed cell and writes nothing | no |
+| `--context` | the context step once, as a `context` row runs it (`context_derived.py`): the `sample_type_connections` table, and the derived columns of `sample_types_context` and `assay_context` when `NEXTSEEK_GRAPH_SYNC_CONTEXT=write` is set in the box's `docker/nextseek.env` (off by default, so a deploy changes no definition); reads the graph, writes only MySQL; `--dry-run` reports every changed cell and writes nothing | no |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
 | `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |

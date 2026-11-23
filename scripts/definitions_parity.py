@@ -6,7 +6,9 @@
 
 Compared: every column of every ``sample_types`` row (by ``sample_type``) and ``assays`` row (by position and
 ``assay_name``), the observed ``connections`` as a set, every ``attributes`` field (by ``key``) and ``graph_meta``.
-Not compared: ``exported_at``, ``host`` (the old container's name) and the keys only the new export has.
+Not compared: ``exported_at``, ``host`` (the old container's name) and the keys only the new export has. The old
+``sample_count`` of each attribute is compared as the new ``has_values`` (count above zero), since the export
+carries no counts.
 
 ``--expected`` takes the report of ``manage.py graph_sync --context --dry-run --json`` run just before the step
 wrote: a cell it lists as a change (``changes.sample_types``, ``assay_changes``) is an expected difference when the
@@ -31,6 +33,14 @@ def _cells(kind, key, old_row, new_row, expected, out):
         item = {"kind": kind, "key": key, "column": col, "old": a, "new": b}
         allowed = expected.get((kind, key), {})
         (out["expected"] if col in allowed and allowed[col] == b else out["unexpected"]).append(item)
+
+
+def _has_values(attr: dict, new: dict) -> dict:
+    """The old bundle's ``sample_count`` as the new export's ``has_values``, when the new export carries no counts."""
+    if "sample_count" in attr and any("has_values" in a for a in new.get("attributes", [])):
+        attr = dict(attr)
+        attr["has_values"] = bool(attr.pop("sample_count") or 0)
+    return attr
 
 
 def compare(old: dict, new: dict, expected_report: dict | None = None) -> dict:
@@ -64,7 +74,7 @@ def compare(old: dict, new: dict, expected_report: dict | None = None) -> dict:
     for t in sorted(new_c - old_c, key=str):
         out["unexpected"].append({"kind": "connections", "key": t, "only_in": "new"})
 
-    old_at = {a["key"]: a for a in old.get("attributes", [])}
+    old_at = {a["key"]: _has_values(a, new) for a in old.get("attributes", [])}
     new_at = {a["key"]: a for a in new.get("attributes", [])}
     for key in sorted(set(old_at) | set(new_at)):
         if key not in old_at or key not in new_at:

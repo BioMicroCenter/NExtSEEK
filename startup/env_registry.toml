@@ -275,6 +275,10 @@ doc = "Neo4j password: chat_nextseek's copy in nextseek.env, and compose's seed 
 files = ["nextseek.env"]
 doc = "graph_sync: follow also removes IN_STUDY links SEEK no longer holds. Set only after the box's study merge."
 
+[NEXTSEEK_GRAPH_SYNC_CONTEXT]
+files = ["nextseek.env"]
+doc = "graph_sync: write lets the context step write the derived columns of the two context tables; unset it only rewrites sample_type_connections. Set only after the operator reviewed the box's `graph_sync --context --dry-run`."
+
 [NEO4J_TIMEOUT_SECONDS]
 files = ["nextseek.env"]
 default = "5"

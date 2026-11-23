@@ -192,7 +192,23 @@ def test_sync_context_queues_the_graph_syncs_its_changes_need_and_a_dry_run_writ
     assert dry["status"] == "dry_run" and dry["changes"]["sample_types"]["BAC"]["child_sampletypes"] == "DNA"
     assert Sample_types_context.objects.get(sample_type="BAC").child_sampletypes == "RNA, DNA" and queued == []
 
-    report = context_derived.sync_context(None, None, inputs=inputs)
-    assert report["status"] == "ok"
+    report = context_derived.sync_context(None, None, inputs=inputs, env={"NEXTSEEK_GRAPH_SYNC_CONTEXT": "write"})
+    assert report["status"] == "ok" and report["columns_written"] is True
     assert Sample_types_context.objects.get(sample_type="BAC").child_sampletypes == "DNA"
     assert queued == ["catalog", "assay_map"]          # child list feeds SampleType; internal_assay_id the Assay
+
+
+def test_with_the_switch_off_only_the_connections_table_is_written(tables, monkeypatch):
+    queued = []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append(kind) or True)
+    inputs = dict(context_rows=[_row("BAC", sampletype_id=131, child_sampletypes="RNA, DNA")],
+                  assay_rows=[_assay(1, "Library Prep")], seek_types=SEEK_TYPES, seek_attributes=[],
+                  type_clades={}, internal_assays=INTERNAL, observed=[("BAC", "Library Prep", "DNA")])
+    for env in ({}, {"NEXTSEEK_GRAPH_SYNC_CONTEXT": "dry"}):
+        report = context_derived.sync_context(None, None, inputs=inputs, env=env)
+        assert report["status"] == "ok" and report["columns_written"] is False
+        assert report["changes"]["sample_types"]["BAC"]["child_sampletypes"] == "DNA"     # what it would write
+    row = Sample_types_context.objects.get(sample_type="BAC")
+    assert (row.sampletype_id, row.child_sampletypes) == (131, "RNA, DNA") and queued == []
+    assert list(SampleTypeConnectionRow.objects.values_list("parent_type", "assay", "child_type")) == [
+        ("BAC", "Library Prep", "DNA")]

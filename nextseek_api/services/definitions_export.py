@@ -8,7 +8,9 @@ shapes, so ``scripts/definitions_parity.py`` can compare the two field for field
   kept current by graph_sync's context step (``graph_sync/context_derived.py``).
 - ``connections``: the observed triples, read from ``sample_type_connections`` (the step's table), not by scanning
   the graph's 1.8 M DERIVED_FROM edges on each call. ``licensed_connections`` adds the designed ones and both flags.
-- ``attributes`` and ``graph_meta``: the graph's Attribute catalog and GraphMeta stamp, the same statements as before.
+- ``attributes`` and ``graph_meta``: the graph's Attribute catalog and GraphMeta stamp, the same statements as before,
+  except that each attribute says ``has_values`` (some sample holds a value) where the old bundle gave its
+  ``sample_count``: this endpoint carries no counts.
 - ``needs_definition``: SEEK sample types and internal assays with no definition row.
 """
 from __future__ import annotations
@@ -35,13 +37,14 @@ from nextseek_api.models import DefinitionsExportResponse, JsonApiErrorResponse
 GRAPH_TIMEOUT_S = 120
 GRAPH_META = ("MATCH (m:GraphMeta) RETURN m.schema_version AS schema_version, m.catalog_hash AS catalog_hash, "
               "toString(m.synced_at) AS synced_at LIMIT 1")
-# Every attribute of every type, filled or not (graph_catalog.TYPES_ADMIN keeps only the filled ones).
+# Every attribute of every type, filled or not (graph_catalog.TYPES_ADMIN keeps only the filled ones). has_values in
+# place of the graph's per-attribute sample_count: the export is for any logged-in user and carries no counts.
 ATTRIBUTES = """
 MATCH (t:SampleType)-[:HAS_ATTRIBUTE]->(a:Attribute)
 RETURN t.title AS sample_type, a.key AS key, a.title AS title, a.pos AS pos, a.required AS required,
        a.is_title AS is_title, a.value_type AS value_type, a.base_type AS base_type, a.unit_key AS unit_key,
        a.role AS role, a.declared AS declared, a.seek_description AS seek_description, a.meaning AS meaning,
-       a.sample_count AS sample_count
+       coalesce(a.sample_count, 0) > 0 AS has_values
 ORDER BY sample_type, coalesce(a.pos, 100000), title
 """.strip()
 
@@ -137,7 +140,7 @@ class DefinitionsExportViewSet(viewsets.GenericViewSet):
                                               "designed": True, "observed": True,
                                               "parent_clade": "Source", "child_clade": "Processed"}],
                     "attributes": [{"sample_type": "BAC", "key": "7:Species", "title": "Species", "pos": 3,
-                                    "required": True, "role": "data"}],
+                                    "required": True, "role": "data", "has_values": True}],
                     "graph_meta": {"schema_version": "1.3", "synced_at": "2026-11-23T15:46:31.795Z"},
                     "needs_definition": {"sample_types": ["A.ATAC"], "assays": ["Library Prep"]},
                 },

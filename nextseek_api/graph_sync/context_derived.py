@@ -23,6 +23,11 @@ Rules this module keeps:
 - **Clade follows the Clades page** (``sample_types_clades``) where the type has an entry, else stays as typed.
 - **A valid internal_assay_id is kept**, even when its title differs from ``assay_name`` (reported as
   ``assay_title_mismatch``); a missing or dangling one is filled from the exact title, or cleared.
+- **The live columns are written only when the switch says so.** ``NEXTSEEK_GRAPH_SYNC_CONTEXT=write`` in the box's
+  ``docker/nextseek.env`` (read when the container starts). Unset, or any other value, the step still derives
+  everything and rewrites ``sample_type_connections`` (only the definitions export reads it), but leaves both context
+  tables as they are and queues nothing; its report lists every cell it would change. So deploying the code changes
+  no definition until the operator turns it on, after reviewing that list.
 - **Small diffs.** A rewritten list keeps the order of the entries that stay and appends new ones (sorted, or in
   SEEK's attribute order for the metadata lists). An empty list is NULL. A cell is written only when its parsed list
   changes, so spacing never counts as a change.
@@ -30,6 +35,7 @@ Rules this module keeps:
 from __future__ import annotations
 
 import logging
+import os
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -44,6 +50,16 @@ CONNECTION_COLUMNS = ("parent_sampletypes", "child_sampletypes", "associated_ass
 CODE_COLUMNS = ("parent_sampletypes", "child_sampletypes")
 # The live columns graph_sync's catalog reads into SampleType nodes: a change here queues a catalog sync.
 GRAPH_READ_COLUMNS = ("clade", "parent_sampletypes", "child_sampletypes")
+
+SWITCH_ENV = "NEXTSEEK_GRAPH_SYNC_CONTEXT"
+WRITE = "write"
+
+
+def writes_columns(env=None) -> bool:
+    """Whether the switch lets the step write the context tables' live columns (module docstring)."""
+    env = os.environ if env is None else env
+    return str(env.get(SWITCH_ENV) or "").strip().lower() == WRITE
+
 
 # Observed (assay, parent type, child type) triples: the statement scripts/graph_schema_fallback.py CONNECTIONS and the
 # ETL's remote_export.py run. One aggregate the server computes; 10 s over 1.8 M edges on dev (2026-11-23).
@@ -239,8 +255,8 @@ def read_inputs(driver, db) -> dict:
     }
 
 
-def write(result: Derived) -> None:
-    """The changed cells and the whole connections table, in one dmac transaction."""
+def write(result: Derived, *, columns: bool = True) -> None:
+    """The whole connections table, and with ``columns`` the changed cells, in one dmac transaction."""
     from django.conf import settings
     from django.db import transaction
 
@@ -250,11 +266,11 @@ def write(result: Derived) -> None:
     with transaction.atomic(using=alias):
         from django.db import connections
         with connections[alias].cursor() as cur:
-            for code, cells in result.sample_types.items():
+            for code, cells in (result.sample_types.items() if columns else ()):
                 sets = ", ".join(f"`{col}` = %s" for col in cells)
                 cur.execute(f"UPDATE sample_types_context SET {sets} WHERE sample_type = %s",
                             [*cells.values(), code])
-            for row_id, cells in result.assays.items():
+            for row_id, cells in (result.assays.items() if columns else ()):
                 cur.execute("UPDATE assay_context SET internal_assay_id = %s WHERE id = %s",
                             [cells["internal_assay_id"], row_id])
         Row.objects.using(alias).all().delete()
@@ -263,19 +279,21 @@ def write(result: Derived) -> None:
                                   designed=c["designed"], observed=c["observed"]) for c in result.connections])
 
 
-def sync_context(driver, db, *, dry_run: bool = False, run_dir=None, inputs: dict | None = None) -> dict:
-    """Read, derive, write (unless ``dry_run``), then queue the graph syncs the change needs. Returns the report."""
+def sync_context(driver, db, *, dry_run: bool = False, run_dir=None, inputs: dict | None = None, env=None) -> dict:
+    """Read and derive; unless ``dry_run``, write the connections table and, when the switch allows, the live columns,
+    then queue the graph syncs those need. Returns the report, which lists every cell that differs either way."""
     from nextseek_api.graph_sync import hooks
 
     result = derive(**(inputs if inputs is not None else read_inputs(driver, db)))
+    columns = not dry_run and writes_columns(env)
     report = {"kind": "context", **result.report, "status": "dry_run" if dry_run else "ok",
-              "changes": {"sample_types": result.sample_types}}
+              "columns_written": columns, "changes": {"sample_types": result.sample_types}}
     if dry_run:
         return report
-    write(result)
-    if any(col in cells for cells in result.sample_types.values() for col in GRAPH_READ_COLUMNS):
+    write(result, columns=columns)
+    if columns and any(col in cells for cells in result.sample_types.values() for col in GRAPH_READ_COLUMNS):
         hooks.enqueue("catalog", "*")
-    if result.assays:
+    if columns and result.assays:
         hooks.enqueue("assay_map", "*")
     log.info("graph_sync context: %s", report["changed_cells"])
     return report

@@ -636,11 +636,15 @@ def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_cha
     return _queue_context(result)
 
 
+CONTEXT_DELAY_S = 60    # one 10 s observed-connections scan per minute of uploads, not one per drained row
+
+
 def _queue_context(result: dict) -> dict:
     """``result`` unchanged; a write that ended ``ok`` may have added or removed a DERIVED_FROM edge, so a ``context``
-    row is queued and the observed connections in the context tables follow (``context_derived``)."""
+    row is queued, held ``CONTEXT_DELAY_S`` so a burst of uploads shares one run, and the observed connections in the
+    context tables follow (``context_derived``)."""
     if result.get("status") == OK:
-        hooks.enqueue("context", "*")
+        hooks.enqueue("context", "*", delay_s=CONTEXT_DELAY_S)
     return result
 
 

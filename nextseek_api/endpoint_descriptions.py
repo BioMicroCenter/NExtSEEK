@@ -1617,7 +1617,7 @@ DEFINITIONS_EXPORT_DESC = (
     "**RETURNS:** `sample_types` (dmac.sample_types_context rows, by code), `assays` (dmac.assay_context rows), "
     "`connections` (assay, parent type, child type triples seen in data), `licensed_connections` (each triple with "
     "`designed` true when an assay definition allows it and `observed` true when data shows it, plus both clades; no "
-    "counts), `attributes` (every Attribute of every SampleType in the graph), `graph_meta` (schema version, "
+    "counts), `attributes` (every Attribute of every SampleType in the graph, with `has_values` true when some sample holds a value; no counts), `graph_meta` (schema version, "
     "catalog hash, last sync) and `needs_definition` (SEEK sample types and internal assays with no definition row). "
     "The derived columns of each row (ids, clade, metadata lists, parent, child and assay lists) are kept current by "
     "graph_sync's context step: seconds after a write NExtSEEK makes, by the next nightly sync after an edit in "

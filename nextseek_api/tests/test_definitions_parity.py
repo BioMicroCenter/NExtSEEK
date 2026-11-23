@@ -96,6 +96,16 @@ def test_the_new_export_reproduces_the_old_bundle_field_for_field(monkeypatch):
         SampleTypeConnectionRow.objects.create(parent_type=c["parent_type"], assay=c["assay"],
                                                child_type=c["child_type"], observed=True)
     monkeypatch.setattr(sources, "sample_types", lambda: [])
-    new = build_export(graph_reader=lambda q: {"meta": [GOLDEN["graph_meta"]], "attributes": GOLDEN["attributes"]})
+    as_new = [{**{k: v for k, v in a.items() if k != "sample_count"}, "has_values": bool(a.get("sample_count"))}
+              for a in GOLDEN["attributes"]]          # what the new statement returns: no counts
+    new = build_export(graph_reader=lambda q: {"meta": [GOLDEN["graph_meta"]], "attributes": as_new})
 
     assert parity.compare(GOLDEN, new) == {"unexpected": [], "expected": [], "volatile": []}
+
+
+def test_a_count_becomes_has_values_and_only_a_wrong_one_differs():
+    new = copy.deepcopy(OLD)
+    new["attributes"] = [{k: v for k, v in OLD["attributes"][0].items() if k != "sample_count"} | {"has_values": True}]
+    assert parity.compare(OLD, new)["unexpected"] == []
+    new["attributes"][0]["has_values"] = False
+    assert [d["column"] for d in parity.compare(OLD, new)["unexpected"]] == ["has_values"]
