@@ -46,6 +46,7 @@ from .agents.followup import (
 )
 from .agents.followup_compute import compute_over_rows
 from .agents.graph import refusal_reply
+from .agents import graph_stepwise
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -1919,6 +1920,21 @@ def _execute_graph_turn(
     agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note, subject_agent_note, lab_agent_note)
                                 if part) or None
 
+    # The stepwise agent (look, then finish) when the switch is on; it hands back to the one-shot agent when it
+    # cannot finish, and the turn says why (graph_stepwise.py).
+    stepwise = None
+    if graph_plan is None and graph_stepwise.enabled(config):
+        print("\n[GRAPH] Running the stepwise graph agent...")
+        stepwise = graph_stepwise.stepwise_graph_agent(config, user_text, entity_result, plan,
+                                                       refine_context=agent_context)
+        debug_payload["graph_steps"] = stepwise.steps
+        if stepwise.plan is not None:
+            debug_payload["graph_engine"] = "stepwise"
+            graph_plan = stepwise.plan
+        else:
+            debug_payload["graph_engine"] = "single"
+            debug_payload["graph_stepwise_fallback"] = stepwise.fallback
+            stepwise = None
     if graph_plan is None:
         print("\n[GRAPH] Running graph agent...")
         graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
@@ -1978,8 +1994,15 @@ def _execute_graph_turn(
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     # The retry loop (a Cypher error, a zero-row result) is shared with the follow-up loop's queries.
-    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, parameters_extra,
-                                  graph_plan=graph_plan)
+    if stepwise is not None:
+        # Its final statement already ran, after its own looks: nothing runs again, and no retry follows.
+        run = GraphRun(graph_plan=graph_plan, graph_result=stepwise.result,
+                       attempts=[_graph_attempt(graph_plan.cypher, stepwise.result, "stepwise_final",
+                                                elapsed_ms=stepwise.elapsed_ms)],
+                       elapsed_ms=stepwise.elapsed_ms, parameters=stepwise.parameters, changed_answer=False)
+    else:
+        run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, parameters_extra,
+                                      graph_plan=graph_plan)
     graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
     elapsed_ms = run.elapsed_ms
 
