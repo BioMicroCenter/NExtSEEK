@@ -30,10 +30,18 @@ def _sections(nextflow_schema: dict) -> dict:
     return nextflow_schema.get("$defs") or nextflow_schema.get("definitions") or {}
 
 
-def _input_kind(columns: list[str]) -> str:
-    for column, kind in (("fastq_1", "fastq"), ("bam", "bam"), ("cram", "cram")):
-        if column in columns:
+def _input_kind(properties: dict) -> str:
+    """A key of seqera.input_kinds.INPUT_KINDS read off the input schema's columns, or
+    "other" for a person to decide (a single-file input has no input schema at all)."""
+    for column, kind in (("fastq_1", "fastq"), ("bam", "bam"), ("cram", "bam"), ("mapped", "bam")):
+        if column in properties:
             return kind
+    for column, spec in properties.items():
+        pattern = str((spec or {}).get("pattern") or "").lower()
+        if "h5ad" in pattern or "rds" in pattern:
+            return "matrix"
+        if column == "fasta" or "fasta" in pattern:
+            return "protein_fasta" if "faa" in pattern else "fasta"
     return "other"
 
 
@@ -43,14 +51,14 @@ def draft_catalog_row(pipeline: str, revision: str, nextflow_schema: dict,
     and pipeline_kind_description are a person's to write."""
     props = schema_properties(nextflow_schema)
     items = (input_schema or {}).get("items") or {}
-    columns = list(items.get("properties") or {})
+    properties = dict(items.get("properties") or {})
     return {
         "repo": f"https://github.com/nf-core/{pipeline}",
         "default_revision": revision,
         "description": nextflow_schema.get("description", ""),
         "reference_cli_flags": [f for f in _REFERENCE_FLAGS if f in props],
         "required_columns": list(items.get("required") or []),
-        "samplesheet_input_kind": _input_kind(columns),
+        "samplesheet_input_kind": _input_kind(properties),
         "accepted_leaf_sample_types": ["D.SEQ"],
     }
 

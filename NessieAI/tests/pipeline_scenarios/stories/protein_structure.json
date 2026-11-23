@@ -1,0 +1,160 @@
+{
+  "family": "protein_structure",
+  "stories": [
+    {
+      "id": "proteinfold-plain",
+      "question": "What 3D structure do these two PETase variants fold into?",
+      "cohort": "test::protein_sequences",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "proteinfold"
+        ]
+      ],
+      "must_not": [],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (protein sequences registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two D.PSEQ protein FASTAs, one chain each (ChainCount 1), of a PET hydrolase and its double mutant: proteinfold's input; nothing else reads protein sequence. Any mode answers it; with no database staged the fallback is esmfold."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "proteinfold-outcome",
+      "question": "I want a predicted structure for each sequence with per-residue confidence scores; a quick model is enough.",
+      "cohort": "test::protein_sequences",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "proteinfold"
+        ]
+      ],
+      "must_not": [],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "mode": "esmfold"
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (protein sequences registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two D.PSEQ protein FASTAs, one chain each (ChainCount 1), of a PET hydrolase and its double mutant: proteinfold's input; nothing else reads protein sequence. A quick model with pLDDT is esmfold, the one mode that needs no database."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "proteinfold-accuracy",
+      "question": "Predict these structures as accurately as you can; I need to compare the active-site geometry of the two variants.",
+      "cohort": "test::protein_sequences",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "proteinfold"
+        ]
+      ],
+      "must_not": [],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [
+        "Yes, build it. The ColabFold databases are on the cluster at /RUN/refs/colabfold and the AlphaFold2 databases at /RUN/refs/alphafold2.",
+        "Yes, build it. The ColabFold databases are on the cluster at /RUN/refs/colabfold and the AlphaFold2 databases at /RUN/refs/alphafold2."
+      ],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (protein sequences registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two D.PSEQ protein FASTAs, one chain each (ChainCount 1), of a PET hydrolase and its double mutant: proteinfold's input; nothing else reads protein sequence. Accuracy points at colabfold or alphafold2, either of which needs its database path; the story scripts both paths, so either mode passes."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "proteinfold-named",
+      "question": "Run nf-core/proteinfold in colabfold mode on these sequences.",
+      "cohort": "test::protein_sequences",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "proteinfold"
+        ]
+      ],
+      "must_not": [],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "mode": "colabfold"
+        }
+      },
+      "history": [],
+      "replies": [
+        "Yes, build it. The ColabFold databases are on the cluster at /RUN/refs/colabfold.",
+        "Yes, build it. The ColabFold databases are on the cluster at /RUN/refs/colabfold."
+      ],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (protein sequences registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and the mode; colabfold needs its database path, which the story scripts."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "proteinfold-ambiguous",
+      "question": "What can you do with these protein sequences?",
+      "cohort": "test::protein_sequences",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "proteinfold"
+        ]
+      ],
+      "must_not": [],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own samples (protein sequences registered in NExtSEEK); the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two D.PSEQ protein FASTAs, one chain each (ChainCount 1), of a PET hydrolase and its double mutant: proteinfold's input; nothing else reads protein sequence. The user asks what is possible: say structure prediction and ask which method (speed or accuracy) before building."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    }
+  ]
+}

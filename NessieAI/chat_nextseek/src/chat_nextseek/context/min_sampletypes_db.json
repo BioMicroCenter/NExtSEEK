@@ -49,6 +49,13 @@
     "Tags": "sequence alignment analysis, genome alignment, read mapping, BAM file analysis, SAM analysis, aligned reads, reference mapping, short read alignment, bowtie, BWA, STAR alignment, A.ALN, BAM, CRAM, HISAT2"
   },
   {
+    "SampleType": "A.ASM",
+    "ID": null,
+    "Name": "Genome Assembly",
+    "Description": "A genome assembly file contains the contigs or scaffolds reconstructed de novo from the sequencing reads of one organism, one metagenome-assembled genome (bin) or one viral consensus, as nucleotide sequences. It represents a genome built without, or checked against, a reference, used for gene annotation, functional screening and pangenome construction. Each file typically holds one genome; a combined file holds several genomes, each named in its sequence headers, as pangenome graph construction takes them.\nTypical file types: .fasta, .fa, .fna, .fasta.gz, .fna.gz",
+    "Tags": "genome assembly, de novo assembly, contigs, scaffolds, draft genome, metagenome-assembled genome, MAG, genome bin, isolate assembly, consensus genome, SPAdes, MEGAHIT, Flye, Unicycler, hifiasm, nf-core/bacass, nf-core/mag, nf-core/genomeassembler, A.ASM"
+  },
+  {
     "SampleType": "A.ATAC",
     "ID": null,
     "Name": "ATAC-seq Analysis",
@@ -154,6 +161,20 @@
     "Tags": "antibody functional profiling cluster analysis, functional profiling clustering, FPCL, immune response clustering, systems serology clustering, multivariate antibody analysis, A.FPCL, systems serology analysis, antibody functional profiling, antibody feature clustering, humoral immune profile clustering, PLS-DA antibody analysis"
   },
   {
+    "SampleType": "A.FSCR",
+    "ID": null,
+    "Name": "Functional Gene Screening",
+    "Description": "A functional gene screening file contains the genes of a genome assembly found to encode a screened function: antimicrobial peptides, antibiotic resistance genes, biosynthetic gene clusters or carbohydrate-active enzymes, each hit with the tool, database and score behind it. It represents the screen of one assembly for one category of function, summarised across the detection tools used. Each file typically corresponds to a single genome assembly, or a run's summary across its assemblies.\nTypical file types: .tsv, .gbk, .json",
+    "Tags": "functional screening, antimicrobial peptide, AMP, antibiotic resistance gene, ARG, antimicrobial resistance, AMR, biosynthetic gene cluster, BGC, natural products, CAZyme, antiSMASH, AMPcombi, hAMRonization, comBGC, RGI, AMRFinderPlus, DeepBGC, nf-core/funcscan, A.FSCR"
+  },
+  {
+    "SampleType": "A.GANN",
+    "ID": null,
+    "Name": "Genome Annotation",
+    "Description": "A genome annotation file contains the genes, coding sequences and other features predicted on a genome assembly, with their coordinates, protein translations and functional descriptions. It represents one annotation tool's gene models for one assembly, used for functional screening and comparative genomics. Each file typically corresponds to a single genome assembly.\nTypical file types: .gff, .gff3, .gbk, .gbff, .faa",
+    "Tags": "genome annotation, gene prediction, gene models, coding sequences, CDS, protein translations, GFF, GenBank, Prokka, Bakta, Prodigal, Pyrodigal, prokaryotic annotation, nf-core/funcscan, A.GANN"
+  },
+  {
     "SampleType": "A.GEX",
     "ID": 100,
     "Name": "Gene Expression Analysis",
@@ -238,6 +259,13 @@
     "Tags": "NMR analysis, nuclear magnetic resonance analysis, NMR spectroscopy analysis, metabolomics NMR, chemical structure analysis, peak list analysis, spectral assignment, A.NMR, 1H NMR analysis, 13C NMR analysis, proton NMR analysis, NMR peak integration, MestReNova, 2D NMR analysis"
   },
   {
+    "SampleType": "A.PANG",
+    "ID": null,
+    "Name": "Pangenome Graph",
+    "Description": "A pangenome graph file contains a variation graph built from several genomes of one species or clade aligned all against all, whose paths each spell one input genome. It represents the shared and variable sequence of those genomes in one structure, used for variant discovery, comparative genomics and graph-based read mapping. Each file typically corresponds to the set of genomes of one pangenome run.\nTypical file types: .gfa, .og, .vg",
+    "Tags": "pangenome, pangenome graph, variation graph, genome graph, GFA, odgi, PGGB, wfmash, seqwish, smoothxg, vg, comparative genomics, nf-core/pangenome, A.PANG"
+  },
+  {
     "SampleType": "A.PERM",
     "ID": 86,
     "Name": "Permeability Assay Analysis",
@@ -250,6 +278,13 @@
     "Name": "Analyzed Phosphoproteomics",
     "Description": "An analyzed phosphoproteomics file contains processed quantification and site-level phosphorylation data from proteomic workflows. It represents summarized results used to study signaling pathways and post-translational modifications. Each file often aggregates results from multiple experimental runs.\nTypical file types: .csv, .xlsx, .tsv",
     "Tags": "phosphoproteomics analysis, phosphoprotein analysis, phosphorylation site analysis, signaling pathway analysis, post-translational modification analysis, pSTY analysis, kinase substrate analysis, A.PHP, phosphopeptide quantification, phosphosite analysis, phosphotyrosine analysis, pTyr analysis, phospho-proteomics analysis, kinase activity analysis"
+  },
+  {
+    "SampleType": "A.PSTR",
+    "ID": null,
+    "Name": "Protein Structure Prediction",
+    "Description": "A protein structure prediction file contains the three-dimensional atomic model predicted for a protein or complex from its amino acid sequence, with the predictor's per-residue and per-model confidence (pLDDT, predicted aligned error, pTM and ipTM). It represents a computational structure model, not an experimental structure, used to study fold, binding interfaces and design. Each file typically corresponds to one ranked model of a single protein or complex.\nTypical file types: .pdb, .cif, .mmcif",
+    "Tags": "protein structure prediction, predicted structure, structural model, AlphaFold, AlphaFold2, AlphaFold3, ColabFold, ESMFold, RoseTTAFold, Boltz, HelixFold, pLDDT, PAE, pTM, ipTM, PDB, mmCIF, nf-core/proteinfold, A.PSTR"
   },
   {
     "SampleType": "A.SCCL",
@@ -278,6 +313,13 @@
     "Name": "Analyzed Spatial Transcriptomics Data",
     "Description": "An analyzed spatial transcriptomics file contains processed gene expression and spatial coordinate data derived from tissue imaging experiments. It represents integrated molecular and positional information used for spatially resolved analyses. Each file may represent one tissue section or a combined dataset across multiple regions.\nTypical file types: .h5ad, .csv, .tsv",
     "Tags": "spatial transcriptomics analysis, spatial gene expression, Visium analysis, slide-seq analysis, spatially resolved transcriptomics, tissue mapping, in situ transcriptomics, A.SPTX, spatial transcriptomics, Space Ranger, Xenium analysis, MERFISH analysis, CosMx analysis, Visium HD analysis, spatial RNA-seq"
+  },
+  {
+    "SampleType": "A.TAXP",
+    "ID": null,
+    "Name": "Taxonomic Profile",
+    "Description": "A taxonomic profile file contains the organisms detected in the sequencing reads of one sample, with each taxon's read count or relative abundance, as classified against a reference database. It represents the composition of a microbial or mixed community, or the contaminants and pathogens screened for in a host sample. Each file typically corresponds to one sample and one classifier, or a merged table of a run's samples.\nTypical file types: .tsv, .txt, .kreport, .biom",
+    "Tags": "taxonomic profile, taxonomic classification, metagenomic profiling, shotgun metagenomics, microbiome composition, relative abundance, species abundance, read classification, Kraken2, Bracken, MetaPhlAn, Centrifuge, Kaiju, MALT, mOTUs, ganon, sylph, TAXPASTA, nf-core/taxprofiler, A.TAXP"
   },
   {
     "SampleType": "A.TITR",
@@ -565,6 +607,13 @@
     "Name": "Paramagnetic Resonance Data",
     "Description": "A paramagnetic resonance data file contains spectra from electron paramagnetic resonance (EPR) or electron spin resonance (ESR) experiments. It represents the digital output used to study unpaired electrons and local magnetic environments.\nTypical file types: .csv, .jdx, .spc",
     "Tags": "paramagnetic resonance data, EPR data, ESR data, electron paramagnetic resonance, electron spin resonance, radical detection data, spin label data, D.PRM, EPR spectroscopy, ESR spectroscopy, EPR spectrum, spin trapping, X-band EPR"
+  },
+  {
+    "SampleType": "D.PSEQ",
+    "ID": null,
+    "Name": "Protein Sequence Data",
+    "Description": "A protein sequence data file contains the amino acid sequences of one protein or one complex, one sequence per chain. It represents the primary structure of a protein of interest, such as an antibody's heavy and light chains, used as the input of structure prediction. Each file typically corresponds to a single protein or complex.\nTypical file types: .fasta, .fa, .faa",
+    "Tags": "protein sequence, amino acid sequence, primary structure, polypeptide, protein chains, antibody sequence, heavy chain, light chain, protein complex, FASTA, D.PSEQ"
   },
   {
     "SampleType": "D.SEQ",

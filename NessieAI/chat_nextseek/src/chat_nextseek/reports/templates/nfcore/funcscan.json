@@ -1,0 +1,66 @@
+{
+  "report_type": "NFCORE_FUNCSCAN_SAMPLESHEET",
+  "description": "nf-core/funcscan context, aligned to the pinned 4.0.0 schemas. Functional screening of assembled genomes or contigs (A.ASM FASTA).",
+  "params": {
+    "run_amp_screening":    {"type": "bool", "default": null, "steerable": true, "help": "Antimicrobial peptide genes (ampir, AMPlify, Macrel; summarised by AMPcombi). Set when the question asks about antimicrobial peptides, bacteriocins or novel antimicrobials."},
+    "run_arg_screening":    {"type": "bool", "default": null, "steerable": true, "help": "Antibiotic resistance genes (ABRicate, AMRFinderPlus, DeepARG, fARGene, RGI; summarised by hAMRonization). Set when the question asks about antimicrobial or antibiotic resistance, the resistome or AMR surveillance."},
+    "run_bgc_screening":    {"type": "bool", "default": null, "steerable": true, "help": "Biosynthetic gene clusters (antiSMASH, DeepBGC, GECCO; summarised by comBGC). Set when the question asks about secondary metabolites, natural products or biosynthetic potential. Contigs under 3 kb are not screened."},
+    "run_cazyme_screening": {"type": "bool", "default": null, "steerable": true, "help": "Carbohydrate-active enzymes, their gene clusters and substrates (run_dbcan). Set when the question asks about carbohydrate or polysaccharide degradation, glycan metabolism or CAZymes."},
+    "run_taxa_classification": {"type": "bool", "default": null, "steerable": true, "help": "MMseqs2 taxonomy of every contig, merged into the screening summaries. Set when the question asks which organisms the hits come from (a metagenome assembly). It downloads its database (Kalamari by default) and replaces the plain summary tables with taxonomy-merged ones."},
+    "annotation_tool": {"type": "enum", "allowed": ["pyrodigal", "prodigal", "prokka", "bakta"], "default": "pyrodigal", "steerable": true, "help": "Gene prediction the screens read. pyrodigal (the release default) predicts genes only; prokka or bakta also name each gene's product, for a question that wants annotated genes. bakta downloads its database (full by default, tens of GB) unless one is given."},
+    "annotation_bakta_db_downloadtype": {"type": "enum", "allowed": ["full", "light"], "default": null, "steerable": true, "help": "Which Bakta database is downloaded when annotation_tool is bakta: light when disk or download time is short, full (the release default) for the richest annotation."},
+    "annotation_pyrodigal_singlemode": {"type": "bool", "default": null, "steerable": true, "help": "Single-genome gene prediction. Set when each FASTA is one isolate genome (from bacass or genomeassembler); leave it unset for metagenome assemblies and bins (mag), where meta mode is right."},
+    "annotation_prokka_singlemode": {"type": "bool", "default": null, "steerable": true, "help": "Single-genome mode for Prokka, set on the same grounds as annotation_pyrodigal_singlemode."},
+    "annotation_bakta_singlemode": {"type": "bool", "default": null, "steerable": true, "help": "Single-genome mode for Bakta, set on the same grounds as annotation_pyrodigal_singlemode."},
+    "save_annotations": {"type": "bool", "default": null, "steerable": true, "help": "Keep the predicted genes (GBK/GFF, proteins) in the results. Set when the question wants the gene annotations themselves, or wants them registered in NExtSEEK as Genome Annotation rows; the screening summaries come back either way."},
+    "bgc_antismash_taxon": {"type": "enum", "allowed": ["bacteria", "fungi"], "default": null, "steerable": true, "help": "antiSMASH's taxon for BGC screening: fungi when the assemblies are fungal genomes, else the release default, bacteria."},
+    "save_db": {"type": "bool", "default": null, "steerable": true, "help": "Copy the databases this run downloads into the results, for a user who wants to reuse them in later runs instead of downloading again."},
+    "multiqc_title": {"type": "string", "default": null, "steerable": true, "help": "MultiQC report title, when the user wants the report named."}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/funcscan",
+    "repository": "https://github.com/nf-core/funcscan",
+    "documentation_url": "https://nf-co.re/funcscan/4.0.0/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns: sample, fasta (required); protein, gbk, gff optional (protein and gbk together; gff needs protein). One row per A.ASM assembly; sample is its UID, fasta its FASTA path on Luria (.fasta/.fa/.fna/.fas, optionally .gz).",
+    "required_columns": ["sample", "fasta"],
+    "optional_columns": ["protein", "gbk", "gff"],
+    "reference_requirement": "NONE: funcscan reads the assemblies and downloads each screening tool's database itself."
+  },
+  "samplesheet_template": [
+    {"sample": null, "fasta": null}
+  ],
+  "validation_rules": [
+    "The input is ASSEMBLED sequence, one FASTA per A.ASM sample; reads cannot be screened. A reads-only cohort is assembled first (mag for metagenomes, bacass for isolates).",
+    "At least one screen (run_amp_screening, run_arg_screening, run_bgc_screening, run_cazyme_screening) is set from the question; with none the run screens nothing.",
+    "Each screen downloads its tools' databases on first use unless a local copy is given; none is provisioned on Luria, so the compute node needs outbound HTTPS.",
+    "With prodigal and AMP or BGC screening, funcscan switches the annotation to pyrodigal (Prodigal GBK is incompatible with AMPcombi, antiSMASH, DeepBGC and GECCO)."
+  ],
+  "notes": "Prokaryotic screening: the annotation tools and most screens assume bacterial or archaeal sequence (antiSMASH can also take fungi).",
+  "sources": [
+    {"label": "nf-core/funcscan nextflow_schema.json @ 4.0.0", "url": "https://raw.githubusercontent.com/nf-core/funcscan/4.0.0/nextflow_schema.json", "notes": "every screen opt-in (run_*_screening); annotation_tool default pyrodigal."},
+    {"label": "nf-core/funcscan assets/schema_input.json @ 4.0.0", "url": "https://raw.githubusercontent.com/nf-core/funcscan/4.0.0/assets/schema_input.json", "notes": "sample and fasta required; protein, gbk, gff optional."},
+    {"label": "nf-core/funcscan conf/modules.config @ 4.0.0", "url": "https://raw.githubusercontent.com/nf-core/funcscan/4.0.0/conf/modules.config", "notes": "annotations published only with save_annotations; summaries under reports/."}
+  ],
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/funcscan sheet from a resolved cohort of A.ASM assemblies.",
+    "workflow_role": "Selected for 'which resistance genes, AMPs, BGCs or CAZymes do these genomes carry'.",
+    "output_expectation": "CSV with header sample,fasta.",
+    "population_priority": [
+      "One row per A.ASM leaf; sample = the UID, fasta = its FASTA path.",
+      "Set the screens the question names, and say which ran."
+    ],
+    "final_checks": [
+      "Every row has a FASTA path.",
+      "At least one screen is set."
+    ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. The first run downloads the screening databases.",
+    "setup_minutes": [30, 120],
+    "setup_label": "downloading the screening tools' databases (every run repeats it unless save_db copies are reused)",
+    "base_minutes": [20, 40],
+    "per_sample_minutes": [15, 60]
+  }
+}

@@ -8,6 +8,7 @@ conflict or are absent. Structural problems raise; drift only warns.
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,8 @@ ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_param_atlas.json"
 
 _VALID_TARGETS = {"row_column", "run_param"}
 #: Where a row_column spec's unclear verdicts (conflict, absent) are confirmed instead of being
-#: asked at write_samplesheet: "pairing_table" is sarek's tumour/normal table in configure_run.
+#: asked at write_samplesheet: "pairing_table" is the tumour/normal table configure_run shows for
+#: sarek (status) and oncoanalyser (sample_type), built by seqera.pairing.
 _VALID_CONFIRM_IN = {"pairing_table"}
 #: What a spec's values mean once written. The atlas spells every value as a string ("true",
 #: "150"); value_type says what to write to params.yml, because nf-schema refuses the string
@@ -30,7 +32,30 @@ _VALUE_TYPES = {"string", "boolean", "integer"}
 #: not above it (atacseq read_length: 151 -> 150, a key of the precomputed MACS genome sizes), or
 #: the smallest allowed value for reads shorter than all of them (38 -> 50, as nf-core's own
 #: atacseq 2.1.2 and chipseq 2.1.0 conf/test.config set read_length 50 for their 38 bp reads).
-_NUMBER_MODES = {"exact", "floor"}
+#: "bands" turns the number into one of a string spec's allowed values: `bands` lists
+#: [lowest number, value] pairs in ascending order and the number votes the last band it reaches
+#: (proteinfold: a D.PSEQ ChainCount of 1 is a monomer preset, 2 or more a multimer one); a
+#: number below the first band is silent.
+_NUMBER_MODES = {"exact", "floor", "bands"}
+#: How a spec's markers (primary, corroborators, ambiguous_markers) match a signal's value:
+#: "substring" (the default) anywhere in it, "word" only as a whole word, so "male" does not match
+#: "female" nor "affected" "unaffected" (nf-core/raredisease's sex and phenotype columns).
+_MATCH_MODES = {"substring", "word"}
+
+
+def _check_bands(where: str, bands: Any, allowed: list) -> None:
+    if not (isinstance(bands, list) and bands):
+        raise ParamAtlasError(f"Param spec {where} derives by bands, so it needs a non-empty 'bands' list")
+    lows = []
+    for band in bands:
+        if not (isinstance(band, list) and len(band) == 2 and isinstance(band[0], int)
+                and not isinstance(band[0], bool) and isinstance(band[1], str)):
+            raise ParamAtlasError(f"Param spec {where}: each band is [whole number, value], got {band!r}")
+        if band[1] not in allowed:
+            raise ParamAtlasError(f"Param spec {where}: band value {band[1]!r} is not in 'allowed'")
+        lows.append(band[0])
+    if lows != sorted(set(lows)):
+        raise ParamAtlasError(f"Param spec {where}: bands must be in strictly ascending order")
 
 
 def _check_detect_only(where: str, spec: dict) -> None:
@@ -81,6 +106,21 @@ def _check_number_spec(where: str, spec: dict) -> None:
     """A numeric derive_from: an integer spec, a known mode, no marker map, and for "floor" the
     allowed values it rounds down to. Each corroborator reads its own signal the same way."""
     df = spec["derive_from"]
+    if df.get("number") == "bands":
+        if not df.get("signal") or "map" in df:
+            raise ParamAtlasError(f"Param spec {where} derives by bands: it needs derive_from.signal and no map")
+        if spec.get("value_type", "string") != "string" or not spec.get("allowed"):
+            raise ParamAtlasError(f"Param spec {where} derives by bands, so it is a string spec with 'allowed'")
+        _check_bands(where, df.get("bands"), spec["allowed"])
+        for corr in spec.get("corroborate_with") or []:
+            if not (isinstance(corr, dict) and corr.get("signal")):
+                raise ParamAtlasError(f"Param spec {where}: each corroborate_with entry needs a signal")
+            if corr.get("number") == "bands":
+                _check_bands(where, corr.get("bands"), spec["allowed"])
+            elif corr.get("number") is not None:
+                raise ParamAtlasError(f"Param spec {where} derives by bands; a numeric corroborator "
+                                      "must use bands too")
+        return
     if spec.get("value_type") != "integer":
         raise ParamAtlasError(f"Param spec {where} derives a number, so its value_type must be integer")
     if df.get("number") not in _NUMBER_MODES:
@@ -188,6 +228,10 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
                         f"must be one of {sorted(_VALID_CONFIRM_IN)}")
                 if spec.get("target") != "row_column":
                     raise ParamAtlasError(f"Param spec {where} sets confirm_in, so its target must be row_column")
+            if spec.get("match", "substring") not in _MATCH_MODES:
+                raise ParamAtlasError(
+                    f"Param spec {where} has match {spec.get('match')!r}; "
+                    f"must be one of {sorted(_MATCH_MODES)}")
             if spec.get("detect_only"):
                 _check_detect_only(where, spec)
                 continue
@@ -262,23 +306,26 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
             where = f"{key}.{pname}"
             allowed = spec.get("allowed") or []
             df = spec.get("derive_from") or {}
-            _warn_marker_collisions(where, df.get("signal"), df.get("map") or {}, allowed)
+            word = spec.get("match") == "word"
+            _warn_marker_collisions(where, df.get("signal"), df.get("map") or {}, allowed, word)
             for corr in spec.get("corroborate_with") or []:
                 marker_map = {a: corr.get(f"{a}_markers") for a in allowed}
-                _warn_marker_collisions(where, corr.get("signal"), marker_map, allowed)
+                _warn_marker_collisions(where, corr.get("signal"), marker_map, allowed, word)
 
     return payload
 
 
-def _warn_marker_collisions(where: str, signal: Any, marker_map: dict[str, list], allowed: list[str]) -> None:
-    """Warn if any marker for one allowed value is a substring of a marker for another."""
+def _warn_marker_collisions(where: str, signal: Any, marker_map: dict[str, list], allowed: list[str],
+                            word: bool = False) -> None:
+    """Warn if any marker for one allowed value is a substring of a marker for another (a whole
+    word of it, for a `match: word` spec)."""
     for a in allowed:
         for b in allowed:
             if a == b:
                 continue
             for marker_a in marker_map.get(a) or []:
                 for marker_b in marker_map.get(b) or []:
-                    if str(marker_a).strip() and str(marker_a).lower() in str(marker_b).lower():
+                    if str(marker_a).strip() and _hits(marker_b, [marker_a], word):
                         warnings.warn(
                             f"parameter atlas {where} signal {signal!r}: marker {marker_a!r} "
                             f"(for {a!r}) is a substring of marker {marker_b!r} (for {b!r}) -- "
@@ -322,34 +369,43 @@ def required_signals(pipeline_key: str, atlas: dict | None = None) -> set[str]:
     return out
 
 
-def _hits(text: Any, markers: list[str] | None) -> bool:
-    """Case-insensitive substring: does any marker appear in text?"""
+def _hits(text: Any, markers: list[str] | None, word: bool = False) -> bool:
+    """Case-insensitive: does any marker appear in text? With `word`, only as a whole word
+    (no letter, digit or underscore on either side), so "male" is not in "female"."""
     t = str(text or "").lower()
+    if word:
+        return any(re.search(rf"(?<!\w){re.escape(str(m).lower())}(?!\w)", t)
+                   for m in (markers or []) if str(m).strip())
     return any(str(m).lower() in t for m in (markers or []))
 
 
 def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]],
-                 ambiguous_markers: list[str] | None = None) -> str | list:
+                 ambiguous_markers: list[str] | None = None, word: bool = False) -> str | list:
     """One signal's vote: an allowed value, "" for silent, or a list for ambiguous (>1).
 
-    A value containing an ambiguous marker votes ambiguous whatever else it hits."""
-    if _hits(value, ambiguous_markers):
+    A value containing an ambiguous marker votes ambiguous whatever else it hits. `word` is the
+    spec's `match: word`."""
+    if _hits(value, ambiguous_markers, word):
         return list(allowed)
-    voted = [a for a in allowed if _hits(value, marker_map.get(a))]
+    voted = [a for a in allowed if _hits(value, marker_map.get(a), word)]
     if not voted:
         return ""
     return voted[0] if len(voted) == 1 else voted
 
 
-def _number_vote(value: Any, spec: dict, mode: str) -> str:
+def _number_vote(value: Any, spec: dict, mode: str, bands: list | None = None) -> str:
     """One numeric signal's vote: the canonical value it reads as, or "" for silent.
 
     "exact" votes the number itself, inside `range` when the spec gives one; "floor" votes the
     largest allowed value not above it, or the smallest allowed value when the number is below
-    them all. A value that is not a whole number is silent."""
+    them all; "bands" votes the value of the last band whose lowest number it reaches, and is
+    silent below the first. A value that is not a whole number is silent."""
     n = _parse_int(value)
     if n is None:
         return ""
+    if mode == "bands":
+        reached = [v for low, v in bands or [] if n >= low]
+        return reached[-1] if reached else ""
     if mode == "exact":
         low, high = spec.get("range") or (None, None)
         if (low is not None and n < low) or (high is not None and n > high):
@@ -406,18 +462,22 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
     df = spec["derive_from"]
     primary_sig = df["signal"]
     amb = spec.get("ambiguous_markers")
+    word = spec.get("match") == "word"
     if df.get("number"):
-        primary_vote: str | list = _number_vote(signals.get(primary_sig), spec, df["number"])
+        primary_vote: str | list = _number_vote(signals.get(primary_sig), spec, df["number"],
+                                                df.get("bands"))
     else:
-        primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"], amb)
+        primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"], amb, word)
 
     votes: list[tuple[str, Any]] = [(primary_sig, primary_vote)]
     for corr in spec.get("corroborate_with") or []:
         if corr.get("number"):
-            votes.append((corr["signal"], _number_vote(signals.get(corr["signal"]), spec, corr["number"])))
+            votes.append((corr["signal"], _number_vote(signals.get(corr["signal"]), spec, corr["number"],
+                                                       corr.get("bands"))))
             continue
         marker_map = {a: corr.get(f"{a}_markers") for a in allowed}
-        votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map, amb)))
+        votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map, amb,
+                                                   word)))
 
     ambiguous = [s for s, v in votes if isinstance(v, list)]
     decided = {v for _, v in votes if isinstance(v, str) and v}

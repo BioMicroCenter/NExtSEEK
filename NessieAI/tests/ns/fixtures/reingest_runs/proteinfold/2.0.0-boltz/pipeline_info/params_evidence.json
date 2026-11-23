@@ -1,0 +1,10 @@
+{
+ "alphafold2_mode": "standard",
+ "config_profile_description": "Minimal test dataset to check pipeline function",
+ "config_profile_name": "Test profile",
+ "container": "biocontainers/gawk:5.1.0",
+ "input": "/RUN/samplesheet.csv",
+ "mode": "boltz",
+ "outdir": "/RUN",
+ "stubRun": true
+}

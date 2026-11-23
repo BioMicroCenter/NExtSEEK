@@ -100,6 +100,30 @@
     "internal_assay_title": "miRNA-Seq"
   },
   {
+    "action": "create_internal",
+    "internal_assay_title": "Genome Assembly"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Taxonomic Profiling"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Genome Annotation"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Functional Gene Screening"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Protein Structure Prediction"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Pangenome Graph Construction"
+  },
+  {
     "action": "map",
     "seek_assay_id": 466,
     "seek_title": "Library Prep",

@@ -341,6 +341,562 @@
         "date": "2026-10-26",
         "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The user asks for tumour-normal mode, and sarek's default tools hold no somatic caller; the launch must include mutect2, and the WGS libraries keep wes false."
       }
+    },
+    {
+      "id": "eager-plain",
+      "question": "How much of each library is endogenous human DNA, and do the reads look genuinely ancient?",
+      "cohort": "test::ancient_dna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "eager"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two archaeological individuals (petrous bone, tooth root), double-stranded half-UDG shotgun libraries of 2x75 bp: ancient DNA, so eager. Endogenous content and damage-based authentication are eager's own outputs. sarek has neither step and would call the post-mortem C-to-T damage as mutations."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "eager-outcome",
+      "question": "I want damage profiles, a contamination estimate and the genetic sex for each individual.",
+      "cohort": "test::ancient_dna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "eager"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two archaeological individuals (petrous bone, tooth root), double-stranded half-UDG shotgun libraries of 2x75 bp: ancient DNA, so eager. Damage profiles (DamageProfiler), nuclear contamination and genetic sex are what eager reports; both individuals are human, so the human-only sex and contamination steps apply. sarek reports none of these."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "eager-lookalike",
+      "question": "Which variants do these two individuals carry?",
+      "cohort": "test::ancient_dna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "eager"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two archaeological individuals (petrous bone, tooth root), double-stranded half-UDG shotgun libraries of 2x75 bp: ancient DNA, so eager. A variant question reads like sarek's, but the libraries are ancient bone and tooth DNA with half-UDG treatment: sarek would call the damage at read ends as mutations and its aligner settings lose the short molecules. eager genotypes with damage-aware trimming, so it is the only right offer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "eager-named",
+      "question": "Run nf-core/eager on these bone and tooth libraries.",
+      "cohort": "test::ancient_dna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "eager"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline, and the libraries are ancient DNA with their UDG treatment (half) and strandedness (double) in the metadata, which eager's TSV needs per library."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "eager-ambiguous",
+      "question": "Analyse these genomes for me.",
+      "cohort": "test::ancient_dna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "eager"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two archaeological individuals (petrous bone, tooth root), double-stranded half-UDG shotgun libraries of 2x75 bp: ancient DNA, so eager. The question says nothing, but the metadata settles the data kind: ancient human DNA goes to eager, never sarek, whatever is asked of it."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "raredisease-plain",
+      "question": "Which SNVs, structural variants and mitochondrial variants does this family carry, called together across the three of them?",
+      "cohort": "test::rare_disease_trio",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "raredisease"
+        ]
+      ],
+      "must_not": [
+        "rnavar",
+        "eager"
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A human trio sequenced by PCR-free WGS: an affected boy and his unaffected father and mother, each a patient record with Sex, Phenotype and Relationship, sharing one family (Household). Joint calling across a family, with SVs and mitochondrial variants, is raredisease. sarek calls each sample alone and has no mitochondrial step; it is not forbidden, but it does not answer the question as asked. No launch is expected: raredisease 3.1.2 requires intervals_wgs and intervals_y, which are not staged on Luria, so configure_run reports them unset; offering raredisease and saying what is missing is the right answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "raredisease-outcome",
+      "question": "I want a joint VCF for this trio, plus a check that their sexes and relatedness match the pedigree.",
+      "cohort": "test::rare_disease_trio",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "raredisease"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A human trio sequenced by PCR-free WGS: an affected boy and his unaffected father and mother, each a patient record with Sex, Phenotype and Relationship, sharing one family (Household). A family VCF with a sex and relatedness check against the pedigree is raredisease's output (peddy, sex check); sarek has no family step. No launch is expected: raredisease 3.1.2 requires intervals_wgs and intervals_y, which are not staged on Luria, so configure_run reports them unset; offering raredisease and saying what is missing is the right answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "raredisease-lookalike",
+      "question": "Which variants does each of these three people carry?",
+      "cohort": "test::rare_disease_trio",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "raredisease"
+        ],
+        [
+          "raredisease",
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar",
+        "eager"
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A human trio sequenced by PCR-free WGS: an affected boy and his unaffected father and mother, each a patient record with Sex, Phenotype and Relationship, sharing one family (Household). 'Each of these people' reads like sarek's per-sample calling, but the cohort is a rare-disease trio with affected status and parents recorded, which the atlas sends to raredisease. Offering both with the atlas's question (family study or per-sample calls) is also fair; sarek alone misses the family structure. No launch is expected: raredisease 3.1.2 requires intervals_wgs and intervals_y, which are not staged on Luria, so configure_run reports them unset; offering raredisease and saying what is missing is the right answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "raredisease-named",
+      "question": "Run nf-core/raredisease on this trio.",
+      "cohort": "test::rare_disease_trio",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "raredisease"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline. The samplesheet's sex, phenotype, case_id and the proband's paternal_id and maternal_id come from the patients' Sex, Phenotype, Relationship and Household. No launch is expected: raredisease 3.1.2 requires intervals_wgs and intervals_y, which are not staged on Luria, so configure_run reports them unset; offering raredisease and saying what is missing is the right answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "raredisease-ambiguous",
+      "question": "What can you find in this family's genomes?",
+      "cohort": "test::rare_disease_trio",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "raredisease"
+        ],
+        [
+          "raredisease",
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar",
+        "eager"
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A human trio sequenced by PCR-free WGS: an affected boy and his unaffected father and mother, each a patient record with Sex, Phenotype and Relationship, sharing one family (Household). A vague question on a cohort whose metadata is a rare-disease family: raredisease, or raredisease and sarek with the atlas's question. No launch is expected: raredisease 3.1.2 requires intervals_wgs and intervals_y, which are not staged on Luria, so configure_run reports them unset; offering raredisease and saying what is missing is the right answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling, the cohort's upload and a paid run."
+      }
+    },
+    {
+      "id": "sarek-unrelated-donors",
+      "question": "Call germline SNVs and indels for each of these two unrelated blood donors.",
+      "cohort": "test::human_wgs_germline",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "raredisease",
+        "eager",
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "wes": false
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two unrelated modern blood donors, human PCR-free WGS, with no phenotype and no family: per-sample germline calling is sarek with wes false. raredisease needs a pedigree and affected status these samples do not have; eager is for ancient or degraded DNA, and these are fresh blood."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "oncoanalyser-plain",
+      "question": "How pure is this patient's tumour, and which of its mutations are drivers?",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "must_not": [
+        "sarek",
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient's colon tumour and matched blood normal, both human PCR-free WGS and linked to the patient: oncoanalyser runs wgts on a tumour/normal pair. Purity and driver calls are oncoanalyser's (PURPLE, the driver catalogue). sarek calls somatic variants but estimates neither, so it cannot answer the question."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "oncoanalyser-outcome",
+      "question": "I want a full cancer report for this tumour: purity and ploidy, somatic SVs and copy number, drivers, mutational signatures and HLA.",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "must_not": [
+        "sarek",
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "mode": "wgts"
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient's colon tumour and matched blood normal, both human PCR-free WGS and linked to the patient: oncoanalyser runs wgts on a tumour/normal pair. Every item asked for is an oncoanalyser output, summarised in its ORANGE report; sarek produces none of purity, drivers, signatures or HLA. Whole-genome DNA makes the mode wgts."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "oncoanalyser-lookalike",
+      "question": "Which somatic mutations and copy-number changes does this tumour carry, and which of them are driving the cancer?",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient's colon tumour and matched blood normal, both human PCR-free WGS and linked to the patient: oncoanalyser runs wgts on a tumour/normal pair. The first half reads like sarek's somatic calling, but 'which are driving the cancer' needs driver interpretation, which only oncoanalyser has. sarek is not forbidden (it answers the first half), so offering it alone is PARTIAL."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "oncoanalyser-named",
+      "question": "Run nf-core/oncoanalyser on this tumour and its matched blood normal.",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "oncoanalyser"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "mode": "wgts"
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline. The tumour and its normal share the patient, their Type fields decide sample_type, and whole-genome DNA makes the mode wgts."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "oncoanalyser-ambiguous",
+      "question": "Analyse this patient's tumour against the blood sample.",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "oncoanalyser",
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "ambiguous",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient's colon tumour and matched blood normal, both human PCR-free WGS and linked to the patient: oncoanalyser runs wgts on a tumour/normal pair. Tumour against normal fits sarek's somatic calling and oncoanalyser's full report alike; the atlas's question (variant calls, or a full tumour report) is the honest answer."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
+    },
+    {
+      "id": "sarek-somatic-vcf-only",
+      "question": "I only need a VCF of the somatic SNVs and indels in this tumour, called against the blood; no report.",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "mutect2"
+            ]
+          }
+        }
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient's colon tumour and matched blood, both WGS: a plain somatic VCF is sarek with a tumour/normal caller (mutect2) and wes false. The user rules out a report, so oncoanalyser answers more than was asked; offering it is PARTIAL, not forbidden."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-11-19",
+        "note": "Drafted with the eight new nf-core pipelines (2026-11-19); awaits the owner's ruling and a paid run."
+      }
     }
   ]
 }

@@ -39,10 +39,10 @@ cd {{RUN_DIR}}
 # the species-resolved genome. REFS_FLAGS carries only the reference flags this
 # pipeline's schema declares: nf-schema rejects or warns on an unrecognised param,
 # depending on the pipeline's validation settings.
-nextflow run {{PIPELINE}}{{REVISION_FLAG}} -profile singularity \
+{{NXF_VER_PREFIX}}nextflow run {{PIPELINE}}{{REVISION_FLAG}} -profile singularity \
     -c luria.config \
     -params-file params.yml \
-    --input samplesheet.csv \
+    --input {{INPUT}} \
     --outdir . \
     {{REFS_FLAGS}} \
     -w {{WORK_DIR}} \

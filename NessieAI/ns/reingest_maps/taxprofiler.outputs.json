@@ -1,0 +1,280 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/taxprofiler",
+  "applies_to_versions": ">=2.0.0,<2.1",
+  "accepts_parent_types": [
+    "D.SEQ"
+  ],
+  "harvest_globs": [],
+  "inventory_globs": [
+    "**/kraken2/*/*.kraken2.kraken2.report.txt",
+    "**/bracken/*/*.bracken.tsv",
+    "**/bracken/*/*.bracken.kraken2.report_bracken.txt",
+    "**/metaphlan/*/*.metaphlan_profile.txt",
+    "**/metaphlan/*/*.metaphlan.biom",
+    "**/motus/*/*.out",
+    "**/centrifuge/*/*.centrifuge.txt",
+    "**/centrifuge/*/*.centrifuge.report.txt",
+    "**/kaiju/*/*.kaijutable.txt",
+    "**/ganon/*/*.ganon_report.tre",
+    "**/kmcp/*/*.kmcp.profile",
+    "**/krakenuniq/*/*.krakenuniq.report.txt",
+    "**/diamond/*/*.diamond.tsv",
+    "**/sylph/*/*.sylphmpa",
+    "**/sylph/*/*.sylph.tsv",
+    "**/taxpasta/*.tsv"
+  ],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "kraken2",
+      "candidates": [
+        "kraken2/*/*.kraken2.kraken2.report.txt"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "Kraken2",
+        "Software": "Kraken2",
+        "DataType": "TXT"
+      }
+    },
+    {
+      "id": "bracken",
+      "candidates": [
+        "bracken/*/*.bracken.tsv"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "Bracken",
+        "Software": "Bracken",
+        "DataType": "TSV"
+      },
+      "companions": [
+        {
+          "glob": "bracken/*/*.bracken.kraken2.report_bracken.txt"
+        }
+      ]
+    },
+    {
+      "id": "metaphlan",
+      "candidates": [
+        "metaphlan/*/*.metaphlan_profile.txt"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "MetaPhlAn",
+        "Software": "MetaPhlAn",
+        "DataType": "TXT"
+      },
+      "companions": [
+        {
+          "glob": "metaphlan/*/*.metaphlan.biom"
+        }
+      ]
+    },
+    {
+      "id": "motus",
+      "candidates": [
+        "motus/*/*.out"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "mOTUs",
+        "Software": "mOTUs",
+        "DataType": "TXT"
+      }
+    },
+    {
+      "id": "centrifuge",
+      "candidates": [
+        "centrifuge/*/*.centrifuge.txt"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "Centrifuge",
+        "Software": "Centrifuge",
+        "DataType": "TXT"
+      },
+      "companions": [
+        {
+          "glob": "centrifuge/*/*.centrifuge.report.txt"
+        }
+      ]
+    },
+    {
+      "id": "kaiju",
+      "candidates": [
+        "kaiju/*/*.kaijutable.txt"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "Kaiju",
+        "Software": "Kaiju",
+        "DataType": "TXT"
+      }
+    },
+    {
+      "id": "ganon",
+      "candidates": [
+        "ganon/*/*.ganon_report.tre"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "ganon",
+        "Software": "ganon",
+        "DataType": "TSV"
+      }
+    },
+    {
+      "id": "kmcp",
+      "candidates": [
+        "kmcp/*/*.kmcp.profile"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "KMCP",
+        "Software": "KMCP",
+        "DataType": "TSV"
+      }
+    },
+    {
+      "id": "sylph",
+      "candidates": [
+        "sylph/*/*.sylphmpa",
+        "sylph/*/*.sylph.tsv"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "sylph",
+        "Software": "sylph",
+        "DataType": "TSV"
+      }
+    },
+    {
+      "id": "krakenuniq",
+      "candidates": [
+        "krakenuniq/*/*.krakenuniq.report.txt"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "KrakenUniq",
+        "Software": "KrakenUniq",
+        "DataType": "TXT"
+      }
+    },
+    {
+      "id": "diamond",
+      "candidates": [
+        "diamond/*/*.diamond.tsv"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "skip_samples_without_file": true,
+      "include_provenance": true,
+      "attributes": {
+        "Classifier": "DIAMOND",
+        "Software": "DIAMOND",
+        "DataType": "TSV"
+      }
+    },
+    {
+      "id": "taxpasta",
+      "candidates": [
+        "taxpasta/*.tsv"
+      ],
+      "sample_type": "A.TAXP",
+      "assay": "Taxonomic Profiling",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "Software": "TAXPASTA",
+        "DataType": "TSV",
+        "Notes": "TAXPASTA standardised taxon table: one row per taxon, one read-count column per sample of the run, for the classifier and database its file name gives (<classifier>_<database>)."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}

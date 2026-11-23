@@ -34,6 +34,7 @@ from ..schemas import SeqeraLaunchPlan
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_launch_artifacts, emit_luria_launch_artifacts, emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, lookup_run_sizes, resolve_accessions
+from ..seqera.input_kinds import check_rows as check_input_rows, input_kind, read_samplesheet
 from ..seqera.pipeline_params import (
     agent_param_names,
     build_run_params,
@@ -53,7 +54,7 @@ from ..seqera.user_params import (
     required_user_params,
     validate_user_params,
 )
-from ..seqera.pairing import TABLE, pairing_question, tool_names
+from ..seqera.pairing import TABLE, group_pairing_question, pairing_question, tool_names
 from ..seqera.contrasts import (
     CONTRASTS_FILENAME,
     CONTRASTS_PARAM,
@@ -65,6 +66,7 @@ from ..seqera.contrasts import (
     samplesheet_conditions,
     write_contrasts_csv,
 )
+from ..seqera import taxprofiler_databases as tax_db
 from ..seqera.param_atlas import (
     FILL_VERDICTS,
     canonical_value,
@@ -200,8 +202,9 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "revision": {"type": "string", "description": "pipeline revision override (-> launch.yml)."},
                 "profile": {"type": "string", "description": "docker|singularity|conda (-> launch.yml)."},
                 "pairing_confirmed": {"type": "boolean",
-                                      "description": "sarek only: true after the user confirmed the "
-                                                     "tumour/normal table configure_run showed them; "
+                                      "description": "sarek and oncoanalyser only: true after the user "
+                                                     "confirmed the tumour/normal table configure_run "
+                                                     "showed them; "
                                                      "only after the user replied to the pairing "
                                                      "table (a confirmation sent in the same turn "
                                                      "as the question is ignored)."},
@@ -689,6 +692,17 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
                 f"conditions by name); not one: {', '.join(bad_cond)}. Rename them, for example "
                 "0h -> h0 or wild-type -> wild_type."]})
 
+    # A single-file input kind (one combined FASTA) takes exactly one sample.
+    kind_errors = check_input_rows(pipeline_key, merged_rows)
+    if kind_errors:
+        return json.dumps({"ok": False, "errors": kind_errors})
+
+    # Cells the pipeline itself refuses only mid-run (eager's TSV cells, raredisease's pedigree).
+    from chat_nextseek.seqera.pipeline_checks import row_errors
+    sheet_errors = row_errors(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    if sheet_errors:
+        return json.dumps({"ok": False, "errors": sheet_errors})
+
     # ENA route retired: Luria resolves fastqs from a local /net/bmc-* path (filled here)
     # or fetches SRR accessions on-cluster (run.sh fetchngs pre-stage). No ENA URL synthesis.
     # resolve_accessions is left imported but unused for a future ENA re-enable.
@@ -711,6 +725,20 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         write_launch_yml=True,
     )
 
+    # A row the pipeline's row builder could not write (oncoanalyser: a single-end sample).
+    row_errors = list(getattr(result, "row_errors", None) or [])
+    if row_errors:
+        return json.dumps({"ok": False, "errors": row_errors})
+    missing_files = list(getattr(result, "missing_input_files", None) or [])
+    if missing_files:
+        # A FASTA or matrix has no archive fallback: a row without its file cannot run.
+        kind = input_kind(pipeline_key)
+        return json.dumps({"ok": False, "errors": [
+            f"row {uid!r}: its metadata holds no path to a {kind.summary} file "
+            f"({', '.join(NFCORE_PIPELINE_CATALOG[pipeline_key].get('input_extensions') or kind.extensions)}). "
+            "Leave it out, or ask the user where that sample's file is on the cluster."
+            for uid in missing_files]})
+
     state.setdefault("artifacts", {})
     state["artifacts"]["cohorts"] = [result.saved_files]
     state["artifacts"]["samplesheet"] = result.saved_files.get("samplesheet")
@@ -722,6 +750,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"].pop("params", None)
     state["artifacts"].pop("launch", None)
     state["artifacts"].pop("contrasts", None)
+    state["artifacts"].pop("databases", None)
     state.pop("launch_plan", None)
     # A rebuilt sheet is asked about afresh: the old pairing confirmation was for the old rows.
     state.pop("pairing_asked_at_user_msgs", None)
@@ -743,6 +772,10 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
 #: sarek tools whose reference files (ascat's allele/loci/GC files, controlfreec's mappability
 #: files) are not staged on Luria.
 _SAREK_UNSTAGED_TOOLS = frozenset({"ascat", "controlfreec"})
+
+#: nf-core/funcscan 4.0.0's screen switches (nextflow_schema.json "screening_type_activation").
+_FUNCSCAN_SCREENS = ("run_amp_screening", "run_arg_screening", "run_bgc_screening",
+                     "run_cazyme_screening")
 
 
 def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
@@ -769,6 +802,14 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     if bad:
         return json.dumps({"ok": False, "invalid_user_params": bad,
                            "message": "Ask the user to correct these; do not guess."})
+    # taxprofiler's databases: the curated list (databases staged on Luria and named in
+    # reference_bundles.json) stands in for the user's answer when they gave none.
+    declares_databases = any(s["name"] == tax_db.DATABASES_PARAM
+                             for s in required_user_params(pipeline_key))
+    if declares_databases and agent_params.get(tax_db.DATABASES_PARAM) in (None, ""):
+        curated_dbs = tax_db.curated_databases()
+        if curated_dbs:
+            agent_params[tax_db.DATABASES_PARAM] = curated_dbs
     missing = missing_user_params(pipeline_key, agent_params)
     if missing:
         ask = render_elicitation(missing)
@@ -810,6 +851,33 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         # until this call succeeds and writes a new one.
         state["artifacts"].pop("params", None)
         state["artifacts"].pop("launch", None)
+
+    # taxprofiler's --databases sheet, written into the run folder like the contrasts CSV
+    # (seqera/taxprofiler_databases.py); the classifiers that run follow from it.
+    databases_rows = None
+    if state["artifacts"].pop("databases", None):
+        state["artifacts"].pop("params", None)
+        state["artifacts"].pop("launch", None)
+    if declares_databases and agent_params.get(tax_db.DATABASES_PARAM) not in (None, ""):
+        db_value = agent_params[tax_db.DATABASES_PARAM]
+        if tax_db.is_user_path(db_value):
+            flags, bad = tax_db.classifier_flags(None, agent_params)
+        else:
+            databases_rows, bad = tax_db.parse_databases(db_value)
+            flags, more = tax_db.classifier_flags(databases_rows, agent_params) if not bad else ({}, [])
+            bad = bad + more
+        if bad:
+            return json.dumps({"ok": False, "invalid_user_params": bad,
+                               "message": "Ask the user to correct these; do not guess."})
+        if databases_rows is not None:
+            base_dir = artifacts.get("base_dir") or str(Path(samplesheet).parent)
+            state["artifacts"]["databases"] = str(tax_db.write_databases_csv(databases_rows, base_dir))
+            agent_params[tax_db.DATABASES_PARAM] = tax_db.DATABASES_FILENAME
+        for flag, value in flags.items():
+            agent_params.setdefault(flag, value)
+        # A sample that can arrive as several runs is merged into one profile.
+        if tax_db.needs_run_merging(_samplesheet_rows(state)):
+            agent_params.setdefault("perform_runmerging", True)
 
     # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
     # value (FILL_VERDICTS: decisive, or the spec's safe default) the agent didn't set, so the
@@ -897,21 +965,59 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         sheet_errors = _cutandrun_sheet_errors(merged.get("use_control"), _samplesheet_rows(state))
         if sheet_errors:
             return json.dumps({"ok": False, "errors": sheet_errors})
+    if pipeline_key == "taxprofiler":
+        host_errors = tax_db.host_removal_problems(merged)
+        if host_errors:
+            return json.dumps({"ok": False, "errors": host_errors})
+    # funcscan screens only what its run_*_screening flags name (all off upstream), so a run
+    # with none set would screen nothing: the screens come from the question.
+    if pipeline_key == "funcscan" and not any(
+            merged.get(f) is True or str(merged.get(f)).strip().lower() == "true"
+            for f in _FUNCSCAN_SCREENS):
+        return json.dumps({"ok": False, "errors": [
+            "funcscan screens nothing unless the question names a screen: set one or more of "
+            f"{', '.join(_FUNCSCAN_SCREENS)} (antimicrobial peptides, resistance genes, "
+            "biosynthetic gene clusters, CAZymes), or ask the user which they want."]})
+
+    # oncoanalyser runs on the Hartwig GRCh38 bundle (human only), in wgts mode: targeted mode
+    # needs panel resources, built in only for TSO500 on GRCh37, and none are configured here.
+    if pipeline_key == "oncoanalyser":
+        onco_genome = luria_run_genome(pipeline_key, merged["genome"]) if merged.get("genome") else None
+        if onco_genome != "GRCh38_hmf":
+            return json.dumps({"ok": False, "error": (
+                "oncoanalyser is human only: it runs on the Hartwig GRCh38 bundle (GRCh38_hmf), "
+                f"and this cohort's genome is {onco_genome or '(none resolved)'}.")})
+        if str(merged.get("mode") or "").strip().lower() == "targeted":
+            return json.dumps({"ok": False, "error": (
+                "oncoanalyser's targeted mode needs a panel's reference data (built in only for "
+                "TSO500, on GRCh37), and no panel is configured for runs here; only wgts runs. "
+                "Exome libraries have no oncoanalyser mode at all.")})
+    if pipeline_key == "scdownstream":
+        refusal = _scdownstream_refusal(merged, agent_params, bundle_key, _samplesheet_rows(state))
+        if refusal:
+            return json.dumps(refusal)
 
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (seqera.pairing).
     # The tools are the run's own (curated defaults included), not only what the model sent.
+    # oncoanalyser: every group needs a tumour, and a sample_type the metadata did not
+    # decide is confirmed the same way (seqera.pairing.group_pairing_question).
     # The confirmation is enforced here, not trusted from the model: it counts only when
     # the user has sent a message since the question was asked, and then holds for this
     # samplesheet (so changing e.g. the aligner does not ask again).
-    if pipeline_key == "sarek":
+    if pipeline_key in ("sarek", "oncoanalyser"):
         asked_at = state.get("pairing_asked_at_user_msgs")
         replied = (tool_input.get("pairing_confirmed") is True and asked_at is not None
                    and _user_msg_count(state) > asked_at)
         confirmed = replied or state.get("pairing_confirmed_for") == samplesheet
-        kind, question = pairing_question(
-            merged.get("tools"), _samplesheet_rows(state),
-            state.get("data_driven_evidence") or {}, confirmed=confirmed)
+        if pipeline_key == "sarek":
+            kind, question = pairing_question(
+                merged.get("tools"), _samplesheet_rows(state),
+                state.get("data_driven_evidence") or {}, confirmed=confirmed)
+        else:
+            kind, question = group_pairing_question(
+                _samplesheet_rows(state), state.get("data_driven_evidence") or {},
+                confirmed=confirmed)
         if not question and replied:
             state["pairing_confirmed_for"] = samplesheet
         if question:
@@ -921,7 +1027,9 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
             if kind == TABLE:
                 state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
             return json.dumps({
-                "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
+                "ok": False,
+                "needs_user_input": ["status" if pipeline_key == "sarek" else "sample_type"],
+                "ask_the_user": question,
                 "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "
                             "configure_run again with pairing_confirmed=true only after they "
                             "confirm the table, or rebuild the samplesheet with their corrections."),
@@ -1028,7 +1136,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         run_genome = luria_run_genome(pipeline_key, run_genome)
     ref_files = (local_luria_ref_files(run_genome, pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
-    n_samples, fetch_accessions = _samplesheet_counts(samplesheet)
+    n_samples, fetch_accessions = _samplesheet_counts(samplesheet, pipeline_key)
     # ENA's FASTQ sizes for the runs the fetchngs pre-stage will download: the estimate names
     # the download's size and, for a large run, leaves it out of the range and says why.
     fetch_sizes = lookup_run_sizes(fetch_accessions) if fetch_accessions else {}
@@ -1044,12 +1152,61 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "launch_yml": result.saved_files.get("launch"),
         # Echo it back to the user before submit: which way round is their call.
         **({"contrasts_written": contrasts_rows} if contrasts_rows else {}),
+        # Echoed so the user sees which databases (and so which classifiers) the run uses.
+        **({"databases_written": databases_rows} if databases_rows else {}),
         **({"user_confirmed": confirmed} if (confirmed := {
             name: next(iter(by_uid.values()))
             for name, by_uid in _user_confirmed(state, pipeline_key, "run_param").items()}) else {}),
         "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
                                              fetch_sizes=fetch_sizes),
     })
+
+
+#: The species nf-core/scdownstream's `species` takes for a cohort's reference bundle. Its
+#: bundled cell-cycle gene lists (assets/cell_cycle_genes/<species>_*.txt) exist for these two
+#: only, and main.nf opens them with checkIfExists while cell_cycle_scoring is on.
+_SCDOWNSTREAM_SPECIES = {"GRCh38": "human", "GRCm39": "mouse"}
+
+
+def _scdownstream_refusal(merged: dict, agent_params: dict, bundle_key: str | None,
+                          rows: list[dict]) -> dict | None:
+    """Why nf-core/scdownstream cannot run as configured (a reply for the agent), or None. Sets
+    merged["species"] from the cohort's species when the agent sent none."""
+    derived = _SCDOWNSTREAM_SPECIES.get(str(bundle_key or ""))
+    sent = agent_params.get("species")
+    if sent in (None, ""):
+        if derived is None and bundle_key:
+            return {"ok": False, "errors": [
+                f"these samples are {bundle_key}, and scdownstream bundles cell-cycle gene lists "
+                "for human and mouse only: send species naming the organism and "
+                "cell_cycle_scoring false, or ask the user for S- and G2M-phase gene files."]}
+        if derived is None:
+            return {"ok": False, "needs_user_input": ["species"], "ask_the_user": (
+                "Which species are these cells from? scdownstream picks its cell-cycle genes and "
+                "gene-symbol lookups by species, and nothing in these samples' metadata says it."),
+                "message": "Relay `ask_the_user` to the user in plain text and STOP."}
+        merged["species"] = derived
+    elif derived and str(sent).strip().lower() != derived:
+        return {"ok": False, "errors": [
+            f"species {sent!r} contradicts the cohort, whose samples are {derived}: leave "
+            "species unset, or ask the user which is right."]}
+    species = str(merged.get("species") or "").strip().lower()
+    if species not in ("human", "mouse") and \
+            str(merged.get("cell_cycle_scoring")).strip().lower() != "false":
+        return {"ok": False, "errors": [
+            f"scdownstream bundles cell-cycle gene lists for human and mouse only, so with species "
+            f"{species or '(none)'} the run aborts unless cell_cycle_scoring is false; set it to "
+            "false, or ask the user for S- and G2M-phase gene files."]}
+    if str(merged.get("ambient_correction") or "soupx") == "soupx":
+        filtered_only = [str(r.get("sample") or "?") for r in rows
+                         if not str(r.get("unfiltered") or "").strip()]
+        if filtered_only:
+            return {"ok": False, "errors": [
+                "ambient_correction soupx needs each sample's unfiltered (raw) matrix, and these "
+                f"samples have none: {', '.join(filtered_only)}. Use decontx, which works from the "
+                "filtered matrix; or none when the matrices were already corrected (an nf-core/"
+                "scrnaseq CellBender matrix, *cellbender_filter_matrix.h5ad)."]}
+    return None
 
 
 def _atacseq_control_errors(with_control: Any, rows: list[dict]) -> list[str]:
@@ -1147,21 +1304,19 @@ def _samplesheet_rows(state: dict) -> list[dict]:
     path = (state.get("artifacts") or {}).get("samplesheet")
     if not path or not Path(path).is_file():
         return []
-    with open(path, newline="") as fh:
-        return list(csv.DictReader(fh))
+    return read_samplesheet(path)
 
 
-def _samplesheet_counts(samplesheet: str | None) -> tuple[int, list[str]]:
+def _samplesheet_counts(samplesheet: str | None, pipeline_key: str = "") -> tuple[int, list[str]]:
     """(rows, accessions still to fetch from SRA) in the built samplesheet; (0, []) when
-    unreadable."""
-    import csv
-
+    unreadable. Only a FASTQ pipeline's rows are ever fetched (input_kinds.fetchable)."""
     from ..luria.fetchngs_helpers import needs_fetch_accessions
     try:
-        with open(samplesheet or "", newline="") as handle:
-            rows = list(csv.DictReader(handle))
+        rows = read_samplesheet(samplesheet or "")
     except OSError:
         return 0, []
+    if pipeline_key and not input_kind(pipeline_key).fetchable:
+        return len(rows), []
     return len(rows), needs_fetch_accessions(rows)
 
 
@@ -1353,9 +1508,13 @@ def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None
 
 def _staged_extra_files(artifacts: dict) -> dict[str, str]:
     """Files configure_run wrote that the run reads by bare name from its folder:
-    {remote name: local path}. Today only the contrasts CSV."""
-    contrasts = artifacts.get("contrasts")
-    return {CONTRASTS_FILENAME: contrasts} if contrasts else {}
+    {remote name: local path}: rnasplice's contrasts CSV and taxprofiler's database sheet."""
+    staged = {}
+    if artifacts.get("contrasts"):
+        staged[CONTRASTS_FILENAME] = artifacts["contrasts"]
+    if artifacts.get("databases"):
+        staged[tax_db.DATABASES_FILENAME] = artifacts["databases"]
+    return staged
 
 
 #: What a failed submit means to the user: (words in the technical reason, the plain reason). First match wins.

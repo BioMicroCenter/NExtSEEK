@@ -88,7 +88,7 @@ def test_shipped_atlas_loads_clean(recwarn):
     out = load_atlas(ATLAS_PATH)
     assert set(out["pipelines"]) == {
         "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice",
-        "rnavar", "riboseq", "denovotranscript", "differentialabundance",
+        "rnavar", "riboseq", "denovotranscript", "differentialabundance", "scdownstream",
     }
     assert [str(w.message) for w in recwarn.list] == []
 
@@ -349,3 +349,49 @@ def test_rnaseq_and_scrnaseq_say_a_sample_barcoded_pool_is_scrnaseq():
 def test_a_one_sample_per_library_3prime_tag_library_stays_rnaseq():
     differs = load_atlas()["pipelines"]["rnaseq"]["versus"]["scrnaseq"]["differs_by"]
     assert "one sample per library" in differs and "stays rnaseq" in differs
+
+
+# --- the third atlas file: pipelines that are neither host RNA nor host DNA ------------------
+
+def test_the_other_atlas_is_one_of_the_merged_files():
+    assert nfcore_atlas.OTHER_ATLAS_PATH in nfcore_atlas.ATLAS_PATHS
+    assert nfcore_atlas.OTHER_ATLAS_PATH.name == "nfcore_other_atlas.json"
+    assert len(set(nfcore_atlas.ATLAS_PATHS)) == len(nfcore_atlas.ATLAS_PATHS)
+
+
+def test_the_other_atlas_guidance_says_what_it_holds_and_reaches_the_merged_guidance():
+    other = _json.loads(nfcore_atlas.OTHER_ATLAS_PATH.read_text())
+    notes = " ".join(other["guidance"]["notes"])
+    for word in ("metagenom", "assembl", "protein", "raw reads"):
+        assert word in notes, word
+    assert set(other["guidance"]["notes"]) <= set(load_atlas()["guidance"]["notes"])
+
+
+def test_a_file_allowed_to_be_empty_loads_and_adds_nothing(tmp_path, monkeypatch):
+    rna = _file(tmp_path, "rna.json", {"rnaseq": {"revision": "3.18.0", "versus": {}}})
+    other = _file(tmp_path, "other.json", {}, notes=("other note",))
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS", (rna, other))
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS_ALLOWED_EMPTY", frozenset({other}))
+    atlas = load_atlas()
+    assert set(atlas["pipelines"]) == {"rnaseq"}
+    assert "other note" in atlas["guidance"]["notes"]
+    assert load_atlas(other)["pipelines"] == {}
+
+
+def test_any_other_file_with_no_pipelines_is_still_refused(tmp_path, monkeypatch):
+    rna = _file(tmp_path, "rna.json", {})
+    other = _file(tmp_path, "other.json", {})
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS", (rna, other))
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS_ALLOWED_EMPTY", frozenset({other}))
+    with pytest.raises(AtlasError, match="non-empty"):
+        load_atlas()
+    with pytest.raises(AtlasError, match="non-empty"):
+        load_atlas(rna)
+
+
+def test_every_atlas_file_is_a_pipeline_scenarios_fingerprint_input():
+    """A recorded selection is valid only for the atlases it saw, so each file the merge
+    reads must be hashed."""
+    from NessieAI.tests.pipeline_scenarios.fingerprint import INPUTS
+    for path in nfcore_atlas.ATLAS_PATHS:
+        assert any(i.endswith("seqera/" + path.name) for i in INPUTS), path.name

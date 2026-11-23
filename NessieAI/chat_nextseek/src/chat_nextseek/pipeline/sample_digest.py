@@ -63,9 +63,12 @@ class DigestError(Exception):
 #: `reads_R1.fastq.gz` classifies on `.fastq` and `analysis.zarr.zip` on `.zarr`.
 _COMPRESSION_SUFFIXES = (".gz", ".bz2", ".zip", ".zst", ".xz")
 
-#: Raw sequencing reads — the input every pipeline in the atlas requires.
+#: Raw sequencing reads — the input most pipelines in the atlas require.
 _RAW_READ_EXTS = frozenset({".fastq", ".fq"})
 _ALIGNED_READ_EXTS = frozenset({".bam", ".cram", ".sam"})
+#: Nucleotide or protein FASTA: an assembly, contigs, several genomes, or proteins. The
+#: other atlas's pipelines take these instead of reads (seqera/input_kinds.py).
+_SEQUENCE_FILE_EXTS = frozenset({".fasta", ".fa", ".fna", ".fas", ".faa"})
 
 #: NExtSEEK spells `DataType` inconsistently across studies — "fastq", "FastQ"
 #: and "FASTQ" all occur within a single cohort — so it is always lowercased
@@ -81,7 +84,9 @@ _INVENTORY_NOTE = (
     "DataType). `asked_about` is the UIDs this cohort was queried with; every "
     "other record counted here is a lineage relative fetched alongside them, so "
     "raw reads listed under `raw_reads` belong to this cohort even when the "
-    "queried UIDs are analysis products. Counts are over distinct UIDs."
+    "queried UIDs are analysis products. `sequence_files` counts nucleotide or "
+    "protein FASTA records (assemblies, contigs, combined genomes, proteins). "
+    "Counts are over distinct UIDs."
 )
 
 
@@ -115,6 +120,8 @@ def _classify_record(meta: dict[str, Any]) -> tuple[str, list[str]]:
         return "raw_reads", filenames
     if extensions & _ALIGNED_READ_EXTS:
         return "aligned_reads", filenames
+    if extensions & _SEQUENCE_FILE_EXTS:
+        return "sequence_files", filenames
 
     data_type = meta.get("DataType")
     data_type = data_type.strip().lower() if isinstance(data_type, str) else ""
@@ -190,7 +197,7 @@ def build_input_inventory(
             "by_sample_type": dict(asked_about.most_common()),
         },
     }
-    for category in ("raw_reads", "aligned_reads", "derived_products"):
+    for category in ("raw_reads", "aligned_reads", "sequence_files", "derived_products"):
         inventory[category] = _tally(buckets.get(category, []))
 
     # Biological-material records (TIS, PAT, RNA ...) carry no file at all, so

@@ -105,6 +105,37 @@
         },
         "smrnaseq": {
           "differs_by": "smrnaseq is a size-selected small-RNA prep with no cell barcodes at all. The two are never confusable once the protocol has been read."
+        },
+        "scdownstream": {
+          "differs_by": "scrnaseq makes the cell-by-gene count matrices from single-cell FASTQ. scdownstream starts from those matrices (A.SCXP in NExtSEEK) and does the QC, ambient RNA and doublet handling, integration across samples, clustering and cell-type annotation. With FASTQ only, scrnaseq comes first; with matrices already registered, scdownstream is the next step.",
+          "ask_user": "Do you need the count matrices made from the sequencing files, or do you already have them and want them QC'd, integrated, clustered and annotated? From reads, scrnaseq makes the matrices first and scdownstream analyses them after."
+        }
+      }
+    },
+    "scdownstream": {
+      "revision": "d9264b35ed88b648baf157d76bd9b261344fb585",
+      "answers": "Starting from single-cell count matrices that already exist: after QC, ambient RNA and doublet handling, which clusters of cells are there across all the samples together, what cell types are they, and which genes mark them or change between conditions?",
+      "assumes_prep": "No sequencing prep: the input is one count matrix per sample (h5ad, h5, rds or csv), usually the A.SCXP an nf-core/scrnaseq run registered, ideally with its raw (unfiltered) matrix beside the cell-filtered one.",
+      "input_you_must_have": "A.SCXP records whose files are reachable on the cluster. Raw matrices for SoupX ambient correction (else decontx or none). For condition or label comparisons, the names of those columns inside each matrix, which NExtSEEK does not record and the user must give.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC SINGLE CELL"
+        ],
+        "prep_kit_hints": [
+          "10x Genomics",
+          "Chromium",
+          "h5ad",
+          "count matrix",
+          "cell barcode"
+        ]
+      },
+      "versus": {
+        "scrnaseq": {
+          "differs_by": "scdownstream does QC, integration, clustering and cell-type annotation from count matrices that already exist (A.SCXP). scrnaseq makes those matrices from single-cell FASTQ and stops there. Running scdownstream needs the matrices first.",
+          "ask_user": "Do you need the count matrices made from the sequencing files, or do you already have them and want them QC'd, integrated, clustered and annotated? From reads, scrnaseq makes the matrices first and scdownstream analyses them after."
         }
       }
     },

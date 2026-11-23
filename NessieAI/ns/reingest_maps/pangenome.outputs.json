@@ -1,0 +1,51 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/pangenome",
+  "applies_to_versions": ">=1.1,<1.2",
+  "accepts_parent_types": ["A.ASM"],
+  "harvest_globs": [],
+  "inventory_globs": [
+    "**/FINAL_GFA/*.gfa",
+    "**/FINAL_ODGI/*.og",
+    "**/odgi_stats/*.og.stats.yaml"
+  ],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "graph",
+      "candidates": [
+        "FINAL_GFA/*.squeeze.unchop.Ygs.view.gfa",
+        "FINAL_GFA/*.gfaffix.unchop.Ygs.view.gfa"
+      ],
+      "sample_type": "A.PANG",
+      "assay": "Pangenome Graph Construction",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [
+        {"glob": "FINAL_ODGI/*.og", "slot": "File_SecondaryData"},
+        {"glob": "odgi_stats/*.og.stats.yaml"},
+        {"glob": "vg_deconstruct/*.vcf"}
+      ],
+      "attributes": {
+        "DataType": "GFA",
+        "Software": "PGGB",
+        "GraphBuilder": "PGGB (wfmash, seqwish, smoothxg, GFAffix, odgi)",
+        "GenomeCount": "$params.n_haplotypes",
+        "Notes": "Final sorted pangenome graph in GFAv1 (FINAL_GFA); its ODGI twin is the secondary file. GenomeCount is the run's n_haplotypes, the PanSN sample#haplotype paths in the graph. With --communities the squeezed graph of all communities is the primary file and each community's graph is listed here."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version"
+  },
+  "qc_attributes": {},
+  "deliberately_unmapped": []
+}

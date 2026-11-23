@@ -37,6 +37,10 @@ _SOFTWARE_VERSIONS_GLOB = "pipeline_info/*software*versions*.yml"  # nf_core_<pi
 # nf-core/differentialabundance 1.5.0 writes the same softwareVersionsToYAML
 # content under this name instead. Read only when the file above is absent.
 _COLLATED_VERSIONS_GLOB = "pipeline_info/collated_versions.yml"
+# A DSL1 release on the nf-core template of its day (nf-core/eager 2.5.3) writes neither: its
+# bin/scrape_software_versions.py leaves `name<TAB>version` lines in this file
+# (parsers.parse_dsl1_software_versions). Read only when both files above are absent.
+_DSL1_VERSIONS_GLOB = "pipeline_info/software_versions.csv"
 _EXECUTION_TRACE_GLOB = "pipeline_info/execution_trace*.txt"
 # the input samplesheet, beside nextflow.config -- ABSENT in nf-core/rnaseq
 # 3.22, which writes no validated samplesheet into the results directory
@@ -100,6 +104,7 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _PARAMS_GLOB,
     _SOFTWARE_VERSIONS_GLOB,
     _COLLATED_VERSIONS_GLOB,
+    _DSL1_VERSIONS_GLOB,
     _EXECUTION_TRACE_GLOB,
     _SAMPLESHEET_GLOB,
     _MULTIQC_TXT_GLOB,
@@ -388,7 +393,14 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     _read_contrasts(out, base, read, sources, warnings)
 
     found = first(_SOFTWARE_VERSIONS_GLOB) or first(_COLLATED_VERSIONS_GLOB)
-    has_versions = found is not None
+    dsl1_found = None if found else first(_DSL1_VERSIONS_GLOB)
+    has_versions = found is not None or dsl1_found is not None
+    if dsl1_found:
+        sources["software_versions"], text = dsl1_found[0], dsl1_found[1]
+        by_process = parsers.parse_dsl1_software_versions(text)
+        out.software_versions = {tool: version for block in by_process.values()
+                                 for tool, version in block.items()}
+        out.software_versions_by_process = by_process
     if found:
         sources["software_versions"], text = found[0], found[1]
         out.software_versions = parsers.parse_software_versions(text)
@@ -407,6 +419,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                 f"{tool}: conflicting versions across processes "
                 f"({', '.join(versions)})")
 
+    if has_versions:
         workflow_block = by_process.get("Workflow", {})
         pipeline_name = next((k for k in workflow_block if k != "Nextflow"), "")
         out.pipeline = manifest.PipelineInfo(
@@ -496,7 +509,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     rows: list[dict] = []
     if sheet:
         candidate_rel, text = sheet
-        candidate_rows = parsers.parse_samplesheet(text)
+        candidate_rows = parsers.parse_samplesheet(text, _sheet_delimiter(candidate_rel))
         if sample_column != "sample":
             # cutandrun's `group`: every reader below names a row by `sample`. The
             # original column stays for `$samplesheet.<column>` and parents_by_samplesheet.
@@ -726,12 +739,17 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     return out
 
 
-def _samplesheet_header(text: str) -> list[str]:
-    """The raw first row of a CSV -- field names, unparsed as data. Used to
+def _samplesheet_header(text: str, delimiter: str = ",") -> list[str]:
+    """The raw first row of a CSV (or TSV) -- field names, unparsed as data. Used to
     check for a `sample` column before trusting a `*.csv` match is the real
     samplesheet, without fully parsing it through `parsers.parse_samplesheet`
     (that happens once the candidate is accepted)."""
-    return next(csv.reader(io.StringIO(text)), [])
+    return next(csv.reader(io.StringIO(text), delimiter=delimiter), [])
+
+
+def _sheet_delimiter(name: str) -> str:
+    """A tab for a `.tsv` samplesheet (nf-core/eager 2.5.3), else a comma."""
+    return "\t" if name.lower().endswith(".tsv") else ","
 
 
 def _read_contrasts(out: manifest.RunManifest, base: Path, read,
@@ -790,16 +808,25 @@ def _find_samplesheet(base: Path, read, sample_column: str = "sample") -> tuple[
             return 0
         if fnmatch.fnmatch(name, "samplesheet*.csv"):
             return 1
+        if name == "samplesheet.tsv":
+            return 3
+        if fnmatch.fnmatch(name, "samplesheet*.tsv"):
+            return 4
         return 2
 
-    candidates = sorted(base.glob(_SAMPLESHEET_GLOB),
-                         key=lambda p: (_priority(p.name), str(p)))
+    # A TSV sheet (nf-core/eager 2.5.3's samplesheet.tsv, staged by _CONTRASTS_TSV_GLOB) is
+    # tried only by a samplesheet name and only after every CSV, so no run that has a CSV
+    # samplesheet reads a different one now.
+    candidates = sorted([*base.glob(_SAMPLESHEET_GLOB),
+                         *(p for p in base.glob(_CONTRASTS_TSV_GLOB)
+                           if fnmatch.fnmatch(p.name, "samplesheet*.tsv"))],
+                        key=lambda p: (_priority(p.name), str(p)))
     for path in candidates:
         rel = str(path.relative_to(base))
         text = read(rel)
         if text is None:
             continue
-        if sample_column not in _samplesheet_header(text):
+        if sample_column not in _samplesheet_header(text, _sheet_delimiter(rel)):
             continue
         return rel, text
     return None

@@ -1,0 +1,65 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "Software"
+   ],
+   "rows": 3,
+   "sample_type": "A.ALN"
+  },
+  "vcf_mitochondria": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.VCF"
+  },
+  "vcf_snv": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.VCF"
+  },
+  "vcf_sv": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.VCF"
+  }
+ },
+ "warnings": [
+  "call_snv/genome/justhusky_snv.vcf.gz: no sample with case_id 'justhusky' (earlycasualcaiman, slowlycivilbuck, hugelymodelbat) resolved to a D.SEQ; the vcf_snv row has no Parent",
+  "call_snv/mitochondria/justhusky_mitochondria.vcf.gz: no sample with case_id 'justhusky' (earlycasualcaiman, slowlycivilbuck, hugelymodelbat) resolved to a D.SEQ; the vcf_mitochondria row has no Parent",
+  "call_sv/justhusky_sv.vcf.gz: no sample with case_id 'justhusky' (earlycasualcaiman, slowlycivilbuck, hugelymodelbat) resolved to a D.SEQ; the vcf_sv row has no Parent"
+ ]
+}

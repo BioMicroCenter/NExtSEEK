@@ -20,7 +20,7 @@ import scripts.context_gen as cg
 
 def test_load_source_reads_every_curated_row():
     rows = cg.load_source(Path("context/sample_types.json"))
-    assert len(rows) == 112
+    assert len(rows) == 119
     assert all("sample_type" in r for r in rows)
 
 
@@ -252,7 +252,7 @@ def _rows_for(table: str) -> list[dict]:
 
 
 def test_update_writes_one_update_and_one_guarded_insert_per_row():
-    for table, expected in (("sample_types", 112), ("assays", 150), ("projects", 21)):
+    for table, expected in (("sample_types", 119), ("assays", 156), ("projects", 21)):
         spec = cg.TABLES[table]
         sql = cg.render_update(table, _rows_for(table))
         assert len(INSERT_RE.findall(sql)) == expected, table
@@ -927,7 +927,7 @@ def test_seed_ddl_declares_the_unique_key_the_upsert_needs():
 
 
 def test_seed_writes_the_ddl_then_one_insert_per_line():
-    for table, expected in (("sample_types", 112), ("assays", 150), ("projects", 21)):
+    for table, expected in (("sample_types", 119), ("assays", 156), ("projects", 21)):
         sql = cg.render_seed(table, _rows_for(table))
         assert sql.startswith("-- ")                      # the header comment
         assert cg.DDL[table] in sql
@@ -1039,7 +1039,7 @@ def test_mappings_render_every_operation_in_the_readme_order():
              ("rename_internal", "create_internal", "map and remap", "merge_internal")]
     assert order == sorted(order)
     assert sql.count("UPDATE `internal_assays`") == 4                  # renames
-    assert sql.count("INSERT INTO `internal_assays`") == 19            # creates
+    assert sql.count("INSERT INTO `internal_assays`") == 25            # creates
     assert sql.count("UPDATE `assays_internal_assays`") == 25 + 39     # maps and remaps
     assert sql.count("DELETE FROM `internal_assays`") == 13            # merges
 
@@ -1186,7 +1186,7 @@ def test_a_mapping_comment_refuses_a_newline_rather_than_emitting_a_statement():
 def test_a_create_is_a_no_op_on_a_second_run():
     rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
     sql = cg.render_update("mappings", rows)
-    assert sql.count("FROM DUAL\n  WHERE NOT EXISTS (SELECT 1 FROM `internal_assays`") == 19
+    assert sql.count("FROM DUAL\n  WHERE NOT EXISTS (SELECT 1 FROM `internal_assays`") == 25
 
 
 def test_the_renames_have_to_run_before_the_creates():
@@ -1236,14 +1236,14 @@ def test_mappings_refuse_a_missing_key_for_a_known_action():
 
 def test_every_new_internal_assay_is_named_by_both_files():
     """context/README.md: a row in assays.json with internal_assay_id null IS a
-    create_internal entry, named identically. 19 each way, so a rename in one
+    create_internal entry, named identically. 25 each way, so a rename in one
     file that misses the other fails here rather than at write time."""
     assays = cg.load_source(cg.TABLES["assays"].source)
     mappings = cg.load_source(cg.TABLES_EXTRA["mappings"])
     cg.check_mapping_consistency(assays, mappings)
     nameless = {r["assay_name"] for r in assays if r.get("internal_assay_id") is None}
     created = {m["internal_assay_title"] for m in mappings if m["action"] == "create_internal"}
-    assert nameless == created and len(created) == 19
+    assert nameless == created and len(created) == 25
 
 
 def test_a_created_internal_assay_with_no_assays_row_is_refused():

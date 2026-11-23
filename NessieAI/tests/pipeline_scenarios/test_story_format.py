@@ -76,8 +76,13 @@ from pathlib import Path
 COHORT_DEFS = Path(__file__).resolve().parents[3] / "scripts" / "pipeline_scenarios" / "cohorts"
 
 
+#: The data sample types a launchable pipeline reads: a cohort's last level is one of them.
+LEAF_SAMPLE_TYPES = {t for e in NFCORE_PIPELINE_CATALOG.values() for t in e.get("accepted_leaf_sample_types", [])}
+
+
 def test_every_test_cohort_has_a_definition_with_a_parent_chain():
-    """Every row below the first level names its parent, a row of an earlier level."""
+    """Every row below the first level names its parent, a row of an earlier level, and the last
+    level is a sample type some pipeline reads (D.SEQ reads, or A.SCXP, A.ASM, D.PSEQ files)."""
     names = set(json.loads(st.TEST_COHORTS.read_text())["cohorts"])
     defined = {p.stem for p in COHORT_DEFS.glob("*.json")}
     assert names == defined, names ^ defined
@@ -90,7 +95,7 @@ def test_every_test_cohort_has_a_definition_with_a_parent_chain():
                     assert row.get("Parent") in known, (path.name, row["Name"])
                 assert row.get("Scientist") == "Nessie Test", (path.name, row["Name"])
             known |= {row["Name"] for row in level["rows"]}
-        assert d["levels"][-1]["sample_type"] == "D.SEQ", path.name
+        assert d["levels"][-1]["sample_type"] in LEAF_SAMPLE_TYPES, path.name
 
 
 def _choosable():

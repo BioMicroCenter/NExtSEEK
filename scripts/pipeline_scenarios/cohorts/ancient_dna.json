@@ -1,0 +1,89 @@
+{
+  "name": "ancient_dna",
+  "description": "Ancient human DNA: shotgun libraries of two archaeological individuals, double-stranded and half-UDG treated (nf-core eager test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-ADNA-ind1-petrous",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Type": "Petrous bone powder",
+          "Tissue": "Bone",
+          "Source": "Archaeological excavation, Bronze Age cemetery, burial 12"
+        },
+        {
+          "Name": "NTC-ADNA-ind2-tooth",
+          "Scientist": "Nessie Test",
+          "Species": "human",
+          "Type": "tooth root (molar)",
+          "Tissue": "tooth",
+          "Source": "Museum collection, archaeological skeletal remains"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-ADNA-lib1",
+          "Parent": "NTC-ADNA-ind1-petrous",
+          "Scientist": "Nessie Test",
+          "LibraryType": "double-stranded, half-UDG",
+          "Protocol": "Dabney silica extraction in a clean room; double-stranded library with half-UDG (USER) treatment",
+          "Lab": "Test Lab",
+          "Barcode": "GATCAGTC"
+        },
+        {
+          "Name": "NTC-ADNA-lib2",
+          "Parent": "NTC-ADNA-ind2-tooth",
+          "Scientist": "Nessie Test",
+          "LibraryType": "double-stranded, half-UDG",
+          "Protocol": "Dabney extraction; double stranded library, partial UDG treatment",
+          "Lab": "Test Lab",
+          "Barcode": "TCAGGATC"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-ADNA-1",
+          "Parent": "NTC-ADNA-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-ADNA-1_R1.fastq.gz, NTC-ADNA-1_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/eager/testdata/Mammoth/fastq/",
+          "SequencingType": "shotgun aDNA",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75,
+          "R_bp": 75
+        },
+        {
+          "Name": "NTC-ADNA-2",
+          "Parent": "NTC-ADNA-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "NTC-ADNA-2_R1.fastq.gz, NTC-ADNA-2_R2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/eager/testdata/Mammoth/fastq/",
+          "SequencingType": "Shotgun ancient DNA",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75,
+          "R_bp": 75
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+[
+ {
+  "path": "esmfold/T1024/T1024_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "esmfold/T1026/T1026_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "esmfold/top_ranked_structures/T1024.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "esmfold/top_ranked_structures/T1026.pdb",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_proteinfold_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reports/test_alphafold2_report.html",
+  "bytes": 0
+ }
+]

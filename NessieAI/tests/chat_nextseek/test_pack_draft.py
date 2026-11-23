@@ -114,3 +114,19 @@ def test_a_truncated_tree_is_an_error_not_a_short_snapshot_list():
     with pytest.raises(ValueError, match="truncated"):
         list_snapshots("sarek", "3.10.0", truncated)
     assert list_snapshots("sarek", "3.10.0", _fetch) == ["tests/default.nf.test.snap"]
+
+
+@pytest.mark.parametrize("properties, kind", [
+    ({"sample": {}, "fastq_1": {}}, "fastq"),
+    ({"sample": {}, "cram": {}}, "bam"),
+    ({"sample": {}, "fasta": {"pattern": r"^\S+\.(fasta|fas|fna|fa)(\.gz)?$"}}, "fasta"),
+    ({"id": {}, "fasta": {"pattern": r"^\S+\.(fa(sta)?|faa|yaml|yml|json)$"}}, "protein_fasta"),
+    ({"sample": {}, "filtered": {"pattern": r"^\S+\.(h5ad|h5|rds|RDS|csv)$"}}, "matrix"),
+    ({"group_id": {}, "filepath": {}}, "other"),
+])
+def test_the_drafted_input_kind_is_a_registered_kind_or_other(properties, kind):
+    from chat_nextseek.seqera.input_kinds import INPUT_KINDS
+    from chat_nextseek.seqera.pack_draft import draft_catalog_row
+    row = draft_catalog_row("toy", "1.0.0", {}, {"items": {"properties": properties}})
+    assert row["samplesheet_input_kind"] == kind
+    assert kind == "other" or kind in INPUT_KINDS

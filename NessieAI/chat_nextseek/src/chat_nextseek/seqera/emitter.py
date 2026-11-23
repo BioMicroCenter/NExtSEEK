@@ -16,6 +16,8 @@ except Exception:  # pragma: no cover
     _HAVE_YAML = False
 
 from .catalog import get_pipeline_entry
+from .input_kinds import (file_from_meta, input_extensions, input_kind, samplesheet_filename,
+                          samplesheet_format)
 from .pipeline_params import refuse_shell_syntax
 from .ena import ENAResolution, ENARun
 from .tower_client import TowerAPIError, TowerClient
@@ -45,6 +47,17 @@ PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "pathogensurveillance": {"sample": "sample_id", "fastq_1": "path", "fastq_2": "path_2"},
     # cutandrun names a sample's group `group`; replicates of one group share it.
     "cutandrun": {"sample": "group"},
+    # eager 2.5.3's TSV (main.nf extract_data): Sample_Name, R1, R2.
+    "eager": {"sample": "Sample_Name", "fastq_1": "R1", "fastq_2": "R2"},
+    # oncoanalyser's long-format sheet names the sample sample_id; its other columns are
+    # written by _oncoanalyser_row, already named.
+    "oncoanalyser": {"sample": "sample_id"},
+    # scdownstream reads a sample's (cell-filtered) matrix from `filtered`; _matrix_split puts
+    # a raw matrix in `unfiltered`.
+    "scdownstream": {"matrix": "filtered"},
+    # proteinfold 2.0.0 names each row's sequence `id` (schema_input.json: fasta, plus id or
+    # sequence); the generic `fasta` path column is already its own name.
+    "proteinfold": {"sample": "id"},
 }
 
 
@@ -249,7 +262,133 @@ PIPELINE_HEADER_PREFIX: dict[str, dict[str, Any]] = {
     # every row to have exactly five fields, so no other column is written.
     "cutandrun": {"columns": ["group", "replicate", "fastq_1", "fastq_2", "control"],
                   "if_used": [], "exact": True},
+    # oncoanalyser 3.0.0 reads its sheet by name (splitCsv with a header), but only these
+    # columns mean anything to it: the agent's own extras (cohort, accession) are left out.
+    "oncoanalyser": {"columns": ["group_id", "subject_id", "sample_id", "sample_type",
+                                 "sequence_type", "filetype", "info", "filepath"],
+                     "if_used": [], "exact": True},
+    # taxprofiler 2.0.1 reads by name (samplesheetToList), but docs/usage.md "Full
+    # samplesheet" makes "a strict requirement for the first 6 columns": these, in order.
+    "taxprofiler": {"columns": ["sample", "run_accession", "instrument_platform", "fastq_1",
+                                "fastq_2", "fasta"],
+                    "if_used": []},
+    # eager 2.5.3: main.nf extract_data needs these eleven columns and refuses a row with any
+    # other number of fields (checkNumberOfItem(row, 11)).
+    "eager": {"columns": ["Sample_Name", "Library_ID", "Lane", "Colour_Chemistry", "SeqType",
+                          "Organism", "Strandedness", "UDG_Treatment", "R1", "R2", "BAM"],
+              "if_used": [], "exact": True},
 }
+
+# Columns a row fills from its own other cells when it has no value: {pipeline: {column:
+# (source column, ...)}}, the first non-blank source wins. taxprofiler requires a
+# run_accession per row (assets/schema_input.json); a D.SEQ is one run, named by its archive
+# accession when it has one, else by the sample id again (docs/usage.md: "Can also supply
+# sample name again here, if only a single run was generated"). An experiment accession
+# that downloads as several runs gets each run's own accession in fetchngs_helpers.fill_rows.
+PIPELINE_COLUMN_FILLS: dict[str, dict[str, tuple[str, ...]]] = {
+    "taxprofiler": {"run_accession": ("accession", "sample")},
+    # eager 2.5.3: one library per D.SEQ unless the agent names one, so Library_ID is the UID
+    # (its dedup BAM is then <UID>_rmdup.bam, which reingest attributes to the sample).
+    "eager": {"Library_ID": ("sample",)},
+}
+
+# Columns that say whether a row is paired-end, read off the reads the resolver found (never
+# what the agent wrote): {pipeline: (column, paired value, single value)}. eager 2.5.3's SeqType
+# is PE or SE (main.nf extract_data).
+PIPELINE_READ_LAYOUT_COLUMN: dict[str, tuple[str, str, str]] = {
+    "eager": ("SeqType", "PE", "SE"),
+}
+
+# Cells written as a placeholder when the row has nothing in them, by column after the alias
+# renames: eager 2.5.3 exits on any empty cell and takes "NA" for an unused one (R2 of a
+# single-end library, BAM for FASTQ input, Organism, which it does not use).
+PIPELINE_BLANK_CELLS: dict[str, dict[str, str]] = {
+    "eager": {"R2": "NA", "BAM": "NA", "Organism": "NA"},
+}
+
+
+def _apply_read_layout(row: dict[str, Any], pipeline: str) -> dict[str, Any]:
+    layout = PIPELINE_READ_LAYOUT_COLUMN.get(pipeline)
+    if layout:
+        column, paired, single = layout
+        row[column] = paired if str(row.get("fastq_2") or "").strip() else single
+    return row
+
+
+def _fill_blank_cells(row: dict[str, Any], pipeline: str) -> dict[str, Any]:
+    for column, placeholder in (PIPELINE_BLANK_CELLS.get(pipeline) or {}).items():
+        if not str(row.get(column) if row.get(column) is not None else "").strip():
+            row[column] = placeholder
+    return row
+
+
+def _apply_column_fills(row: dict[str, Any], pipeline: str) -> dict[str, Any]:
+    for column, sources in (PIPELINE_COLUMN_FILLS.get(pipeline) or {}).items():
+        if str(row.get(column) or "").strip():
+            continue
+        value = next((str(row[s]).strip() for s in sources if str(row.get(s) or "").strip()), "")
+        if value:
+            row[column] = value
+    return row
+
+
+# --- long-format sheets ---------------------------------------------------------------------
+#
+# nf-core/oncoanalyser 3.0.0 takes one row per input FILE, not per sample (assets/schema_input.json,
+# docs/usage.md "Samplesheet"). Every leaf here is a D.SEQ with one FASTQ pair, so each sample is
+# still one row: filetype "fastq", both reads in filepath separated by ";", and the info field
+# its lib/Utils.groovy parseInput requires for FASTQ (library_id and lane). It aligns only
+# gzipped, paired-end FASTQ, so a single-end sample is refused rather than written half.
+_LANE_TOKEN = re.compile(r"_L(\d{3})(?:[_.]|$)")
+
+
+def _oncoanalyser_row(row: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """(the long-format row, a problem or ''). `row` carries the agent's sample, group_id,
+    subject_id, sample_type and sequence_type, and the fastq_1/fastq_2 the resolver found."""
+    uid = str(row.get("sample") or "")
+    r1, r2 = str(row.get("fastq_1") or ""), str(row.get("fastq_2") or "")
+    out = {k: v for k, v in row.items() if k not in ("fastq_1", "fastq_2")}
+    if not str(out.get("subject_id") or "").strip():
+        out["subject_id"] = out.get("group_id") or ""
+    if r1 and not r2:
+        return out, (f"row {uid!r}: oncoanalyser aligns paired-end FASTQ only, and this sample "
+                     "has one read file. Leave it out.")
+    if r1:
+        lane = _LANE_TOKEN.search(r1.rsplit("/", 1)[-1])
+        out.update(filetype="fastq", filepath=f"{r1};{r2}",
+                   info=f"library_id:{uid};lane:{lane.group(1) if lane else '001'}")
+    return out, ""
+
+
+PIPELINE_ROW_BUILDERS = {"oncoanalyser": _oncoanalyser_row}
+
+
+# --- matrix pairs ---------------------------------------------------------------------------
+#
+# nf-core/scdownstream takes a sample's cell-filtered matrix and, for ambient RNA correction, its
+# raw (unfiltered, empty droplets kept) matrix too. An nf-core/scrnaseq A.SCXP row carries both:
+# the filtered matrix and the raw one as its companion. Which is which is read off the file name
+# (scrnaseq's `*_raw_matrix.h5ad`, Cell Ranger's `raw_feature_bc_matrix.h5`).
+PIPELINE_UNFILTERED_COLUMN: dict[str, str] = {"scdownstream": "unfiltered"}
+_RAW_MATRIX = re.compile(r"(^|[_.-])(raw|unfiltered)([_.-]|$)", re.I)
+
+
+def _matrix_split(meta: Mapping[str, Any], extensions: Sequence[str]) -> tuple[str, str]:
+    """(filtered, unfiltered) matrix paths from a sample's metadata, '' where absent. Local
+    absolute paths win, as in file_from_meta."""
+    wanted = tuple(e.lower() for e in extensions)
+    found: list[str] = []
+    for key, val in (meta or {}).items():
+        if any(h in str(key).lower() for h in _NON_PATH_NAME_HINTS):
+            continue
+        for part in str(val or "").split(";"):
+            p = part.strip()
+            if "/" in p and p.lower().endswith(wanted) and p not in found:
+                found.append(p)
+    found.sort(key=lambda p: 0 if p.startswith("/") else 1)
+    raw = [p for p in found if _RAW_MATRIX.search(p.rsplit("/", 1)[-1])]
+    cells = [p for p in found if p not in raw]
+    return (cells[0] if cells else ""), (raw[0] if raw else "")
 
 
 def sanitize_sample_id(value: str, pattern: str) -> str:
@@ -314,7 +453,7 @@ def _remap_row_for_pipeline(row: Mapping[str, Any], pipeline: str) -> dict[str, 
         for k, v in row.items():
             out[aliases.get(k, k)] = v
     # After the rename, so the rule can name the column the pipeline actually reads.
-    return _apply_sample_id_rule(out, pipeline)
+    return _fill_blank_cells(_apply_sample_id_rule(out, pipeline), pipeline)
 
 
 @dataclass
@@ -326,6 +465,13 @@ class EmissionResult:
     notes: list[str] = field(default_factory=list)
     launch_entry: dict[str, Any] | None = None
     fetchngs_launch_entry: dict[str, Any] | None = None
+    #: Samples of a file input kind (FASTA, matrix) whose metadata holds no usable path to
+    #: that file. Their rows are written with the column blank; write_samplesheet refuses
+    #: the build, because no download can stand in for an assembly or a matrix.
+    missing_input_files: list[str] = field(default_factory=list)
+    #: Rows a pipeline's row builder could not write as the pipeline needs them (a single-end
+    #: sample for oncoanalyser), one message each; write_samplesheet refuses the build.
+    row_errors: list[str] = field(default_factory=list)
 
 
 def _yaml_dump(data: Any) -> str:
@@ -527,8 +673,10 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as fh:
         # lineterminator="\n": csv defaults to CRLF, which leaves a stray \r on the last
-        # column; nf-core samplesheets want plain LF.
-        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore", lineterminator="\n")
+        # column; nf-core samplesheets want plain LF. A .tsv name is written tab-separated
+        # (a `samplesheet_format: tsv` catalog entry).
+        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore", lineterminator="\n",
+                                delimiter="\t" if path.suffix.lower() == ".tsv" else ",")
         writer.writeheader()
         for row in rows:
             writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
@@ -910,6 +1058,11 @@ def emit_nfcore_artifacts(
     # a different resolver, and no ENA/fetchngs fallback — you cannot download a
     # FASTQ to stand in for the BAM you were asked to convert.
     is_alignment_input = entry.get("samplesheet_input_kind") == "bam"
+    # A file kind (assembly or protein FASTA, expression matrix, one combined FASTA) takes
+    # one file per row in the kind's path column: no reads, no ENA fan-out, no fetch.
+    kind = input_kind(entry)
+    file_column = kind.path_column
+    file_exts = input_extensions(entry)
 
     # Build a deterministic accession → ENA URL map. Run accessions are 1:1.
     # For experiment/study/biosample/biosample-prefixed accessions that resolve
@@ -942,6 +1095,31 @@ def emit_nfcore_artifacts(
         # Curated local fastq metadata: keyed by leaf UID (path-only samples) or accession.
         sample_meta = (accession_metadata.get(uid)
                        or (accession_metadata.get(acc_str) if acc_str else None) or {})
+        if file_column:
+            rewritten = dict(row)
+            rewritten.pop("fastq_1", None)
+            rewritten.pop("fastq_2", None)
+            # A path the agent supplied explicitly wins over the resolver, as for a BAM.
+            unfiltered_column = PIPELINE_UNFILTERED_COLUMN.get(pipeline)
+            if unfiltered_column:
+                # A raw matrix beside the filtered one goes to its own column; a sample
+                # with only the raw matrix still runs (the pipeline calls the cells).
+                filtered, raw = _matrix_split(sample_meta, file_exts)
+                path = str(rewritten.get(file_column) or "") or filtered
+                rewritten[unfiltered_column] = str(rewritten.get(unfiltered_column) or "") or raw
+                has_file = bool(path or rewritten[unfiltered_column])
+            else:
+                path = str(rewritten.get(file_column) or "") or file_from_meta(sample_meta, file_exts)
+                has_file = bool(path)
+            rewritten[file_column] = path
+            if not has_file:
+                result.missing_input_files.append(uid or acc_str or "?")
+            for field_name in enrichment:
+                value = sample_meta.get(field_name)
+                rewritten[field_name] = "" if value is None else value
+            cohort_rows.append(dict(rewritten))
+            keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+            continue
         if is_alignment_input:
             # No ENA fan-out and no fetch fallback: the input IS the alignment. An
             # accession here identifies the archived run, not a substitute for the BAM.
@@ -989,15 +1167,30 @@ def emit_nfcore_artifacts(
             rewritten["accession"] = acc_str
         rewritten["fastq_1"] = _fastq_from_meta(sample_meta, "primary")
         rewritten["fastq_2"] = _fastq_from_meta(sample_meta, "secondary")
+        if not rewritten["fastq_1"] and samplesheet_format(entry) == "tsv":
+            # fetchngs_helpers.py fill edits samplesheet.csv only, so a TSV sheet's reads cannot be
+            # downloaded on the cluster (the submitter refuses such a run): stop at
+            # write_samplesheet instead of writing a row with no reads.
+            result.missing_input_files.append(uid or acc_str or "?")
         for field in enrichment:
             value = sample_meta.get(field)
             rewritten[field] = "" if value is None else value
+        rewritten = _apply_read_layout(_apply_column_fills(rewritten, pipeline), pipeline)
         # Captured before _apply_platform_columns, which — for genomeassembler —
         # unconditionally pops fastq_1/fastq_2 (PIPELINE_PLATFORM_COLUMNS is truthy
         # for every row regardless of detected platform), not just when a platform
         # mapping actually renamed them. Capturing after it left every genomeassembler
         # cohort entry with a blank fastq_1.
         cohort_rows.append(dict(rewritten))
+        builder = PIPELINE_ROW_BUILDERS.get(pipeline)
+        if builder:
+            # A long-format sheet has no fastq_1 column for the fetch step to fill, so a
+            # sample with no local FASTQ cannot be downloaded into it.
+            if not rewritten.get("fastq_1"):
+                result.missing_input_files.append(uid or acc_str or "?")
+            rewritten, problem = builder(rewritten)
+            if problem:
+                result.row_errors.append(problem)
         # Platform-dependent columns come BEFORE the static alias map: the alias map
         # is keyed on the standard names, and this may have renamed them away.
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
@@ -1008,7 +1201,7 @@ def emit_nfcore_artifacts(
 
     columns = _positional_columns(pipeline, keep_rows,
                                   _ensure_columns(keep_rows, required, enrichment))
-    samplesheet_path = out_path / "samplesheet.csv"
+    samplesheet_path = out_path / samplesheet_filename(entry)
     _write_csv(samplesheet_path, keep_rows, columns)
     # cohort.json sidecar: the only surviving record of which D.SEQ sample each
     # nf-core row came from (see _write_cohort_sidecar). Built from cohort_rows,

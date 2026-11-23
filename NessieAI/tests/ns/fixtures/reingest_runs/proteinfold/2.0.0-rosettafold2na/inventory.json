@@ -1,0 +1,42 @@
+[
+ {
+  "path": "multiqc/multiqc_data",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_proteinfold_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "reports/test_alphafold2_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "rosettafold2na/rf2na_input/chain_map.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "rosettafold2na/rna_complex/paes/rna_complex_0_pae.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "rosettafold2na/rna_complex/rna_complex_plddt.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "rosettafold2na/rna_complex/rna_complex_rosettafold2na_msa.tsv",
+  "bytes": 0
+ },
+ {
+  "path": "rosettafold2na/top_ranked_structures/rna_complex.pdb",
+  "bytes": 0
+ }
+]

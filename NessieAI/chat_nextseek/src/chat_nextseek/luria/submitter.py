@@ -4,8 +4,9 @@ Reads chat_nextseek's emitted launch.yml (the same file the Tower path reads),
 renders a run.sh per launch entry, and stages four files into a per-run remote
 directory: run.sh, luria.config (local reference-genome map, passed via -c),
 params.yml (curated per-pipeline params, passed via -params-file), and
-samplesheet.csv, plus any file configure_run wrote that the run reads by name
-(rnasplice's contrasts.csv). CLI flags in run.sh (--input/--outdir/--genome) override
+the samplesheet (samplesheet.csv, or samplesheet.tsv for a catalog entry whose
+samplesheet_format is tsv), plus any file configure_run wrote that the run reads by name
+(rnasplice's contrasts.csv, taxprofiler's databases.csv). CLI flags in run.sh (--input/--outdir/--genome) override
 params.yml. Then `sbatch`es it over SSH. Returns one ref dict per submitted run
 (SLURM job id + remote dir + log path).
 """
@@ -30,6 +31,7 @@ from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from .status_labels import STATUS_DIR, STATUS_README, launched_label
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+from ..seqera.input_kinds import input_kind, read_samplesheet, run_input, samplesheet_filename
 from ..seqera.pipeline_params import refuse_shell_syntax
 
 log = logging.getLogger(__name__)
@@ -134,15 +136,32 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     return runs
 
 
-def _sheet_fetch_accessions(sheet_path: str) -> list[str]:
-    """The SRA/ENA accessions the staged samplesheet asks to fetch (its blank-fastq rows)."""
-    import csv
+def _sheet_fetch_accessions(sheet_path: str, entry: dict | None = None,
+                            catalog_key: str = "") -> list[str]:
+    """The SRA/ENA accessions the staged samplesheet asks to fetch (its blank-fastq rows).
+    Only a FASTQ sheet is ever fetched for: a FASTA, matrix or BAM row has no fastq_1, and its
+    accession names the archived record, not reads to download in its place. A read column the
+    pipeline renames (eager's R1) is read under its generic name, fastq_1."""
+    if entry is not None and not input_kind(entry).fetchable:
+        return []
     try:
-        with open(sheet_path, newline="") as fh:
-            rows = list(csv.DictReader(fh))
+        rows = read_samplesheet(sheet_path)
     except OSError:
         return []
+    from ..seqera.emitter import PIPELINE_COLUMN_ALIASES
+    renamed = {actual: generic for generic, actual in
+               (PIPELINE_COLUMN_ALIASES.get(catalog_key) or {}).items()
+               if generic in ("fastq_1", "fastq_2")}
+    if renamed:
+        rows = [{renamed.get(k, k): v for k, v in row.items()} for row in rows]
     return needs_fetch_accessions(rows)
+
+
+def _input_column(catalog_key: str, entry: dict) -> str | None:
+    """The sheet column holding a single-file kind's path, after the pipeline's alias."""
+    from ..seqera.emitter import PIPELINE_COLUMN_ALIASES
+    generic = input_kind(entry).path_column
+    return (PIPELINE_COLUMN_ALIASES.get(catalog_key) or {}).get(generic, generic) if generic else None
 
 
 # The Luria calls made after sbatch are bookkeeping; a stalled shared filesystem must not hold
@@ -195,12 +214,18 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         reasons.append(f"entry {name!r} missing pipeline/revision")
         return None
 
+    # The catalog entry decides the sheet's name (samplesheet.csv or .tsv), what run.sh passes
+    # as --input, whether blank rows may be downloaded, and the Nextflow release to run on.
+    catalog_key = pipeline_catalog_key(pipeline)
+    catalog_entry = NFCORE_PIPELINE_CATALOG.get(catalog_key) or {}
+    sheet_name = samplesheet_filename(catalog_entry)
+
     # Local samplesheet: prefer the explicit path from state; the params.yml the Tower
     # emitter writes points input at a bucket path, so we never trust it here. Fall back
-    # to a samplesheet.csv co-located with the launch.yml.
+    # to the samplesheet co-located with the launch.yml.
     local_sheet = samplesheet_local
     if not local_sheet or not Path(local_sheet).exists():
-        candidate = parent / "samplesheet.csv"
+        candidate = parent / sheet_name
         if candidate.exists():
             local_sheet = str(candidate)
     if not local_sheet or not Path(local_sheet).exists():
@@ -226,8 +251,22 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # and -c luria.config (genomes map for --genome identity + any per-protocol process ext.args
     # the pipeline JSON declares). Stage run.sh + luria.config + params.yml + sheet.
     refs_root = f"{working}/refs"
-    accessions = _sheet_fetch_accessions(local_sheet)
+    accessions = _sheet_fetch_accessions(local_sheet, catalog_entry, catalog_key)
     needs_fetch = bool(accessions)
+    if needs_fetch and sheet_name != "samplesheet.csv":
+        # fetchngs_helpers.py fill rewrites samplesheet.csv on the cluster and nothing else.
+        print(f"[LURIA][SUBMIT] entry {name!r}: {len(accessions)} row(s) need a download, "
+              f"which only a samplesheet.csv supports")
+        reasons.append(f"entry {name!r}: {len(accessions)} sample(s) have no local FASTQ and "
+                       f"would need a download, which the run's {sheet_name} does not support yet")
+        return None
+    try:
+        input_arg = run_input(catalog_entry, local_sheet, _input_column(catalog_key, catalog_entry))
+    except (OSError, ValueError) as exc:
+        print(f"[LURIA][SUBMIT] entry {name!r}: no usable input: {exc}")
+        reasons.append(f"entry {name!r}: no usable input: {exc}")
+        return None
+    nextflow_version = catalog_entry.get("nextflow_version")
     fastq_cache = f"{working}/fastq_cache"
     fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
     # One validated allocation fills both run.sh's #SBATCH -n/--mem and luria.config's
@@ -237,21 +276,22 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # Which of --genome/--fasta/--gtf this pipeline's schema declares (catalog field);
     # nf-schema rejects or warns on an unrecognised param, depending on the pipeline's
     # validation settings, so they cannot all be passed to every run.
-    ref_flags = (NFCORE_PIPELINE_CATALOG.get(pipeline_catalog_key(pipeline)) or {}).get(
-        "reference_cli_flags")
+    ref_flags = catalog_entry.get("reference_cli_flags")
     try:
         run_sh = render_run_script(
             job_name=safe, pipeline=pipeline, revision=revision, run_dir=remote_run_dir,
             work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=res,
             refs_root=refs_root, aligner=(launch_params or {}).get("aligner"), working=working,
             needs_fetch=needs_fetch, fastq_cache=fastq_cache, fetchngs_revision=fetchngs_rev,
-            reference_cli_flags=ref_flags,
+            reference_cli_flags=ref_flags, input_arg=input_arg,
+            nextflow_version=nextflow_version,
         )
         run_tmp = _write_temp(run_sh, prefix="run_", suffix=".sh"); tmp_files.append(run_tmp)
         # luria.config = genomes map + executor limits + any curated per-protocol process ext.args
         # (its 'protocol_process_args'); process_args comes from the pipeline JSON via
         # tool_submit_to_luria.
-        luria_config = (render_luria_config(refs_root, resources=res)
+        luria_config = (render_luria_config(refs_root, resources=res,
+                                            nextflow_version=nextflow_version)
                         + render_process_config(process_args))
         cfg_tmp = _write_temp(luria_config, prefix="luriacfg_", suffix=".config")
         tmp_files.append(cfg_tmp)
@@ -265,7 +305,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         scp_file(luria_env, run_tmp, f"{remote_run_dir}/run.sh", key_path=key_path)
         scp_file(luria_env, cfg_tmp, f"{remote_run_dir}/luria.config", key_path=key_path)
         scp_file(luria_env, params_tmp, f"{remote_run_dir}/params.yml", key_path=key_path)
-        scp_file(luria_env, local_sheet, f"{remote_run_dir}/samplesheet.csv", key_path=key_path)
+        scp_file(luria_env, local_sheet, f"{remote_run_dir}/{sheet_name}", key_path=key_path)
         for remote_name, local_path in (extra_files or {}).items():
             scp_file(luria_env, local_path, f"{remote_run_dir}/{remote_name}", key_path=key_path)
         if needs_fetch:
