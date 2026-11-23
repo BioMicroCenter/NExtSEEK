@@ -3258,6 +3258,46 @@ class GraphSyncStatusResponse(BaseModel):
 # keep this file from growing further; imported here so Django discovers it.
 from nextseek_api.assay_registration.models_db import AssayRegistrationJob  # noqa: E402,F401
 
+# ---------------------------------------------------------------------------
+# Definitions export (nextseek_api/services/definitions_export.py)
+# ---------------------------------------------------------------------------
+
+class DefinitionsObservedConnection(BaseModel):
+    """An (assay, parent type, child type) triple seen on a DERIVED_FROM edge; the shape the ETL's export used."""
+    assay: str
+    parent_type: Optional[str] = None
+    child_type: Optional[str] = None
+
+
+class DefinitionsLicensedConnection(BaseModel):
+    """A connection an assay definition allows (designed), one seen in data (observed), or both. No counts."""
+    parent: str
+    assay: str
+    child: str
+    designed: bool
+    observed: bool
+    parent_clade: Optional[str] = None
+    child_clade: Optional[str] = None
+
+
+class DefinitionsNeedingRows(BaseModel):
+    sample_types: List[str] = Field(default_factory=list, description="SEEK sample types with no context row")
+    assays: List[str] = Field(default_factory=list, description="Internal assays no assay_context row names")
+
+
+class DefinitionsExportResponse(BaseModel):
+    """The whole sample type and assay catalog in one call: the two context tables as stored (their live columns kept
+    current by graph_sync's context step), the connections, every attribute and the graph's catalog stamp."""
+    exported_at: str
+    sample_types: List[Dict[str, Any]] = Field(description="dmac.sample_types_context rows, by sample_type, no id")
+    assays: List[Dict[str, Any]] = Field(description="dmac.assay_context rows, by id, no id")
+    connections: List[DefinitionsObservedConnection]
+    licensed_connections: List[DefinitionsLicensedConnection]
+    attributes: List[Dict[str, Any]] = Field(description="every Attribute of every SampleType in the graph")
+    graph_meta: Dict[str, Any]
+    needs_definition: DefinitionsNeedingRows
+
+
 # The graph_sync outbox and run record (nextseek_api/graph_sync/models_db.py); imported here so Django discovers them.
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun, SampleTypeConnectionRow  # noqa: E402,F401
 

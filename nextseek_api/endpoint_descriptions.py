@@ -1603,3 +1603,30 @@ SAMPLE_SHARE_APPLY_DESC = (
     "**EXAMPLES:**\n"
     "- 'Apply share 3f1c... with its plan sha.'\n"
 )
+
+
+DEFINITIONS_EXPORT_DESC = (
+    "**SUMMARY:** Export the whole sample type and assay catalog in one call: every definition row, the connections "
+    "between sample types, every attribute and the graph's catalog stamp.\n\n"
+    "**USE WHEN:** A tool or a person needs the current definitions as one JSON document (the ETL ingestor, a "
+    "curator reviewing definitions, a snapshot of the catalog into git). The catalog is the same for every user, so "
+    "nothing is scoped by project.\n\n"
+    "**DO NOT USE WHEN:** You need samples or counts (this holds definitions only), or connections inside one "
+    "investigation or project (use `GET /nextseek_api/sample_types/connections/`).\n\n"
+    "**ACCEPTS:** No parameters.\n\n"
+    "**RETURNS:** `sample_types` (dmac.sample_types_context rows, by code), `assays` (dmac.assay_context rows), "
+    "`connections` (assay, parent type, child type triples seen in data), `licensed_connections` (each triple with "
+    "`designed` true when an assay definition allows it and `observed` true when data shows it, plus both clades; no "
+    "counts), `attributes` (every Attribute of every SampleType in the graph), `graph_meta` (schema version, "
+    "catalog hash, last sync) and `needs_definition` (SEEK sample types and internal assays with no definition row). "
+    "The derived columns of each row (ids, clade, metadata lists, parent, child and assay lists) are kept current by "
+    "graph_sync's context step: seconds after a write NExtSEEK makes, by the next nightly sync after an edit in "
+    "SEEK's own pages.\n\n"
+    "**ERROR CODES:** 401 without a login; 502 when the graph cannot be read.\n\n"
+    "**TRIGGER PHRASES:** export definitions, sample type catalog, assay catalog, definitions JSON, connections "
+    "between sample types, which assays make which sample types\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Export every sample type and assay definition'\n"
+    "- 'Which sample types can BAC be the parent of, by design and in data?'\n"
+    "- 'Which internal assays still need a definition?'\n"
+)

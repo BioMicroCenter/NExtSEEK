@@ -206,11 +206,13 @@ def test_the_scan_prints_every_site_it_found():
 def test_the_curated_assay_catalog_is_a_graph_source_and_its_writers_are_declared():
     """Graph schema 1.3 writes dmac.assay_context onto the Assay nodes, so its four writer sites are declared: the
     installer's seed and the script that regenerates it (WR-19), the held curated seed and context_gen's relink
-    statement (WR-21)."""
+    statement (WR-21), and graph_sync's context step, which keeps the derived internal_assay_id (WR-36)."""
     assert "assay_context" in writers.GRAPH_SOURCE_TABLES
     found = {site for site, s in writer_scan.scan(ROOT).items() if "assay_context" in s.tables}
     assert found == {"startup/seed/sql/assay_context.sql", "scripts/generate_assay_context_seed.py::main",
-                     "startup/seed/sql/assay_context.curated.sql", "scripts/context_gen.py::<module>"}
+                     "startup/seed/sql/assay_context.curated.sql", "scripts/context_gen.py::<module>",
+                     "nextseek_api/graph_sync/context_derived.py::write"}
+    assert writers.DECLARED_SITES.get("nextseek_api/graph_sync/context_derived.py::write") == "WR-36"
     assert {s for s in found if writers.DECLARED_SITES.get(s) == "WR-19"} == {
         "startup/seed/sql/assay_context.sql", "scripts/generate_assay_context_seed.py::main"}
     assert {s for s in found if writers.DECLARED_SITES.get(s) == "WR-21"} == {

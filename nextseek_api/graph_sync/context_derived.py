@@ -169,23 +169,19 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
     id_by_title: dict[str, int] = {}
     for r in sorted(internal_assays, key=lambda r: r["id"]):
         id_by_title.setdefault(r["internal_assay_title"], r["id"])
-    mismatch, linked = [], set()
+    mismatch = []
     for a in assay_rows:
         cur = a.get("internal_assay_id")
         if cur in title_by_id:
-            linked.add(cur)
             if title_by_id[cur] != a["assay_name"]:
                 mismatch.append({"assay_name": a["assay_name"], "internal_assay_id": cur,
                                  "internal_assay_title": title_by_id[cur]})
             continue
         new = id_by_title.get(a["assay_name"])
-        if new is not None:
-            linked.add(new)
         if new != cur:
             out.assays[a["id"]] = {"internal_assay_id": new}
             changed["internal_assay_id"] += 1
 
-    codes = {r["sample_type"] for r in context_rows}
     out.report = {
         "changed_cells": dict(changed),
         "rows_changed": {"sample_types": len(out.sample_types), "assays": len(out.assays)},
@@ -195,13 +191,21 @@ def derive(*, context_rows, assay_rows, seek_types, seek_attributes, type_clades
         "no_seek_type": sorted(no_seek_type),
         "unknown_codes": sorted(unknown),
         "assay_title_mismatch": mismatch,
-        "needs_definition": {
-            "sample_types": sorted(set(seek_id) - codes),
-            "assays": sorted(t for i, t in title_by_id.items() if i not in linked
-                             and t not in {a["assay_name"] for a in assay_rows}),
-        },
+        "needs_definition": needs_definition(seek_id, context_rows, internal_assays,
+                                             [{**a, **out.assays.get(a["id"], {})} for a in assay_rows]),
     }
     return out
+
+
+def needs_definition(seek_titles, context_rows, internal_assays, assay_rows) -> dict:
+    """The SEEK sample types with no context row, and the internal assays no assay_context row names (by id or by
+    title): what the admin page lists as needing a definition."""
+    codes = {r["sample_type"] for r in context_rows}
+    ids = {a.get("internal_assay_id") for a in assay_rows}
+    names = {a["assay_name"] for a in assay_rows}
+    return {"sample_types": sorted(set(seek_titles) - codes),
+            "assays": sorted(r["internal_assay_title"] for r in internal_assays
+                             if r["id"] not in ids and r["internal_assay_title"] not in names)}
 
 
 # --- the writer ---------------------------------------------------------------------------------------------------

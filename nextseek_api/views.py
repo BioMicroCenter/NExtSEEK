@@ -59,6 +59,7 @@ from .services.assistant import AssistantViewSet
 from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
+from .services.definitions_export import DefinitionsExportViewSet
 from .services.project_export import ProjectExportViewSet
 from .services.graph_sync_status import GraphSyncStatusViewSet
 from .services.nessie import NessieChatViewSet, NessieViewSet

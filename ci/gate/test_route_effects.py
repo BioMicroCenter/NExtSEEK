@@ -40,6 +40,7 @@ SAMPLE_SEARCH_PAGE = r"^seek/^search/"
 NOT_ENTERED_BY_A_ROUTE = frozenset({
     "WR-16",   # manage.py backfill_publication_attributes --apply
     "WR-12",   # the legacy sheet upload: its route is retired; the view is reached only by tests
+    "WR-36",   # graph_sync's context step: manage.py graph_sync --loop drains a context row, or --context by hand
 })
 
 # The tripwire's bounds. Depth is how many calls it follows from a view, and

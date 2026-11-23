@@ -41,6 +41,7 @@ router.register(r"sampletypes", views.SampleTypeChildrenViewSet, basename="sampl
 router.register(r"samples", views.SampleViewSet, basename="samples")
 router.register(r"schema_rag", views.SchemaRAGViewSet, basename="schema-rag")
 router.register(r"entity_tree", views.EntityTreeViewSet, basename="entity-tree")
+router.register(r"definitions", views.DefinitionsExportViewSet, basename="definitions")
 router.register(r"batch-upload", views.BatchUploadViewSet, basename="batch-upload")
 router.register(r"assistant", views.AssistantViewSet, basename="assistant")
 # Additive: router + Container-Claude-Code assistant (does NOT replace assistant).

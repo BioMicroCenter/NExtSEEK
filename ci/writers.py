@@ -519,6 +519,15 @@ WRITERS: tuple[Writer, ...] = (
            hook_site=("nextseek_api/services/reingest_assays.py::_sync",),
            note="upload-reingest's missing study assay: SEEK commits the assay, the row tagging it with its house "
                 "assay follows, and every path (created, adopted, or unconfirmed by SEEK) queues assay_map and isa"),
+    Writer(id="WR-36",
+           sites=("nextseek_api/graph_sync/context_derived.py::write",),
+           tables=("sample_types_context", "assay_context"),
+           how=("sql",),
+           hook="hooks.enqueue",
+           hook_site=("nextseek_api/graph_sync/context_derived.py::sync_context",),
+           note="graph_sync's context step: only the derived columns (ids, clade, metadata membership, the four "
+                "connection lists, internal_assay_id), never a hand column or a row; queues catalog when a column "
+                "the SampleType node reads changed and assay_map when an internal_assay_id did"),
 )
 
 
