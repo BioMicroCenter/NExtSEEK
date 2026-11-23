@@ -27,7 +27,8 @@ from ..responses import json_response
 import os
 import pandas as pd
 import tempfile
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from ..decorators import requires_seek_login
 from ..decorators import requires_seek_login_redirect
 from ..decorators import requires_supervisor
@@ -173,9 +174,13 @@ def sample_retrieval_data(children_uids, output):
     # nextseek_api.services.sample_workbook so it cannot drift per call path.
     write_samples_workbook(parse_children_uids(children_uids), output)
 
+@xframe_options_sameorigin
 @requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def adminClades(request):
+    # The Definitions page frames this editor as its Clades tab (?embed=1); a direct visit goes to that tab.
+    if request.GET.get('embed') != '1':
+        return redirect('/seek/admin/definitions/#clades')
     cladedb = DBtable_clades()
     stcdb = DBtable_stc()
     stc = simplejson.dumps(stcdb.getAllWithTitles(), default=str)
@@ -377,9 +382,13 @@ def cladeSampleTypesSave(request):
     return _wb_batch(records, apply_row, 'association(s)',
                      on_change=lambda: hooks.enqueue('catalog', '*'))
 
+@xframe_options_sameorigin
 @requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def internalAssays(request):
+    # The Definitions page frames this editor as its Assay map tab (?embed=1); a direct visit goes to that tab.
+    if request.GET.get('embed') != '1':
+        return redirect('/seek/admin/definitions/#assay-map')
     db_ia = DBtable_internalassays()
     db_aia = DBtable_assaysinternalassays()
     internal_assays = simplejson.dumps(db_ia.getAll(), default=list)

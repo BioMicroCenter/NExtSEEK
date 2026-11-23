@@ -402,7 +402,7 @@ def _update_all() -> str:
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        assert cg.main(["--emit", "update", "--table", "all"]) == 0
+        assert cg.main(["--emit", "update", "--table", "all", "--snapshot-copy"]) == 0
     return buffer.getvalue()
 
 
@@ -2165,3 +2165,64 @@ def test_the_cc_manifest_points_at_the_generated_list_instead_of_keeping_one():
     assert "Known Projects and Investigations" in capabilities
     projects = next(line for line in lines if line.startswith("| `projects_db.json`"))
     assert "entity_type" in projects and "labs" in projects
+
+
+# --- --emit snapshot: the database is the source of truth, git its snapshot -------------------------------------
+
+def _export(tmp_path, **tables):
+    path = tmp_path / "export.json"
+    path.write_text(__import__("json").dumps({"exported_at": "x", **tables}), encoding="utf-8")
+    return path
+
+
+def test_snapshot_writes_the_two_files_in_the_files_own_shape(tmp_path):
+    import json
+    export = _export(tmp_path, sample_types=[
+        {"sample_type": "TIS", "Tags": "tissue", "repository_attributes": None, "sampletype_id": 8},
+        {"sample_type": "D.SEQ", "repository_attributes": '{"GEO": {"title": "D.SEQ::Name"}}', "sampletype_id": 3},
+    ], assays=[{"assay_name": "cDNA Synthesis", "internal_assay_id": 9}, {"assay_name": "Cell Culture"},
+               {"assay_name": "ATAC-Seq"}])
+    assert cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)]) == 0
+
+    st = json.loads((tmp_path / "context" / "sample_types.json").read_text(encoding="utf-8"))
+    assert [r["sample_type"] for r in st] == ["D.SEQ", "TIS"]
+    assert list(st[0]) == list(cg.TABLES["sample_types"].columns)          # every column, in the file's order
+    assert st[0]["repository_attributes"] == {"GEO": {"title": "D.SEQ::Name"}} and st[1]["name"] is None
+    assays = json.loads((tmp_path / "context" / "assays.json").read_text(encoding="utf-8"))
+    assert [r["assay_name"] for r in assays] == ["ATAC-Seq", "cDNA Synthesis", "Cell Culture"]   # case-folded
+    assert (tmp_path / "context" / "assays.json").read_text(encoding="utf-8").endswith("]\n")
+
+
+def test_snapshot_refuses_a_column_the_file_does_not_know(tmp_path):
+    import pytest
+    export = _export(tmp_path, sample_types=[{"sample_type": "TIS", "new_column": 1}], assays=[])
+    with pytest.raises(ValueError, match="new_column"):
+        cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
+
+
+def test_snapshot_keeps_the_column_order_the_file_already_uses(tmp_path):
+    import json
+    target = tmp_path / "context" / "assays.json"
+    target.parent.mkdir(parents=True)
+    order = ["internal_assay_id"] + [c for c in cg.TABLES["assays"].columns if c != "internal_assay_id"]
+    target.write_text(json.dumps([dict.fromkeys(order)]), encoding="utf-8")
+    export = _export(tmp_path, sample_types=[], assays=[{"assay_name": "PCR", "internal_assay_id": 4}])
+    cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
+    assert list(json.loads(target.read_text(encoding="utf-8"))[0]) == order
+
+
+def test_update_refuses_the_two_tables_the_database_owns_without_snapshot_copy(capsys):
+    import pytest
+    for table in ("sample_types", "assays", "all"):
+        with pytest.raises(SystemExit):
+            cg.main(["--emit", "update", "--table", table])
+        assert "--snapshot-copy" in capsys.readouterr().err
+    assert cg.main(["--emit", "update", "--table", "projects"]) == 0
+
+
+def test_snapshot_writes_nothing_when_either_table_is_refused(tmp_path):
+    import pytest
+    export = _export(tmp_path, sample_types=[{"sample_type": "TIS"}], assays=[{"assay_name": "PCR", "bad": 1}])
+    with pytest.raises(ValueError):
+        cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
+    assert not (tmp_path / "context" / "sample_types.json").exists()

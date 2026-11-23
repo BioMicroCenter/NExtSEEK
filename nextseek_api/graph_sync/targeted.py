@@ -633,6 +633,21 @@ def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_cha
 
     result = _guarded(driver, db, lock_timeout_s, work)
     result.setdefault("requested", len(wanted))
+    return _queue_context(result)
+
+
+CONTEXT_DELAY_S = 60    # one 10 s observed-connections scan per minute of uploads, not one per drained row
+# The counts by which a by-id write says it added, removed or relabelled a DERIVED_FROM edge or a sample.
+EDGE_CHANGE_KEYS = ("lineage_created", "derived_from_deleted", "labels_written", "labels_refreshed",
+                    "retired_deleted", "retired_orphaned")
+
+
+def _queue_context(result: dict) -> dict:
+    """``result`` unchanged; a write that ended ``ok`` and added, removed or relabelled an edge changes the observed
+    connections, so a ``context`` row is queued, held ``CONTEXT_DELAY_S`` so a burst of uploads shares one run
+    (``context_derived``). A write that changed no edge queues nothing; the nightly reconcile queues one anyway."""
+    if result.get("status") == OK and any(result.get(key) for key in EDGE_CHANGE_KEYS):
+        hooks.enqueue("context", "*", delay_s=CONTEXT_DELAY_S)
     return result
 
 
@@ -656,7 +671,7 @@ def sync_samples_of_type(driver, db, type_id, *, run_dir: str | None = None, app
             return _stop(total, part)
         _add(total, part)
         total["chunks"] += 1
-    return total
+    return _queue_context(total)
 
 
 # --- retire_samples ------------------------------------------------------------------------------
@@ -692,7 +707,7 @@ def retire_samples(driver, db, ids, *, run_dir: str | None = None, lock_timeout_
 
     result = _guarded(driver, db, lock_timeout_s, work)
     result.setdefault("requested", len(wanted))
-    return result
+    return _queue_context(result)
 
 
 # --- relabel_for_maps ----------------------------------------------------------------------------

@@ -56,6 +56,7 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, the assay layer, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
 | `--small-tables` | SEEK's small tables once (projects, investigations, people, memberships, every SEEK study's node), as an `isa` row and the nightly reconcile write them; `./startup.sh` runs it on local and dev right before the post-rebuild drift | yes |
+| `--context` | the context step once, as a `context` row runs it (`context_derived.py`): the `sample_type_connections` table, and the derived columns of `sample_types_context` and `assay_context` when `NEXTSEEK_GRAPH_SYNC_CONTEXT=write` is set in the box's `docker/nextseek.env` (off by default, so a deploy changes no definition); reads the graph, writes only MySQL; `--dry-run` reports every changed cell and writes nothing | no |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
 | `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |
@@ -159,8 +160,9 @@ write landed.
 | `samples` | `assay_edges:<id>` | `sync_samples` and `retire_samples`, for a hub partner | `targeted.sync_assay_edges`: that sample's INPUT_TO and OUTPUT_OF only, with no partner step |
 | `samples_of_type` | `type:<id>` | the attribute API, the legacy attribute editor, the sample-type proxy | `targeted.sync_samples_of_type` |
 | `retire` | `sample:<id>` | the proxy destroy (delayed when SEEK did not answer), the legacy delete | `targeted.retire_samples`, which leaves an id MySQL still holds alone |
-| `catalog` | `*` | the attribute API, the legacy attribute editor, the sample-type proxy, the clade admin | `run.catalog_sync` |
-| `assay_map` | `*` | the internal-assay admin and the assay proxy | `targeted.relabel_for_maps`, then `targeted.sync_assays` |
+| `catalog` | `*` | the attribute API, the legacy attribute editor, the sample-type proxy, the clade admin | `run.catalog_sync`, then queues `context` |
+| `context` | `*` | an ok `catalog` or `assay_map` drain, every ok `targeted.sync_samples`, `sync_samples_of_type` and `retire_samples` (batch upload's inline sync included), the end of an ok reconcile and of a full sync (after its outbox close) | `context_derived.sync_context` |
+| `assay_map` | `*` | the internal-assay admin and the assay proxy | `targeted.relabel_for_maps`, then `targeted.sync_assays`, then queues `context` |
 | `protocol_map` | `*` | the SOP proxy | `targeted.relabel_for_maps` |
 | `isa` | `*` | the project, investigation, study and assay proxies | `targeted.sync_small_tables`, then `targeted.sync_assays` |
 | `membership` | `*` | the users API | `targeted.sync_small_tables` |

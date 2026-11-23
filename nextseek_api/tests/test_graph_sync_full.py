@@ -998,7 +998,8 @@ def test_outbox_rows_enqueued_before_the_start_are_marked_done_on_success(world,
     done = {(r.kind, r.key): r.done_at is not None for r in GraphSyncOutbox.objects.all()}
     assert done == {("samples", "sample:1"): True, ("catalog", "*"): True, ("full", "slot:2026-W38"): True,
                     ("drift", "slot:2026-09-15"): False,      # a drift check is still owed after a sync
-                    ("samples", "sample:2"): False}            # enqueued after the run began reading
+                    ("samples", "sample:2"): False,            # enqueued after the run began reading
+                    ("context", "*"): False}                   # queued after the close: the full sync owes it
     assert report["outbox_marked_done"] == 3
 
 

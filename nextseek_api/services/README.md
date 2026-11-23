@@ -66,6 +66,11 @@ sample download API behind every download button, and `admin/samples/retrieve` i
 alias: MySQL is the authority for the rows and the caller's scope, and the graph maps UIDs to
 primary keys and supplies the lineage. A graph that is down or behind costs the lineage, flagged
 as `lineage_complete: false`, never the requested samples.
+`definitions/export` (`DefinitionsExportViewSet` in `nextseek_api/services/definitions_export.py`)
+is the whole sample type and assay catalog in one call. `definitions/sample_types` and
+`definitions/assays` (`nextseek_api/services/definitions_admin.py`) are the Definitions admin
+page's superuser writes: one row's hand columns, never a column graph_sync's context step derives;
+the same module's `attention` builds the page's Needs attention list without reading the graph.
 
 *The chat pair*: `nextseek_api/services/assistant.py:276` with 18 actions, and
 `nextseek_api/services/cc_assistant.py:86` with 8. Their query endpoints share a shape

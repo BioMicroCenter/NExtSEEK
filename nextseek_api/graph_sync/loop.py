@@ -73,7 +73,7 @@ from django.conf import settings
 from django.db import DatabaseError, connections
 from django.utils import timezone as dj_timezone
 
-from nextseek_api.graph_sync import drift, run, schedule, state, targeted, writer
+from nextseek_api.graph_sync import context_derived, drift, hooks, run, schedule, state, targeted, writer
 
 log = logging.getLogger(__name__)
 
@@ -297,14 +297,24 @@ def _apply(driver, db, claim, opts: Options, run_dir: str, merged=()) -> dict:
     if kind == "retire":
         return targeted.retire_samples(driver, db, _ids_of(claim), run_dir=run_dir)
     if kind == "catalog":
-        return run.catalog_sync(driver, db, record=opts.record, trigger=opts.trigger, run_dir=run_dir)
+        return _then_context(run.catalog_sync(driver, db, record=opts.record, trigger=opts.trigger, run_dir=run_dir))
+    if kind == "context":
+        return context_derived.sync_context(driver, db, run_dir=run_dir)
     if kind in ("assay_map", "protocol_map"):
         first = targeted.relabel_for_maps(driver, db, apply_label_changes=opts.apply_label_changes)
-        return _then_assays(driver, db, first, run_dir) if kind == "assay_map" else first
+        return _then_context(_then_assays(driver, db, first, run_dir)) if kind == "assay_map" else first
     if kind in ("isa", "membership"):
         first = targeted.sync_small_tables(driver, db, run_dir=run_dir)
         return _then_assays(driver, db, first, run_dir) if kind == "isa" else first
     raise ValueError(f"the drain has no entry point for outbox kind {kind!r}")
+
+
+def _then_context(result: dict) -> dict:
+    """``result`` unchanged; when it ended ``ok``, a ``context`` row is queued, so the live columns of the context
+    tables follow the attributes, clades and internal assays the row just synced (``context_derived``)."""
+    if (result or {}).get("status") == targeted.OK:
+        hooks.enqueue("context", "*")
+    return result
 
 
 def _then_assays(driver, db, first: dict, run_dir: str) -> dict:

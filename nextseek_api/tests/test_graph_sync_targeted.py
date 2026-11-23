@@ -1099,7 +1099,7 @@ def test_a_failure_after_the_lineage_step_hands_the_old_partner_its_own_row(with
     them: the retry reads the partners again, and the old parent is no longer one. So the failure enqueues a samples
     row for each partner read before, and that row's drain clears the old parent's INPUT_TO."""
     graph, mysql, queued = with_assay.graph, with_assay.mysql, []
-    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: kind == "context" or queued.append((kind, key)) or True)
     mysql.assays[12] = [5, 6]
     graph.add_edge(11, 12)                                          # 11 declares only U_T1 (sample 10) now
     graph.assay_edges[12] = {("INPUT_TO", 99, (5,))}               # what that edge gave 12
@@ -1119,7 +1119,7 @@ def test_a_failure_after_the_lineage_step_hands_the_old_partner_its_own_row(with
 
 def test_a_failure_after_the_retire_hands_the_retired_samples_partner_its_own_row(with_assay, tmp_path, monkeypatch):
     graph, queued = with_assay.graph, []
-    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: kind == "context" or queued.append((kind, key)) or True)
     graph.add_sample(15, 33)
     graph.add_edge(15, 10)
     graph.assay_edges[15] = {("OUTPUT_OF", 99, (5,))}
@@ -1154,7 +1154,7 @@ def test_a_sample_gone_from_mysql_has_its_partners_rewritten_after_the_retire(wi
 
 def test_a_partner_above_the_rewrite_max_gets_its_own_samples_row(with_assay, tmp_path, monkeypatch):
     queued = []
-    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: kind == "context" or queued.append((kind, key)) or True)
     monkeypatch.setattr(targeted, "PARTNER_REWRITE_MAX", 0)
     result = targeted.sync_samples(with_assay.graph, DB, [11], run_dir=str(tmp_path))
 
@@ -1169,7 +1169,7 @@ def test_the_row_a_hub_partner_is_handed_off_on_hands_nothing_back(with_assay, t
     """Two lineage partners both above PARTNER_REWRITE_MAX: draining the row the first sync hands the hub off on
     rewrites the hub's own edges and hands nothing back, so the loop settles."""
     graph, queued = with_assay.graph, []
-    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: kind == "context" or queued.append((kind, key)) or True)
     monkeypatch.setattr(targeted, "PARTNER_REWRITE_MAX", 0)       # every sample with an edge is a hub
     targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
     (handed,) = queued
@@ -1186,6 +1186,28 @@ def test_the_row_a_hub_partner_is_handed_off_on_hands_nothing_back(with_assay, t
     assert queued == []
     assert graph.assay_edges[10] == {("INPUT_TO", 99, (5,))}
     assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
+
+
+def test_only_an_ok_write_that_changed_an_edge_queues_the_context_step(monkeypatch):
+    """The observed connections change only when an edge is added, removed or relabelled, or a sample retired; a
+    write that changed none, or one refused for a busy lock, queues no 10 s scan (the nightly reconcile queues one)."""
+    queued = []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key, kw)) or True)
+    for key in targeted.EDGE_CHANGE_KEYS:
+        targeted._queue_context({"status": targeted.OK, key: 1})
+    assert queued == [("context", "*", {"delay_s": targeted.CONTEXT_DELAY_S})] * len(targeted.EDGE_CHANGE_KEYS)
+    queued.clear()
+    targeted._queue_context({"status": targeted.OK, "labels_edges": 3, "lineage_created": 0})
+    targeted._queue_context({"status": targeted.LOCK_TIMEOUT, "lineage_created": 1})
+    assert queued == []
+
+
+def test_a_sync_that_labels_an_edge_queues_the_context_step(with_assay, tmp_path, monkeypatch):
+    graph, queued = with_assay.graph, []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    result = targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
+    assert result["status"] == targeted.OK
+    assert (("context", "*") in queued) == any(result.get(k) for k in targeted.EDGE_CHANGE_KEYS)
 
 
 def test_a_type_sync_reads_the_mapping_again_for_each_chunk(with_assay, tmp_path, monkeypatch):
@@ -1773,7 +1795,7 @@ def test_a_crash_between_member_chunks_leaves_the_rest_for_the_retry(assayed):
 
 def test_above_the_rewrite_max_a_full_sync_is_enqueued_and_run_in_is_left_for_it(assayed, monkeypatch):
     queued = []
-    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: kind == "context" or queued.append((kind, key)) or True)
     monkeypatch.setattr(targeted, "ASSAY_REWRITE_MAX", 2)
     assayed.mysql.internal.append({"id": 120, "title": "Visit two"})
     assayed.mysql.pairs.append((5, 120))

@@ -25,6 +25,7 @@
 | ``--unmerge-studies PATH[,PATH...]`` | reverse those journals' merges and re-create the IN_STUDY links their archives hold; refused unless given every merge journal under the run root that names the same ids | yes |
 | ``--studies`` | make every sample's IN_STUDY follow SEEK once, removal included whatever the switch says | yes |
 | ``--small-tables`` | rewrite SEEK's small tables once, as an ``isa`` row and the nightly reconcile do | yes |
+| ``--context`` | the live columns of the two context tables and ``sample_type_connections``, as a ``context`` row does (``graph_sync/context_derived.py``); reads the graph, writes only MySQL; ``--dry-run`` lists every changed cell | no |
 
 ``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile``, ``--labels``, ``--merge-studies``,
 ``--unmerge-studies`` and ``--studies`` read without writing and print their counts, and ``--requeue-dead`` list the
@@ -68,7 +69,7 @@ from django.core.management.base import BaseCommand, CommandError
 from neo4j import GraphDatabase
 
 from nextseek_api.graph_sync import (
-    drift, loop, reconcile, run, state, study_links, study_merge, targeted, verify, writer,
+    context_derived, drift, loop, reconcile, run, state, study_links, study_merge, targeted, verify, writer,
 )
 
 # The live stack's Neo4j: its compose service and container name.
@@ -76,14 +77,14 @@ LIVE_NEO4J_HOSTS = frozenset({"neo4j"})
 PROGRESS_LOGGER = "nextseek_api.graph_sync"
 
 MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts",
-         "requeue_dead", "labels", "merge_studies", "unmerge_studies", "studies", "small_tables")
-# The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
-LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
+         "requeue_dead", "labels", "merge_studies", "unmerge_studies", "studies", "small_tables", "context")
+# The modes that may reach the live graph without the flag: the ones that only read it, and the loop itself.
+LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop", "context"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples", "labels"})
 # The modes that honour --dry-run. Every other one refuses it before connecting: --samples, --small-tables and a pass
 # of the loop would write anyway, and the read-only modes have nothing to leave out.
 DRY_RUN_MODES = ("full", "catalog", "reconcile", "labels", "merge_studies", "unmerge_studies", "studies",
-                 "requeue_dead")
+                 "requeue_dead", "context")
 DRIFT_FILE = drift.RESULT_FILE
 TRIGGER_CHARS = 64
 
@@ -255,6 +256,11 @@ class Command(BaseCommand):
                           help="Rewrite SEEK's small tables once (projects, investigations, people, memberships and "
                                "every SEEK study's node), as an isa outbox row and the nightly reconcile do; a "
                                "refusal (the graph's version, a busy lock) wrote nothing and exits 2.")
+        mode.add_argument("--context", action="store_true",
+                          help="Rewrite the live columns of sample_types_context and assay_context and the "
+                               "sample_type_connections table from SEEK, the assay definitions and the graph's "
+                               "observed connections, as a context outbox row does; --dry-run lists every changed "
+                               "cell and writes nothing. Reads the graph, writes only MySQL.")
         parser.add_argument("--kind", metavar="KIND",
                             help="--requeue-dead: only the dead rows of this outbox kind.")
         parser.add_argument("--instance", choices=drift.INSTANCES,
@@ -351,6 +357,8 @@ class Command(BaseCommand):
             return self._studies(driver, db, options)
         if mode == "small_tables":
             return self._small_tables(driver, db, options)
+        if mode == "context":
+            return self._context(driver, db, options)
         return self._sync(driver, db, mode, options, bench_keys)
 
     # --- the modes that write ---------------------------------------------------------------------
@@ -432,6 +440,11 @@ class Command(BaseCommand):
             handle.finish("ok" if status == targeted.OK else "refused", counts=_scalars(result))
         self._emit(result, options["json"])
         self._exit_by_status(_SAMPLES_EXIT, status, "--small-tables")
+
+    def _context(self, driver, db, options):
+        """One context step (``context_derived.sync_context``, the code a ``context`` row runs); the report, with
+        every changed cell, goes to stdout. Exit 0."""
+        self._emit(context_derived.sync_context(driver, db, dry_run=options["dry_run"]), True)
 
     # --- the studies release ----------------------------------------------------------------------
 

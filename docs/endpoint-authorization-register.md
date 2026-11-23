@@ -16,11 +16,11 @@ When you add or change a route, add or change its row here in the same change.
 | Bucket | Meaning | Routes |
 |---|---|---|
 | 1. Project-scoped | Reads project-owned rows and returns only those in the caller's projects. Superusers are not limited. | 13 |
-| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 67 |
+| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 71 |
 | 3. Correct as it is | Needs no project filter of its own: SEEK decides with the caller's own SEEK login, or it returns definitions only, or it reads no project rows. | 59 |
-| **Total** | | **139** |
+| **Total** | | **143** |
 
-Of these, 116 routes are served from `nextseek_api/services/` (11, 54 and 51 by bucket)
+Of these, 120 routes are served from `nextseek_api/services/` (11, 58 and 51 by bucket)
 and 23 from elsewhere in `nextseek_api/` (the sample tree, the older retrieve path, attributes,
 assay registrations, batch upload, the API root and the three API description pages).
 
@@ -81,6 +81,10 @@ assay registrations, batch upload, the API root and the three API description pa
 | POST | `sample-shares/` | Superuser only. It creates a job that shares samples between any two projects. | `SampleShareViewSet.create` | IsAuthenticated, IsDjangoSuperuser |  |
 | GET | `sample-shares/{share_id}/` | Superuser only. It reads the state of any share job. | `SampleShareViewSet.retrieve` | IsAuthenticated, IsDjangoSuperuser |  |
 | POST | `sample-shares/{share_id}/apply/` | Superuser only. It applies one step of a share job and adds the project links; the caller's own SEEK login is checked first. | `SampleShareViewSet.apply` | IsAuthenticated, IsDjangoSuperuser |  |
+| POST | `definitions/assays/` | Superuser only. It creates an empty assay definition row for an internal assay that has none: catalog definitions, no project data. | `DefinitionAssaysViewSet.create` | IsAuthenticated, IsDjangoSuperuser |  |
+| PATCH | `definitions/assays/{pk}/` | Superuser only. It changes one assay definition's hand text and designed connections. | `DefinitionAssaysViewSet.partial_update` | IsAuthenticated, IsDjangoSuperuser |  |
+| POST | `definitions/sample_types/` | Superuser only. It creates an empty sample type definition row for a SEEK sample type that has none. | `DefinitionSampleTypesViewSet.create` | IsAuthenticated, IsDjangoSuperuser |  |
+| PATCH | `definitions/sample_types/{pk}/` | Superuser only. It changes one sample type definition's hand text and metadata tiers. | `DefinitionSampleTypesViewSet.partial_update` | IsAuthenticated, IsDjangoSuperuser |  |
 | GET | `sample_types/connections/` | Superuser only. It lists which sample types connect to which, with counts across all projects, by design. | `SampleTypeConnectionsViewSet.list` | IsAuthenticated, IsSuperUser |  |
 | POST | `templates/generate/` | Superuser only. It generates a blank upload template. | `TemplatesViewSet.generate` | IsAuthenticated, IsSuperUser |  |
 | GET | `users/` | Superuser only. It lists every user account. | `UsersViewSet.list` | IsAuthenticated, IsDjangoSuperuser |  |
@@ -189,6 +193,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | DELETE | `samples/{uid}/` | Any signed-in user. It finds the sample by its UID, then asks SEEK to delete it with the caller's own SEEK login, so SEEK decides whether the caller may; the graph copy is removed only once the sample is gone from the database. A refused delete of a sample the caller can see keeps SEEK's answer. | `SampleProxyViewSet.destroy` | IsAuthenticated, HasOwnSeekLogin | changed |
 | GET | `entity_tree/nodes/` | Any signed-in user. It shows the sample type definitions only, with no samples. | `EntityTreeViewSet.list_nodes` | IsAuthenticated |  |
 | GET | `entity_tree/edges/` | Any signed-in user. It shows which sample types connect, and the internal assay titles, over the whole graph: structure only, no counts. | `EntityTreeViewSet.list_edges` | IsAuthenticated |  |
+| GET | `definitions/export/` | Any signed-in user. It returns the sample type and assay definitions, the connections between sample types (designed and seen in data, no counts) and the attribute catalog: definitions only, the same for every user, no samples. | `DefinitionsExportViewSet.export` | IsAuthenticated |  |
 | GET | `sample_types/` | Any signed-in user. It reads the list of sample types from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SampleTypeProxyViewSet.list` | IsAuthenticated |  |
 | POST | `sample_types/` | Any signed-in user. It creates a sample type in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `SampleTypeProxyViewSet.create` | IsAuthenticated |  |
 | GET | `sample_types/{uid}/` | Any signed-in user. It reads one sample type from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SampleTypeProxyViewSet.retrieve` | IsAuthenticated |  |

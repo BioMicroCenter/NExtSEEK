@@ -1033,6 +1033,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEO4J_USER` | nextseek.env | neo4j |  |  | Neo4j user for chat_nextseek. |
 | `NEO4J_PASSWORD` | nextseek.env, root.env | secret | yes | `NEXTSEEK_NEO4J_PASSWORD` | Neo4j password: chat_nextseek's copy in nextseek.env, and compose's seed for a new neo4j-data volume in the root .env. |
 | `NEXTSEEK_GRAPH_SYNC_STUDY_LINKS` | nextseek.env |  |  |  | graph_sync: follow also removes IN_STUDY links SEEK no longer holds. Set only after the box's study merge. |
+| `NEXTSEEK_GRAPH_SYNC_CONTEXT` | nextseek.env |  |  |  | graph_sync: write lets the context step write the derived columns of the two context tables; unset it only rewrites sample_type_connections. Set only after the operator reviewed the box's `graph_sync --context --dry-run`. |
 | `NEO4J_TIMEOUT_SECONDS` | nextseek.env | 5 |  |  | Seconds the sample download's lineage lookup may run before falling back to Parent. |
 | `DJANGO_DEBUG` | nextseek.env |  |  |  | Django debug mode; on only for 1, true or yes. |
 | `DJANGO_SESSION_COOKIE_DOMAIN` | nextseek.env |  |  |  | Session cookie domain; unset on a local install. |

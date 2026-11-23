@@ -1,0 +1,926 @@
+{
+ "note": "a slice of fairdata-dev's remote_export.py bundle, 2026-11-23 (catalog rows only; host dropped); sample_count reduced to 0 or 1",
+ "exported_at": "2026-11-23T17:11:58+00:00",
+ "sample_types": [
+  {
+   "sample_type": "BAC",
+   "sampletype_id": 23,
+   "name": "Bacteria Sample",
+   "clade": "Source",
+   "description": "A bacteria sample represents a microbial strain used in an experiment, either as an infectious agent or as material isolated from another biological source. It serves as a basis for studying host interactions, gene expression, or microbial composition.",
+   "Tags": "bacteria, bacterial strain, microbial sample, pathogen, Mycobacterium tuberculosis, MTB, E. coli, bacterial culture, microbe, infectious agent, microbial isolate, BAC, bacterium, H37Rv, M. tuberculosis",
+   "required_metadata": "UID, Name, Scientist",
+   "standard_metadata": "Protocol, Species, Parent, StorageType, Genotype, TaxonomyID, Source",
+   "possible_metadata_fields": "SampleCreationDate, StorageSite, StorageLocation, Substrain, SubstrainReference, Phenotype, Morphology, Culture, InoculumPrep, ODFrozen, ODWavelength, Notes, Publish_uri, Strain, GramStaining, Barcode, Qtag, Lab, Link_Sequence, DOI, PMID",
+   "parent_sampletypes": "TIS",
+   "child_sampletypes": "DNA, MUS, PAV, CEL, D.ADCD, D.ADCP, D.ADNP, D.BSRA, RNA",
+   "associated_assay_parents": "Bacterial Extraction, DNA Extraction",
+   "associated_assay_children": "Pathogen Challenge and Antibody Depletion, DNA Extraction, Cell Culture, Bacterial Survivability Restriction Assay",
+   "repository_attributes": null,
+   "sampletype_file_link": null
+  },
+  {
+   "sample_type": "DNA",
+   "sampletype_id": 32,
+   "name": "DNA Sample",
+   "clade": "Processed",
+   "description": "A DNA sample contains extracted genetic material isolated from a biological source. It serves as input for sequencing, amplification, or other genomic analyses.",
+   "Tags": "DNA, deoxyribonucleic acid, genomic DNA, gDNA, extracted DNA, nucleic acid, library prep input, cDNA, amplified DNA, sequencing library, DNA extraction, plasmid DNA, cell-free DNA, cfDNA, DNA sample",
+   "required_metadata": "UID, Name, Scientist, Parent",
+   "standard_metadata": "Protocol, LibraryType, Volume, Barcode, BarcodeType, Barcode2, Barcode2Type, NumPrepCycles",
+   "possible_metadata_fields": "Protocol2, SampleCreationDate, Type, VolumeUnits, PrepDate, PoolDate, PeakFragmentSize, PeakConcentration, PeakConcUnits, Concentration, ConcUnits, ConcType, InsertionSize, Notes, Publish_uri, Lab, TubeNumber, WellID, AntibodyParent, BacteriaParent, Size, QC_Instrument, Link_QC, InputMassRNA, ShipDestination, DOI, PMID",
+   "parent_sampletypes": "CEL, RNA, DNA, TIS, BAC, ABP",
+   "child_sampletypes": "D.SEQ, DNA, D.GPT, D.SPC, A.SCXP, D.PCR",
+   "associated_assay_parents": "Library Creation, DNA Extraction, cDNA Synthesis",
+   "associated_assay_children": "Short Read Sequencing, Single Cell Sequencing, Library Creation, Bulk DNA Sequencing, GPT Assay, Mass Spectrometry, DNA Extraction, Long-Read Sequencing, Single Cell Expression Analysis, Polymerase Chain Reaction (PCR)",
+   "repository_attributes": null,
+   "sampletype_file_link": null
+  },
+  {
+   "sample_type": "TIS",
+   "sampletype_id": 26,
+   "name": "Tissue Sample",
+   "clade": "Processed",
+   "description": "A tissue sample represents a portion of biological material collected from an organism. It serves as the source for downstream molecular, cellular, or histological analyses. It also covers fluid specimens such as blood, peripheral blood mononuclear cells (PBMC) and bronchoalveolar lavage (BAL).",
+   "Tags": "tissue, biopsy, tissue biopsy, organ sample, biological tissue, excised tissue, FFPE, fresh frozen tissue, tumor tissue, lung tissue, blood, PBMC, BAL, bronchoalveolar lavage, tissue specimen, TIS",
+   "required_metadata": "UID, Name, Scientist, Parent",
+   "standard_metadata": "Type, Organ, OrganDetail, StorageType, StorageLocation, ShipDate, ReceiptDate, Treatment, CFU, CFUUnits, BioSampleAccession, CellTypes, Stimulation, Protocol",
+   "possible_metadata_fields": "SampleCreationDate, CollectionTime, CollectionTimeUnits, Mass, MassUnits, StorageSite, BALCollectedVolume, BALCollectedVolumeUnits, BALInstilledVolume, BALInstilledVolumeUnits, Volume, VolumeUnits, CellCount, Notes, StudyID, SampleCollectionDate, Contact, Publish_uri, Color, Concentration, ConcentrationUnits, TimeToFreezer, TimeUnits, ViableCellCount, NumVials, TreatmentType, TreatmentDate, TreatmentDose, TreatmentDoseUnits, TreatmentTime, TreatmentTimeUnits, CEQ, CEQUnits, CFU/CEQ, CFU/CEQUnits, TimeOfDetection, Protocol2, Protocol3, Catalog#, ArrayNumber, StorageDate, ReceiptNotes, ShipOrigin, ShippingTemperatures_Origin, ShipID, VialID, Viability%, ConcentrationPerVial, ShipDestination, ShippingTemperatures_Destination, ShipNotes, SurgeryTimepoint, TumorFractionFromCNV, AssociatedCNV, ExtractionInterval, Assay, TumorWeight, TumorWeightUnits, Treatment2, Treatment2Type, Treatment2Dose, Treatment2DoseUnits, Core, Location, ExtractionIntervalNotes, RelevantTimepoint, Part, WeeksSincePrimaryIntervention, Stains, CFU_FileName, CFU_FileLink, Link_OrganWeight, DOI, PMID",
+   "parent_sampletypes": "PAV, MUS",
+   "child_sampletypes": "DNA, RNA, BAC, D.TITR, D.PEX, D.FCRB, D.ADCD, D.ADCP, D.ADNKA, D.ADNP, D.ADMP, D.ADDCP, D.IMG, D.FLOW, D.CYTOF, CEL, D.BSRA, D.MSP, A.SPTX, SLD, D.WBLT, D.LMX, CEX, D.GPT, D.ELSA, D.LUM, D.MSI",
+   "associated_assay_parents": "Tissue Collection, Patient Visit",
+   "associated_assay_children": "Mass Spectrometry Proteomics, RNA Extraction, Bacterial Extraction, Titer Assay, Fc Receptor Binding Assay, Antibody-Dependent Functional Profiling (ADFP), Proximity Extension Assay (PEA), Immunohistochemistry, Histopathology, Imaging, Tissue Imaging, Tissue Sectioning, Flow Cytometry, CyTOF, CometChip Assay, Cell Isolation, Bacterial Survivability Restriction Assay, Spatial Transcriptomics, DNA Extraction, Spatial Proteomics, Western Blot, Cell Culture and Organoid Generation, Spatial Metabolomics, Luminex Multiplex Immunoassay, Protein Extraction, GPT Assay, ELISA, Patient-Derived Xenograft (PDX) Cell Line Generation, Antibody-Dependent Cellular Phagocytosis (ADCP), Antibody-Dependent Complement Deposition (ADCD) Assay, Antibody-Dependent NK Cell Activation Assay, Antibody-Dependent Neutrophil Phagocytosis (ADNP), Cell Extraction, Cell Line Creation, Cell Sorting, Cyclic Immunofluorescence (CyCIF), Fourier Transform Infrared Spectroscopy (FTIR), Immunopeptidomics, MALDI Mass Spectrometry Imaging (MALDI-MSI), Organ-on-a-Chip Device Fabrication",
+   "repository_attributes": null,
+   "sampletype_file_link": null
+  }
+ ],
+ "assays": [
+  {
+   "assay_name": "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+   "Description": "Antibody-dependent cellular phagocytosis (ADCP) is a functional humoral immune assay that quantifies the capacity of antigen-specific antibodies to facilitate phagocytic uptake of antibody-opsonized targets by effector cells, typically monocytes or neutrophils. The assay generally employs fluorescently labeled antigen-coupled beads or target cells incubated with heat-inactivated serum or plasma samples, followed by co-culture with phagocytic effector cells, with uptake measured by flow cytometry. A phagocytosis score is calculated based on the percentage of phagocyte-positive cells and the fluorescence intensity of internalized signal, providing a quantitative readout of Fc-mediated effector function. This assay is commonly used in vaccine immunogenicity studies and therapeutic antibody evaluations to assess non-neutralizing antibody effector functions that may contribute to protective immunity.",
+   "Tags": "ADCP, phagocytosis assay, opsonophagocytosis, THP-1 phagocytosis, monocyte phagocytosis, bead uptake, antibody-mediated phagocytosis, bead uptake assay, systems serology, ADCP assay, Fc-mediated phagocytosis, opsonophagocytic assay, antibody-dependent phagocytosis",
+   "Alternative_Assay_Names": "Antibody-Dependent Cellular Phagocytosis",
+   "Required_Parent_Sample_Types": "TIS and AB",
+   "Optional_Parent_Sample_Types": null,
+   "Children_Sample_Types": "D.ADCP",
+   "Parent_Clade_Type": "Processed",
+   "Child_Clade_Type": "Raw",
+   "AssaySheet_Link": null,
+   "AssociatedRepository": null,
+   "Critical_Attributes": null,
+   "Protocols_Phrases": null,
+   "Protocols_UIDs": null,
+   "internal_assay_id": null
+  },
+  {
+   "assay_name": "Antibody-Dependent Complement Deposition (ADCD) Assay",
+   "Description": "Antibody-dependent complement deposition (ADCD) is a functional humoral immune assay that quantifies the ability of antigen-specific antibodies to activate the complement cascade and deposit complement components (typically C3) onto antigen-coated beads or target surfaces. In this assay, immune complexes formed between sample antibodies and antigen are incubated with a complement source, and subsequent complement deposition is measured by flow cytometry using fluorescently labeled anti-C3 detection reagents. Sample preparation involves heat inactivation of endogenous complement in test sera, followed by incubation with antigen-coupled beads and guinea pig or human complement. Data are acquired on a flow cytometer and reported as median fluorescence intensity (MFI), reflecting the magnitude of complement fixation activity in the sample.",
+   "Tags": "ADCD assay, complement deposition assay, C3 deposition, complement fixation, opsonization complement assay, ADCD, complement activation, opsonization complement, antibody complement fixing, complement deposition, C3 deposition assay, opsonization, systems serology, C3b deposition, classical complement pathway",
+   "Alternative_Assay_Names": "ADCD Analysis, Antibody Dependent Complement Deposition, Antibody-dependent Complement Deposition",
+   "Required_Parent_Sample_Types": "TIS and AB",
+   "Optional_Parent_Sample_Types": null,
+   "Children_Sample_Types": "D.ADCD",
+   "Parent_Clade_Type": "Processed",
+   "Child_Clade_Type": "Raw",
+   "AssaySheet_Link": null,
+   "AssociatedRepository": null,
+   "Critical_Attributes": null,
+   "Protocols_Phrases": null,
+   "Protocols_UIDs": null,
+   "internal_assay_id": null
+  },
+  {
+   "assay_name": "Antibody-Dependent Functional Profiling (ADFP)",
+   "Description": "Antibody Dependent Functional Profiling (ADFP) is a multiplexed assay that characterizes the functional capacity of antigen-specific antibodies by simultaneously measuring multiple Fc-mediated effector functions, including antibody-dependent cellular cytotoxicity (ADCC), antibody-dependent cellular phagocytosis (ADCP), antibody-dependent neutrophil phagocytosis (ADNP), and complement deposition (ADCD). The assay employs Luminex-based bead arrays coupled with flow cytometry to profile antibody-mediated recruitment and activation of innate immune effector cells, utilizing fluorescently labeled antigen-coupled microspheres incubated with serum samples and relevant effector cells or complement sources. Data outputs include median fluorescence intensity (MFI) and phagocytic or cytotoxic scores derived from multiparameter flow cytometric analysis, enabling high-throughput, systems-level characterization of humoral immune responses across large sample cohorts.",
+   "Tags": "ADFP, antibody-dependent functional profiling, systems serology, Fc effector function, immune functional fingerprint, antibody effector function, functional immune profiling, Fc effector profiling, humoral immune function, ADFP assay, Fc effector function panel, multiplexed antibody effector assay",
+   "Alternative_Assay_Names": "Antibody Dependent Functional Profiling, Antibody Functional Profiling",
+   "Required_Parent_Sample_Types": "TIS and AB",
+   "Optional_Parent_Sample_Types": "CEL",
+   "Children_Sample_Types": "D.ADCD or D.ADCP or D.ADNKA or D.ADNP or D.ADMP or D.ADDCP",
+   "Parent_Clade_Type": "Processed",
+   "Child_Clade_Type": "Raw",
+   "AssaySheet_Link": null,
+   "AssociatedRepository": null,
+   "Critical_Attributes": null,
+   "Protocols_Phrases": null,
+   "Protocols_UIDs": null,
+   "internal_assay_id": null
+  },
+  {
+   "assay_name": "Antibody-Dependent Neutrophil Phagocytosis (ADNP)",
+   "Description": "Antibody-Dependent Neutrophil Phagocytosis (ADNP) is a functional immunoassay that measures the capacity of antigen-specific antibodies to opsonize targets and drive their uptake by primary human neutrophils via Fc receptor engagement. Antigen-coated fluorescent beads or immune complexes are incubated with serum or plasma, then combined with freshly isolated neutrophils. After incubation, phagocytic activity is quantified by flow cytometry, measuring the percentage of neutrophils that have internalized fluorescent beads and/or the fluorescence intensity per cell. Results are reported as a phagocytic score (percent positive cells × mean fluorescence intensity) providing a functional measure of antibody-dependent neutrophil phagocytosis (ADNP) activity mediated by innate immune effector cells. ADNP is a key component of systems serology profiling, reflecting the ability of antibodies to recruit neutrophil-mediated clearance mechanisms.",
+   "Tags": "ADNP, neutrophil phagocytosis assay, granulocyte phagocytosis, antibody-mediated neutrophil uptake, neutrophil phagocytosis, innate immune effector, systems serology, ADNP assay, Fc-mediated neutrophil phagocytosis, primary neutrophil phagocytosis, HL-60 phagocytosis, neutrophil bead uptake",
+   "Alternative_Assay_Names": "Antibody-dependent Neutrophil Phagocytosis",
+   "Required_Parent_Sample_Types": "TIS and AB",
+   "Optional_Parent_Sample_Types": null,
+   "Children_Sample_Types": "D.ADNP",
+   "Parent_Clade_Type": "Processed",
+   "Child_Clade_Type": "Raw",
+   "AssaySheet_Link": null,
+   "AssociatedRepository": null,
+   "Critical_Attributes": null,
+   "Protocols_Phrases": null,
+   "Protocols_UIDs": null,
+   "internal_assay_id": null
+  }
+ ],
+ "connections": [
+  {
+   "assay": "ATAC-Seq",
+   "parent_type": "DNA",
+   "child_type": "A.ATAC"
+  },
+  {
+   "assay": "Antibody Functional Profiling",
+   "parent_type": "BAC",
+   "child_type": "D.ADCD"
+  },
+  {
+   "assay": "Antibody Functional Profiling",
+   "parent_type": "BAC",
+   "child_type": "D.ADCP"
+  },
+  {
+   "assay": "Antibody Functional Profiling",
+   "parent_type": "BAC",
+   "child_type": "D.ADNP"
+  },
+  {
+   "assay": "Antibody Functional Profiling",
+   "parent_type": "TIS",
+   "child_type": "D.ADCP"
+  },
+  {
+   "assay": "Antibody Functional Profiling",
+   "parent_type": "TIS",
+   "child_type": "D.ADNKA"
+  },
+  {
+   "assay": "Antibody Functional Profiling",
+   "parent_type": "TIS",
+   "child_type": "D.ADNP"
+  },
+  {
+   "assay": "Antibody Titer",
+   "parent_type": "TIS",
+   "child_type": "D.TITR"
+  },
+  {
+   "assay": "Bacterial Challenge",
+   "parent_type": "BAC",
+   "child_type": "MUS"
+  },
+  {
+   "assay": "Bacterial Extraction",
+   "parent_type": "TIS",
+   "child_type": "BAC"
+  },
+  {
+   "assay": "Bacterial Survivability Restriction Assay",
+   "parent_type": "BAC",
+   "child_type": "D.BSRA"
+  },
+  {
+   "assay": "Bacterial Survivability Restriction Assay",
+   "parent_type": "TIS",
+   "child_type": "D.BSRA"
+  },
+  {
+   "assay": "Cell Isolation",
+   "parent_type": "TIS",
+   "child_type": "CEL"
+  },
+  {
+   "assay": "Comet Chip",
+   "parent_type": "TIS",
+   "child_type": "D.IMG"
+  },
+  {
+   "assay": "DNA Extraction",
+   "parent_type": "BAC",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "DNA Extraction",
+   "parent_type": "CEL",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "DNA Extraction",
+   "parent_type": "TIS",
+   "child_type": "BAC"
+  },
+  {
+   "assay": "DNA Extraction",
+   "parent_type": "TIS",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "DNA Fluorescence in situ hybridization",
+   "parent_type": "TIS",
+   "child_type": "D.IMG"
+  },
+  {
+   "assay": "ELISA",
+   "parent_type": "TIS",
+   "child_type": "D.ELSA"
+  },
+  {
+   "assay": "FC Receptor Binding Assay",
+   "parent_type": "TIS",
+   "child_type": "D.FCRB"
+  },
+  {
+   "assay": "Flow Cytometry",
+   "parent_type": "TIS",
+   "child_type": "CEL"
+  },
+  {
+   "assay": "Flow Cytometry",
+   "parent_type": "TIS",
+   "child_type": "D.FLOW"
+  },
+  {
+   "assay": "GPT Assay",
+   "parent_type": "DNA",
+   "child_type": "D.GPT"
+  },
+  {
+   "assay": "GPT Assay",
+   "parent_type": "TIS",
+   "child_type": "D.GPT"
+  },
+  {
+   "assay": "Immunohistochemistry",
+   "parent_type": "TIS",
+   "child_type": "D.IMG"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "BAC",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "CEL",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "RNA",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "SLD",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "TIS",
+   "child_type": "BAC"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "TIS",
+   "child_type": "CEL"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "TIS",
+   "child_type": "DNA"
+  },
+  {
+   "assay": "Library Prep",
+   "parent_type": "TIS",
+   "child_type": "RNA"
+  },
+  {
+   "assay": "Luminex",
+   "parent_type": "TIS",
+   "child_type": "D.LMX"
+  },
+  {
+   "assay": "Mass Cytometry",
+   "parent_type": "TIS",
+   "child_type": "D.CYTOF"
+  },
+  {
+   "assay": "Mass Spectrometry",
+   "parent_type": "TIS",
+   "child_type": "D.SPC"
+  },
+  {
+   "assay": "Mass Spectrometry Proteomics",
+   "parent_type": "TIS",
+   "child_type": "D.MSP"
+  },
+  {
+   "assay": "Microarray Hybridization",
+   "parent_type": "DNA",
+   "child_type": "D.ARR"
+  },
+  {
+   "assay": "Mouse Challenge",
+   "parent_type": "BAC",
+   "child_type": "MUS"
+  },
+  {
+   "assay": "Mouse Challenge",
+   "parent_type": "MUS",
+   "child_type": "TIS"
+  },
+  {
+   "assay": "Patient Visit",
+   "parent_type": "BAC",
+   "child_type": "PAV"
+  },
+  {
+   "assay": "RNA Extraction",
+   "parent_type": "TIS",
+   "child_type": "RNA"
+  },
+  {
+   "assay": "RaDR",
+   "parent_type": "TIS",
+   "child_type": "D.IMG"
+  },
+  {
+   "assay": "Reverse Phase Protein Array",
+   "parent_type": "TIS",
+   "child_type": "A.RPPA"
+  },
+  {
+   "assay": "Short Read Sequencing",
+   "parent_type": "DNA",
+   "child_type": "D.SEQ"
+  },
+  {
+   "assay": "Single Cell Expression Matrix Analysis",
+   "parent_type": "DNA",
+   "child_type": "A.SCXP"
+  },
+  {
+   "assay": "Single Cell Sequencing",
+   "parent_type": "DNA",
+   "child_type": "D.SEQ"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "AB",
+   "child_type": "TIS"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "BAC",
+   "child_type": "CEL"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "BAC",
+   "child_type": "MUS"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "BAC",
+   "child_type": "PAV"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "BAC",
+   "child_type": "TIS"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "D.BSRA",
+   "child_type": "TIS"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "MUS",
+   "child_type": "TIS"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "PAV",
+   "child_type": "TIS"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "TIS",
+   "child_type": "CEL"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "TIS",
+   "child_type": "D.BSRA"
+  },
+  {
+   "assay": "Tissue Collection",
+   "parent_type": "TIS",
+   "child_type": "SLD"
+  },
+  {
+   "assay": "Tissue Sectioning",
+   "parent_type": "TIS",
+   "child_type": "SLD"
+  },
+  {
+   "assay": "WGS",
+   "parent_type": "DNA",
+   "child_type": "D.SEQ"
+  },
+  {
+   "assay": "WXS",
+   "parent_type": "DNA",
+   "child_type": "D.SEQ"
+  }
+ ],
+ "attributes": [
+  {
+   "sample_type": "BAC",
+   "key": "27:UID",
+   "title": "UID",
+   "pos": 1,
+   "required": true,
+   "is_title": true,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "identifier",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The unique NExtSEEK identifier for this sample. Its prefix is the sample type code. BMC data specialist will create them for new samples.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Name",
+   "title": "Name",
+   "pos": 2,
+   "required": true,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The identifier the submitting lab uses for this sample.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Scientist",
+   "title": "Scientist",
+   "pos": 3,
+   "required": true,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The lab member responsible for this sample.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:SampleCreationDate",
+   "title": "SampleCreationDate",
+   "pos": 4,
+   "required": false,
+   "is_title": false,
+   "value_type": "date",
+   "base_type": "Date",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The date this sample itself was created, as distinct from when the record was entered.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Protocol",
+   "title": "Protocol",
+   "pos": 5,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The SOP followed, as a filename or a link to the SOP record. BMC data specialists can handle this section if given all protocols used.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Species",
+   "title": "Species",
+   "pos": 6,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The species, as the scientific binomial where possible, e.g. Macaca mulatta.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:StorageSite",
+   "title": "StorageSite",
+   "pos": 7,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The freezer or cryotank this sample is stored in.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:StorageLocation",
+   "title": "StorageLocation",
+   "pos": 8,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "Where this sample is physically stored.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:StorageType",
+   "title": "StorageType",
+   "pos": 9,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The medium or buffer this sample is stored in, e.g. DMEM with 5% DMSO.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Parent",
+   "title": "Parent",
+   "pos": 10,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "lineage",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "UID(s) of the sample(s) this one was derived from. Semicolon-separate when several.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Substrain",
+   "title": "Substrain",
+   "pos": 11,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The specific substrain used, including any plasmid it carries.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:SubstrainReference",
+   "title": "SubstrainReference",
+   "pos": 12,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": null,
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Genotype",
+   "title": "Genotype",
+   "pos": 13,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The genotype of the animal or cell line.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Phenotype",
+   "title": "Phenotype",
+   "pos": 14,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The observed phenotype of this subject or cell line, e.g. Epithelial, LTBI.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Morphology",
+   "title": "Morphology",
+   "pos": 15,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The morphology of the organism or cell type, e.g. Bacillus, epithelial.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Source",
+   "title": "Source",
+   "pos": 16,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "Where this material was obtained from, e.g. ATCC, Lonza.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Culture",
+   "title": "Culture",
+   "pos": 17,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The culture medium and conditions used to grow this organism.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:InoculumPrep",
+   "title": "InoculumPrep",
+   "pos": 18,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": null,
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:ODFrozen",
+   "title": "ODFrozen",
+   "pos": 19,
+   "required": false,
+   "is_title": false,
+   "value_type": "float",
+   "base_type": "Float",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The optical density the culture was at when frozen.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:ODWavelength",
+   "title": "ODWavelength",
+   "pos": 20,
+   "required": false,
+   "is_title": false,
+   "value_type": "float",
+   "base_type": "Float",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": null,
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Notes",
+   "title": "Notes",
+   "pos": 21,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "Any additional information.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Publish_uri",
+   "title": "Publish_uri",
+   "pos": 22,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "Public URL where this sample record is published.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Strain",
+   "title": "Strain",
+   "pos": 23,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The strain designation of the animal or organism, e.g. C57BL/6J, H37Rv.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:TaxonomyID",
+   "title": "TaxonomyID",
+   "pos": 24,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The NCBI Taxonomy identifier for the organism, e.g. 83332 for M. tuberculosis H37Rv.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:GramStaining",
+   "title": "GramStaining",
+   "pos": 25,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The Gram stain result for this organism, e.g. Positive, Acid Fast.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Barcode",
+   "title": "Barcode",
+   "pos": 26,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The nucleotide barcode identifying this sample within a pooled run, e.g. GAATTGCT.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Qtag",
+   "title": "Qtag",
+   "pos": 27,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The quantification tag sequence used for this strain.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Lab",
+   "title": "Lab",
+   "pos": 28,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "data",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "The lab that owns or generated this sample.",
+   "sample_count": 1
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Link_Sequence",
+   "title": "Link_Sequence",
+   "pos": 29,
+   "required": false,
+   "is_title": false,
+   "value_type": "string",
+   "base_type": "Text",
+   "unit_key": null,
+   "role": "file",
+   "declared": true,
+   "seek_description": null,
+   "meaning": "Download URL or storage path for the sequence file.",
+   "sample_count": 0
+  },
+  {
+   "sample_type": "BAC",
+   "key": "27:Note",
+   "title": "Note",
+   "pos": null,
+   "required": null,
+   "is_title": null,
+   "value_type": "string",
+   "base_type": null,
+   "unit_key": null,
+   "role": "data",
+   "declared": false,
+   "seek_description": null,
+   "meaning": null,
+   "sample_count": 1
+  }
+ ],
+ "graph_meta": {
+  "schema_version": "1.3",
+  "catalog_hash": "b13bf52cae9e6e60e300d9528f71cfcbf1cb094f4c30f9de2fdefd37d380a6f7",
+  "synced_at": "2026-11-23T15:46:31.795Z"
+ }
+}

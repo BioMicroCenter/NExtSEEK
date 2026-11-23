@@ -13,6 +13,7 @@ from .upload import (batchUpload, datafileUpload, samplesValidate)
 from .assets import (datafileQuery, document, sopQuery, templatesDownload, templatesList)
 from .catalog import (assayDetail, assaysList, sampleTypeDetail, sampleTypesList)
 from .search import (runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
+from .definitions import adminDefinitions
 from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cladeDelete, cladeSampleTypesSave, cladeSave, cladesSyncSampleTypes, get_children_uids, internalAssayDelete, internalAssaySave, internalAssaySuggestions, internalAssays, parse_children_uids, projectMembers, parse_json_metadata, sample_retrieval_data, syncInternalAssays)
 from .projects import (project_connections, project_page, project_samples, projects)
 from .timeline import (download_nhp_data, fetch_event_data, get_nhp_data, nhp_info)
@@ -22,6 +23,7 @@ from .shared import report
 
 __all__ = [
     'adminClades',
+    'adminDefinitions',
     'adminRetrieveSamples',
     'projectMembers',
     'assayAssociationSave',
