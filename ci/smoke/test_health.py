@@ -34,13 +34,14 @@ def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
     """A changed router registration is a real regression and this is the cheapest
     way to see it. Measured: exactly 15 keys; samples/graph_search (2026-09-14)
     makes 16, samples/retrieve (the download API's new path, 2026-09-24) 17, sample-shares (the studies tool's
-    share mode, 2026-10-01) 18."""
+    share mode, 2026-10-01) 18; definitions/sample_types and definitions/assays (the Definitions admin page's
+    superuser write endpoints, 2026-11-23) 21."""
     r = api.get(f"{base_url}/nextseek_api/", timeout=30)
     check_gateway(r)
     assert r.status_code == 200
     expected = {
         "assay-registrations", "assays", "attributes", "batch-upload",
-        "data_files", "investigations", "people", "projects", "reingest-proposals", "sample_types",
+        "data_files", "definitions/assays", "definitions/sample_types", "investigations", "people", "projects", "reingest-proposals", "sample_types",
         "sample_types/connections", "samples", "samples/advanced_search",
         "samples/graph_search", "samples/retrieve", "sample-shares", "sops", "studies", "users",
     }
