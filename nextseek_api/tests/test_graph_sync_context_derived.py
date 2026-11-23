@@ -132,3 +132,67 @@ def test_applying_the_changes_makes_the_next_run_empty():
     second = run(applied, observed=[("BAC", "Library Prep", "DNA")])
     assert second.sample_types == {} and second.assays == {}
     assert first.report["changed_cells"]["sampletype_id"] == 2
+
+
+# --- the writer, against the test database --------------------------------------------------------------------
+
+import pytest
+from django.db import connection
+
+from nextseek_api.graph_sync import context_derived, hooks
+from nextseek_api.graph_sync.context_derived import Derived
+from nextseek_api.graph_sync.models_db import SampleTypeConnectionRow
+from seek.models import Sample_types_context
+
+
+@pytest.fixture
+def tables(db):
+    # Both tables are created out of band on a real box (SQL fixups), so the test database lacks them.
+    cols = ", ".join(f"{f.column} {f.db_type(connection)}" for f in Sample_types_context._meta.concrete_fields
+                     if not f.primary_key)
+    with connection.cursor() as cur:
+        cur.execute(f"CREATE TABLE IF NOT EXISTS sample_types_context (id INTEGER PRIMARY KEY, {cols})")
+        cur.execute("CREATE TABLE IF NOT EXISTS assay_context (id INTEGER PRIMARY KEY, assay_name TEXT, "
+                    "internal_assay_id INTEGER)")
+        cur.execute("INSERT INTO assay_context (id, assay_name, internal_assay_id) VALUES (1, 'Library Prep', NULL)")
+    Sample_types_context.objects.create(sample_type="BAC", sampletype_id=131, name="Bacteria Sample",
+                                        description="hand text", child_sampletypes="RNA, DNA")
+
+
+def _conn(p, a, c, d, o):
+    return {"parent": p, "assay": a, "child": c, "designed": d, "observed": o}
+
+
+def test_write_changes_only_the_named_cells_and_replaces_the_connections(tables):
+    result = Derived(sample_types={"BAC": {"sampletype_id": 7, "child_sampletypes": "DNA"}},
+                     assays={1: {"internal_assay_id": 6}},
+                     connections=[_conn("BAC", "DNA Extraction", "DNA", True, True)])
+    context_derived.write(result)
+    context_derived.write(Derived(connections=[_conn("TIS", "Library Prep", "BAC", False, True)]))
+
+    row = Sample_types_context.objects.get(sample_type="BAC")
+    assert (row.sampletype_id, row.child_sampletypes, row.name, row.description) == (7, "DNA", "Bacteria Sample",
+                                                                                     "hand text")
+    with connection.cursor() as cur:
+        cur.execute("SELECT internal_assay_id FROM assay_context WHERE id = 1")
+        assert cur.fetchone()[0] == 6
+    assert list(SampleTypeConnectionRow.objects.values_list("parent_type", "assay", "child_type", "designed",
+                                                            "observed")) == [("TIS", "Library Prep", "BAC", False,
+                                                                              True)]
+
+
+def test_sync_context_queues_the_graph_syncs_its_changes_need_and_a_dry_run_writes_nothing(tables, monkeypatch):
+    queued = []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append(kind) or True)
+    inputs = dict(context_rows=[_row("BAC", sampletype_id=131, child_sampletypes="RNA, DNA")],
+                  assay_rows=[_assay(1, "Library Prep")], seek_types=SEEK_TYPES, seek_attributes=[],
+                  type_clades={}, internal_assays=INTERNAL, observed=[("BAC", "Library Prep", "DNA")])
+
+    dry = context_derived.sync_context(None, None, dry_run=True, inputs=inputs)
+    assert dry["status"] == "dry_run" and dry["changes"]["sample_types"]["BAC"]["child_sampletypes"] == "DNA"
+    assert Sample_types_context.objects.get(sample_type="BAC").child_sampletypes == "RNA, DNA" and queued == []
+
+    report = context_derived.sync_context(None, None, inputs=inputs)
+    assert report["status"] == "ok"
+    assert Sample_types_context.objects.get(sample_type="BAC").child_sampletypes == "DNA"
+    assert queued == ["catalog", "assay_map"]          # child list feeds SampleType; internal_assay_id the Assay
