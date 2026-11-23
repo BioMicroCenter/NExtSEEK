@@ -119,7 +119,7 @@
               <div>{% for i in items %}<span class="defs-chip{% if i.observed and not i.designed %} undesigned{% endif %}">{{ i.name }}{% if i.designed %}<span class="defs-flag d">D</span>{% endif %}{% if i.observed %}<span class="defs-flag o">O</span>{% endif %}</span>{% empty %}<span class="text-muted">none</span>{% endfor %}</div>
             {% endfor %}
             {% if type.unbacked %}<strong>Typed by hand</strong>
-              <div>{% for d in type.unbacked %}<span class="defs-chip undesigned" title="{{ d.column }}">{{ d.entry }} · no assay or data backs it</span>{% endfor %}</div>{% endif %}
+              <div>{% for d in type.unbacked %}<span class="defs-chip undesigned" title="{{ d.column }}">{{ d.entry }} · {{ d.reason }}</span>{% endfor %}</div>{% endif %}
           </div>
         </div>
 
@@ -219,9 +219,9 @@
       <span class="defs-status" role="status"></span>
     </div>
     <div class="defs-attn">
-      <h2>Typed by hand, backed by no definition or data</h2>
-      <p class="mb-1">The next context step drops these once the switch is on. Move each into an assay definition to keep it.</p>
-      <ul>{% for d in needs.would_drop %}<li><a href="?type={{ d.sample_type|urlencode }}#sample-types"><code>{{ d.sample_type }}</code></a> {{ d.column }}: {{ d.entry }}</li>
+      <h2>What the next context step would remove</h2>
+      <p class="mb-1">It removes these once the switch is on. To keep a connection, move it into an assay definition.</p>
+      <ul>{% for d in needs.would_drop %}<li><a href="?type={{ d.sample_type|urlencode }}#sample-types"><code>{{ d.sample_type }}</code></a> {{ d.column }}: {{ d.entry }} <span class="defs-note">· {{ d.reason }}</span></li>
       {% empty %}<li class="text-muted">None.</li>{% endfor %}</ul>
     </div>
     <div class="defs-attn">

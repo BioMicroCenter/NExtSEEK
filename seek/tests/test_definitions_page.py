@@ -73,7 +73,7 @@ def test_a_superuser_sees_the_page_with_the_selected_type(catalog):
     assert 'data-field="Species"' in html and "SEEK required" in html      # UID is SEEK-required: no select
     assert "Library Prep <span" in html and "<li>BAC → D.BSRA</li>" in html   # seen, not designed, no definition
     assert "child_sampletypes: RNA" in html                                  # hand-typed, nothing backs it
-    assert "RNA · no assay or data backs it" in html
+    assert "RNA · no definition or data backs it" in html
     assert 'data-create="sample-type" data-key="A.ATAC"' in html
     assert 'data-create="assay" data-key="Library Prep"' in html
     assert 'Assay map "FC Receptor Binding Assay" vs definition <a href="?assay=5#assays">' in html

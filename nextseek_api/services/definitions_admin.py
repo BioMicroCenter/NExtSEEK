@@ -242,16 +242,32 @@ def attention(*, context_rows, assay_rows, seek_types, seek_attributes, type_cla
                                     seek_attributes=seek_attributes, type_clades=type_clades,
                                     internal_assays=internal_assays, observed=observed)
     by_code = {r["sample_type"]: r for r in context_rows}
+    # derive's unknown_codes holds the codes the assay rows and the data name; a row's own hand-typed code is checked
+    # against SEEK's titles the same way.
+    titles = {t["title"] for t in seek_types}
+    unknown = set(result.report.get("unknown_codes", ()))
     would_drop = []
     for code, cells in sorted(result.sample_types.items()):
+        old = by_code[code]
         for col in context_derived.CONNECTION_COLUMNS:
             if col not in cells:
                 continue
             read = context_derived._codes if col in context_derived.CODE_COLUMNS else parse_list
             new = set(read(cells[col]))
-            for entry in read(by_code[code].get(col)):
+            for entry in read(old.get(col)):
                 if entry not in new:
-                    would_drop.append({"sample_type": code, "column": col, "entry": entry})
+                    why = ("type not on this box" if col in context_derived.CODE_COLUMNS
+                           and (entry in unknown or entry not in titles)
+                           else "no definition or data backs it")
+                    would_drop.append({"sample_type": code, "column": col, "entry": entry, "reason": why})
+        # A title moving between tiers (SEEK made it required) is not a removal; one leaving every tier is.
+        meta = context_derived.METADATA_COLUMNS
+        kept = {t for col in meta for t in parse_list(cells[col] if col in cells else old.get(col))}
+        for col in meta:
+            for entry in parse_list(old.get(col)):
+                if entry not in kept:
+                    would_drop.append({"sample_type": code, "column": col, "entry": entry,
+                                       "reason": "SEEK no longer has this field"})
 
     names = {a["assay_name"] for a in assay_rows if a.get("assay_name")}
     by_norm = defaultdict(set)

@@ -166,7 +166,8 @@ def test_attention_lists_what_a_person_must_fix():
     assert out["undesigned"] == {"Library Prep": [("BAC", "D.BSRA")]}
     assert out["needs_definition"]["sample_types"] == ["A.ATAC", "CEL", "D.BSRA", "RNA", "TIS"]
     assert "Library Prep" in out["needs_definition"]["assays"]
-    assert {"sample_type": "BAC", "column": "child_sampletypes", "entry": "RNA"} in out["would_drop"]
+    assert {"sample_type": "BAC", "column": "child_sampletypes", "entry": "RNA",
+            "reason": "no definition or data backs it"} in out["would_drop"]
     assert out["spelling"] == [{"assay_map": "FC Receptor  Binding Assay", "definition": "Fc Receptor Binding Assay"}]
 
 
@@ -248,3 +249,15 @@ def test_a_create_that_loses_a_race_is_409(tables, monkeypatch):
               {"internal_assay_title": "DNA Extraction"})
     assert r.status_code == 409
     assert tables == []
+
+
+def test_would_drop_covers_every_removal_and_says_why():
+    context_rows = [{"id": 1, "sample_type": "BAC", "sampletype_id": 7, "child_sampletypes": "RNA, D.XYZ",
+                     "required_metadata": "UID", "standard_metadata": "Species, Gone"}]
+    out = da.attention(context_rows=context_rows, assay_rows=[], seek_types=SEEK_TYPES + [{"id": 13, "title": "RNA"}],
+                       seek_attributes=SEEK_ATTRS, type_clades={}, internal_assays=[], connection_rows=[])
+    drops = {(d["column"], d["entry"]): d["reason"] for d in out["would_drop"]}
+    assert drops[("child_sampletypes", "D.XYZ")] == "type not on this box"
+    assert drops[("child_sampletypes", "RNA")] == "no definition or data backs it"
+    assert drops[("standard_metadata", "Gone")] == "SEEK no longer has this field"
+    assert ("standard_metadata", "Species") not in drops and ("possible_metadata_fields", "Notes") not in drops

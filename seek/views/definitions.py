@@ -112,7 +112,8 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
             "row": row,
             "fields": fields,
             "tiers": TIERS,
-            "unbacked": [d for d in (needs["would_drop"] if needs else []) if d["sample_type"] == code],
+            "unbacked": [d for d in (needs["would_drop"] if needs else []) if d["sample_type"] == code
+                         and d["column"] in context_derived.CONNECTION_COLUMNS],
             "live": [
                 ("Parents", _flags((c["parent"], c["designed"], c["observed"]) for c in conns if c["child"] == code)),
                 ("Children", _flags((c["child"], c["designed"], c["observed"]) for c in conns if c["parent"] == code)),
