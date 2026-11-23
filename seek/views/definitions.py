@@ -17,10 +17,10 @@ from django.db import connections
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from nextseek_api.graph_sync import sources
+from nextseek_api.graph_sync import context_derived, sources
 from nextseek_api.graph_sync.models_db import SampleTypeConnectionRow
-from nextseek_api.services.context_catalog import CLADE_ORDER, UNASSIGNED_CLADE, parse_list
-from nextseek_api.services.definitions_admin import attention
+from nextseek_api.services.context_catalog import CLADE_ORDER, UNASSIGNED_CLADE
+from nextseek_api.services.definitions_admin import attention, stored_tiers
 from seek.models import Sample_types_context
 
 from ..decorators import requires_seek_login_redirect, requires_supervisor
@@ -90,18 +90,27 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
                       "needs_assays": len(needs["needs_definition"]["assays"]) if needs else 0,
                       "attention": sum(len(u["pairs"]) for u in needs["undesigned"]) + len(needs["would_drop"])
                       + len(needs["spelling"]) if needs else 0},
-           "tab": "assays" if selected_assay else "sample-types"}
+           "tab": "assays" if selected_assay else "sample-types",
+           # Off on every box at deploy: the live lists, ids and new attributes' tiers wait for it.
+           "switch_on": context_derived.writes_columns()}
 
     row = next((r for r in context_rows if r["sample_type"] == selected_type), None)
     if row:
         ids = [t["id"] for t in seek_types if t["title"] == row["sample_type"]]
-        required = {a["title"].strip() for a in seek_attrs
-                    if ids and a["sample_type_id"] == min(ids) and a["required"]}
+        attrs = [a for a in seek_attrs if ids and a["sample_type_id"] == min(ids)]
+        titles = list(dict.fromkeys(a["title"].strip() for a in attrs if a["title"].strip()))
+        required = {a["title"].strip() for a in attrs if a["required"]}
+        stored = stored_tiers(row)
+        # Stored titles in their tiers; a SEEK title no tier holds yet joins as new (possible until placed); a stored
+        # title SEEK no longer has is pinned (the step drops it). With no SEEK attributes the lists stand as typed.
+        fields = [{"title": t, "tier": tier, "seek_required": t in required,
+                   "stale": bool(titles) and t not in titles, "new": False} for t, tier in stored.items()]
+        fields += [{"title": t, "tier": "required" if t in required else "possible", "seek_required": t in required,
+                    "stale": False, "new": True} for t in titles if t not in stored]
         code = row["sample_type"]
         ctx["type"] = {
             "row": row,
-            "fields": [{"title": t, "tier": tier, "label": label, "seek_required": t in required}
-                       for tier, col, label in TIERS for t in parse_list(row.get(col))],
+            "fields": fields,
             "tiers": TIERS,
             "unbacked": [d for d in (needs["would_drop"] if needs else []) if d["sample_type"] == code],
             "live": [

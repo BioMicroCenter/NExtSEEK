@@ -133,3 +133,16 @@ def test_framed_old_pages_render_and_allow_a_same_origin_frame():
 def test_the_route_is_registered():
     from django.urls import reverse
     assert reverse("adminDefinitions") == "/seek/admin/definitions/"
+
+
+
+def test_with_the_switch_off_the_page_says_so_and_the_tier_card_shows_new_and_stale_titles(catalog, monkeypatch):
+    monkeypatch.delenv("NEXTSEEK_GRAPH_SYNC_CONTEXT", raising=False)
+    monkeypatch.setattr(sources, "sample_attributes", lambda: [a for a in SEEK_ATTRS if a["title"] != "Notes"] + [
+        {"sample_type_id": 7, "title": "Barcode", "required": False}])
+    html = render_page().content.decode()
+    assert "NEXTSEEK_GRAPH_SYNC_CONTEXT=write" in html
+    assert 'data-field="Barcode" data-new' in html and ">new<" in html
+    assert "not in SEEK" in html and 'type="hidden" name="tier" data-field="Notes" value="possible"' in html
+    monkeypatch.setenv("NEXTSEEK_GRAPH_SYNC_CONTEXT", "write")
+    assert "NEXTSEEK_GRAPH_SYNC_CONTEXT=write" not in render_page().content.decode()

@@ -110,17 +110,29 @@ def _bad_codes(raw, titles: set[str]) -> list[str]:
     return [c for c in context_derived._codes(raw) if c not in titles]
 
 
-def _check_tiers(row: dict, tiers: dict[str, list[str]], seek_required: set[str]) -> None:
-    """A tier edit only moves the titles the row already lists; SEEK-required titles stay required."""
-    stored = {t for col in TIER_COLUMNS.values() for t in parse_list(row.get(col))}
-    given = [t for tier in TIER_COLUMNS for t in tiers.get(tier, [])]
-    if len(given) != len(set(given)):
+def stored_tiers(row: dict) -> dict[str, str]:
+    """Each title the row lists, to its tier."""
+    return {t: tier for tier, col in TIER_COLUMNS.items() for t in parse_list(row.get(col))}
+
+
+def _check_tiers(row: dict, tiers: dict[str, list[str]], seek_titles: list[str], seek_required: set[str]) -> None:
+    """Which fields exist is SEEK's. A tier edit keeps every title the row lists, may place a SEEK title of the type
+    that no tier holds yet (the context step does that only once its switch is on), never moves a title SEEK no
+    longer has (the step drops those), and keeps SEEK-required titles required."""
+    stored = stored_tiers(row)
+    given = {t: tier for tier in TIER_COLUMNS for t in tiers.get(tier, [])}
+    if len(given) != sum(len(tiers.get(tier, [])) for tier in TIER_COLUMNS):
         raise Invalid("a field is listed in more than one tier")
-    if set(given) != stored:
-        added, dropped = sorted(set(given) - stored), sorted(stored - set(given))
-        raise Invalid(f"tiers move fields, they do not add or remove them (added {added}, dropped {dropped}); "
-                      "which fields exist is SEEK's")
-    demoted = sorted((seek_required & stored) - set(tiers.get("required", [])))
+    dropped = sorted(set(stored) - set(given))
+    if dropped:
+        raise Invalid(f"tiers move fields, they do not remove them (dropped {dropped}); which fields exist is SEEK's")
+    alien = sorted(set(given) - set(stored) - set(seek_titles))
+    if alien:
+        raise Invalid(f"{alien} is not a SEEK attribute of this type; which fields exist is SEEK's")
+    stale = sorted(t for t in stored if seek_titles and t not in seek_titles and given[t] != stored[t])
+    if stale:
+        raise Invalid(f"{stale} is not in SEEK any more; it stays where it is until the context step drops it")
+    demoted = sorted((seek_required & set(given)) - set(tiers.get("required", [])))
     if demoted:
         raise Invalid(f"SEEK marks {demoted} required; those stay in the required tier")
 
@@ -138,8 +150,8 @@ def update_sample_type(code: str, body: DefinitionSampleTypeUpdateRequest) -> tu
              if getattr(body, f) is not None}
     if body.tiers is not None:
         tiers = body.tiers.model_dump()
-        _, seek_required = seek_attribute_titles(row["sample_type"])
-        _check_tiers(row, tiers, seek_required)
+        seek_titles, seek_required = seek_attribute_titles(row["sample_type"])
+        _check_tiers(row, tiers, seek_titles, seek_required)
         cells.update({col: _cell(tiers.get(tier, [])) for tier, col in TIER_COLUMNS.items()})
     node_changed = any(row.get(col) != cells[col] for col in SAMPLE_TYPE_TEXT.values() if col in cells)
     _write_sample_type(row["id"], cells)

@@ -58,6 +58,14 @@
     </p>
   </header>
 
+  {% if not switch_on %}
+  <div class="alert alert-warning py-2 small" role="status">
+    The context step is not writing on this box yet. Your text and tier changes save now, but the lists marked
+    "Kept by the sync", the ids, and the tiers of new SEEK attributes wait until <code>NEXTSEEK_GRAPH_SYNC_CONTEXT=write</code>
+    is set on the box.
+  </div>
+  {% endif %}
+
   <ul class="nav defs-tabs" role="tablist">
     <li class="nav-item"><a class="nav-link" href="#sample-types" data-tab="sample-types">Sample types
       {% if counts.needs_types %}<span class="defs-badge">{{ counts.needs_types }} need a definition</span>{% endif %}</a></li>
@@ -121,12 +129,14 @@
             {% for tier, col, label in type.tiers %}
               <div class="defs-tier"><h3>{{ label }}</h3>
                 {% for f in type.fields %}{% if f.tier == tier %}
-                  <div class="defs-field"><span>{{ f.title }}</span>
+                  <div class="defs-field"><span>{{ f.title }}{% if f.new %} <span class="defs-badge">new</span>{% endif %}</span>
                     {% if f.seek_required %}<span class="text-muted small" title="SEEK marks it required">SEEK required</span>
-                    {% else %}<select name="tier" data-field="{{ f.title }}" aria-label="Tier of {{ f.title }}">
+                      <input type="hidden" name="tier" data-field="{{ f.title }}"{% if f.new %} data-new{% endif %} value="required">
+                    {% elif f.stale %}<span class="text-muted small" title="The context step drops it once its switch is on">not in SEEK</span>
+                      <input type="hidden" name="tier" data-field="{{ f.title }}" value="{{ tier }}">
+                    {% else %}<select name="tier" data-field="{{ f.title }}"{% if f.new %} data-new{% endif %} aria-label="Tier of {{ f.title }}">
                       {% for t, c, l in type.tiers %}<option value="{{ t }}"{% if t == tier %} selected{% endif %}>{{ l }}</option>{% endfor %}
                     </select>{% endif %}
-                    {% if f.seek_required %}<input type="hidden" name="tier" data-field="{{ f.title }}" value="required">{% endif %}
                   </div>
                 {% endif %}{% endfor %}
               </div>
@@ -271,6 +281,7 @@
         body.tiers = {required: [], standard: [], possible: []};
         form.querySelectorAll('[name=tier]').forEach(function (el) {
           body.tiers[el.value].push(el.dataset.field);
+          if (el.hasAttribute('data-new')) { moved = true; }   // a new SEEK title is placed by saving
           if (el.tagName === 'SELECT' && !el.options[el.selectedIndex].defaultSelected) { moved = true; }
         });
         if (!moved) { status.textContent = 'Nothing to save.'; return; }

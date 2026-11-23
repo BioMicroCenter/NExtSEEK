@@ -98,7 +98,7 @@ def test_tiers_move_fields_and_queue_only_context(tables):
 
 
 @pytest.mark.parametrize("tiers, why", [
-    ({"required": ["UID", "Color"], "standard": ["Species"], "possible": ["Notes"]}, "added"),
+    ({"required": ["UID", "Color"], "standard": ["Species"], "possible": ["Notes"]}, "not a SEEK attribute"),
     ({"required": ["UID"], "standard": ["Species"]}, "dropped"),
     ({"required": [], "standard": ["UID", "Species"], "possible": ["Notes"]}, "required tier"),
     ({"required": ["UID"], "standard": ["Species", "UID"], "possible": ["Notes"]}, "more than one tier"),
@@ -217,3 +217,19 @@ def test_a_case_folded_url_code_still_keeps_seek_required_titles_required(tables
     assert r.status_code == 422 and "required tier" in r.data["errors"][0]["detail"]
     ok = _patch_type("bac", {"name": "Bacteria"})
     assert ok.status_code == 200 and ok.data["row"]["sample_type"] == "BAC" and ok.data["row"]["name"] == "Bacteria"
+
+
+
+def test_with_the_switch_off_a_new_seek_attribute_can_be_placed_and_a_stale_title_cannot_move(tables, monkeypatch):
+    """The context step places a new SEEK attribute and drops a title SEEK no longer has only once the switch is on;
+    until then the tier card offers the new one and pins the stale one."""
+    monkeypatch.setattr(sources, "sample_attributes", lambda: SEEK_ATTRS + [
+        {"sample_type_id": 7, "title": "Barcode ", "required": False}])
+    with connection.cursor() as cur:
+        cur.execute("UPDATE sample_types_context SET standard_metadata = 'Species, OldField' WHERE sample_type = 'BAC'")
+    keep = {"required": ["UID"], "standard": ["Species", "OldField", "Barcode"], "possible": ["Notes"]}
+    r = _patch_type("BAC", {"tiers": keep})
+    assert r.status_code == 200 and r.data["row"]["standard_metadata"] == "Species, OldField, Barcode"
+    moved = {"required": ["UID"], "standard": ["Species", "Barcode"], "possible": ["Notes", "OldField"]}
+    r = _patch_type("BAC", {"tiers": moved})
+    assert r.status_code == 422 and "not in SEEK" in r.data["errors"][0]["detail"]
