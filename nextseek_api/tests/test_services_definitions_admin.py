@@ -234,3 +234,17 @@ def test_with_the_switch_off_a_new_seek_attribute_can_be_placed_and_a_stale_titl
     moved = {"required": ["UID"], "standard": ["Species", "Barcode"], "possible": ["Notes", "OldField"]}
     r = _patch_type("BAC", {"tiers": moved})
     assert r.status_code == 422 and "not in SEEK" in r.data["errors"][0]["detail"]
+
+
+def test_a_create_that_loses_a_race_is_409(tables, monkeypatch):
+    """Two Creates pass the check together; the database's unique key refuses the second, which answers 409."""
+    with connection.cursor() as cur:
+        cur.execute("CREATE UNIQUE INDEX st_code ON sample_types_context (sample_type)")
+        cur.execute("CREATE UNIQUE INDEX ac_name ON assay_context (assay_name)")
+    monkeypatch.setattr(da, "_existing", lambda *a: None)       # the other request's row landed after the check
+    r = _post(da.DefinitionSampleTypesViewSet, "/nextseek_api/definitions/sample_types/", {"code": "BAC"})
+    assert r.status_code == 409
+    r = _post(da.DefinitionAssaysViewSet, "/nextseek_api/definitions/assays/",
+              {"internal_assay_title": "DNA Extraction"})
+    assert r.status_code == 409
+    assert tables == []

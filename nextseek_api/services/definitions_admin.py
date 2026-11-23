@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from django.conf import settings
-from django.db import connections, transaction
+from django.db import IntegrityError, connections, transaction
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from pydantic import ValidationError
 from rest_framework import status, viewsets
@@ -363,6 +363,8 @@ class DefinitionSampleTypesViewSet(_SuperuserViewSet):
             return _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request", str(exc))
         except FileExistsError as exc:
             return _error(status.HTTP_409_CONFLICT, "Already defined", str(exc))
+        except IntegrityError:     # another request created it between the check and the insert
+            return _error(status.HTTP_409_CONFLICT, "Already defined", "another request created it just now")
         hooks.enqueue("context", "*")
         hooks.enqueue("catalog", "*")   # the new row flips SampleType.has_context
         return Response({"row": row, "enqueued": ["context", "catalog"]}, status=status.HTTP_201_CREATED)
@@ -423,6 +425,8 @@ class DefinitionAssaysViewSet(_SuperuserViewSet):
             return _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request", str(exc))
         except FileExistsError as exc:
             return _error(status.HTTP_409_CONFLICT, "Already defined", str(exc))
+        except IntegrityError:     # another request created it between the check and the insert
+            return _error(status.HTTP_409_CONFLICT, "Already defined", "another request created it just now")
         hooks.enqueue("context", "*")
         hooks.enqueue("assay_map", "*")
         return Response({"row": row, "enqueued": ["context", "assay_map"]}, status=status.HTTP_201_CREATED)

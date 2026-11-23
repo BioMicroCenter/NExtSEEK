@@ -258,7 +258,8 @@
   window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
   show(location.hash.slice(1) || DEFAULT);
 
-  function send(method, url, body, status) {
+  function send(method, url, body, status, button) {
+    if (button) { button.disabled = true; }   // one request in flight per button
     status.textContent = 'Saving...';
     return fetch(url, {method: method, credentials: 'same-origin',
                        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
@@ -268,7 +269,8 @@
         if (res.ok) { status.textContent = 'Saved. The sync picks it up in seconds.'; location.reload(); return; }
         status.textContent = (res.j.errors && res.j.errors[0].detail) || 'Not saved.';
       })
-      .catch(function () { status.textContent = 'Not saved: the server did not answer.'; });
+      .catch(function () { status.textContent = 'Not saved: the server did not answer.'; })
+      .then(function () { if (button) { button.disabled = false; } });
   }
 
   document.querySelectorAll('form[data-save]').forEach(function (form) {
@@ -294,7 +296,7 @@
       }
       url = form.dataset.save === 'assay' ? '/nextseek_api/definitions/assays/' + key + '/'
                                           : '/nextseek_api/definitions/sample_types/' + encodeURIComponent(key) + '/';
-      send('PATCH', url, body, status);
+      send('PATCH', url, body, status, form.querySelector('button[type=submit]'));
     });
   });
 
@@ -303,7 +305,7 @@
       var type = btn.dataset.create === 'assay';
       send('POST', '/nextseek_api/definitions/' + (type ? 'assays/' : 'sample_types/'),
            type ? {internal_assay_title: btn.dataset.key} : {code: btn.dataset.key},
-           btn.closest('.defs-attn').querySelector('.defs-status'));
+           btn.closest('.defs-attn').querySelector('.defs-status'), btn);
     });
   });
 })();
