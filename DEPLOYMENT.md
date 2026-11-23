@@ -1352,8 +1352,8 @@ CSV with one row per chat (username, session id, counts, first and last time). `
 CSV attached; it refuses until `NEXTSEEK_SMTP_USER`, `NEXTSEEK_SMTP_PASSWORD`, `NEXTSEEK_SMTP_FROM` and
 `NESSIE_DIGEST_TO` are set in `docker/nextseek.env` (the other keys are in `docker/nextseek.env.example`).
 `NESSIE_DIGEST_TEAM_USERS` lists logins counted in their own section at the bottom (counts only: their questions are not listed and their chats are not in the CSV); `NESSIE_DIGEST_EXCLUDE_USERS` leaves
-logins out. The beat entry `weekly-nessie-digest` checks hourly and sends once after Monday 9 AM Eastern (a marker under
-`/var/celery` records the week sent, so a missed Monday goes out later that week); with the SMTP keys unset it does
+logins out. The beat entry `weekly-nessie-digest` checks Mondays at 12:58 and 13:58 UTC and sends once, from 8:58 AM Eastern (a marker under
+`/var/celery` records the week sent; a failed or missed Monday is not retried until you run `--send` by hand); with the SMTP keys unset it does
 nothing. Keys are read at container start: after editing `docker/nextseek.env`, recreate `nextseek` and `web` (§3.2, config-only row).
 Dry run:
 

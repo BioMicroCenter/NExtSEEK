@@ -64,6 +64,19 @@ class DigestTests(TestCase):
         assert [r.question for r in rows] == ["How many mice?", "which labs?", "Show me the sample tree", "TCR data?"]
         assert {r.username for r in rows} == {"ann", "bob"}
 
+    def test_test_and_demo_logins_in_the_exclude_list_are_not_counted_or_listed(self):
+        """The dev box's list is `charlie-test-3 demo user`: the logins that carry paid test runs never reach the email."""
+        for name in ("demo", "user"):
+            u = User.objects.create_user(name, password="pw")
+            self._q(ChatSession.objects.create(user=u), f"{name} test-run question", utc(2026, 11, 12, 18))
+        self._q(self.s1, "a real question", utc(2026, 11, 12, 18))
+        env = {"NESSIE_DIGEST_EXCLUDE_USERS": "charlie-test-3 demo user"}
+        with patch.dict("os.environ", env):
+            subject, body, _, table = D.build(*self._week())
+        assert "1 question from 1 person" in subject
+        assert "Not counted: charlie-test-3, demo, user." in body
+        assert "test-run question" not in body and "demo" not in table.replace("Not counted", "")
+
     def test_nested_container_cc_turns_are_not_questions(self):
         top = self._q(self.s3, "export the sheet", utc(2026, 11, 12, 15))
         turn = CCTurn.objects.create(task=top, user=self.bob, chat=self.s3, pass_hash="a" * 64)
@@ -149,7 +162,7 @@ class DigestTests(TestCase):
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class ScheduleTests(TestCase):
-    """The beat task runs hourly; it sends once a week, after Monday 9 AM Eastern, and only where mail is set up."""
+    """The beat task runs Mondays; it sends once a week, from Monday 8:58 AM Eastern, and only where mail is set up."""
     databases = {"default"}
     ENV = {"NEXTSEEK_SMTP_USER": "u", "NEXTSEEK_SMTP_PASSWORD": "p", "NEXTSEEK_SMTP_FROM": "from@example.org",
            "NESSIE_DIGEST_TO": "dmac@example.org"}
@@ -167,13 +180,13 @@ class ScheduleTests(TestCase):
         assert self._run(datetime(2026, 11, 23, 10, tzinfo=ET), env={}) == "not configured"
         assert len(mail.outbox) == 0
 
-    def test_monday_before_nine_waits(self):
-        assert self._run(datetime(2026, 11, 23, 8, 59, tzinfo=ET)) == "not due"
+    def test_monday_before_8_58_waits(self):
+        assert self._run(datetime(2026, 11, 23, 8, 57, tzinfo=ET)) == "not due"
         assert len(mail.outbox) == 0
 
-    def test_after_nine_it_sends_last_week_once(self):
-        assert self._run(datetime(2026, 11, 23, 9, 5, tzinfo=ET)).startswith("sent")
-        assert self._run(datetime(2026, 11, 23, 10, 5, tzinfo=ET)) == "already sent"
+    def test_from_8_58_it_sends_last_week_once(self):
+        assert self._run(datetime(2026, 11, 23, 8, 58, tzinfo=ET)).startswith("sent")
+        assert self._run(datetime(2026, 11, 23, 9, 58, tzinfo=ET)) == "already sent"
         assert len(mail.outbox) == 1 and "Nov 16 to Nov 22" in mail.outbox[0].subject
 
     def test_a_missed_monday_is_caught_up_later_in_the_week(self):
@@ -187,9 +200,12 @@ class ScheduleTests(TestCase):
         assert self._run(datetime(2026, 11, 23, 10, 5, tzinfo=ET)).startswith("sent")
 
 
-def test_the_app_scheduler_runs_the_digest_check_hourly():
+def test_the_app_scheduler_checks_the_digest_monday_at_58_past_12_and_13_utc():
+    """Weekly, on the wall clock (a container restart cannot move it). 8:58 AM Eastern is 12:58 UTC in summer and
+    13:58 UTC in winter; the ET check in send_if_due lets exactly one of the two send."""
+    from celery.schedules import crontab
     from nextseek_api.batch_upload.celery_app import app
 
     entry = app.conf.beat_schedule["weekly-nessie-digest"]
-    assert entry["task"] == "batch_upload.weekly_nessie_digest" and entry["schedule"] == 3600.0
+    assert entry["task"] == "batch_upload.weekly_nessie_digest" and entry["schedule"] == crontab(minute=58, hour="12,13", day_of_week=1)
     assert "batch_upload.weekly_nessie_digest" in app.tasks

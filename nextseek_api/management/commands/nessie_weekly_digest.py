@@ -14,8 +14,8 @@ Env (``docker/nextseek.env``): NEXTSEEK_SMTP_HOST (default outgoing.mit.edu), NE
 (space-separated logins left out, e.g. a test login), NESSIE_DIGEST_TEAM_USERS (space-separated logins counted
 in their own section at the bottom, without their questions).
 
-Scheduled by the app's Celery beat: ``batch_upload.weekly_nessie_digest`` runs hourly and calls ``send_if_due``,
-which sends once after Monday 9 AM Eastern and does nothing where the SMTP keys are unset.
+Scheduled by the app's Celery beat: ``batch_upload.weekly_nessie_digest`` runs Mondays at 12:58 and 13:58 UTC and
+calls ``send_if_due``, which sends once, from Monday 8:58 AM Eastern, and does nothing where the SMTP keys are unset.
 """
 import csv
 import io
@@ -188,17 +188,16 @@ def send(since, until):
     return subject
 
 
-SEND_AT_HOUR = 9  # Monday, US Eastern
+SEND_AT = timedelta(hours=8, minutes=58)  # after Monday 00:00, US Eastern
 
 
 def send_if_due(now, state_dir):
-    """The hourly beat task's body: mail last week's digest once, at or after Monday 9 AM Eastern. A small marker
-    file under ``state_dir`` holds the last week sent, so a later hour (or a restart) never sends it twice and a
-    missed Monday is caught up later that week. Where mail is not set up (dev, a laptop) it does nothing."""
+    """The weekly beat task's body: mail last week's digest once, at or after Monday 8:58 AM Eastern. A small marker
+    file under ``state_dir`` holds the last week sent, so the second Monday check (or a restart) never sends it twice. Where mail is not set up (dev, a laptop) it does nothing."""
     if any(not os.getenv(k) for k in SEND_ENV):
         return "not configured"
     since, until = last_week(now)
-    if now.astimezone(ET) < until + timedelta(hours=SEND_AT_HOUR):
+    if now.astimezone(ET) < until + SEND_AT:
         return "not due"
     marker = os.path.join(state_dir, "nessie_weekly_digest.last_sent")
     try:

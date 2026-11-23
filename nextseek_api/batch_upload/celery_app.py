@@ -16,6 +16,7 @@ import django  # noqa: E402
 django.setup()
 
 from celery import Celery  # noqa: E402
+from celery.schedules import crontab  # noqa: E402
 
 from nextseek_api.batch_upload.job_index import _get_ttl_seconds as _job_ttl_seconds  # noqa: E402
 from nextseek_api.batch_upload.job_index import state_dir  # noqa: E402
@@ -83,10 +84,11 @@ app.config_from_object(
                 "schedule": 86400.0,
                 "options": {"expires": 86400.0},
             },
-            # Hourly check; it sends once a week, after Monday 9 AM Eastern, and only where SMTP is set up.
+            # Monday 8:58 AM Eastern = 12:58 UTC (summer) or 13:58 UTC (winter): both are queued and send_if_due
+            # lets the one at or after 8:58 ET send (the other logs "not due" or "already sent"). Only where SMTP is set up.
             "weekly-nessie-digest": {
                 "task": "batch_upload.weekly_nessie_digest",
-                "schedule": 3600.0,
+                "schedule": crontab(minute=58, hour="12,13", day_of_week=1),
                 "options": {"expires": 3600.0},
             },
             "clear-expired-sessions": {

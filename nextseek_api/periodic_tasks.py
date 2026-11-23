@@ -172,7 +172,7 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
 
 @shared_task(name="batch_upload.weekly_nessie_digest")
 def weekly_nessie_digest():
-    """Hourly; mails last week's digest once after Monday 9 AM Eastern (a no-op where SMTP is not set up)."""
+    """Mondays 12:58 and 13:58 UTC; mails last week's digest once, from 8:58 AM Eastern (a no-op where SMTP is not set up)."""
     from datetime import datetime
 
     from .batch_upload.job_index import state_dir
