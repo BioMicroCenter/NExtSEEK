@@ -339,7 +339,7 @@ def test_the_study_links_step_never_enqueues_a_full_sync_nor_counts_toward_the_g
     steps.study_links = {"status": "ok", "in_study_added": 50_000, "in_study_removed": 50_000}
     result = _reconcile(tmp_path)
     assert result["status"] == "ok" and result["differing"] == 0
-    assert not GraphSyncOutbox.objects.exists()
+    assert not GraphSyncOutbox.objects.exclude(kind="context").exists()    # an ok reconcile queues only context
 
 
 @pytest.mark.parametrize("version", ["1.1", None])

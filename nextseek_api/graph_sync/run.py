@@ -1247,6 +1247,8 @@ def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = Fals
             _write(driver, db, chunk, run_dir, bench_keys, preflight, report, apply_label_changes)
         report["status"] = "ok"
         report["outbox_marked_done"] = _close_outbox(started)
+        from nextseek_api.graph_sync import hooks
+        hooks.enqueue("context", "*")     # queued after the close, which would otherwise mark a pending one done
         return report
     except PreflightError:
         report["status"] = "refused"

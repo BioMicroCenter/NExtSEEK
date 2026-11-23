@@ -22,7 +22,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connections
 
-from nextseek_api.graph_sync import drift, loop, run, state, targeted, writer
+from nextseek_api.graph_sync import context_derived, drift, loop, run, state, targeted, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 
 DB = "neo4j"
@@ -52,7 +52,7 @@ def work(monkeypatch, tmp_path):
     """
     rec = SimpleNamespace(calls=[], launched=[], exits=[], version=writer.SCHEMA_VERSION,
                           sync=None, of_type=None, retire=None, catalog=None, relabel=None, small=None, assays=None,
-                          edges=None,
+                          edges=None, context=None,
                           opts=loop.Options(run_root=str(tmp_path)))
 
     def step(name, default):
@@ -72,6 +72,7 @@ def work(monkeypatch, tmp_path):
     monkeypatch.setattr(targeted, "sync_assays", step("assays", {"status": targeted.OK}))
     monkeypatch.setattr(targeted, "sync_assay_edges", step("edges", {"status": targeted.OK}))
     monkeypatch.setattr(run, "catalog_sync", step("catalog", {"mode": "catalog", "status": "ok"}))
+    monkeypatch.setattr(context_derived, "sync_context", step("context", {"status": "ok"}))
     monkeypatch.setattr(writer, "graphmeta", lambda driver, db: {"schema_version": rec.version})
 
     def launch(argv, timeout_s):
@@ -364,8 +365,9 @@ def test_every_in_process_kind_calls_its_own_function(work):
 
     one_pass(work)
 
+    # catalog and assay_map each queue one context row (coalesced), which the same pass drains last
     assert names(work) == ["sync", "of_type", "retire", "catalog", "relabel", "assays", "relabel", "small", "assays",
-                           "small"]
+                           "small", "context"]
     assert [c.args for c in work.calls if c.name == "sync"] == [(DRIVER, DB, [7])]
     assert [c.args for c in work.calls if c.name == "of_type"] == [(DRIVER, DB, 26)]
     assert [c.args for c in work.calls if c.name == "retire"] == [(DRIVER, DB, [9])]
@@ -378,10 +380,11 @@ def test_the_assay_map_and_isa_drains_run_sync_assays_after_their_own_step(work)
     state.enqueue("isa", "*", now=before(minutes=1))
     one_pass(work)
 
-    assert names(work) == ["relabel", "assays", "small", "assays"]
+    assert names(work) == ["relabel", "assays", "small", "assays", "context"]
     drain_dir = os.path.join(str(work.opts.run_root), f"drain-{T0:%Y%m%dT%H%M%SZ}")
     assert [c.kwargs["run_dir"] for c in work.calls if c.name == "assays"] == [drain_dir, drain_dir]
     assert row("assay_map", "*").done_at is not None and row("isa", "*").done_at is not None
+    assert [c.kwargs["run_dir"] for c in work.calls if c.name == "context"] == [drain_dir]
 
 
 @pytest.mark.django_db
@@ -493,7 +496,7 @@ def test_a_step_that_raises_backs_its_row_off_and_the_pass_goes_on(work):
     assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("samples"))
     assert "neo4j went away" in r.last_error
     assert row("catalog", "*").done_at is not None
-    assert report["counts"][loop.FAILED] == 1 and report["counts"][loop.DONE] == 4
+    assert report["counts"][loop.FAILED] == 1 and report["counts"][loop.DONE] == 5   # with the context row
 
 
 @pytest.mark.django_db

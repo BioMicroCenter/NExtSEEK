@@ -633,6 +633,14 @@ def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_cha
 
     result = _guarded(driver, db, lock_timeout_s, work)
     result.setdefault("requested", len(wanted))
+    return _queue_context(result)
+
+
+def _queue_context(result: dict) -> dict:
+    """``result`` unchanged; a write that ended ``ok`` may have added or removed a DERIVED_FROM edge, so a ``context``
+    row is queued and the observed connections in the context tables follow (``context_derived``)."""
+    if result.get("status") == OK:
+        hooks.enqueue("context", "*")
     return result
 
 
@@ -656,7 +664,7 @@ def sync_samples_of_type(driver, db, type_id, *, run_dir: str | None = None, app
             return _stop(total, part)
         _add(total, part)
         total["chunks"] += 1
-    return total
+    return _queue_context(total)
 
 
 # --- retire_samples ------------------------------------------------------------------------------
@@ -692,7 +700,7 @@ def retire_samples(driver, db, ids, *, run_dir: str | None = None, lock_timeout_
 
     result = _guarded(driver, db, lock_timeout_s, work)
     result.setdefault("requested", len(wanted))
-    return result
+    return _queue_context(result)
 
 
 # --- relabel_for_maps ----------------------------------------------------------------------------

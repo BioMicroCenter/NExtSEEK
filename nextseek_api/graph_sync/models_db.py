@@ -2,8 +2,8 @@
 
 ``GraphSyncOutbox`` holds the work waiting for ``manage.py graph_sync --loop``: scheduled slots now, and rows written
 by per-writer hooks once they land. ``GraphSyncRun`` records every run of ``--full``, ``--catalog``, ``--reconcile``,
-``--drift`` and ``--samples``. Both live in the dmac (``default``) database; the rules that use them go in
-``state.py``.
+``--drift`` and ``--samples``. ``SampleTypeConnectionRow`` is the connections table ``context_derived`` rewrites.
+All live in the dmac (``default``) database; the rules that use the first two go in ``state.py``.
 
 Re-exported from ``nextseek_api/models.py``, which is what makes the app registry load them.
 """
@@ -60,3 +60,24 @@ class GraphSyncRun(models.Model):
 
     def __str__(self) -> str:
         return f"GraphSyncRun({self.kind} {self.status})"
+
+
+class SampleTypeConnectionRow(models.Model):
+    """One licensed (parent type, assay, child type) triple: ``designed`` by an assay_context row, ``observed`` on a
+    DERIVED_FROM edge, or both. No counts (ruling 2026-10-30). Rewritten whole by ``context_derived.sync_context``;
+    read by the definitions export and the admin page, so neither scans the graph."""
+
+    parent_type = models.CharField(max_length=32)
+    assay = models.CharField(max_length=255)
+    child_type = models.CharField(max_length=32)
+    designed = models.BooleanField(default=False)
+    observed = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "sample_type_connections"
+        app_label = "nextseek_api"
+        constraints = [models.UniqueConstraint(fields=["parent_type", "assay", "child_type"],
+                                               name="sample_type_connections_triple")]
+
+    def __str__(self) -> str:
+        return f"{self.parent_type} -[{self.assay}]-> {self.child_type}"

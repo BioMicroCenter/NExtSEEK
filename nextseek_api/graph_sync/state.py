@@ -78,6 +78,7 @@ KEY_RULES: Mapping[str, tuple[re.Pattern, ...]] = MappingProxyType({
     "samples_of_type": (_TYPE,),
     "retire": (_ONE_SAMPLE,),
     "catalog": (_ALL,),
+    "context": (_ALL,),
     "assay_map": (_ALL,),
     "protocol_map": (_ALL,),
     "isa": (_ALL,),

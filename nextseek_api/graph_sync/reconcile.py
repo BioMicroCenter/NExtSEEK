@@ -381,6 +381,8 @@ def reconcile(driver, db, *, run_dir, chunk: int = writer.SAMPLE_CHUNK, dry_run:
         os.makedirs(opts.run_dir, exist_ok=True)
         _reconcile(driver, db, report, opts, now=started)
         report.setdefault("status", OK)
+        if report["status"] == OK:
+            hooks.enqueue("context", "*")     # SEEK UI and hand SQL edits reach the context tables tonight too
         return report
     except Exception as exc:
         report["status"] = FAILED
