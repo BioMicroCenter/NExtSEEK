@@ -50,3 +50,14 @@ def test_the_picker_still_has_exactly_one_script_block():
 def test_the_advanced_search_sample_type_label_links_to_the_catalog():
     search = _read("seek/templates/searchAdvanced.html")
     assert '/seek/sampletypes/' in search
+
+
+def test_useful_info_links_the_api_docs_for_any_logged_in_user():
+    """A relative link, so it works on every box; inside the logged-in block, since Swagger needs a login, and
+    above the superuser gate, since any logged-in user may call the API."""
+    nav = _read("themes/NextSeek/templates/nav.embed.html")
+    link = nav.index('href="/nextseek_api/swagger/"')
+    menu = nav.index('id="usefulInfoSubmenu"')
+    assert menu < nav.index("{% if request.user.is_authenticated %}", menu) < link < nav.index("{% endif %}", menu + 1,
+                                                                                            nav.index("</ul>", menu))
+    assert link < nav.index("{% if request.user.is_superuser %}")
