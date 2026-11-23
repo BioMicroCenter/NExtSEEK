@@ -18,6 +18,7 @@ urlpatterns = [
     re_path(r'^templates/', views.templatesList, name='templatesList'),
     re_path(r'^retrieve/samples/', views.retrieveSamples, name='retrieveSamples'),
     re_path(r'^admin/retrieve/', views.adminRetrieveSamples, name="adminRetrieveSamples"),
+    re_path(r'^admin/definitions/$', views.adminDefinitions, name="adminDefinitions"),
     re_path(r'^admin/clades/$', views.adminClades, name="adminClades"),
     re_path(r'^admin/clades/syncSampleTypes/$', views.cladesSyncSampleTypes, name="cladesSyncSampleTypes"),
 

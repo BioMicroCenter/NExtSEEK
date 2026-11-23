@@ -113,8 +113,7 @@ def test_admin_sidebar_renders_nothing_for_a_non_superuser():
     )
     html = render_to_string("nav.embed.html", {"request": SimpleNamespace(user=user)})
 
-    for forbidden in ("Admin Panel", "Clades", "/seek/admin/clades/",
-                      "Internal Assays", "/seek/admin/internal_assays/"):
+    for forbidden in ("Admin Panel", "Definitions", "/seek/admin/definitions/"):
         assert forbidden not in html, f"non-superuser sees {forbidden!r} in the sidebar"
     for leaked in ("is_staff", "is_superuser", "dmac/views.py"):
         assert leaked not in html, f"template comment text leaked into the page: {leaked!r}"
@@ -132,8 +131,6 @@ def test_admin_sidebar_still_renders_for_a_superuser():
     html = render_to_string("nav.embed.html", {"request": SimpleNamespace(user=user)})
 
     assert "Admin Panel" in html
-    assert "Clades" in html
-    # The internal-assays admin page existed and was superuser-gated, but nothing
-    # in the nav pointed at it, so admins could not reach it without the URL.
-    assert "Internal Assays" in html
-    assert "/seek/admin/internal_assays/" in html
+    # Sample Attributes, Clades and Internal Assays are tabs of the one Definitions page.
+    assert "Definitions" in html
+    assert "/seek/admin/definitions/" in html

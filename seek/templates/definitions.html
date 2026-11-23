@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+
+{% block title %}Definitions - NExtSEEK{% endblock %}
+
+{% block extra_head %}
+<style>
+  .defs-tabs { border-bottom: 1px solid var(--ns-border, #dee2e6); margin-bottom: 1rem; flex-wrap: wrap; }
+  .defs-tabs .nav-link { color: inherit; }
+  .defs-tabs .nav-link.active { font-weight: 600; }
+  .defs-badge { font-size: .72rem; border-radius: 999px; padding: .1rem .5rem; margin-left: .35rem;
+                background: #fff3cd; color: #664d03; }
+  .defs-grid { display: grid; grid-template-columns: 220px 1fr; gap: 1.25rem; align-items: start; }
+  @media (max-width: 900px) { .defs-grid { grid-template-columns: 1fr; } }
+  .defs-list { max-height: 75vh; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: .5rem; }
+  .defs-list h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #6b7280;
+                  margin: .6rem .25rem .3rem; }
+  .defs-list a { display: inline-block; margin: .1rem; padding: .1rem .45rem; border-radius: 6px;
+                 font-family: ui-monospace, monospace; font-size: .82rem; text-decoration: none;
+                 border: 1px solid #e5e7eb; color: inherit; }
+  .defs-list a.active { background: #1f2937; color: #fff; border-color: #1f2937; }
+  .defs-list .defs-missing a { border-style: dashed; color: #9a3412; }
+  .defs-list.defs-assays a { display: block; font-family: inherit; border: 0; }
+  .defs-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  .defs-card h2 { font-size: 1rem; margin: 0 0 .75rem; }
+  .defs-card .defs-note { color: #6b7280; font-size: .85rem; font-weight: 400; }
+  .defs-live { display: grid; grid-template-columns: 110px 1fr; gap: .35rem .75rem; font-size: .88rem; }
+  .defs-chip { display: inline-flex; gap: .25rem; align-items: center; margin: .1rem .25rem .1rem 0;
+               padding: .05rem .4rem; border: 1px solid #e5e7eb; border-radius: 6px; }
+  .defs-flag { font-size: .68rem; font-weight: 700; padding: 0 .25rem; border-radius: 3px; }
+  .defs-flag.d { background: #dbeafe; color: #1e40af; }
+  .defs-flag.o { background: #dcfce7; color: #166534; }
+  .defs-chip.undesigned { border-color: #f59e0b; }
+  .defs-tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+  @media (max-width: 900px) { .defs-tiers { grid-template-columns: 1fr; } }
+  .defs-tier { border: 1px dashed #d1d5db; border-radius: 6px; padding: .5rem; min-height: 4rem; }
+  .defs-tier h3 { font-size: .8rem; margin: 0 0 .4rem; }
+  .defs-field { display: flex; justify-content: space-between; gap: .35rem; font-size: .84rem; padding: .1rem 0; }
+  .defs-field select { font-size: .78rem; padding: 0 .2rem; }
+  .defs-attn { border: 1px solid #f59e0b; background: #fffbeb; border-radius: 8px; padding: .75rem 1rem;
+               margin-bottom: 1rem; font-size: .88rem; }
+  .defs-attn h2 { font-size: .95rem; margin: 0 0 .5rem; }
+  .defs-attn h3 { font-size: .82rem; margin: .6rem 0 .25rem; }
+  .defs-attn ul { margin: 0; padding-left: 1.1rem; }
+  .defs-frame { width: 100%; height: 80vh; border: 1px solid #e5e7eb; border-radius: 8px; }
+  .defs-status { font-size: .85rem; margin-left: .5rem; }
+  .defs-actions { display: flex; justify-content: flex-end; align-items: center; gap: .5rem; margin-top: .5rem; }
+</style>
+{% endblock %}
+
+{% block main %}
+<div class="ns-workbench defs-page" data-csrf="{{ csrf_token }}">
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Definitions</h1>
+    <p class="ns-page-subtitle">
+      Sample type and assay definitions in one place. You write the names, descriptions, tags, tiers and an
+      assay's designed connections; the sync keeps the rest (parents, children, assay lists, ids) from SEEK and the
+      data. <a href="/nextseek_api/definitions/export/">Export JSON</a>
+    </p>
+  </header>
+
+  <ul class="nav defs-tabs" role="tablist">
+    <li class="nav-item"><a class="nav-link" href="#sample-types" data-tab="sample-types">Sample types
+      {% if counts.needs_types %}<span class="defs-badge">{{ counts.needs_types }} need a definition</span>{% endif %}</a></li>
+    <li class="nav-item"><a class="nav-link" href="#assays" data-tab="assays">Assays
+      {% if counts.needs_assays %}<span class="defs-badge">{{ counts.needs_assays }} need a definition</span>{% endif %}</a></li>
+    <li class="nav-item"><a class="nav-link" href="#attention" data-tab="attention">Needs attention
+      {% if counts.attention %}<span class="defs-badge">{{ counts.attention }}</span>{% endif %}</a></li>
+    <li class="nav-item"><a class="nav-link" href="#attributes" data-tab="attributes">Attributes</a></li>
+    <li class="nav-item"><a class="nav-link" href="#clades" data-tab="clades">Clades</a></li>
+    <li class="nav-item"><a class="nav-link" href="#assay-map" data-tab="assay-map">Assay map</a></li>
+  </ul>
+
+  {# ---------------------------------------------------------------- Sample types #}
+  <section class="defs-pane" id="pane-sample-types" {% if tab != "sample-types" %}hidden{% endif %}>
+    <div class="defs-grid">
+      <nav class="defs-list" aria-label="Sample types">
+        {% for g in clades %}
+          <h3>{{ g.clade }}</h3>
+          {% for code in g.codes %}<a href="?type={{ code|urlencode }}#sample-types"{% if type and type.row.sample_type == code %} class="active"{% endif %}>{{ code }}</a>{% endfor %}
+        {% endfor %}
+        {% if needs.needs_definition.sample_types %}
+          <div class="defs-missing">
+            <h3>Needs a definition</h3>
+            {% for code in needs.needs_definition.sample_types %}<a href="#attention" data-tab="attention">{{ code }}</a>{% endfor %}
+          </div>
+        {% endif %}
+      </nav>
+
+      <div>
+      {% if type %}
+        <form class="defs-card" data-save="sample-type" data-key="{{ type.row.sample_type }}">
+          <h2><code>{{ type.row.sample_type }}</code> {{ type.row.name|default:"" }}
+            <span class="defs-note">· {{ type.row.clade|default:"no clade" }} · you write these</span></h2>
+          <div class="mb-2"><label class="form-label small mb-0">Name</label>
+            <input class="form-control form-control-sm" name="name" value="{{ type.row.name|default:'' }}"></div>
+          <div class="mb-2"><label class="form-label small mb-0">Description</label>
+            <textarea class="form-control form-control-sm" rows="3" name="description">{{ type.row.description|default:'' }}</textarea></div>
+          <div class="mb-2"><label class="form-label small mb-0">Tags (comma-separated)</label>
+            <input class="form-control form-control-sm" name="tags" value="{{ type.row.tags|default:'' }}"></div>
+          <div class="defs-actions"><span class="defs-status" role="status"></span>
+            <button type="reset" class="btn btn-sm btn-outline-secondary">Discard</button>
+            <button type="submit" class="btn btn-sm btn-primary">Save</button></div>
+        </form>
+
+        <div class="defs-card">
+          <h2>Kept by the sync <span class="defs-note">· <span class="defs-flag d">D</span> designed by an assay ·
+            <span class="defs-flag o">O</span> seen in data</span></h2>
+          <div class="defs-live">
+            {% for label, items in type.live %}
+              <strong>{{ label }}</strong>
+              <div>{% for i in items %}<span class="defs-chip{% if i.observed and not i.designed %} undesigned{% endif %}">{{ i.name }}{% if i.designed %}<span class="defs-flag d">D</span>{% endif %}{% if i.observed %}<span class="defs-flag o">O</span>{% endif %}</span>{% empty %}<span class="text-muted">none</span>{% endfor %}</div>
+            {% endfor %}
+            {% if type.unbacked %}<strong>Typed by hand</strong>
+              <div>{% for d in type.unbacked %}<span class="defs-chip undesigned" title="{{ d.column }}">{{ d.entry }} · no assay or data backs it</span>{% endfor %}</div>{% endif %}
+          </div>
+        </div>
+
+        <form class="defs-card" data-save="tiers" data-key="{{ type.row.sample_type }}">
+          <h2>Metadata tiers <span class="defs-note">· you set the tier, SEEK sets which fields exist</span></h2>
+          <div class="defs-tiers">
+            {% for tier, col, label in type.tiers %}
+              <div class="defs-tier"><h3>{{ label }}</h3>
+                {% for f in type.fields %}{% if f.tier == tier %}
+                  <div class="defs-field"><span>{{ f.title }}</span>
+                    {% if f.seek_required %}<span class="text-muted small" title="SEEK marks it required">SEEK required</span>
+                    {% else %}<select name="tier" data-field="{{ f.title }}" aria-label="Tier of {{ f.title }}">
+                      {% for t, c, l in type.tiers %}<option value="{{ t }}"{% if t == tier %} selected{% endif %}>{{ l }}</option>{% endfor %}
+                    </select>{% endif %}
+                    {% if f.seek_required %}<input type="hidden" name="tier" data-field="{{ f.title }}" value="required">{% endif %}
+                  </div>
+                {% endif %}{% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+          <div class="defs-actions"><span class="defs-status" role="status"></span>
+            <a class="btn btn-sm btn-outline-secondary" href="#attributes" data-tab="attributes">Add or rename an attribute</a>
+            <button type="submit" class="btn btn-sm btn-primary">Save tiers</button></div>
+        </form>
+      {% else %}
+        <p class="text-muted">Pick a sample type on the left.</p>
+      {% endif %}
+      </div>
+    </div>
+  </section>
+
+  {# ---------------------------------------------------------------- Assays #}
+  <section class="defs-pane" id="pane-assays" {% if tab != "assays" %}hidden{% endif %}>
+    <div class="defs-grid">
+      <nav class="defs-list defs-assays" aria-label="Assays">
+        {% for a in assays %}<a href="?assay={{ a.id }}#assays"{% if assay and assay.row.id == a.id %} class="active"{% endif %}>{{ a.assay_name }}</a>{% endfor %}
+      </nav>
+      <div>
+      {% if assay %}
+        <form class="defs-card" data-save="assay" data-key="{{ assay.row.id }}">
+          <h2>{{ assay.row.assay_name }} <span class="defs-note">· row {{ assay.row.id }} · you write these</span></h2>
+          <div class="mb-2"><label class="form-label small mb-0">Description</label>
+            <textarea class="form-control form-control-sm" rows="3" name="description">{{ assay.row.description|default:'' }}</textarea></div>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small mb-0">Tags</label>
+              <input class="form-control form-control-sm" name="tags" value="{{ assay.row.tags|default:'' }}"></div>
+            <div class="col-md-6"><label class="form-label small mb-0">Other names</label>
+              <input class="form-control form-control-sm" name="alternative_names" value="{{ assay.row.alternative_names|default:'' }}"></div>
+            <div class="col-md-4"><label class="form-label small mb-0">Required parents</label>
+              <input class="form-control form-control-sm font-monospace" name="required_parents" value="{{ assay.row.Required_Parent_Sample_Types|default:'' }}"></div>
+            <div class="col-md-4"><label class="form-label small mb-0">Optional parents</label>
+              <input class="form-control form-control-sm font-monospace" name="optional_parents" value="{{ assay.row.Optional_Parent_Sample_Types|default:'' }}"></div>
+            <div class="col-md-4"><label class="form-label small mb-0">Children</label>
+              <input class="form-control form-control-sm font-monospace" name="children" value="{{ assay.row.Children_Sample_Types|default:'' }}"></div>
+          </div>
+          <p class="defs-note small mt-1 mb-0">Codes are SEEK sample type titles. A comma separates groups, <code>or</code> separates alternatives: <code>TIS or CEL, AB</code>.</p>
+          <div class="defs-actions"><span class="defs-status" role="status"></span>
+            <button type="reset" class="btn btn-sm btn-outline-secondary">Discard</button>
+            <button type="submit" class="btn btn-sm btn-primary">Save</button></div>
+        </form>
+        <div class="defs-card">
+          <h2>Connections <span class="defs-note">· read-only · <span class="defs-flag d">D</span> designed · <span class="defs-flag o">O</span> seen in data</span></h2>
+          {% for c in assay.seen %}<span class="defs-chip{% if c.observed and not c.designed %} undesigned{% endif %}">{{ c.parent }} → {{ c.child }}{% if c.designed %}<span class="defs-flag d">D</span>{% endif %}{% if c.observed %}<span class="defs-flag o">O</span>{% endif %}</span>{% empty %}<span class="text-muted">none yet</span>{% endfor %}
+        </div>
+      {% else %}
+        <p class="text-muted">Pick an assay on the left.</p>
+      {% endif %}
+      </div>
+    </div>
+  </section>
+
+  {# ---------------------------------------------------------------- Needs attention #}
+  <section class="defs-pane" id="pane-attention" hidden>
+    {% if needs is None %}
+      <p class="text-muted">The list could not be built just now (see the server log); the editors still work.</p>
+    {% else %}
+    <div class="defs-attn">
+      <h2>Seen in data, allowed by no assay definition</h2>
+      <p class="mb-1">Update the assay's definition, or fix the data.</p>
+      {% for assay_name, pairs in needs.undesigned.items %}
+        <h3>{{ assay_name }}</h3>
+        <ul>{% for p, c in pairs %}<li>{{ p }} → {{ c }}</li>{% endfor %}</ul>
+      {% empty %}<p class="text-muted mb-0">None.</p>{% endfor %}
+    </div>
+    <div class="defs-attn">
+      <h2>Needs a definition</h2>
+      <h3>SEEK sample types</h3>
+      {% for code in needs.needs_definition.sample_types %}<span class="defs-chip"><code>{{ code }}</code>
+        <button type="button" class="btn btn-link btn-sm p-0" data-create="sample-type" data-key="{{ code }}">Create</button></span>
+      {% empty %}<p class="text-muted mb-0">None.</p>{% endfor %}
+      <h3>Internal assays</h3>
+      {% for title in needs.needs_definition.assays %}<span class="defs-chip">{{ title }}
+        <button type="button" class="btn btn-link btn-sm p-0" data-create="assay" data-key="{{ title }}">Create</button></span>
+      {% empty %}<p class="text-muted mb-0">None.</p>{% endfor %}
+      <span class="defs-status" role="status"></span>
+    </div>
+    <div class="defs-attn">
+      <h2>Typed by hand, backed by no definition or data</h2>
+      <p class="mb-1">The next context step drops these once the switch is on. Move each into an assay definition to keep it.</p>
+      <ul>{% for d in needs.would_drop %}<li><a href="?type={{ d.sample_type|urlencode }}#sample-types"><code>{{ d.sample_type }}</code></a> {{ d.column }}: {{ d.entry }}</li>
+      {% empty %}<li class="text-muted">None.</li>{% endfor %}</ul>
+    </div>
+    <div class="defs-attn">
+      <h2>Names that differ only in case or spacing</h2>
+      <ul>{% for s in needs.spelling %}<li>Assay map "{{ s.assay_map }}" vs definition "{{ s.definition }}"</li>
+      {% empty %}<li class="text-muted">None.</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </section>
+
+  {# ---------------------------------------------------------------- today's editors, framed #}
+  <section class="defs-pane" id="pane-attributes" hidden><iframe class="defs-frame" title="Attributes" data-src="/seek/samples/attributes/?embed=1"></iframe></section>
+  <section class="defs-pane" id="pane-clades" hidden><iframe class="defs-frame" title="Clades" data-src="/seek/admin/clades/?embed=1"></iframe></section>
+  <section class="defs-pane" id="pane-assay-map" hidden><iframe class="defs-frame" title="Assay map" data-src="/seek/admin/internal_assays/?embed=1"></iframe></section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var root = document.querySelector('.defs-page');
+  var csrf = root.dataset.csrf;
+  var DEFAULT = '{{ tab }}';
+
+  function show(tab) {
+    if (!document.getElementById('pane-' + tab)) { tab = DEFAULT; }
+    document.querySelectorAll('.defs-pane').forEach(function (p) { p.hidden = p.id !== 'pane-' + tab; });
+    document.querySelectorAll('.defs-tabs .nav-link').forEach(function (a) {
+      a.classList.toggle('active', a.dataset.tab === tab);
+    });
+    var frame = document.querySelector('#pane-' + tab + ' iframe[data-src]');
+    if (frame && !frame.src) { frame.src = frame.dataset.src; }   // load an editor on first view only
+  }
+  window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
+  show(location.hash.slice(1) || DEFAULT);
+
+  function send(method, url, body, status) {
+    status.textContent = 'Saving...';
+    return fetch(url, {method: method, credentials: 'same-origin',
+                       headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+                       body: JSON.stringify(body)})
+      .then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+      .then(function (res) {
+        if (res.ok) { status.textContent = 'Saved. The sync picks it up in seconds.'; location.reload(); return; }
+        status.textContent = (res.j.errors && res.j.errors[0].detail) || 'Not saved.';
+      })
+      .catch(function () { status.textContent = 'Not saved: the server did not answer.'; });
+  }
+
+  document.querySelectorAll('form[data-save]').forEach(function (form) {
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var key = form.dataset.key, body = {}, url;
+      if (form.dataset.save === 'tiers') {
+        body.tiers = {required: [], standard: [], possible: []};
+        form.querySelectorAll('[name=tier]').forEach(function (el) { body.tiers[el.value].push(el.dataset.field); });
+      } else {
+        form.querySelectorAll('input[name], textarea[name]').forEach(function (el) { body[el.name] = el.value; });
+      }
+      url = form.dataset.save === 'assay' ? '/nextseek_api/definitions/assays/' + key + '/'
+                                          : '/nextseek_api/definitions/sample_types/' + encodeURIComponent(key) + '/';
+      send('PATCH', url, body, form.querySelector('.defs-status'));
+    });
+  });
+
+  document.querySelectorAll('[data-create]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var type = btn.dataset.create === 'assay';
+      send('POST', '/nextseek_api/definitions/' + (type ? 'assays/' : 'sample_types/'),
+           type ? {internal_assay_title: btn.dataset.key} : {code: btn.dataset.key},
+           btn.closest('.defs-attn').querySelector('.defs-status'));
+    });
+  });
+})();
+</script>
+{% endblock %}

@@ -45,6 +45,7 @@ BOUNCES = [
     "/seek/assays/",
     "/seek/templates/",
     # the registry declares the admin pages for local and dev only
+    pytest.param("/seek/admin/definitions/", marks=pytest.mark.profiles("local", "dev")),
     pytest.param("/seek/admin/clades/", marks=pytest.mark.profiles("local", "dev")),
     pytest.param("/seek/admin/internal_assays/", marks=pytest.mark.profiles("local", "dev")),
     "/seek/assistant/",

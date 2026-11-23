@@ -21,7 +21,8 @@ import datetime
 import json
 from ..responses import json_response, missing_param
 from ..responses import plain_text
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from ..decorators import requires_seek_login
 from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import requires_supervisor
@@ -476,9 +477,14 @@ def getAssaysOptions(request, id):
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
 
+@xframe_options_sameorigin
 @ensure_csrf_cookie
 @requires_seek_login_redirect()
 def sampleAttributes(request):
+    # A superuser's direct visit goes to the Definitions page's Attributes tab, which frames this page (?embed=1).
+    # Everyone else keeps this read-only page: Definitions is superuser only.
+    if request.user.is_superuser and request.GET.get('embed') != '1':
+        return redirect('/seek/admin/definitions/#attributes')
     report = {}
     stype = DBtable_sampletype()
     report['type_options'] = stype.getSampleTypes()
