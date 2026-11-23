@@ -1,0 +1,236 @@
+{
+ "_note": "The run2 cases that only test anything as a non-admin project member (the scope check is skipped for an admin). See user_questions.json.",
+ "include_ids": [],
+ "families": {
+  "graph_traversal": {
+   "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
+   "variants": [
+    {
+     "id": "uq.member_count_refused.1",
+     "family": "graph_traversal",
+     "name": "Three counts in the member's own project",
+     "tags": [
+      "user",
+      "issue:member_count_refused",
+      "verbatim",
+      "member"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "studies",
+       "query": "How many unique studies are there in Hi-IMPAcTB?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])(19|22)(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "cohorts",
+       "query": "How many cohorts does Hi-IMPAcTB have?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])(39|7|8)(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*((could not|couldn.t) be (confirmed|proven) to stay within your projects|scope could not be (confirmed|proven)|fell back to the project-scoped))"
+        }
+       ]
+      },
+      {
+       "label": "arms",
+       "query": "How many study arms are there for Hi-IMPAcTB?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])(63|2)(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*((could not|couldn.t) be (confirmed|proven) to stay within your projects|scope could not be (confirmed|proven)|fell back to the project-scoped))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: 19 studies through the investigation (22 titles hold samples); mouse Cohort 39 values, patient BaselineCohort 7, macaque MTB_Cohort 8; macaque Arm 63 values, patient Arm 2. Run as a non-admin project member."
+    },
+    {
+     "id": "uq.member_count_refused.2",
+     "family": "graph_traversal",
+     "name": "CFU for three animals, then other animals, then barcodes",
+     "tags": [
+      "user",
+      "issue:member_count_refused",
+      "issue:missing_data_say_what_exists",
+      "verbatim",
+      "member"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "no_cfu",
+       "query": "I'm looking for bacterial CFU at necropsy for NHP 16219, 16619, 16919. If this data doesn't exist, tell me what does. Provide links to any datasets, and give me a CSV if it does",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)CFU"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)(\\b0\\b|\\bno\\b|\\bnone\\b|zero|not found|couldn.?t find)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "16[269]19"
+        }
+       ]
+      },
+      {
+       "label": "other_animals",
+       "query": "look at the tissue samples' attributes, or at CFU data for other animals in this study",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)CFU"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*((could not|couldn.t) be (confirmed|proven) to stay within your projects|scope could not be (confirmed|proven)|fell back to the project-scoped))"
+        }
+       ]
+      },
+      {
+       "label": "to_be_clear",
+       "query": "But, to be clear, none of the animals in those other studies has the requested CFU or bunden information",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])139(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "barcodes",
+       "query": "Do those NHP have barcode data",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])99(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*((could not|couldn.t) be (confirmed|proven) to stay within your projects|scope could not be (confirmed|proven)|fell back to the project-scoped))"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*(unreliable))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: animals 16219, 16619, 16919 have no CFU; 139 macaques in the project have CFU on a tissue, 100 have barcode data, 99 both. Run as a non-admin project member."
+    },
+    {
+     "id": "uq.member_count_refused.s1",
+     "family": "graph_traversal",
+     "name": "A distinct-value count in the member's own project",
+     "tags": [
+      "user",
+      "issue:member_count_refused",
+      "sibling",
+      "member"
+     ],
+     "requires_env": [
+      "NESSIE_ON_PROD"
+     ],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many different macaque species does Hi-IMPAcTB have?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)fascicularis"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(mulatta|rhesus)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*((could not|couldn.t) be (confirmed|proven) to stay within your projects|scope could not be (confirmed|proven)|fell back to the project-scoped))"
+        }
+       ]
+      }
+     ],
+     "_why": "Prod, read 2026-11-18: macaques in the project are Macaca fascicularis (327) and Macaca mulatta under three spellings (364). Run as a non-admin project member."
+    }
+   ]
+  }
+ }
+}

@@ -23,7 +23,7 @@ def _as_map(value) -> dict:
 
 
 
-def _lab_details(config, entity_dict: dict, projects_map: dict) -> dict:
+def _lab_details(config, entity_dict: dict, projects_map: dict, lab_people: dict | None = None) -> dict:
     """ENTITY_DETAILS entries for the SEEK labs the question names, from ``config.LABS``.
 
     "Who is Engelward?" was answered from the model's general knowledge (a professorship, a
@@ -59,7 +59,7 @@ def _lab_details(config, entity_dict: dict, projects_map: dict) -> dict:
         if code.upper() not in codes and name.strip().lower() not in names:
             continue
         project_ids = list(record.get("project_ids") or [])
-        details[f"{name} lab ({code})"] = {
+        entry = {
             "entity_type": "lab",
             "code": code,
             "name": name,
@@ -68,6 +68,10 @@ def _lab_details(config, entity_dict: dict, projects_map: dict) -> dict:
             "project_ids": project_ids,
             "projects": [project_names[pid] for pid in project_ids if pid in project_names],
         }
+        values = (lab_people or {}).get(code.upper())
+        if values:
+            entry["scientist_values_on_its_samples"] = [{"value": n, "samples": c} for n, c in values]
+        details[f"{name} lab ({code})"] = entry
     return details
 
 
@@ -92,7 +96,7 @@ LAST_ANSWER_CAP = 3000
 
 
 def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_dict: dict,
-                   pages: dict | None = None, session=None) -> list[dict]:
+                   pages: dict | None = None, session=None, lab_people: dict | None = None) -> list[dict]:
     """The system agent's context. The ``system`` blocks are the same for every question (the cached head:
     prompt, capabilities, endpoints, the catalog and docs indexes); the ``user`` blocks are this question's,
     CALLER among them: it differs per user, so it never goes in the cached head."""
@@ -126,7 +130,7 @@ def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_
         if is_investigation_row(investigation):
             entity_details[f"{project_name} (investigation)"] = investigation
 
-    entity_details.update(_lab_details(config, entity_dict, projects_map))
+    entity_details.update(_lab_details(config, entity_dict, projects_map, lab_people))
 
     if pages is None:
         pages = system_tools.load_docs(getattr(config, "DOCS_DIR", None))
@@ -231,6 +235,7 @@ def system_agent(
     entity_result: EntityAgentOutput | dict,
     parser_plan: ParserPlan | dict,
     session=None,
+    lab_people: dict | None = None,
 ) -> SystemAgentOutput:
     """
     Answer meta questions about the system: capabilities, catalog entity details, search options, and how to
@@ -245,7 +250,7 @@ def system_agent(
     plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
 
     pages = system_tools.load_docs(getattr(config, "DOCS_DIR", None))
-    blocks = build_messages(config, user_query, entity_dict, plan_dict, pages, session)
+    blocks = build_messages(config, user_query, entity_dict, plan_dict, pages, session, lab_people)
     system = "\n\n".join(b["content"] for b in blocks if b["role"] == "system")
     messages: list[dict] = [
         {"role": "user", "content": "\n\n".join(b["content"] for b in blocks if b["role"] == "user")}

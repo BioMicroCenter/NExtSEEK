@@ -67,12 +67,12 @@ def test_warns_but_loads_when_a_versus_pair_is_one_sided(tmp_path):
     payload = _atlas({
         "rnaseq": {"revision": "3.18.0", "answers": "a",
                    "versus": {"rnasplice": {"differs_by": "…"}}},
-        "rnasplice": {"revision": "1.0.4", "answers": "b", "versus": {}},
+        "rnasplice": {"revision": "2.0.0", "answers": "b", "versus": {}},
     })
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         out = load_atlas(_write(tmp_path, payload))
-    assert out["pipelines"]["rnasplice"]["revision"] == "1.0.4"
+    assert out["pipelines"]["rnasplice"]["revision"] == "2.0.0"
     assert any("one-sided" in str(w.message) for w in caught)
 
 
@@ -270,11 +270,23 @@ def test_cutandrun_points_at_chipseq_and_atacseq_both_ways():
 
 
 def test_riboseq_asks_before_taking_rna_libraries_for_footprints():
-    """riboseq 1.2.0 types each row riboseq, tiseq or rnaseq (assets/schema_input.json); a cohort of
+    """riboseq 2.0.0 types each row riboseq, tiseq or rnaseq (assets/schema_input.json); a cohort of
     ordinary RNA-seq alone is rnaseq, so the pair asks when the protocol does not say."""
     pipelines = load_atlas()["pipelines"]
     assert pipelines["riboseq"]["versus"]["rnaseq"]["ask_user"]
     assert "tiseq" in pipelines["riboseq"]["input_you_must_have"]
+
+
+def test_riboseq_says_what_2_0_0_changed_for_a_user_comparing_with_1_x():
+    """riboseq 2.0.0 CHANGELOG #160: translational efficiency counts in-frame P-sites by default,
+    not comparable with 1.x's STAR + Salmon counts; #163: Ribotricer is opt-in. The atlas is what
+    the selector reads, so it says both, and names deltaTE beside anota2seq (README.md)."""
+    entry = load_atlas()["pipelines"]["riboseq"]
+    assert entry["revision"] == "2.0.0"
+    text = entry["answers"] + " " + entry["input_you_must_have"]
+    assert "P-site" in text and "1.x" in text
+    assert "deltaTE" in text and "anota2seq" in text
+    assert "Ribotricer" in text
 
 
 def test_denovotranscript_is_paired_end_only_and_points_at_rnaseq_with_a_question():

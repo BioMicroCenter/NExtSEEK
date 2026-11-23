@@ -84,11 +84,13 @@ def test_per_op_orchestration_recipes_present():
     )
 
 
-def test_d19_dmac_path_mappings_referenced():
+def test_d19_the_skill_names_a_file_and_never_a_path():
+    """Q1 (2026-11-20): the reply names a produced file by its name and says it is in the downloads; the server
+    folder is not shown (no user can open it). The mapping variable stays in the engine, not in this skill."""
     text = _read_skill()
-    assert "DMAC_PATH_MAPPINGS" in text, (
-        "Reply hygiene subsection must reference DMAC_PATH_MAPPINGS"
-    )
+    assert "by its file name and say it is in the downloads under your reply" in " ".join(text.split())
+    assert "Never give a folder or a path" in " ".join(text.split())
+    assert "DMAC_PATH_MAPPINGS" not in text
     assert "/persistent/output/{user_id}" not in text, (
         "FORBIDDEN: SKILL.md must not hard-code /persistent/output/{user_id}"
     )
@@ -162,40 +164,6 @@ def test_errors_section_says_which_failures_are_not_retried():
     errors = text[text.index("## Errors"):text.index("BEGIN PLAN005-GEN:skill-ops")]
     for token in ("model_unavailable", "deadline", "TIME_UP", "(10)", "(11)", "(12)"):
         assert token in errors, f"Errors section must cover {token}"
-
-
-# --------------------------------------------------------------------------
-# 2026-09-22: the mapping was right and the instruction asked for a key that does not
-# exist. A Container-CC reply said, verbatim: "Host path: I couldn't translate it,
-# DMAC_PATH_MAPPINGS was present but I couldn't parse a mapping from it, so I'm giving
-# the container path." The value was well-formed and non-empty; G7-10 had deliberately
-# replaced `host_root` with `logical_root` (cc_engine.py's own comment says so), while
-# this document still asked for the "host-side path" and documented no schema at all --
-# no key names, no prefix rule. Two archived plan reviews predicted exactly this
-# ("post-cutover DMAC_PATH_MAPPINGS schema undefined"), the code locked the schema, and
-# the agent-facing document was never updated. Nothing compared the two, so these tests
-# read the key names out of the engine and require the document to name them.
-# --------------------------------------------------------------------------
-
-def test_the_skill_documents_the_path_mapping_schema_the_engine_writes():
-    from NessieAI.cc.cc_engine import path_mappings_for
-
-    text = _read_skill()
-    mapping = path_mappings_for(output_mnt="/dmac/users/p/u/output",
-                                run_scratch_mnt="/dmac/users/p/u/scratch/run-1")
-
-    for name, entry in mapping.items():
-        assert name in text, f"SKILL.md never names the {name!r} mapping"
-        for key in entry:
-            assert key in text, f"SKILL.md never names the {key!r} key the engine writes"
-
-
-def test_the_skill_states_the_substitution_rather_than_a_host_path():
-    text = _read_skill()
-    lowered = text.lower()
-
-    assert "prefix" in lowered, "the operation is a prefix replacement; say so"
-    assert "host-side path" not in lowered, "there is no host path in the mapping any more"
 
 
 def test_the_engine_maps_both_roots_and_survives_a_run_with_no_scratch():

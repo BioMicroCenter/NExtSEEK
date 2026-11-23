@@ -675,3 +675,65 @@ def test_the_turn_debug_records_each_loop_query_s_seed_mode(tmp_path):
 
     queries = payload["debug"]["followup"]["queries"]
     assert queries[0]["seed_mode"] == "stored_query"
+
+
+def _entity_capture(monkeypatch, tmp_path, bundle, *, calls):
+    """The ``sampletypes`` codes the loop's graph agent was handed on each call."""
+    codes = []
+
+    def graph_agent(config, question, entity, plan, refine_context=None, **kw):
+        codes.append([i.code for i in entity.sampletypes])
+        return GraphAgentPlan(cypher=SEEDED_CYPHER, context_mode="catalog")
+
+    monkeypatch.setattr(orch, "graph_agent", graph_agent)
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: {
+        "ok": True, "count": 1, "total": 1, "truncated": False, "data": [{"n": 1}],
+        "cypher": "x", "submitted_cypher": "x", "parameters": {}})
+    monkeypatch.setattr(orch, "run_followup", lambda config, *, user_text, bundle, run_query, log_dir, **_: (
+        calls(run_query), {"reply": "x", "queries": [], "tool_calls": []})[1])
+    orch._run_followup_agent(MagicMock(), session={}, user_text="q", bundle=bundle, log_dir=str(tmp_path))
+    return codes
+
+
+def test_a_seeded_query_hands_the_graph_agent_the_seed_types(monkeypatch, tmp_path):
+    bundle = _graph_bundle(stored=8, total=8)
+    uids = [f"AAA-200101XYZ-{i}" for i in (1, 2, 3)] + [f"BBB-200101XYZ-{i}" for i in range(1, 6)]
+    codes = _entity_capture(monkeypatch, tmp_path, bundle, calls=lambda rq: rq(
+        question="for the AAA samples, list Score", seed_uids=uids, scoped=True))
+    assert codes == [["AAA", "BBB"]], "the named code first, then by count"
+
+
+def test_a_rebuilt_or_unscoped_query_gets_no_seed_types(monkeypatch, tmp_path):
+    bundle = _graph_bundle(stored=20, total=250)
+    uids = [r["uid"] for r in bundle["graph_result"]["data"]]
+    stored = _stored_query_of(bundle)
+
+    def calls(rq):
+        rq(question="liver", seed_uids=uids, stored_query=stored)
+        rq(question="fresh", seed_uids=[], scoped=False)
+
+    assert _entity_capture(monkeypatch, tmp_path, bundle, calls=calls) == [[], []]
+
+
+# ---------------------------------------------------------------- a follow-up that names its own UIDs (round 2, F8)
+_BOUND = ["ZZZ-990101ABC-1", "ZZZ-990101ABC-2", "ZZZ-990101ABC-3"]
+_IN_UIDS = "MATCH (s:Sample) WHERE s.uuid IN $uids RETURN s.uuid AS uid"
+
+
+def _bound(own):
+    plan = GraphAgentPlan(cypher=_IN_UIDS, parameters={} if own is None else {"uids": own})
+    return orch._bind_parameters(plan, {"uids": list(_BOUND)})
+
+
+def test_uids_the_question_names_are_not_replaced_by_the_earlier_set():
+    assert _bound(["ZZZ-990202XYZ-7", "ZZZ-990202XYZ-8"])["uids"] == ["ZZZ-990202XYZ-7", "ZZZ-990202XYZ-8"]
+    assert _bound(["ZZZ-990101ABC-1", "ZZZ-990202XYZ-8"])["uids"] == ["ZZZ-990101ABC-1", "ZZZ-990202XYZ-8"]
+
+
+def test_a_value_that_only_repeats_the_earlier_uids_gets_the_whole_set():
+    assert _bound(["ZZZ-990101ABC-1", "ZZZ-990101ABC-2"])["uids"] == _BOUND
+    assert _bound(None)["uids"] == _BOUND
+
+
+def test_the_bound_uids_line_says_where_named_uids_go():
+    assert "UIDs the question itself names go in a parameter of another name" in orch.FOLLOWUP_GRAPH_UIDS

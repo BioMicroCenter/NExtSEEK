@@ -54,3 +54,38 @@ def test_the_graph_refusal_reply_carries_no_machinery():
     from chat_nextseek.orchestrator import GRAPH_REFUSAL_REPLY
     for leak in ("Graph agent", "Cypher", "catalog", "Reason", "node.", "guard"):
         assert leak not in GRAPH_REFUSAL_REPLY
+
+
+def test_an_unscoped_export_names_what_to_narrow():
+    """D1 (operator, 2026-11-20): an export of every sample stays refused, and the refusal says what to narrow."""
+    import re
+
+    from chat_nextseek.agents.parser import _apply_parser_guardrails
+
+    q = "Download all samples from the database as a spreadsheet"
+    plan = _apply_parser_guardrails(q, ParserPlan(mode="new_search", target_endpoint="/nextseek_api/samples/retrieve/",
+                                                  intent_summary="x"))
+    assert plan.mode == "unsupported"
+    reply = unsupported_reply(plan)
+    assert reply != UNSUPPORTED_REPLY
+    for named in ("narrow", "project", "lab", "sample type", "UIDs"):
+        assert named.lower() in reply.lower(), named
+    assert re.search(r"(?is)(scope|narrow|too (large|many)|filter|subset|can.?t|cannot|won.?t)", reply)  # the corpus pin
+    for leak in ("Unscoped", "parser", "report-generation"):
+        assert leak not in reply
+
+
+def test_an_unscoped_export_the_parser_model_refused_itself_also_names_what_to_narrow():
+    """The routing prompt tells the parser model to answer an unscoped bulk export ``unsupported`` itself, so the plan
+    often arrives unsupported and the guard (which reads new_search plans) never runs."""
+    from chat_nextseek.agents.parser import _apply_parser_guardrails
+
+    q = "Download all samples from the database as a spreadsheet"
+    plan = _apply_parser_guardrails(q, ParserPlan(mode="unsupported", intent_summary="x", notes="too broad"))
+    assert plan.mode == "unsupported" and "narrow" in unsupported_reply(plan).lower()
+    # a planning fault keeps its own reply; another unsupported request keeps the general one
+    fault = _apply_parser_guardrails(q, ParserPlan(mode="unsupported", metadata={"failure": "parse_error"}))
+    assert unsupported_reply(fault) == PLANNER_UNUSABLE
+    other = _apply_parser_guardrails("Is there a way to export this session to send to the team?",
+                                     ParserPlan(mode="unsupported", intent_summary="x", notes=NOTES))
+    assert unsupported_reply(other) == UNSUPPORTED_REPLY

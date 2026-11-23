@@ -6,11 +6,15 @@ only paths and its existing per-request NExtSEEK login.
 """
 from __future__ import annotations
 
+import logging
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 
 from . import safe_fs
+
+logger = logging.getLogger(__name__)
 
 _NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,128}$")
@@ -170,6 +174,32 @@ class ProjectResolutionError(Exception):
     """SEEK project resolution failed; callers must fail closed."""
 
 
+#: (connect, read) seconds for the membership read at Container-CC startup. Only this call is bounded; the login form
+#: and the project pages keep today's unbounded call.
+SEEK_MEMBERSHIP_TIMEOUT_S = (10, 60)
+
+
+SEEK_RETRY_DELAY_S = 2
+
+
+def _transient(exc: Exception) -> bool:
+    """A dropped, cut or slow connection, or a non-JSON answer whose status is not 4xx (a 5xx, or a 200 with an HTML
+    or empty body while SEEK's workers recycle). Never a 4xx, a plain ValueError with no status, a KeyError or a
+    malformed membership."""
+    import requests
+
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)):
+        return True
+    status = getattr(exc, "status_code", None)
+    return isinstance(exc, ValueError) and isinstance(status, int) and not 400 <= status < 500
+
+
+def _failed(step: str, started: float, exc: Exception) -> ProjectResolutionError:
+    """The failure with its step, seconds and exception class: what the operator reads in the log. Never the SEEK
+    body or a credential (auth is a header; a requests error names the URL only)."""
+    return ProjectResolutionError(f"{step} failed after {time.monotonic() - started:.1f}s: {type(exc).__name__}: {exc}")
+
+
 def _default_seekdb_factory():
     from seek.seekdb import SeekDB
 
@@ -190,12 +220,22 @@ def resolve_user_project(
     rejected instead of guessed into the wrong project.
     """
     factory = seekdb_factory or _default_seekdb_factory()
+    started = time.monotonic()
     try:
         seekdb = factory(None, api_user, api_pass)
-        current = seekdb.getCurrentUser()
+        try:
+            current = seekdb.getCurrentUser(timeout=SEEK_MEMBERSHIP_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001
+            if not _transient(exc):
+                raise
+            # One retry of the same read, then the same checks below: SEEK can answer badly while its workers
+            # recycle (dev 2026-11-20). The gate is never skipped; a second failure stops the turn.
+            logger.warning("cc project check: %s, retrying once", _failed("SEEK /people/current", started, exc))
+            time.sleep(SEEK_RETRY_DELAY_S)
+            current = seekdb.getCurrentUser(timeout=SEEK_MEMBERSHIP_TIMEOUT_S)
         projects = current["data"]["relationships"]["projects"]["data"]
     except Exception as exc:  # noqa: BLE001
-        raise ProjectResolutionError(str(exc)) from exc
+        raise _failed("SEEK /people/current", started, exc) from exc
 
     if not isinstance(projects, list):
         raise ProjectResolutionError("malformed SEEK project membership")
@@ -209,6 +249,7 @@ def resolve_user_project(
             slug=slug,
         )
 
+    started = time.monotonic()
     try:
         project_id = str(projects[0]["id"])
         title = str(seekdb.getProjectName(project_id))
@@ -217,7 +258,7 @@ def resolve_user_project(
         slug = slugify_project(title)
         project_dirname(project_id, slug)
     except Exception as exc:  # noqa: BLE001
-        raise ProjectResolutionError(str(exc)) from exc
+        raise _failed("SEEK project title", started, exc) from exc
     return ProjectIdentity(
         id=project_id,
         title=title,

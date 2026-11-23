@@ -177,8 +177,9 @@ def runtime_estimate(pipeline_key: str, n_samples: int, n_fetch: int = 0,
 
 
 def process_args_for(pipeline_key: str, protocol: str | None) -> dict[str, str]:
-    """{process_name: ext_args} the curated JSON declares a protocol needs — e.g. scrnaseq
-    'dropseq' -> {'SIMPLEAF_QUANT': '--knee'}. Read from <key>.json 'protocol_process_args'.
+    """{process_name: ext_args} the curated JSON declares a protocol needs — e.g. scrnaseq 2.7.1
+    declared 'dropseq' -> {'SIMPLEAF_QUANT': '-r cr-like --knee'}. Read from <key>.json
+    'protocol_process_args'.
     Data-driven (the JSON owns which protocol needs which process args); {} when none."""
     if not protocol:
         return {}

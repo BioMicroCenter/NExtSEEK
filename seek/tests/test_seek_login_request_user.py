@@ -219,3 +219,17 @@ def test_the_login_view_still_logs_in_a_password_seek_accepts(seekstub):
 
     login.assert_called_once()
     assert response.status_code == 302
+
+
+# --------------------------------------------------------------------------- the CC startup's bound on SEEK
+
+
+def test_get_current_user_hands_its_timeout_to_seek():
+    """``SeekDB.getCurrentUser(timeout=...)`` bounds the HTTP call itself, so a hung SEEK raises instead of hanging."""
+    answer = MagicMock(status_code=200)
+    answer.json.return_value = {"data": {"id": "5"}}  # no project list: nothing to narrow, no database read
+
+    with patch("requests.get", return_value=answer) as get:
+        SeekDB("http://seek:3000", None, None).getCurrentUser(timeout=(1, 2))
+
+    assert get.call_args.kwargs["timeout"] == (1, 2)

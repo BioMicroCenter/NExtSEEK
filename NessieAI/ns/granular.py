@@ -29,6 +29,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -467,6 +468,11 @@ GRAPH_SCOPE_FALLBACK_NOTE = (
     "was not run. This answer comes from the project-scoped sample search instead. Say so, and say which "
     "conditions of the question that search could not apply."
 )
+#: Appended to a refused count's error: the op ran no word search in its place (who-asked-2, R1).
+GRAPH_COUNT_REFUSED_HINT = (
+    "This asks for a count, and the project-scoped word search counts something else, so none was run: tell the "
+    "user it could not be counted, and never give a number from another search."
+)
 
 
 def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elapsed_s: float, *,
@@ -546,6 +552,9 @@ class GraphAnswer:
     attempts: list = field(default_factory=list)
     retry_changed_answer: bool = False
     plan_source: str = "parser"
+    #: The reply's note when a scope rewrite answered and its cure changes what the result covers
+    #: (``graph_retry.scope_repair_note``).
+    scope_repair_note: str | None = None
 
 
 def _attempt(reason: str, result: dict) -> dict:
@@ -557,6 +566,16 @@ def _attempt(reason: str, result: dict) -> dict:
     if isinstance(scope, dict) and scope.get("codes"):
         out["codes"] = list(scope["codes"])
     return out
+
+
+#: A RETURN column called uid built from the record number or a UID property (the graph has none): the sample's
+#: UID is its uuid (graph_schema_structure.txt). Seen asking for s.id AS uid and for s.UID AS uid.
+_UID_ALIAS = re.compile(r"\b(\w+)\.(?:id|UID)((?i:\s+AS\s+))(`?)((?i:uid))\3(?![\w`])")
+
+
+def _uid_column(cypher: str, params: dict) -> str:
+    """A uid column always holds the UID. ponytail: matches the alias only; a column named otherwise is the asker's."""
+    return _UID_ALIAS.sub(r"\1.uuid\2\3\4\3", cypher)
 
 
 def _run_plan(plan, exec_fn, config, prepare_cypher) -> tuple[Any, str | None, str | None, dict]:
@@ -593,6 +612,7 @@ def run_graph_question(
     uid_checks: list | None = None,
     agent_plan: Any = None,
     plan_source: str | None = None,
+    text_fallback: bool = True,
 ) -> GraphAnswer:
     """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
 
@@ -600,13 +620,15 @@ def run_graph_question(
     write the parser plan's filters.uids as the graph stores them, as the NS path does. The aggregate op calls it
     once per part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief,
     handed to every graph agent call), ``prepare_cypher`` (its row cap, applied to every statement before the tool sees
-    it), ``retry`` (given the first result and the agent's own statement, it returns ``(reason, retry_context)``
+    it), ``retry`` (given the first result, the agent's own statement and its parameters, it returns ``(reason, retry_context)``
     for at most one more statement, or None), and its own clock, start and fallback budget.
 
     Every statement, a retry's too, runs through ``neo4j_exec`` (the scoped ``tool_neo4j_query`` when None) on the
     ``config`` it was handed: nothing here builds or changes a scope. A retry is kept only when it answered and,
-    after a first query that matched nothing, found something. Whatever answers last and was refused for its scope
-    goes to ``_graph_search_fallback``.
+    after a first query that matched nothing, found something. With no ``retry`` (the graph op), a refusal a rewrite
+    can cure gets one, told the check's reasons, while the fallback budget lasts. Whatever answers last and was
+    refused for its scope goes to ``_graph_search_fallback``, unless ``text_fallback`` is False (the aggregate op) or
+    it is a count (``graph_retry.asks_for_a_count``): a count is never answered by the word search.
 
     ``turn`` (a Container-CC turn) supplies the vocabulary and the turn's plan. The plan is, in order: ``parser_plan``
     when handed one (the aggregate op makes one for all its parts; ``plan_source`` says where it came from), else the
@@ -643,8 +665,14 @@ def run_graph_question(
         exec_fn = tool_neo4j_query
     plan_dump, own_cypher, cypher, result = _run_plan(plan, exec_fn, config, prepare_cypher)
     attempts = [_attempt("initial", result)]
+    if retry is None:
+        retry = _scope_retry(now, started, fallback_budget_s)
     changed = False
-    spec = retry(result, own_cypher) if retry is not None and own_cypher else None
+    repair_note = None
+    spec = None
+    if retry is not None and own_cypher:
+        plan_params = (plan_dump.get("parameters") if isinstance(plan_dump, dict) else getattr(plan, "parameters", None))
+        spec = retry(result, own_cypher, plan_params or {})
     if spec:
         from chat_nextseek.helpers.tools.neo4j import matched_nothing
         reason, retry_context = spec
@@ -654,15 +682,35 @@ def run_graph_question(
         attempts.append({**_attempt(reason, again_result), "kept": keep})
         if keep:
             changed = matched_nothing(result)
+            if reason == "scope_repair":
+                from chat_nextseek.graph_retry import scope_repair_note
+                repair_note = scope_repair_note((result.get("scope") or {}).get("codes"))
             plan_dump, cypher, result = again_dump, again_cypher, again_result
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
     if is_scope_refusal(result):
+        from chat_nextseek.graph_retry import asks_for_a_count
+        if not text_fallback or asks_for_a_count(query, cypher):
+            result = {**result, "error": f"{result.get('error') or ''} {GRAPH_COUNT_REFUSED_HINT}".strip()}
+            return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
         fallback = _graph_search_fallback(config, parser_plan, result, write_gate, now() - started,
                                           budget_s=fallback_budget_s)
         hint = GRAPH_SCOPE_FALLBACK_HINT if fallback["ok"] else GRAPH_SCOPE_FALLBACK_RETRY_HINT
         result = {**result, "error": f"{result.get('error') or ''} {hint}".strip()}
         return GraphAnswer(plan_dump, result, fallback, parser_plan, cypher, attempts, changed, plan_source or "parser")
-    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
+    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser",
+                       repair_note)
+
+
+def _scope_retry(now, started, budget_s):
+    """The graph op's one rewrite of a scope refusal a rewrite can cure, told the check's reasons; none once the op is
+    past the point where a fallback could still start (a graph call can take a minute)."""
+    from chat_nextseek.graph_retry import scope_repair_context
+    budget = fallback_start_budget_s(None) if budget_s is None else budget_s
+
+    def retry(result, cypher, parameters=None):
+        context = scope_repair_context(result)
+        return ("scope_repair", context) if context and now() - started < budget else None
+    return retry
 
 
 def _uid_check(config, query, neo4j_exec, filter_uids=None):
@@ -691,22 +739,48 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_
                                                  agent_plan.filters.uids if agent_plan is not None else None)
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
                                 neo4j_exec=neo4j_exec, refine_context=agent_note, uid_checks=checks,
-                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn, agent_plan=agent_plan)
+                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn, agent_plan=agent_plan,
+                                prepare_cypher=_uid_column)
     # parser_plan: the plan this answer ran, as JSON, so nextseek-api-read can ask the same question of the REST API.
     out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan),
            "plan_source": answer.plan_source}
     if answer.fallback is not None:
         out["fallback"] = answer.fallback
-    if reply_notes:
-        out["notes"] = reply_notes
+    notes = list(reply_notes or []) + ([answer.scope_repair_note] if answer.scope_repair_note else [])
+    if notes:
+        out["notes"] = notes
+    _add_type_names(out, config, (answer.result or {}).get("data"))
+    _add_lab_names(out, config, (answer.result or {}).get("data"))
     return out
+
+
+def _add_type_names(out, config, rows):
+    """``type_names`` {code: catalog name} for the sample type codes in the rows, so the agent copies a type's name
+    from the catalog and does not make one up."""
+    from chat_nextseek.agents.chatter import type_names_in_rows
+    names = type_names_in_rows(config, rows if isinstance(rows, list) else [])
+    if names:
+        out["type_names"] = names
+
+
+def _add_lab_names(out, config, rows):
+    """``lab_names`` {CODE: "Name lab (Affiliation)"} for the lab codes in the rows' lab columns, from SEEK's lab
+    records (``config.LABS``), so the agent names a lab and does not say the records hold no names."""
+    from chat_nextseek.agents.chatter import lab_names_in_rows
+    names = lab_names_in_rows(config, rows if isinstance(rows, list) else [])
+    if names:
+        out["lab_names"] = names
 
 
 def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Counts and breakdowns in one call, one to four parts run in parallel on the server (``aggregate.py``)."""
     from NessieAI.ns.aggregate import run_aggregate
-    return run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
-                         limit_s=limit_s, turn=turn)
+    out = run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
+                        limit_s=limit_s, turn=turn)
+    groups = [g for part in out.get("parts") or [] for g in part.get("groups") or []]
+    _add_type_names(out, config, groups)
+    _add_lab_names(out, config, groups)
+    return out
 
 
 def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):

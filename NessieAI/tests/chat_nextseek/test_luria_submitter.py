@@ -181,7 +181,7 @@ def test_submit_luria_scrnaseq_injects_fasta_gtf_and_knee_config(tmp_path, monke
     real_sheet = tmp_path / "samplesheet.csv"
     real_sheet.write_text("sample,fastq_1\nA,a.fq.gz\n")
     (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [{
-        "name": "nfcore_scrnaseq", "pipeline": "https://github.com/nf-core/scrnaseq", "revision": "2.7.1"}]}))
+        "name": "nfcore_scrnaseq", "pipeline": "https://github.com/nf-core/scrnaseq", "revision": "4.2.0"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
     monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 5\n")
@@ -199,7 +199,8 @@ def test_submit_luria_scrnaseq_injects_fasta_gtf_and_knee_config(tmp_path, monke
     # run.sh: explicit --fasta/--gtf for Mfas6.0 (LE working_path=/net/x -> /net/x/refs), path > iGenomes
     assert "--fasta /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz" in staged["run_sh"]
     assert "--gtf /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.116.gtf.gz" in staged["run_sh"]
-    # luria.config: genomes map + the SIMPLEAF_QUANT block keeping the base '-r cr-like' + --knee
+    # luria.config: genomes map + the process block the caller passed, verbatim. This pins the
+    # mechanism only: scrnaseq 4.2.0's template declares no per-protocol process args.
     assert "'Mfas6.0'" in staged["config"]
     assert "withName: '.*:SIMPLEAF_QUANT'" in staged["config"]
     assert "ext.args = '-r cr-like --knee'" in staged["config"]
@@ -209,7 +210,7 @@ def test_submit_luria_scrnaseq_star_runsh_uses_vendored_clone(tmp_path, monkeypa
     real_sheet = tmp_path / "samplesheet.csv"
     real_sheet.write_text("sample,fastq_1\nA,a.fq.gz\n")
     (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [{
-        "name": "nfcore_scrnaseq", "pipeline": "https://github.com/nf-core/scrnaseq", "revision": "2.7.1"}]}))
+        "name": "nfcore_scrnaseq", "pipeline": "https://github.com/nf-core/scrnaseq", "revision": "4.2.0"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
     monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 6\n")
@@ -222,15 +223,15 @@ def test_submit_luria_scrnaseq_star_runsh_uses_vendored_clone(tmp_path, monkeypa
     # aligner=star -> route to the vendored patched clone (LE working_path=/net/x), no -r
     sub.submit_luria(str(tmp_path / "launch.yml"), luria_env=LE, samplesheet_local=str(real_sheet),
                      genome="Mfas6.0", launch_params={"aligner": "star", "protocol": "dropseq"})
-    assert "nextflow run /net/x/pipelines/scrnaseq-2.7.1-star-patched -profile singularity" in staged["run_sh"]
-    assert "-r 2.7.1" not in staged["run_sh"]
+    assert "nextflow run /net/x/pipelines/scrnaseq-4.2.0-star-patched -profile singularity" in staged["run_sh"]
+    assert "-r 4.2.0" not in staged["run_sh"]
 
 
-def test_submit_luria_scrnaseq_alevin_runsh_uses_stock_remote(tmp_path, monkeypatch):
+def test_submit_luria_scrnaseq_simpleaf_runsh_uses_stock_remote(tmp_path, monkeypatch):
     real_sheet = tmp_path / "samplesheet.csv"
     real_sheet.write_text("sample,fastq_1\nA,a.fq.gz\n")
     (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [{
-        "name": "nfcore_scrnaseq", "pipeline": "nf-core/scrnaseq", "revision": "2.7.1"}]}))
+        "name": "nfcore_scrnaseq", "pipeline": "nf-core/scrnaseq", "revision": "4.2.0"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
     monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 8\n")
@@ -241,9 +242,9 @@ def test_submit_luria_scrnaseq_alevin_runsh_uses_stock_remote(tmp_path, monkeypa
 
     monkeypatch.setattr(sub, "scp_file", fake_scp)
     sub.submit_luria(str(tmp_path / "launch.yml"), luria_env=LE, samplesheet_local=str(real_sheet),
-                     genome="Mfas6.0", launch_params={"aligner": "alevin", "protocol": "dropseq"})
-    assert "nextflow run nf-core/scrnaseq -r 2.7.1 -profile singularity" in staged["run_sh"]
-    assert "/pipelines/scrnaseq-2.7.1-star-patched" not in staged["run_sh"]
+                     genome="Mfas6.0", launch_params={"aligner": "simpleaf", "protocol": "10XV3"})
+    assert "nextflow run nf-core/scrnaseq -r 4.2.0 -profile singularity" in staged["run_sh"]
+    assert "-star-patched" not in staged["run_sh"]
 
 
 def test_submit_luria_threads_genome_into_runsh(tmp_path, monkeypatch):
@@ -405,7 +406,7 @@ def test_submit_invalid_allocation_falls_back_the_same_in_both_files(tmp_path, m
 
 
 def test_submit_executor_block_sits_before_the_process_args(tmp_path, monkeypatch):
-    staged = _stage(tmp_path, monkeypatch, "nf-core/scrnaseq", "2.7.1", genome="GRCh38",
+    staged = _stage(tmp_path, monkeypatch, "nf-core/scrnaseq", "4.2.0", genome="GRCh38",
                     process_args={"SIMPLEAF_QUANT": "--knee"})
     cfg = staged["luria.config"]
     assert cfg.index("executor {") < cfg.index("withName: '.*:SIMPLEAF_QUANT'")

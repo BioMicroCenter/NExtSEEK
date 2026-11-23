@@ -148,14 +148,17 @@ def test_atacseq_merged_replicate_files_land_on_their_group(tmp_path):
         ("KO", "KO.mRp.clN.bigWig", "D.SEQ-3;D.SEQ-4"),
         ("WT", "WT.mRp.clN.bigWig", "D.SEQ-1;D.SEQ-2")]
     # The replicates' own merged-library files lose to the group's (G-4): the
-    # BAM row takes one as File_SecondaryData, and none is dropped unseen.
-    wt = next(r for r in result.rows if r.rule_id == "aln" and r.nfcore_sample == "WT")
-    assert wt.attributes["File_SecondaryData"].value == "WT.mRp.clN.sorted.bam.bai"
+    # BAM row takes its index as File_SecondaryData, and none is dropped unseen:
+    # A.ATAC has Notes, so the group's row names its replicates' BAMs there.
+    aln = {r.nfcore_sample: r for r in result.rows if r.rule_id == "aln"}
+    assert aln["WT"].attributes["File_SecondaryData"].value == "WT.mRp.clN.sorted.bam.bai"
+    for group in ("WT", "KO"):
+        notes = aln[group].attributes["Notes"].value
+        for name in (f"{group}_REP1", f"{group}_REP2"):
+            assert f"{name}.mLb.clN.sorted.bam" in notes
     lost = " ".join(result.warnings)
-    for name in ("WT_REP1", "WT_REP2", "KO_REP1", "KO_REP2"):
-        assert f"{name}.mLb.clN.sorted.bam" in lost
-    # A.CHRM has Notes (local stack; README merge checklist), so the replicates' own
-    # peaks are named there. Never in the secondary slot: a replicate's output is not
+    assert ".mLb.clN.sorted.bam" not in lost
+    # A.ATAC has Notes, so the replicates' own peaks are named there. Never in the secondary slot: a replicate's output is not
     # the group's secondary data (G-4).
     wt_peaks = next(r for r in result.rows if r.rule_id == "peaks_broad" and r.nfcore_sample == "WT")
     assert "File_SecondaryData" not in wt_peaks.attributes
@@ -229,7 +232,7 @@ def test_the_launch_record_resolves_each_replicate_by_its_own_fastq(tmp_path):
 
 
 def test_one_atacseq_launch_raises_no_reused_folder_warning(tmp_path):
-    # A group's bigwig and its peaks are both A.CHRM rows: two outputs of one
+    # A group's BAM, bigwig and peaks are all A.ATAC rows: outputs of one
     # launch, not alternatives, so no warning.
     _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
     result = mapper.apply(_harvest(tmp_path, _atac_paths(), ATAC_UIDS),
@@ -246,7 +249,7 @@ def test_narrow_and_broad_peaks_in_one_folder_are_flagged(tmp_path):
     assert [r.nfcore_sample for r in result.rows
             if r.rule_id == "peaks_narrow" and "File_PrimaryData" in r.attributes] == ["WT"]
     [warning] = [w for w in result.warnings if "earlier launch" in w]
-    assert warning.startswith("WT: 2 A.CHRM rows")
+    assert warning.startswith("WT: 2 A.ATAC rows")
     assert "WT.mRp.clN_peaks.narrowPeak" in warning and "WT.mRp.clN_peaks.broadPeak" in warning
 
 
@@ -318,7 +321,7 @@ def test_alternatives_at_the_group_and_replicate_levels_are_flagged_on_the_group
     result = mapper.apply(_harvest(tmp_path, paths, ATAC_UIDS),
                           maps.load("atacseq"), context=CONTEXT)
     [warning] = [w for w in result.warnings if "earlier launch" in w]
-    assert warning.startswith("WT: 3 A.CHRM rows")
+    assert warning.startswith("WT: 3 A.ATAC rows")
     for path in ("WT.mRp.clN_peaks.narrowPeak", "WT_REP1.mLb.clN_peaks.broadPeak",
                  "WT_REP2.mLb.clN_peaks.broadPeak"):
         assert path in warning
@@ -344,7 +347,7 @@ def test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent(tm
             "row has no Parent") in result.warnings
     assert not any("names only the others" in w for w in result.warnings if w.startswith("WT:"))
     [aln] = [e for e in result.parentless_rows if e["rule_id"] == "aln"]
-    assert aln["group"] == "WT" and aln["sample_type"] == "A.ALN"
+    assert aln["group"] == "WT" and aln["sample_type"] == "A.ATAC"
     assert aln["path"].endswith("WT.mRp.clN.sorted.bam")
     assert all(e["group"] == "WT" and e["samples"] == ["WT_REP1", "WT_REP2"]
                for e in result.parentless_rows)

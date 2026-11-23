@@ -271,12 +271,12 @@ class SeekDB(object):
         
         return seek_personid
 
-    def getCurrentUser(self):
+    def getCurrentUser(self, timeout=None):
         """SEEK's ``/people/current`` for this login, with ``relationships.projects`` narrowed to the projects the
         person has not left. SEEK lists former projects there too; every NExtSEEK reader of this answer takes it as
         the caller's project scope, which ends on leaving (``nextseek_api.graph_search.scope``). Raises if the
         membership cannot be read."""
-        current = self.__seekapi.getCurrentUser()
+        current = self.__seekapi.getCurrentUser(timeout=timeout)
         try:
             data = current["data"]
             projects = data["relationships"]["projects"]

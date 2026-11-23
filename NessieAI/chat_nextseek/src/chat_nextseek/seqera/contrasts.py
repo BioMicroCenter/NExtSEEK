@@ -39,6 +39,12 @@ _VS_RE = re.compile(r"^\s*(\S+)\s+(?:vs\.?|versus)\s+(\S+)\s*$", re.IGNORECASE)
 # rnasplice's samplesheet schema requires a condition with no whitespace (^\S+$);
 # the contrast id names output files, so it is held to a filename-safe set.
 _ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+#: A syntactically valid R name, which rnasplice 2.0.0's assets/schema_contrasts.json requires
+#: of treatment and control (its errorMessage: letters, numbers, dots, underscores, starting
+#: with a letter or a dot not followed by a number). Both must also be samplesheet conditions.
+R_NAME_RE = re.compile(r"^(?:[A-Za-z]|\.[._A-Za-z])[._A-Za-z0-9]*$|^\.$")
+R_NAME_RULE = ("an R name: a letter first (or a '.' not followed by a digit), then only "
+               "letters, digits, '.' or '_'")
 
 
 def is_user_path(value: Any) -> bool:
@@ -97,6 +103,8 @@ def _row_problems(rows: list[dict[str, str]]) -> list[str]:
         for field in _HEADER:
             if not _ID_RE.match(row[field]):
                 errors.append(f"contrasts: {field} {row[field]!r} must be letters, digits, '_', '.' or '-'")
+            elif field != "contrast" and not R_NAME_RE.match(row[field]):
+                errors.append(f"contrasts: {field} {row[field]!r} must be {R_NAME_RULE}")
         if row["treatment"] == row["control"]:
             errors.append(f"contrasts: {row['contrast']!r} compares {row['treatment']!r} with itself")
         if row["contrast"] in seen:

@@ -239,8 +239,9 @@ def memory_agent() -> str:
 
 @mcp.prompt()
 def graph_agent() -> str:
-    """System prompt for the graph agent (Cypher query generation)."""
-    return _cfg().GRAPH_AGENT_SYSTEM_PROMPT
+    """System prompt for the graph agent (Cypher query generation), as an admin reads it (this server is admin only)."""
+    from chat_nextseek.agents.graph import render_hidden_properties
+    return render_hidden_properties(_cfg().GRAPH_AGENT_SYSTEM_PROMPT, scoped=False)
 
 
 @mcp.prompt()

@@ -227,3 +227,56 @@ def test_the_router_hands_the_rule_to_route_query(monkeypatch, split):
     monkeypatch.setenv(followup.FOLLOWUP_ROUTING_ENV, "cc")
     assert cc_router._route_query("Break those down by sex.", answered) is None
     assert seen["rule"] == followup.FOLLOWUP_RULE_CC
+
+
+# ------------------------------------------------------------------ a message that is only UIDs (round 2, 2026-11-20)
+_UIDS3 = "ZZQ-990101QQZ-1\nZZQ-990101QQZ-2\nZZQ-990101QQZ-3"
+
+
+def _uids_turn(query, chat_log):
+    hist = [_turn(e["router_choice"], e["status"], i + 1) for i, e in enumerate(chat_log)]
+    return policy._decide_route(_User(), _Req(query), force_cc=False, history=hist, chat_log=chat_log)
+
+
+def test_uids_only_after_a_cc_turn_stays_on_cc(router_says_ns, split):
+    d = _uids_turn(_UIDS3, [_entry(cc_router.ROUTE_CC)])
+    assert (d.route, d.source) == (cc_router.ROUTE_CC, "sticky")
+    assert "inputs-only" in d.reasoning
+
+
+def test_comma_separated_uids_of_another_type_after_a_cc_turn_stay_on_cc(router_says_ns, split):
+    d = _uids_turn("D.ZZ-991231ABC-7, MUSX-991231ABC-8-PUB", [_entry(cc_router.ROUTE_CC)])
+    assert (d.route, d.source) == (cc_router.ROUTE_CC, "sticky")
+
+
+def test_uids_only_after_an_ns_turn_keep_the_routers_call(router_says_ns, split):
+    assert _uids_turn(_UIDS3, [_entry(cc_router.ROUTE_NS)]) is router_says_ns
+
+
+def test_uids_only_after_a_cc_turn_then_an_ns_turn_keep_the_routers_call(router_says_ns, split):
+    log = [_entry(cc_router.ROUTE_CC), _entry(cc_router.ROUTE_NS, turn_id=2)]
+    assert _uids_turn(_UIDS3, log) is router_says_ns
+
+
+def test_uids_only_after_a_failed_cc_turn_keep_the_routers_call(router_says_ns, split):
+    assert _uids_turn(_UIDS3, [_entry(cc_router.ROUTE_CC, status="error")]) is router_says_ns
+
+
+def test_uids_only_as_a_first_message_keep_the_routers_call(router_says_ns, split):
+    assert _uids_turn(_UIDS3, []) is router_says_ns
+
+
+def test_uids_with_words_are_not_inputs_only(router_says_ns, split):
+    assert _uids_turn("here they are: ZZQ-990101QQZ-1", [_entry(cc_router.ROUTE_CC)]) is router_says_ns
+
+
+def test_supplies_inputs_only():
+    import time
+    for q in (_UIDS3, "ZZQ-990101QQZ-1, ZZQ-990101QQZ-2", "- ZZQ-990101QQZ-1\n- ZZQ-990101QQZ-2",
+              "zzq-990101qqz-1", "ZZQ-990101QQZ-1-PUB2"):
+        assert followup.supplies_inputs_only(q), q
+    for q in ("", None, "12345, 67890", "ZZQ-990101QQZ-1?", "Retrieve ZZQ-990101QQZ-1"):
+        assert not followup.supplies_inputs_only(q), q
+    t = time.perf_counter()
+    assert not followup.supplies_inputs_only("ZZQ-990101QQZ-1\n" * 500 + " x")
+    assert time.perf_counter() - t < 0.5

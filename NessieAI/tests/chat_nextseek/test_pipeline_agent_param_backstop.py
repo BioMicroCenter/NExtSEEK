@@ -113,6 +113,21 @@ def test_rnasplice_passes_when_condition_present():
     assert out["ok"] is True
 
 
+def test_rnasplice_blocks_a_condition_its_contrastsheet_cannot_name():
+    """2.0.0's contrastsheet schema takes only R names as treatment and control, and both must
+    be samplesheet conditions, so a condition such as "0h" could never be compared. Refused
+    here, before the sheet is written, rather than when the contrasts are."""
+    state = {"resolved": {"uids": ["D.SEQ-1", "D.SEQ-2"], "accessions": []}, "accession_file_paths": {}}
+    out = json.loads(at.tool_write_samplesheet(_Cfg(), state,
+        {"pipeline_key": "rnasplice",
+         "cohorts": [{"label": "c", "rows": [
+             {"sample": "D.SEQ-1", "strandedness": "reverse", "condition": "0h"},
+             {"sample": "D.SEQ-2", "strandedness": "reverse", "condition": "wild-type"}]}]},
+        log_dir="/tmp"))
+    assert out["ok"] is False
+    assert any("0h" in e and "wild-type" in e for e in out["errors"]), out
+
+
 # --- configure_run must auto-fill an inferred run_param, not silently drop it --------
 #
 # Bug being guarded: build_run_params merges curated menu defaults <- bundle params

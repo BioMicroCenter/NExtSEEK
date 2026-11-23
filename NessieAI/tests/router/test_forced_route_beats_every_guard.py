@@ -26,6 +26,7 @@ SCENARIOS = {
     "run_is_done": ("my run is done", {}),
     "named_sop_file": ("download the file for SOP 12", {}),
     "how_to": ("How do I upload samples?", {}),
+    "file_request": ("Make me a spreadsheet of the zeta samples", {}),
     "out_of_scope": ("who won the world series", {}),
 }
 WANT = {"ns": cc_router.ROUTE_NS, "cc": cc_router.ROUTE_CC}

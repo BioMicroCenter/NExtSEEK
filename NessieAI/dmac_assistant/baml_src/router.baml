@@ -149,6 +149,12 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     when the user supplies the data or file to work on in the message, or asks
     for the work to be done ("validate this workbook", "make me the upload
     sheet", "write the CSV").
+    A request to make a new spreadsheet, workbook or CSV of sample metadata
+    asks for the work even when the samples or UIDs it should cover are not in
+    the message yet: select `container_cc`, which asks for them. Asking how
+    the user gets such a file from the site is still a how-to. A request for
+    every sample or the whole database with nothing to narrow it is not this:
+    it stays with `nextseek_query`, which asks the user to narrow it.
 
     The file of one SOP named by its id or its exact title goes to
     `nextseek_query`, which downloads it ("Download SOP 9001", "give me the

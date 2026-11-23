@@ -293,3 +293,37 @@ class GenerateSearchXlsxTests(SimpleTestCase):
             self.assertEqual(ws.cell(row=3, column=3).value, "Mouse 2")
         finally:
             os.unlink(fh.name)
+
+
+def test_a_graph_turn_table_has_the_shape_the_chat_renders():
+    """The chat renders only artifact_type "table" with key, label, columns and data (a list of dicts)."""
+    from nextseek_api.assistant.excel_export import build_tables_from_bundle
+
+    bundle = {"mode": "graph_query", "graph_result": {"data": [{"n": 3, "kind": "zz"}, {"n": 4}], "total": 2}}
+    (table,) = extract_table_artifacts(bundle)
+    assert table["artifact_type"] == "table" and table["key"] and table["label"]
+    assert table["columns"] == ["n", "kind"]
+    assert table["data"] == [{"n": 3, "kind": "zz"}, {"n": 4, "kind": None}]
+    assert [t["key"] for t in build_tables_from_bundle(bundle)] == [table["key"]]
+
+
+def test_a_one_row_graph_result_gets_a_table_unless_it_is_a_bare_count():
+    """D2 (2026-11-20): one row of at most 2 columns is a count the reply states; a wider row is still a table."""
+    assert extract_table_artifacts({"mode": "graph_query", "graph_result": {"data": [{"count": 7}]}}) == []
+    row = {"type": "ZZ", "lab": "QQZ", "count": 7}
+    (table,) = extract_table_artifacts({"mode": "graph_query", "graph_result": {"data": [row]}})
+    assert table["data"] == [row] and "truncated" not in table
+
+
+def test_a_long_graph_table_is_capped_inline_and_whole_for_download():
+    from nextseek_api.assistant.excel_export import MAX_INLINE_ROWS, build_tables_from_bundle
+
+    n = MAX_INLINE_ROWS + 25
+    bundle = {"mode": "graph_query", "graph_result": {"data": [{"i": i} for i in range(n)], "total": n}}
+    (table,) = extract_table_artifacts(bundle)
+    assert len(table["data"]) == MAX_INLINE_ROWS and table["truncated"] is True and table["total_rows"] == n
+    assert len(build_tables_from_bundle(bundle)[0]["data"]) == n
+
+
+def test_a_graph_turn_without_rows_has_no_table():
+    assert extract_table_artifacts({"mode": "graph_query", "graph_result": {"data": []}}) == []

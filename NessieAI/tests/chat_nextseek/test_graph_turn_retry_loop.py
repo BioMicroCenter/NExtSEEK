@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from chat_nextseek import orchestrator as orch
+from chat_nextseek.graph_retry import WORD_LEFT_OUT_NOTE, WORD_ZERO_NOTE
 from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.graph import GraphAgentPlan
 from chat_nextseek.schemas.router import ParserPlan
@@ -376,3 +377,109 @@ def test_a_repeat_after_another_error_records_itself_and_keeps_the_timeout(monke
     assert last["error"] == "not run: it repeats a statement that timed out"
     assert calls["chatter_kwargs"]["graph_result"] is TIMEOUT
     assert calls["chatter_kwargs"]["graph_plan"]["cypher"] == WALK
+
+
+# ---------------------------------------------------------------- zero-row evidence (round 2, P4) -----------------
+def _evidence(monkeypatch, facts, calls=()):
+    seen = []
+
+    def fake(config, cypher, parameters, **kw):
+        seen.append(cypher)
+        return list(facts), [dict(c) for c in calls]
+
+    monkeypatch.setattr(orch, "zero_row_evidence", fake)
+    return seen
+
+
+_SCRAP = "MATCH (s:T_QQQ) WHERE toLower(s.search_text) CONTAINS 'scrap' AND s.Kind = 'k' RETURN s.id AS id"
+_SCRAP_CALL = {"kind": "without_text", "term": "scrap", "total": 9, "ok": True}
+
+
+def test_the_zero_row_retry_is_told_what_the_filtered_fields_hold(monkeypatch, tmp_path):
+    fact = "`StatusFoo` on T_QQQ holds: '1', '0'"
+    _evidence(monkeypatch, [fact])
+    _, debug, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher="MATCH (a:T_QQQ) RETURN count(*)", context_mode="catalog"),
+               GraphAgentPlan(cypher="MATCH (a:T_QQQ) RETURN count(*) // second", context_mode="catalog")],
+        results=[_ok(0), _ok(5)],
+    )
+    assert fact in calls["retry_contexts"][0] and "What the graph holds" in calls["retry_contexts"][0]
+    assert debug["graph_attempts"][1]["evidence"]["facts"] == [fact]
+
+
+def test_a_first_time_answer_reads_no_evidence(monkeypatch, tmp_path):
+    seen = _evidence(monkeypatch, ["x"])
+    _run(monkeypatch, tmp_path,
+         plans=[GraphAgentPlan(cypher="MATCH (s) RETURN count(*)", context_mode="catalog")], results=[_ok(7)])
+    assert seen == []
+
+
+def test_a_word_the_retry_left_out_is_told_to_the_reply(monkeypatch, tmp_path):
+    _evidence(monkeypatch, ["Without the text 'scrap' (every other filter kept), it finds 9 records."], [_SCRAP_CALL])
+    _, _, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher=_SCRAP, context_mode="catalog"),
+               GraphAgentPlan(cypher="MATCH (s:T_QQQ) WHERE s.Kind = 'k' RETURN s.id AS id", context_mode="catalog")],
+        results=[_ok(0), _ok(9)],
+    )
+    notes = calls["chatter_kwargs"].get("query_notes") or []
+    assert any(n == WORD_LEFT_OUT_NOTE.format(term="scrap") for n in notes), notes
+
+
+def test_a_second_zero_tells_the_reply_the_count_without_the_word(monkeypatch, tmp_path):
+    _evidence(monkeypatch, ["f"], [_SCRAP_CALL])
+    _, _, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher=_SCRAP, context_mode="catalog"),
+               GraphAgentPlan(cypher=_SCRAP + " LIMIT 5", context_mode="catalog")],
+        results=[_ok(0), _ok(0)],
+    )
+    notes = calls["chatter_kwargs"].get("query_notes") or []
+    assert any(n == WORD_ZERO_NOTE.format(term="scrap", n=9) for n in notes), notes
+
+
+def test_no_word_note_without_a_counted_word(monkeypatch, tmp_path):
+    _evidence(monkeypatch, ["`StatusFoo` on T_QQQ holds: '1'"], [{"kind": "values", "key": "k", "ok": True}])
+    _, _, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher=_SCRAP, context_mode="catalog"),
+               GraphAgentPlan(cypher="MATCH (s:T_QQQ) RETURN s.id AS id", context_mode="catalog")],
+        results=[_ok(0), _ok(3)],
+    )
+    notes = calls["chatter_kwargs"].get("query_notes") or []
+    assert not any("leaves that word out" in n or "Nothing matched with" in n for n in notes), notes
+
+
+# Round 2 F10: the dropped word is looked for in the kept statement's quoted values and parameters, never in its
+# property or variable names.
+_RNA_CALL = {"kind": "without_text", "term": "rna", "total": 9, "ok": True}
+_RNA = "MATCH (r:T_QQQ) WHERE toLower(r.search_text) CONTAINS 'rna' AND r.Kind = 'k' RETURN r.id AS id"
+
+
+def _word_notes(monkeypatch, tmp_path, retry):
+    _evidence(monkeypatch, ["f"], [_RNA_CALL])
+    _, _, calls = _run(monkeypatch, tmp_path,
+                       plans=[GraphAgentPlan(cypher=_RNA, context_mode="catalog"), retry], results=[_ok(0), _ok(9)])
+    return calls["chatter_kwargs"].get("query_notes") or []
+
+
+def test_a_word_hidden_in_a_property_name_was_still_left_out(monkeypatch, tmp_path):
+    retry = GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE r.internal_assay_title = 'k' RETURN r.id AS id",
+                           context_mode="catalog")
+    assert WORD_LEFT_OUT_NOTE.format(term="rna") in _word_notes(monkeypatch, tmp_path, retry)
+
+
+def test_a_word_moved_into_a_field_filter_was_kept(monkeypatch, tmp_path):
+    for retry in (GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE toLower(r.Cell_type) CONTAINS 'rna' RETURN r.id AS id",
+                                 context_mode="catalog"),
+                  GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE toLower(r.Cell_type) CONTAINS $w RETURN r.id AS id",
+                                 parameters={"w": "RNA"}, context_mode="catalog")):
+        notes = _word_notes(monkeypatch, tmp_path, retry)
+        assert not any("leaves that word out" in n for n in notes), (retry.cypher, notes)
+
+
+def test_a_word_in_a_parameter_name_only_was_still_left_out(monkeypatch, tmp_path):
+    retry = GraphAgentPlan(cypher="MATCH (r:T_QQQ) WHERE r.Kind = $rna_kind RETURN r.id AS id",
+                           parameters={"rna_kind": "k"}, context_mode="catalog")
+    assert WORD_LEFT_OUT_NOTE.format(term="rna") in _word_notes(monkeypatch, tmp_path, retry)

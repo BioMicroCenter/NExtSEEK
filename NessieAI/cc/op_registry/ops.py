@@ -206,8 +206,8 @@ OPS: list[OpSpec] = [
         skill_name="nextseek",
         skill_row=_row(
             "Find and read samples from the graph (filter, lineage, attribute values), held to the user's "
-            "projects; a query refused for its scope is answered through graph_search under fallback. "
-            "Counts and breakdowns: nextseek-aggregate.",
+            "projects; a list refused for its scope is answered through graph_search under fallback, a count never "
+            "is. Counts and breakdowns: nextseek-aggregate.",
             '--query "<text>" --plan \'<json>\'',
             "{plan, result, fallback?, plan_source}",
         ),

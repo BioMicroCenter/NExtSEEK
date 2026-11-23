@@ -476,6 +476,8 @@ def _scripted_turn(monkeypatch, tmp_path, *, results, times_ms):
     monkeypatch.setattr(orch, "append_turn", lambda *a, **k: None)
     monkeypatch.setattr(orch, "live_values", lambda config, **k: live_calls.append(k) or DictCatalog(CATALOG))
     monkeypatch.setattr(counts, "tool_neo4j_query", _proving_count_tool(count_calls))
+    # the zero-row evidence reads through the same tool; these tests count the reviewer's statements only
+    monkeypatch.setattr(orch, "zero_row_evidence", lambda *a, **k: ([], []))
     debug: dict = {}
     orch._execute_graph_turn(
         config=SimpleNamespace(MODEL_MODE="test", **{SCOPE_ATTR: MEMBER}), session={}, user_text=TIFF_Q,

@@ -126,21 +126,33 @@ def _first(items: list[str], n: int = 5) -> str:
     return ", ".join(items[:n]) + (f" and {len(items) - n} more" if len(items) > n else "")
 
 
+def _package_uids(metadatas, target_type: str) -> list[str]:
+    """The target-type UIDs a package's metadata holds, as stored, first seen first. A UID is read the way
+    reports/metadata.py reads it: the metadata's UID, else the sample's uuid, else its uid."""
+    uids: list[str] = []
+    for md in metadatas:
+        data = md.get("data") if isinstance(md, dict) else None
+        groups = data.get("data") if isinstance(data, dict) else None
+        for group in groups if isinstance(groups, list) else []:
+            if isinstance(group, dict) and group.get("sample_type") == target_type:
+                for s in group.get("samples") or []:
+                    meta = s.get("metadata")
+                    uid = (isinstance(meta, dict) and meta.get("UID")) or s.get("uuid") or s.get("uid")
+                    if uid and str(uid) not in uids:
+                        uids.append(str(uid))
+    return uids
+
+
+def _names_uid(text: str, uid: str) -> bool:
+    """True when ``text`` names ``uid``, with or without its -PUB/-PUB<n> suffix (prod stores some without)."""
+    base = re.sub(r"-PUB\d*$", "", uid)
+    return re.search(rf"(?<![\w.-]){re.escape(base)}(?:-PUB\d*)?(?![\w-])", text or "") is not None
+
+
 def _code_path_lead(canonical: str, metadata: dict | None, target_type: str, result: dict) -> str:
     """The reply lead for a code-path report, built from the payload. The coder's own ``result_description``
     describes its code, not the package, so it is not the lead."""
-    uids: list[str] = []
-    try:
-        for group in ((metadata or {}).get("data") or {}).get("data") or []:
-            if group.get("sample_type") == target_type:
-                uids = []
-                for s in group.get("samples") or []:
-                    meta = s.get("metadata")  # the UID as reports/metadata.py reads it
-                    uid = (isinstance(meta, dict) and meta.get("UID")) or s.get("uuid") or s.get("uid")
-                    if uid:
-                        uids.append(str(uid))
-    except Exception:
-        pass
+    uids = _package_uids([metadata], target_type)
     found: dict[str, list[str]] = {}
     for m in _ACCESSION_RE.finditer(json.dumps(result or {}, default=str)):
         bucket = found.setdefault(m.group(1), [])
@@ -742,11 +754,19 @@ def generate_report_outputs(
             saved_files["protocol_files"] = proto_files_path
 
     reply_lines = ["Generated report payload is available in the Reporter result panel."]
+    narrative_text = None
     for entry in per_uid_reports:
         narrative = ((entry.get("report_writer_output") or {}).get("narrative")) if entry else None
         if narrative:
-            reply_lines.insert(0, narrative.strip())
+            narrative_text = narrative.strip()
+            reply_lines.insert(0, narrative_text)
             break
+    if report_type_value in _PUBLIC_REPORT_TYPES:
+        # The writer's narrative may leave the samples out; name them in code (5a). "built for", not "contains":
+        # nothing checks the writer kept every one.
+        covered = _package_uids(metadata_map.values(), _TARGET_TYPE_FOR_REPORT[report_type_value])
+        if covered and not all(_names_uid(narrative_text or "", u) for u in covered[:5]):
+            reply_lines.insert(1 if narrative_text else 0, f"This draft was built for {_first(covered)}.")
     if withheld:
         reply_lines.append(reporter_result["warnings"][0])
     reply = "\n\n".join(reply_lines)

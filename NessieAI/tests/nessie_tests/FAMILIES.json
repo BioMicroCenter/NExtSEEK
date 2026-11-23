@@ -4420,7 +4420,7 @@
        "enum_count": 8,
        "enum_values": [
         "rnaseq \u2014 nf-core/rnaseq @ 3.18.0; cols sample,fastq_1,fastq_2,strandedness; default genome GRCh38",
-        "scrnaseq \u2014 nf-core/scrnaseq @ 2.7.1; cols sample,fastq_1,fastq_2,expected_cells; default genome GRCh38",
+        "scrnaseq \u2014 nf-core/scrnaseq @ 4.2.0; cols sample,fastq_1,fastq_2,expected_cells; default genome GRCh38",
         "atacseq \u2014 nf-core/atacseq @ 2.1.2; cols sample,fastq_1,fastq_2,replicate; default genome GRCh38",
         "chipseq \u2014 nf-core/chipseq @ 2.0.0; cols sample,fastq_1,fastq_2,antibody,control,control_replicate; default genome GRCh38",
         "sarek \u2014 nf-core/sarek @ 3.4.4; cols patient,sample,lane,fastq_1,fastq_2,sex,status; default genome GATK.GRCh38",
@@ -4487,15 +4487,15 @@
         "rnaseq strandedness column values: auto | forward | reverse | unstranded",
         "rnaseq optional columns: seq_platform, seq_center, genome_bam, transcriptome_bam, percent_mapped",
         "rnaseq reference_resources: fasta, gtf, star_index, rsem_index, salmon_index, bed12",
-        "scrnaseq.aligner: alevin (default) | kallisto | star | cellranger | universc | cellrangerarc | cellrangermulti",
+        "scrnaseq.aligner: simpleaf (default) | kallisto | star | cellranger | cellrangerarc | cellrangermulti",
         "scrnaseq.protocol: auto (default) | 10XV1 | 10XV2 | 10XV3 | 10XV4 | dropseq",
-        "scrnaseq other params: barcode_whitelist, save_reference(T), skip_emptydrops(F), skip_fastqc(F), multiqc_title",
+        "scrnaseq other params: barcode_whitelist, save_reference(T), skip_cellbender(F), skip_fastqc(F), multiqc_title",
         "scrnaseq supported_modes: standard | cellranger_multi | cellranger_arc",
         "scrnaseq conditional columns: feature_type (cellranger_multi); sample_type + fastq_barcode (cellranger_arc)",
         "scrnaseq feature_type values: gex | vdj | ab | crispr | cmo | beam (beam currently unsupported)",
         "scrnaseq sample_type values: gex | atac",
         "scrnaseq optional columns: expected_cells, seq_center",
-        "scrnaseq reference_resources: fasta, gtf, salmon_index, star_index, txp2gene",
+        "scrnaseq reference_resources: fasta, gtf, star_index, txp2gene",
         "atacseq params: save_reference(T), multiqc_title; reference_resources: fasta, gtf, bwa_index",
         "chipseq params: save_reference(T), multiqc_title; reference_resources: fasta, gtf, bwa_index",
         "sarek params: tools (string), wes (bool F), save_reference(T); optional cols bam, bai, cram, crai, vcf; status 0=normal 1=tumor; sex XX|XY|OTHER|NA; reference_resources: fasta, fasta_fai, dict, bwa, dbsnp, known_indels",
@@ -4526,15 +4526,15 @@
       },
       {
        "name": "Single-cell chemistry presets (10x vs Seq-Well / Drop-seq)",
-       "description": "Curated guidance mapping a lab's single-cell chemistry onto the right --protocol/--aligner combination for the pinned nf-core/scrnaseq 2.7.1, including the barcode geometry facts that make whitelist-less bead protocols work, and an explicit warning that scrnaseq 3.x renames the backend to 'simpleaf' with different geometry strings that are NOT usable on the pinned 2.7.1.",
+       "description": "Curated guidance mapping a lab's single-cell chemistry onto the right --protocol/--aligner combination for the pinned nf-core/scrnaseq 4.2.0, including the barcode geometry facts that make whitelist-less bead protocols work (on the patched STAR clone), and why simpleaf cannot run them without a barcode whitelist.",
        "modality": "nextseek_query",
        "reachable_from_chat": "yes",
        "enum_count": 4,
        "enum_values": [
-        "preset '10x': protocol=auto, aligner=alevin (auto-detects 10X chemistry; or set 10XV2/10XV3 explicitly)",
-        "preset 'seqwell': protocol=dropseq, aligner=alevin, barcode_whitelist=null (12bp cell barcode + 8bp UMI on R1, cDNA on R2, no fixed whitelist, knee-method cell calling)",
-        "preset 'dropseq': protocol=dropseq, aligner=alevin, barcode_whitelist=null",
-        "3.x/simpleaf geometry equivalent (NOT usable on the pinned 2.7.1): 1{b[12]u[8]x:}2{r:}"
+        "preset '10x': protocol=10XV3, aligner=simpleaf (set the kit's chemistry; 'auto' works only with the cellranger aligners)",
+        "preset 'seqwell': protocol=dropseq, aligner=star, barcode_whitelist=null (12bp cell barcode + 8bp UMI on R1, cDNA on R2, no fixed whitelist; the patched STAR clone discovers barcodes)",
+        "preset 'dropseq': protocol=dropseq, aligner=star, barcode_whitelist=null",
+        "simpleaf geometry string for the same layout: 1{b[12]u[8]x:}2{r:} (4.2.0's SIMPLEAF_QUANT still needs a whitelist)"
        ],
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/reports/templates/nfcore/scrnaseq.json",
@@ -4548,7 +4548,7 @@
         "value": "(?i)dropseq"
        },
        "example_query": "Run scrnaseq on D.SEQ-241114SHA-5-PUB \u2014 those are Seq-Well, not 10x.",
-       "gap": "The seqwell preset in scrnaseq.json maps to protocol=dropseq (with barcode_whitelist=null); a system that ignored the preset would say 'auto' or '10XV3'. This is the whole point of the pinned-2.7.1 geometry work, so a wrong answer here is a real regression."
+       "gap": "The seqwell preset in scrnaseq.json maps to protocol=dropseq (with barcode_whitelist=null); a system that ignored the preset would say 'auto' or '10XV3'. This is the whole point of the Seq-Well geometry work, so a wrong answer here is a real regression."
       }
      ]
     },
@@ -4748,23 +4748,23 @@
       },
       {
        "name": "Route aligner=star to a locally patched nf-core/scrnaseq clone",
-       "description": "Makes STARsolo work for whitelist-less bead protocols (Drop-seq / Seq-Well) that stock nf-core/scrnaseq 2.7.1 cannot run. When (pipeline, aligner) matches a registered vendored clone the run uses the LOCAL clone path with NO -r flag, because a -r <tag> on a local git clone would checkout the tag and wipe the patches. alevin is untouched and keeps running the stock remote pipeline. Provisioning is operator-run on Luria, not invoked by any Python.",
+       "description": "Makes STARsolo work for whitelist-less bead protocols (Drop-seq / Seq-Well) that stock nf-core/scrnaseq 4.2.0 cannot run. When (pipeline, aligner) matches a registered vendored clone and the run pins the clone's release, the run uses the LOCAL clone path with NO -r flag, because a -r <tag> on a local git clone would checkout the tag and wipe the patches. Every other aligner (simpleaf, kallisto, cellranger) keeps running the stock remote pipeline. Provisioning is operator-run on Luria, not invoked by any Python.",
        "modality": "nextseek_query",
        "reachable_from_chat": "yes",
        "enum_count": 4,
        "enum_values": [
-        "registered key: (nf-core/scrnaseq, star) -> {WORKING}/pipelines/scrnaseq-2.7.1-star-patched, base nf-core/scrnaseq, revision 2.7.1",
+        "registered key: (nf-core/scrnaseq, star) -> {WORKING}/pipelines/scrnaseq-4.2.0-star-patched, base nf-core/scrnaseq, revision 4.2.0",
         "patch 1: assets/protocols.json star.dropseq extra_args = '--soloCBstart 1 --soloCBlen 12 --soloUMIstart 13 --soloUMIlen 8 --soloBarcodeReadLength 0'",
-        "patch 2: modules/local/star_align.nf conditional '--soloCBwhitelist None' when no whitelist staged",
+        "patch 2: modules/local/star_align/main.nf skips the whitelist copy and passes '--soloCBwhitelist None' when no whitelist is staged",
         "accepted pipeline forms: bare 'org/name' or a github.com URL with optional .git suffix"
        ],
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/luria/run_script.py:LURIA_VENDORED_PIPELINES",
         "chat_nextseek/src/chat_nextseek/luria/run_script.py:resolve_pipeline_source",
         "chat_nextseek/src/chat_nextseek/luria/run_script.py:_normalize_pipeline_name",
-        "chat_nextseek/src/chat_nextseek/luria/pipelines/scrnaseq_2_7_1_star/provision.sh"
+        "chat_nextseek/src/chat_nextseek/luria/pipelines/scrnaseq_4_2_0_star/provision.sh"
        ],
-       "testable_assertion": "pipeline_agent.run_script contains \"scrnaseq-2.7.1-star-patched\" \u2014 FIELD DOES NOT EXIST",
+       "testable_assertion": "pipeline_agent.run_script contains \"scrnaseq-4.2.0-star-patched\" \u2014 FIELD DOES NOT EXIST",
        "expressible": "no",
        "example_query": "Run scrnaseq with the star aligner on those Seq-Well samples.",
        "gap": "resolve_pipeline_source picks the vendored clone path and drops the -r flag entirely; both decisions are visible only inside the generated run.sh. The reply may mention 'star' because the user asked for it, so a last_reply assertion would pass on a system that silently ran the stock remote pipeline \u2014 worse than no assertion. Needs `pipeline_agent.run_script` or a `pipeline_source` debug key."
@@ -4776,7 +4776,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 5,
        "enum_values": [
-        "scrnaseq protocol 'dropseq' -> SIMPLEAF_QUANT: '-r cr-like --knee'",
+        "scrnaseq 4.2.0 declares no per-protocol process args (2.7.1's dropseq -> SIMPLEAF_QUANT '-r cr-like --knee' is gone: bead protocols run on the patched STAR clone)",
         "blocked process (raises ValueError): STAR_ALIGN",
         "process name regex: [A-Za-z0-9_]{1,64}",
         "ext.args regex: [A-Za-z0-9_.,=:/ -]{1,200}",

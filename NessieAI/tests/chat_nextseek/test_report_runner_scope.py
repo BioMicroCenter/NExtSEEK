@@ -221,6 +221,13 @@ def test_an_admin_protocols_report_reads_every_project(db, tmp_path):
     assert set(result["titles"]) == ALL_TITLES
 
 
+def test_a_sop_in_two_projects_counts_once_with_no_project(db, tmp_path):
+    result = runners.run_project_protocols_report(_config(db, ADMIN), None, outputs_root=tmp_path)
+
+    assert result["rows_returned"] == len(ALL_TITLES) == len(result["titles"])    # SOP 3 sits in two projects
+    assert any("DISTINCT ps.sop_id" in sql for sql, _ in db.statements)
+
+
 def test_a_non_admin_protocols_report_reads_only_its_own(db, tmp_path):
     result = runners.run_project_protocols_report(_config(db, PROJECT_2), None, outputs_root=tmp_path)
 

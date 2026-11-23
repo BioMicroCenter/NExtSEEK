@@ -192,12 +192,27 @@ def test_a_back_reference_misfire_is_told_to_ignore_the_earlier_search(click_tur
     assert context.startswith(orch.FOLLOWUP_GRAPH_LEAD) and "names its own set, ignore" in context
 
 
-def test_an_earlier_query_bound_to_uids_is_not_carried(click_turn):  # noqa: F811
+UIDS_CYPHER = "MATCH (s:T_AAA) WHERE s.uuid IN $uids RETURN s.uuid AS uid"
+TWO_UIDS = ["AAA-200101XYZ-1", "AAA-200101XYZ-2"]
+
+
+def test_an_earlier_query_bound_to_uids_is_carried_and_bound(click_turn):  # noqa: F811
     session: dict = {}
-    click_turn(session, NHP_Q, question_cypher="MATCH (s:T_NHP) WHERE s.id IN $uids RETURN s.id AS id",
-               parameters={"uids": ["x"]})
-    second = click_turn(session, NHP_FOLLOWUP, question_cypher=NHP_CYPHER, parameters={})
-    assert second.calls.graph_agent == [None]
+    click_turn(session, NHP_Q, question_cypher=UIDS_CYPHER, parameters={"uids": TWO_UIDS})
+    second = click_turn(session, NHP_FOLLOWUP, question_cypher=UIDS_CYPHER, parameters={})
+    assert second.calls.graph_agent[0] and "ALREADY BOUND" in second.calls.graph_agent[0]
+    assert second.calls.neo4j[0][1]["uids"] == TWO_UIDS
+    assert second.debug["followup_context"]["uids_bound"] == 2
+    assert "uids" not in second.debug["followup_context"]
+
+
+def test_a_chain_of_graph_follow_ups_keeps_the_bound_uids(click_turn):  # noqa: F811
+    session: dict = {}
+    click_turn(session, NHP_Q, question_cypher=UIDS_CYPHER, parameters={"uids": TWO_UIDS})
+    click_turn(session, NHP_FOLLOWUP, question_cypher=UIDS_CYPHER, parameters={})
+    third = click_turn(session, NHP_FOLLOWUP, question_cypher=UIDS_CYPHER, parameters={})
+    assert third.calls.neo4j[0][1]["uids"] == TWO_UIDS
+    assert session["results_history"][-1]["graph_plan"]["parameters"]["uids"] == TWO_UIDS
 
 
 def test_the_wizard_caps_a_large_carried_set(monkeypatch):
