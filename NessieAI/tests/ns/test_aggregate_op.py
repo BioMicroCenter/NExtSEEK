@@ -430,6 +430,41 @@ class RetryTests(SimpleTestCase):
         self.assertFalse(part["attempts"][1]["kept"])
         self.assertFalse(any("changed filter" in note for note in out["notes"]))
 
+    def test_a_zero_part_retry_carries_the_evidence(self):
+        q = "How many HeLa samples?"
+        first, second = COUNT + " // first", COUNT + " // second"
+        fakes = Fakes({q: [first, second]}, {"// first": [_ok([{"n": 0}])], "// second": [_ok([{"n": 4}])]})
+        with patch("chat_nextseek.graph_review_counts.zero_row_evidence",
+                   return_value=(["`StatusFoo` on T_QQQ holds: '1'"], [])) as ev:
+            fakes.run(q)
+
+        ev.assert_called_once()
+        self.assertIn("`StatusFoo` on T_QQQ holds: '1'", fakes.graph_calls[1]["retry_context"])
+
+    def test_a_zero_part_that_stays_zero_tells_the_reply_the_count_without_the_word(self):
+        q = "How many HeLa samples?"
+        first, second = COUNT + " // first", COUNT + " // second"
+        fakes = Fakes({q: [first, second]}, {"// first": [_ok([{"n": 0}])], "// second": [_ok([{"n": 0}])]})
+        call = {"kind": "without_text", "term": "scrap", "total": 9, "ok": True}
+        with patch("chat_nextseek.graph_review_counts.zero_row_evidence", return_value=(["f"], [call])):
+            out = fakes.run(q)
+
+        from chat_nextseek.graph_retry import WORD_ZERO_NOTE
+        self.assertTrue(any(WORD_ZERO_NOTE.format(term="scrap", n=9) in n for n in out["notes"]), out["notes"])
+
+    def test_a_late_zero_part_reads_no_evidence(self):
+        q = "How many HeLa samples?"
+        clock = _Clock()
+        fakes = Fakes({q: [COUNT, COUNT]}, {"T_TIS": [_ok([{"n": 0}])]},
+                      part_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
+                                                        - aggregate.MIN_REMAINING_S - 1))
+        with patch("NessieAI.ns.aggregate._monotonic", clock), \
+                patch("chat_nextseek.graph_review_counts.zero_row_evidence") as ev:
+            fakes.run(q)
+
+        ev.assert_not_called()
+        self.assertEqual(len(fakes.graph_calls), 2)   # the retry still ran, with the old words
+
     def test_a_retry_that_finds_something_is_kept_and_disclosed(self):
         q = "How many HeLa samples?"
         first, second = COUNT + " // first", COUNT + " // second"
@@ -456,7 +491,7 @@ class RetryTests(SimpleTestCase):
         self.assertIn("stored as TIS-230830ENG-1", fakes.graph_calls[0]["refine_context"])
         self.assertTrue(any("stores that sample as TIS-230830ENG-1" in note for note in out["notes"]))
 
-    def test_a_call_subquery_refusal_gets_one_repair_then_the_fallback(self):
+    def test_a_call_subquery_refusal_gets_one_repair_then_is_refused_with_no_word_search(self):
         q = "How many NHP samples by species, and how many in total?"
         call = "CALL { MATCH (s:T_NHP) RETURN count(s) AS n } RETURN n"
         fakes = Fakes({q: [call, call]}, {"CALL {": [_refused(["call_subquery"], ["a CALL subquery is not allowed"])]})
@@ -469,14 +504,13 @@ class RetryTests(SimpleTestCase):
         self.assertIn("a CALL subquery is not allowed", repair)
         self.assertIn("CALL", repair)
         self.assertEqual([a["reason"] for a in part["attempts"]], ["initial", "shape_repair"])
-        self.assertEqual(part["status"], "fallback")
-        self.assertEqual(part["sum_of_group_counts"], 704)
-        self.assertFalse(part["groups_may_overlap"])  # graph_search counts each sample once
-        self.assertEqual(part["groups"], [])
-        self.assertEqual(part["fallback"]["total"], 704)
-        self.assertNotIn("rows", part["fallback"])  # no sample rows cross the wire
-        fakes.write_gate.assert_called_once_with("api-read", GRAPH_SEARCH, "POST", False)
-        self.assertTrue(any("could not be broken down" in note for note in out["notes"]))
+        # Lane B (who-asked-2, R1): a count is never answered by the word search, which counts another thing.
+        self.assertEqual(part["status"], "refused")
+        self.assertIsNone(part["sum_of_group_counts"])
+        self.assertIsNone(part["fallback"])
+        fakes.rest.assert_not_called()
+        fakes.write_gate.assert_not_called()
+        self.assertTrue(any("could not be counted" in note for note in out["notes"]))
 
     def test_a_real_call_refusal_with_its_follow_on_syntax_code_is_repaired(self):
         # The prover skips a refused CALL subquery, so every name bound inside it then reads as unbound: a real
@@ -500,7 +534,8 @@ class RetryTests(SimpleTestCase):
         part = fakes.run(q)["parts"][0]
 
         self.assertEqual(len(fakes.graph_calls), 1)
-        self.assertEqual(part["status"], "fallback")
+        self.assertEqual(part["status"], "refused")
+        fakes.rest.assert_not_called()
 
     def test_a_repair_that_proves_is_the_answer(self):
         q = "Species of NHP samples"
@@ -513,27 +548,55 @@ class RetryTests(SimpleTestCase):
         self.assertIsNone(part["fallback"])
         fakes.rest.assert_not_called()
 
-    def test_an_unjoined_node_refusal_gets_no_repair(self):
+    def test_an_unjoined_node_refusal_gets_one_rewrite_with_the_checks_reason(self):
         q = "Studies of NHP samples"
         bad = "MATCH (st:Study) RETURN st.title AS study, count(st) AS n"
-        fakes = Fakes({q: [bad]}, {"Study": [_refused(["unjoined_node"])]})
+        good = "MATCH (s:T_NHP)-[:IN_STUDY]->(st:Study) RETURN st.title AS study, count(DISTINCT s) AS n"
+        reason = "line 1, column 7: st (Study) is not joined to a sample it holds, to a study it holds or to a project"
+        fakes = Fakes({q: [bad, good]}, {"MATCH (st:Study)": [_refused(["unjoined_node"], [reason])],
+                                         "T_NHP": [_ok([{"study": "Zeta", "n": 3}])]})
 
-        part = fakes.run(q)["parts"][0]
+        out = fakes.run(q)
+        part = out["parts"][0]
 
-        self.assertEqual(len(fakes.graph_calls), 1)
-        self.assertEqual(part["status"], "fallback")
+        self.assertEqual(len(fakes.graph_calls), 2)
+        self.assertIn(reason, fakes.graph_calls[1]["retry_context"])
+        self.assertEqual([a["reason"] for a in part["attempts"]], ["initial", "scope_repair"])
+        self.assertEqual((part["status"], part["sum_of_group_counts"]), ("ok", 3))
+        from chat_nextseek.graph_retry import scope_repair_note
+        self.assertTrue(any(note.endswith(scope_repair_note(["unjoined_node"])) for note in out["notes"]),
+                        "review F4: the reply is told the studies are reached through visible samples")
 
-    def test_a_fallback_that_fails_leaves_the_part_refused(self):
-        q = "Studies of NHP samples"
-        fakes = Fakes({q: ["MATCH (st:Study) RETURN count(st) AS n"]}, {"Study": [_refused(["unjoined_node"])]})
-        fakes.rest.return_value = {"ok": False, "status_code": 422, "data": {"detail": "bad filter"}}
+    def test_a_hidden_property_refusal_is_rewritten_and_the_part_is_ok(self):
+        q = "How many ZEB samples have a colour?"
+        bad = "MATCH (z:T_ZEB) WHERE z.parent_titles IS NOT NULL RETURN count(DISTINCT z) AS n"
+        good = "MATCH (z:T_ZEB) WHERE z.Colour IS NOT NULL RETURN count(DISTINCT z) AS n"
+        fakes = Fakes({q: [bad, good]}, {"parent_titles": [_refused(
+            ["hidden_property"], ["line 1, column 25: the property parent_titles is hidden"])],
+            "z.Colour": [_ok([{"n": 6}])]})
 
         out = fakes.run(q)
 
         part = out["parts"][0]
+        self.assertEqual((part["status"], part["sum_of_group_counts"]), ("ok", 6))
+        self.assertIn("parent_titles is hidden", fakes.graph_calls[1]["retry_context"])
+        self.assertIsNone(part["fallback"])
+        fakes.rest.assert_not_called()
+        self.assertFalse(any("can see" in note for note in out["notes"]))
+
+    def test_a_count_part_refused_after_its_rewrite_is_never_a_word_search_total(self):
+        q = "Studies of NHP samples"
+        fakes = Fakes({q: ["MATCH (st:Study) RETURN count(st) AS n"]}, {"Study": [_refused(["unjoined_node"])]})
+
+        out = fakes.run(q)
+
+        part = out["parts"][0]
+        self.assertEqual(len(fakes.graph_calls), 2)
         self.assertEqual(part["status"], "refused")
-        self.assertIn("422", part["error"])
-        self.assertTrue(any("could not be answered" in note for note in out["notes"]))
+        self.assertIsNone(part["sum_of_group_counts"])
+        self.assertIsNone(part["fallback"])
+        fakes.rest.assert_not_called()
+        self.assertTrue(any("could not be counted" in note and "never" in note for note in out["notes"]))
 
 
 class _Clock:
@@ -591,7 +654,7 @@ class DeadlineTests(SimpleTestCase):
         self.assertEqual(len(fakes.graph_calls), 1)
         self.assertEqual(part["status"], "empty")
 
-    def test_a_late_refusal_hands_the_fallback_plan_back_unrun(self):
+    def test_a_late_refusal_gets_no_rewrite_and_no_fallback_plan(self):
         q = "Studies of NHP samples"
         clock = _Clock()
         fakes = Fakes({q: ["MATCH (st:Study) RETURN count(st) AS n"]}, {"Study": [_refused(["unjoined_node"])]},
@@ -601,8 +664,8 @@ class DeadlineTests(SimpleTestCase):
             part = fakes.run(q)["parts"][0]
 
         self.assertEqual(part["status"], "refused")
-        self.assertFalse(part["fallback"]["ran"])
-        self.assertEqual(part["fallback"]["parser_plan"]["target_endpoint"], GRAPH_SEARCH)
+        self.assertEqual(len(fakes.graph_calls), 1)
+        self.assertIsNone(part["fallback"])
         fakes.build.assert_not_called()
 
     def test_no_part_starts_when_the_vocabulary_step_leaves_too_little_time(self):
@@ -661,3 +724,40 @@ class DeadlineTests(SimpleTestCase):
         self.assertEqual([p["status"] for p in out["parts"]], ["ok", "error"])
         self.assertIn("model unavailable", out["parts"][1]["error"])
         self.assertTrue(out["complete"])
+
+
+class ColumnUnitTests(SimpleTestCase):
+    """Lane B (who-asked-2, R6): a one-row count with several columns names what each column counts, so two columns
+    are never read as two answers to one question. Entities are invented."""
+
+    def test_animals_sharing_one_record_are_labelled_five_animals_and_one_record(self):
+        q = "How many ANI animals have an A.REC record below them, and how many such records are there?"
+        cypher = ("MATCH (a:T_ANI)<-[:DERIVED_FROM]-(r:T_A_REC) "
+                  "RETURN count(DISTINCT a) AS animals_with_record, count(DISTINCT r) AS records")
+        fakes = Fakes({q: [cypher]}, {"T_ANI": [_ok([{"animals_with_record": 5, "records": 1}])]})
+
+        out = fakes.run(q)
+
+        part = out["parts"][0]
+        self.assertEqual(part["kind"], "count")
+        self.assertEqual(part["column_units"], {"animals_with_record": "ANI samples", "records": "A.REC samples"})
+        note = next(n for n in out["notes"] if "count different things" in n)
+        self.assertIn("animals_with_record = 5 (ANI samples)", note)
+        self.assertIn("records = 1 (A.REC samples)", note)
+
+    def test_a_sibling_on_another_type_and_a_column_with_no_label_gets_no_guess(self):
+        q = "How many ZEB samples, and how many rows?"
+        cypher = "MATCH (z:T_ZEB) MATCH (x) WHERE x.uuid = z.uuid RETURN count(DISTINCT z) AS zebras, count(*) AS rows"
+        fakes = Fakes({q: [cypher]}, {"T_ZEB": [_ok([{"zebras": 2, "rows": 7}])]})
+
+        part = fakes.run(q)["parts"][0]
+
+        self.assertEqual(part["column_units"], {"zebras": "ZEB samples"})
+
+    def test_one_column_gets_no_unit_note(self):
+        q = "How many TIS samples?"
+        fakes = Fakes({q: [COUNT]}, {"T_TIS": [_ok([{"n": 4}])]})
+
+        out = fakes.run(q)
+
+        self.assertFalse(any("count different things" in n for n in out["notes"]))

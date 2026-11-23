@@ -52,8 +52,8 @@ is the complete contract; there are no hidden flags.
 | `nextseek-parse` | Turn an NL question into a parser plan. | `--query "<text>"` | parser plan `{mode, target_endpoint, filters, ...}` |
 | `nextseek-api-read` | Execute a read-safe REST call from a parser plan. | `--parser-plan '<json>'` | API response |
 | `nextseek-api-write` | Refused: the server refuses every create, update and delete this op sends, so no write reaches NExtSEEK from this chat. Do not call it. | `--parser-plan '<json>' --confirmed-write` | API response (`ok: false`) |
-| `nextseek-graph` | Find and read samples from the graph: filter, lineage, attribute values of the samples found. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. How many and breakdowns go to `nextseek-aggregate`. | `--query "<text>" --plan '<json>'` | `{plan, result, fallback?, plan_source}` |
-| `nextseek-aggregate` | **How many, broken down by what**: counts, breakdowns, tallies, histograms, distinct values. One call; the question alone, or 1 to 4 parts run in parallel. Each part is a small table with the sum of its group counts and its missing-value bucket, never sample records. Held to the user's projects. | `--query "<whole question>" [--parts '["<part>", ...]'] --plan '<json>'` | `{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, null_group, truncated, fallback}], notes}` |
+| `nextseek-graph` | Find and read samples from the graph: filter, lineage, attribute values of the samples found. Held to the user's projects; a list refused for its scope is answered through graph_search under `fallback`, a count never is. How many and breakdowns go to `nextseek-aggregate`. | `--query "<text>" --plan '<json>'` | `{plan, result, fallback?, plan_source}` |
+| `nextseek-aggregate` | **How many, broken down by what**: counts, breakdowns, tallies, histograms, distinct values. One call; the question alone, or 1 to 4 parts run in parallel. Each part is a small table with the sum of its group counts and its missing-value bucket, never sample records. Held to the user's projects. | `--query "<whole question>" [--parts '["<part>", ...]'] --plan '<json>'` | `{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, null_group, truncated}], notes}` |
 | `nextseek-report` | Project summary report. | `--mode {samples,protocols,published,rppr} --project <name>` | report `{summary, saved_files, rows}` |
 | `nextseek-generate-submission` | Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline. | `--type {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE} --uids <csv>` | `{report, type}` |
 | `nextseek-pipeline` | **Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard. | `--message "<summary: explicit UIDs + species/genome + metadata + pipeline>"` | `{reply, debug, bundle_id}` |
@@ -105,8 +105,10 @@ nextseek-graph --query "List the TIS samples in the MetNet project whose Organ i
   written; anyone else's is checked to stay inside their projects before it runs. Never try to
   widen it.
 - **`fallback`.** A query that could not be confirmed to stay inside the user's projects is not
-  run. The op then asks the project-scoped sample search (`/nextseek_api/samples/graph_search/`)
-  instead and returns its answer under `fallback`:
+  run (after one rewrite when the check's reasons allow one). For a count there is no `fallback`:
+  `result.error` says it could not be counted; say so and never give a number from another search.
+  For anything else the op asks the project-scoped sample search
+  (`/nextseek_api/samples/graph_search/`) instead and returns its answer under `fallback`:
   - `fallback.ok` true: answer from `fallback.data` (`total` is the count of every match, `rows`
     is one page of records, `rows_missing` is how many counted matches it could not show), and say
     so in one sentence, as `fallback.note` asks: the answer came from the project-scoped sample
@@ -118,6 +120,7 @@ nextseek-graph --query "List the TIS samples in the MetNet project whose Organ i
     errors, and stop.
 - **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
 - **Relay every line of `notes`** (a UID stored under another spelling, or not found).
+- **`lab_names`** maps each lab code in a lab or investigator column of the rows to SEEK's name for that lab; name a lab from it, never from the code or from memory, and never say the records hold no lab names when it is present.
 - **`parser_plan`.** The plan the op's parser made for this question. Only when the user asks for the same records from the REST API (for example their full metadata), pass it as it is: `nextseek-api-read --parser-plan '<parser_plan, as JSON>'`; never run it to repeat a count the graph already gave.
 - **Refinement and follow-ups** ("which of those…", "only the female ones", "by sex"): start from
   the previous turn's files in `/data/previous_turns/`, in the order the container CLAUDE.md gives
@@ -172,10 +175,9 @@ nextseek-aggregate --query "How many samples have no parent at all, and how many
   samples as well as a breakdown, ask it as its own part. For a `count` part it is that one number.
 - **Relay every line of `notes`.** They carry what the user must be told: a UID stored under another
   spelling, a changed filter, a truncated table, a part that could not be answered.
-- **`status`.** `ok` and `empty` are answers (an empty part is a real zero). `fallback` means the
-  breakdown could not be confirmed to stay inside the user's projects: `sum_of_group_counts` is the
-  project-scoped sample search's total (a number of samples), and there is no breakdown; say so.
-  `refused` and `error` mean that part has no answer. `timed_out` means the op answered before that part
+- **`status`.** `ok` and `empty` are answers (an empty part is a real zero). `refused` and `error`
+  mean that part has no answer: say it could not be counted, and never give a number from a sample
+  search in its place. `timed_out` means the op answered before that part
   finished (`complete` is false): say it did not finish and never estimate it.
 - **Charts and spellings.** Draw a chart or cluster spellings in `/data/scratch` from `groups` only,
   and say the counts are per stored spelling: "rhesus", "Rhesus" and "Macaca mulatta" are separate
@@ -450,21 +452,9 @@ Compose the user-facing answer from each op's JSON output.
 - When the reply lists the stored values of one attribute, `context/ONTOLOGIES.json` covers that attribute, and some listed values are not house `TERM`s, end with one line offering to harmonize them to the house terms. No table and no workbook until the user asks (harmonizing is a `nextseek-batch-upload` task).
 - Do not fabricate counts, UIDs, or fields, or fill in numbers from prior knowledge — report only
   what the op returned. State an empty result plainly.
-- Quote the **user-facing path** of any artifact produced (submission workbook, report, file
-  under `/data/scratch/`), not the container path. `DMAC_PATH_MAPPINGS` in the env is a JSON
-  object of one entry per mounted root:
-
-  ```json
-  {"output":  {"container_root": "/data/output",  "logical_root": "/dmac/users/<project>/<user>/output"},
-   "scratch": {"container_root": "/data/scratch", "logical_root": "/dmac/users/<project>/<user>/scratch/<run id>"}}
-  ```
-
-  To report a file, find the entry whose `container_root` is a prefix of the file's path and
-  replace that prefix with the same entry's `logical_root`. That result is the path to quote:
-  `/data/scratch/chart.svg` becomes `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg`, where each <...> is the real value the variable holds; never copy a <...> into a reply.
-  There is no host path in the mapping and you are not expected to produce one. Report the
-  container path, and say the mapping was unavailable, ONLY when the variable is missing, is not
-  valid JSON, or holds no entry whose `container_root` is a prefix of the path.
+- Name an artifact you produced (submission workbook, report, a file under `/data/scratch/`) by its file
+  name and say it is in the downloads under your reply. Never give a folder or a path: the user cannot open
+  the server's folders.
 
 ## Write safety — 3 layers
 
@@ -506,7 +496,7 @@ After a `nextseek-*` tool returns nulls, empty data, or a non-zero exit, you MUS
 - call `--help` repeatedly looking for hidden flags — the matrix above is the complete contract; there are no hidden flags
 - call a sibling `nextseek-*` tool to attempt to "fetch what the failed tool needed"
 
-After a failed op, the only legitimate chaining is the documented recipe above (`nextseek-parse` → `nextseek-api-read`); do not invent others. One more is sanctioned: when `nextseek-aggregate` fails or is not available on a follow-up, the second attempt is `nextseek-graph` with the stored Cypher from `search_details.json` and the one change (the follow-up order in the container CLAUDE.md). A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
+After a failed op, the only legitimate chaining is the documented recipe above (`nextseek-parse` → `nextseek-api-read`); do not invent others. One more is sanctioned: when `nextseek-aggregate` fails or is not available on a follow-up, the second attempt is `nextseek-graph` with the stored Cypher from `search_details.json` and the one change (the follow-up order in the container CLAUDE.md). A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry inside a part is not your attempt, and one `nextseek-aggregate` call counts once however many parts it carries.
 
 ## Errors
 
@@ -556,7 +546,7 @@ api-write	nextseek-api-write	Refused: the server refuses every create, update an
 build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. Re-run with --answers to apply the curator's rulings on flagged cells (fill), ambiguous files (choose) and uncovered keys (place); measured cells are refused.	sidecar	read	true	true
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
-graph	nextseek-graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.	sidecar	read	true	true
+graph	nextseek-graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a list refused for its scope is answered through graph_search under fallback, a count never is. Counts and breakdowns: nextseek-aggregate.	sidecar	read	true	true
 graph-schema	nextseek-graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.	sidecar	read	true	true
 parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true

@@ -239,8 +239,8 @@ def test_a_cached_docs_failure_expires_after_the_ttl_and_self_heals(monkeypatch)
 
 def test_all_six_pinned_pipelines_parse():
     for pipeline, revision in [
-        ("rnaseq", "3.18.0"), ("scrnaseq", "2.7.1"), ("smrnaseq", "2.4.1"),
-        ("hlatyping", "2.2.0"), ("rnafusion", "4.1.3"), ("rnasplice", "1.0.4"),
+        ("rnaseq", "3.18.0"), ("scrnaseq", "4.2.0"), ("smrnaseq", "2.4.1"),
+        ("hlatyping", "2.2.0"), ("rnafusion", "4.1.3"), ("rnasplice", "2.0.0"),
     ]:
         out = get_schema(pipeline, revision, fetcher=_fixture_fetcher())
         assert out["nextflow_schema"], pipeline
@@ -375,8 +375,8 @@ def test_clear_cache_restores_docs_fetching_after_a_failure():
 
 def test_all_six_pinned_pipelines_docs_parse():
     for pipeline, revision in [
-        ("rnaseq", "3.18.0"), ("scrnaseq", "2.7.1"), ("smrnaseq", "2.4.1"),
-        ("hlatyping", "2.2.0"), ("rnafusion", "4.1.3"), ("rnasplice", "1.0.4"),
+        ("rnaseq", "3.18.0"), ("scrnaseq", "4.2.0"), ("smrnaseq", "2.4.1"),
+        ("hlatyping", "2.2.0"), ("rnafusion", "4.1.3"), ("rnasplice", "2.0.0"),
     ]:
         out = get_pipeline_docs(pipeline, revision, fetcher=_docs_fixture_fetcher())
         assert set(out) == {"readme", "usage", "output"}, pipeline

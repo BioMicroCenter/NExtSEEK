@@ -57,6 +57,14 @@ def test_a_metadata_field_is_read_from_a_dict_or_a_json_string():
     assert out["count"] == 1000 and out["groups"] == [{"sample_type": "DNA", "n": 1000}]
 
 
+def test_a_record_field_no_row_fills_counts_zero_and_a_missing_one_is_refused():
+    rows = [{"uuid": f"AAA-200101XYZ-{i}", "metadata": {"Tag": "t", "Blank": None}} for i in range(5)]
+    out = _compute(rows, where=[{"column": "metadata.Blank", "op": "present"}])
+    assert out["ok"] is True and out["count"] == 0
+    out = _compute(rows, where=[{"column": "metadata.Nope", "op": "present"}])
+    assert out["ok"] is False and out["needs_query"] is True
+
+
 def test_code_runs_over_the_rows_left_after_where():
     out = _compute(_rows_731(), where=[{"column": "Sex", "op": "equals", "value": "f"}],
                    code="result = {'sha': len([r for r in rows if 'SHA' in r['uuid']])}")

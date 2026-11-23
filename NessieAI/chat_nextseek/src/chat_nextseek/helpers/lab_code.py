@@ -22,7 +22,8 @@ from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-__all__ = ["LabResolution", "clamp_lab_codes", "fold", "lab_near_miss_notes", "resolve_labs"]
+__all__ = ["LAB_PEOPLE_CYPHER", "LabResolution", "asks_lab_person", "clamp_lab_codes", "fold", "lab_near_miss_notes",
+           "lab_people", "lab_people_notes", "resolve_labs"]
 
 # ---------------------------------------------------------------------------
 # 7.2 normalisation
@@ -685,3 +686,90 @@ def clamp_lab_codes(codes: Any, matched: Any) -> list[str]:
         if code and code in allowed and code not in out:
             out.append(code)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Who a lab code names: the Scientist values on the code's own samples
+# ---------------------------------------------------------------------------
+# A lab record can hold only a surname, while the samples whose UID carries the code name the
+# person in full in their Scientist field. "Full name of the investigator with code X" was
+# answered from the record alone ("only the surname is recorded"). The graph turn reads the
+# stored values first, for a question that asks for the code's person, and hands both the
+# graph agent and the reply the most common ones with their counts.
+
+#: The code at its place in the UID (``TYPE-YYMMDDCODE-n``); grouped on the stored value. No index can seek a code
+#: in the middle of a UID (the uuid range index seeks a prefix only), so this filters every sample's uuid: about
+#: 0.3 s on 168k samples at the 2 us a node measured for unindexed reads (review F7, not measured on a box).
+LAB_PEOPLE_CYPHER = (
+    "MATCH (s:Sample) WHERE s.uuid =~ $pattern AND s.Scientist IS NOT NULL AND s.Scientist <> ''\n"
+    "RETURN s.Scientist AS scientist, count(*) AS n ORDER BY n DESC LIMIT $top"
+)
+
+#: The person is what is asked: a question that opens with "who", a full name, an investigator or PI, a lab head,
+#: what a code stands for, the scientist or person behind it. A relative "who"/"whose" inside a filter ("patients
+#: who are positive") and bare words such as "people" or "principal" do not count.
+_PERSON_ASK = re.compile(
+    r"^\W*who\b|\bfull\s+names?\b|\binvestigators?\b|\blab\s+heads?\b|\bheads?\s+of\s+(?:the\s+)?lab\b"
+    r"|\bstands?\s+for\b|\b(?:scientists?|person|people|names?)\s+behind\b",
+    re.IGNORECASE,
+)
+#: "PI" is a person when it heads its phrase: it ends the clause, takes "'s", is followed by a word that cannot be
+#: the noun it modifies ("the PI of code X", "the PI for QQZ", "who is the PI?"), or follows "which"/"whose". As a
+#: stain (propidium iodide) it modifies the next word: "PI-stained", "PI staining", "PI uptake". Capitals only: "pi
+#: values" is not a PI.
+_PI_ASK = re.compile(r"\bP\.?I\.?s?\b(?=\s*(?:[?.,;:!)]|$)|['’]s\b|\s+(?:of|for|is|was|are|were|behind|who|whose"
+                     r"|named|name|names)\b)|\b(?:which|whose)\s+P\.?I\.?s?\b")
+#: The most one people read may take: a slow scan ends the read with no note, never the turn.
+LAB_PEOPLE_TIMEOUT_S = 5
+
+_CODE = re.compile(r"[A-Z]{3}")
+
+
+def asks_lab_person(question: str) -> bool:
+    """True when the question asks for a person or a lab's identity (who, a name, an investigator, a PI)."""
+    return bool(_PERSON_ASK.search(question or "") or _PI_ASK.search(question or ""))
+
+
+def lab_people(config: Any, codes: Any, *, run: Any, top: int = 5, max_codes: int = 3) -> dict | None:
+    """``{CODE: [(stored Scientist value, samples), ...]}``, most common first, for each three-letter code.
+
+    ``run`` is ``tool_neo4j_query``, so the caller's graph scope applies. A value that is not a
+    three-letter code never reaches the regex. Each read is one filter over every sample's uuid, capped at
+    ``LAB_PEOPLE_TIMEOUT_S``; the first that fails, times out or is refused ends the reads, and the answer is None.
+    """
+    out: dict[str, list[tuple[str, int]]] = {}
+    for code in _as_sequence(codes):
+        code = code.strip().upper() if isinstance(code, str) else ""
+        if not _CODE.fullmatch(code) or code in out:
+            continue
+        if len(out) >= max_codes:
+            break
+        result = run(config, LAB_PEOPLE_CYPHER, {"pattern": f"(?i)^[^-]+-[0-9]{{6}}{code}-.*", "top": top},
+                     timeout_s=LAB_PEOPLE_TIMEOUT_S)
+        if not isinstance(result, dict) or not result.get("ok"):
+            return None
+        out[code] = [(str(row.get("scientist")).strip(), int(row.get("n") or 0))
+                     for row in result.get("data") or []
+                     if isinstance(row, dict) and str(row.get("scientist") or "").strip()]
+    return out
+
+
+def lab_people_notes(people: dict | None) -> tuple[str | None, list[str]]:
+    """``(note for the graph agent, notes for the reply)``; nothing for a failed read or no values."""
+    agent: list[str] = []
+    reply: list[str] = []
+    for code, values in (people or {}).items():
+        if not values:
+            continue
+        listed = ", ".join(f"{name} ({n} samples)" for name, n in values)
+        agent.append(f"Samples whose UID carries lab code {code} name these people in their Scientist field, "
+                     f"most common first: {listed}.")
+        first, *rest = values
+        spoken = f"{first[0]} on {first[1]} samples" + "".join(f", {name} on {n}" for name, n in rest)
+        # The instruction comes before the names: a reply note is cut at 400 characters (helpers/query_scope.py).
+        reply.append(f"Asked who lab code {code}'s person or lab is, answer with these names from the Scientist field "
+                     "of its samples and say so; that field names who made or handled each sample, so the most "
+                     f"common is not necessarily the lab head. Most common first: {spoken}.")
+    if not agent:
+        return None, []
+    return "LAB CODE PEOPLE (read before your query):\n" + "\n".join(f"- {line}" for line in agent), reply

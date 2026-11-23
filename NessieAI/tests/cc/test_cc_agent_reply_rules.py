@@ -24,13 +24,10 @@ CLAUDE_MD = paths.CC_RUNTIME_DIR / "container" / "CLAUDE.md"
 SKILL_MD = paths.CC_PLUGIN_DIR / "skills" / "nextseek" / "SKILL.md"
 
 PATH_RULE = (
-    "The one kind of path you may give is where a file you handed over lives, and only in "
-    "its user-facing form: take this turn's real prefix from the `DMAC_PATH_MAPPINGS` "
-    "variable (the `nextseek` skill's SKILL.md says how) and put it in place of "
-    "`/data/scratch`. Never write a placeholder such as `<project>`, `<user>` or `<run id>` "
-    "into a reply: if you have not read the mapping, give the file's name and say it is in "
-    "the downloads under your reply. Files you write to `/data/scratch/` are always offered "
-    "as downloads under your reply."
+    "A file you handed over is named by its file name only, and is in the downloads under "
+    "your reply: never give a folder or a path for it, because the user cannot open the "
+    "server's folders. Files you write to `/data/scratch/` are always offered as downloads "
+    "under your reply."
 )
 COUNT_RULE = (
     "- Every number you state must come from code you ran in this turn that printed it (a "
@@ -46,9 +43,10 @@ GROUP_RULE = (
     "- Report the group counts as the table gives them, and state the total the groups "
     "were taken from."
 )
-SKILL_EXAMPLE = (
-    "`/data/scratch/chart.svg` becomes `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg`, "
-    "where each <...> is the real value the variable holds; never copy a <...> into a reply."
+SKILL_RULE = (
+    "Name an artifact you produced (submission workbook, report, a file under `/data/scratch/`) by its file "
+    "name and say it is in the downloads under your reply. Never give a folder or a path: the user cannot "
+    "open the server's folders."
 )
 
 
@@ -92,9 +90,10 @@ def test_the_chart_rule_names_a_library_the_image_installs():
     assert "matplotlib" in names
 
 
-def test_the_skill_example_says_each_placeholder_is_a_real_value():
+def test_the_skill_says_name_the_file_and_never_a_path():
     skill = _flat(SKILL_MD.read_text(encoding="utf-8"))
-    assert SKILL_EXAMPLE in skill
+    assert SKILL_RULE in skill
+    assert "<run id>" not in skill
 
 
 MODEL_RULE = (

@@ -345,6 +345,15 @@ def test_a_followup_redirect_keeps_the_router_record(monkeypatch):
     _keeps_the_router_record(back)
 
 
+def test_a_file_request_falls_back_to_ns_when_the_runner_is_down(monkeypatch):
+    monkeypatch.setattr(policy.cc_router, "decide", lambda q, history=None: ROUTED)
+    d = policy._decide_route(_USER, SimpleNamespace(query="Make me a spreadsheet of the zeta samples",
+                                                    force_route=None), force_cc=False, chat_log=[])
+    assert d.source == "file_request" and d.route == cc_router.ROUTE_CC
+    back = policy._fallback_when_cc_unavailable(d, lambda: (False, "runner down"))
+    assert (back.route, back.source) == (cc_router.ROUTE_NS, "cc_unavailable")
+
+
 def test_a_forced_turn_has_no_router_record():
     admin = SimpleNamespace(is_superuser=True)
     d = policy._decide_route(admin, SimpleNamespace(query="q", force_route="ns"), force_cc=False)

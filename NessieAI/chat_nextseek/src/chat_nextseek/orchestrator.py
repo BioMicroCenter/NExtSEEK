@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import time
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, replace as _replace_fields
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from .chat_memory import (
     append_turn,
     build_tool_summary_for_mode,
     bundle_rows,
+    bundle_uids,
     named_bundle,
     next_turn_id,
     plan_step_extent,
@@ -35,6 +37,7 @@ from .chat_memory import (
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
+    _column_summary,
     describe_stored_result,
     preview_rows,
     resolve_followup_outcome,
@@ -64,7 +67,8 @@ from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
                            check_binding, check_premise, holding_study_note, review_compute, review_tier1,
                            with_checks)
-from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2
+from .graph_review_counts import (SKIP_AFTER_MS, live_values, rerun_statement, run_tier2, whole_result_breakdown,
+                                  zero_row_evidence)
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
@@ -87,16 +91,21 @@ from .helpers import (
     tool_neo4j_query,
     uids_from_last_search,
 )
-from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
-                          zero_row_retry_context)
-from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, asks_for_a_count, id_spelling_note, id_spelling_variant,
+                          scope_repair_note,
+                          normalized_cypher, quoted_in, scope_repair_context, timed_out, timeout_retry_context,
+                          WORD_LEFT_OUT_NOTE, WORD_ZERO_NOTE, zero_row_retry_context)
+from .helpers.lab_code import asks_lab_person, clamp_lab_codes, lab_near_miss_notes, lab_people, lab_people_notes
 from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
+from .agents.parser import BULK_EXPORT_NOTE, SOP_RECORDS_NOTE, adds_a_condition
+from .helpers.subject_check import asks_for_tree_of, check_subject, plan_with_subject, subject_notes
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .agents.entity import carry_code_owned_types
+from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -215,6 +224,15 @@ class GraphScopeFallback:
     reasons: tuple[str, ...]
     submitted_cypher: str | None
     attempts: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class SubjectTree:
+    """A graph turn asking for the tree of one named subject that resolved to one record: run_query answers it from
+    samples/retrieve for that record (operator 2026-11-19)."""
+
+    plan: Any
+    notes: tuple[str, ...]
 
 
 def _coerce_graph_scope(graph_scope: Any, *, entry_point: str) -> GraphScope | None:
@@ -642,6 +660,11 @@ FOLLOWUP_GRAPH_LEAD_NAMED = ("This question points at the result of the earlier 
                              "earlier search.\n")
 #: Follows the earlier Cypher with its values: a filter written as ``$inv`` is no filter without its value.
 FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
+#: Follows the earlier statement when it bound $uids: the UIDs are bound by code (`parameters_extra`), never pasted.
+FOLLOWUP_GRAPH_UIDS = ("The earlier result's {n} sample UIDs are ALREADY BOUND as the query parameter $uids. To keep "
+                       "that set, filter with `WHERE s.uuid IN $uids`; never paste UIDs into the query text. A few "
+                       "of them, so you can see their shape: {shown}. UIDs the question itself names go in a "
+                       "parameter of another name, such as $named_uids.")
 
 
 def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, dict] | None:
@@ -655,8 +678,11 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
     list (``NessieAI.router.followup.followup_cue``) decide, and then the earlier search is the newest turn's
     bundle: a Container-CC turn or an aside writes no bundle, so after one there is no context rather than an
     older answer than the one the question points at. The search is carried as a refine carries it
-    (``_build_graph_refine_context``) plus its parameters. A statement bound to ``$uids`` is not carried: the
-    session keeps those UIDs only as a placeholder. Returns (context, debug record)."""
+    (``_build_graph_refine_context``) plus its parameters. A statement bound to ``$uids`` is carried with its UIDs
+    (debug record ``uids``, bound by the caller, never pasted): a graph turn stores the list it bound, and a follow-up
+    loop's bundle stores a placeholder, so its list is the one of the bundle it ran over
+    (``search_context.followup_of_bundle``). With no list to be found it is not carried. Returns (context, debug
+    record)."""
     try:
         history = session.get("results_history") or []
         named = named_bundle(history, getattr(plan, "target_result_id", None))
@@ -678,12 +704,27 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
             by = "cue"
         graph_plan = last.get("graph_plan") or {}
         cypher = graph_plan.get("cypher") or ""
+        parameters = dict(graph_plan.get("parameters") or {})
+        bound: list[str] = []
         if re.search(r"\$uids\b", cypher):
-            return None
+            stored = parameters.pop("uids", None)
+            # A graph turn keeps the list it bound. A follow-up loop's bundle keeps only a count of it
+            # (_followup_result_bundle), and the loop bound every row UID of the bundle it was about, which the
+            # bundle names as search_context.followup_of_bundle. Never this bundle's own rows: a lineage
+            # statement's rows are other samples than the ones it bound.
+            if isinstance(stored, list):
+                bound = [u for u in stored if isinstance(u, str) and u]
+            else:
+                source = named_bundle(history, (last.get("search_context") or {}).get("followup_of_bundle"))
+                bound = bundle_uids(source) if source is not None else []
+            if not bound:
+                return None
         context = (FOLLOWUP_GRAPH_LEAD_NAMED if by == "parser" else FOLLOWUP_GRAPH_LEAD) \
             + _build_graph_refine_context(last)
-        if cypher and graph_plan.get("parameters"):
-            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(graph_plan["parameters"], default=str, sort_keys=True)
+        if cypher and parameters:
+            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(parameters, default=str, sort_keys=True)
+        if bound:
+            context += "\n" + FOLLOWUP_GRAPH_UIDS.format(n=len(bound), shown=", ".join(bound[:10]))
         summary = getattr(plan, "intent_summary", None) if by == "parser" else None
         # R9: a summary that names an endpoint path is REST prose (agents/graph.py keeps intent_summary out of the
         # graph agent for that reason), so it is left out.
@@ -692,7 +733,10 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
     except Exception as exc:  # the earlier search is help, never the reason a turn fails
         print(f"[DEBUG][FOLLOWUP] could not build the earlier search's context: {exc!r}")
         return None
-    return context, {"cue": cue, "by": by, "bundle_id": last.get("id")}
+    record = {"cue": cue, "by": by, "bundle_id": last.get("id")}
+    if bound:
+        record["uids"] = bound
+    return context, record
 
 
 #: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
@@ -719,6 +763,15 @@ def _stored_query_refine(stored_query: dict) -> str:
 
 def _count_text(value: Any) -> str | None:
     return f"{value:,}" if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _seed_type_codes(uids: list[str], question: str) -> list[str]:
+    """The sample type codes of a seed's UIDs (<TYPE>-<YYMMDD><LAB>-<n>, ``helpers/uid_check.py``), the ones the
+    question names first, then the most common. Context for the graph agent's catalog sections only, never a
+    filter: ``graph_context.resolved_type_codes`` drops codes the catalog does not know and keeps MAX_TYPES."""
+    counts = Counter(u.split("-", 1)[0] for u in uids if isinstance(u, str) and "-" in u)
+    named = [c for c in counts if re.search(rf"(?<![\w.]){re.escape(c)}(?![\w.])", question or "")]
+    return named + [c for c, _n in counts.most_common() if c not in named]
 
 
 def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: int | None,
@@ -868,7 +921,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             )
         else:
             seed_mode = "none"
-        entity = EntityAgentOutput()
+        entity = (EntityAgentOutput(sampletypes=[EntityItem(code=c) for c in _seed_type_codes(seed_uids, question)])
+                  if seed_mode == "uids" else EntityAgentOutput())
         parser_plan = ParserPlan(mode="graph_query", intent_summary=question)
         graph_plan = graph_agent(config, question, entity, parser_plan, refine_context=refine)
         if not graph_plan.cypher:
@@ -931,8 +985,12 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "scope_note": scope_note,
             "review": as_debug(review),
         }
+        if len(shown) < len(rows):
+            payload["column_summary"], payload["columns_omitted"] = _column_summary(rows)
         if run.changed_answer:
-            payload["retry_note"] = RETRY_CHANGED_ANSWER_NOTE
+            payload["retry_note"] = run.spelling_note or RETRY_CHANGED_ANSWER_NOTE
+        if run.scope_repair_note:
+            payload["scope_repair_note"] = run.scope_repair_note
         return payload
 
     def _compute_artifact(payload: dict, review: GraphReview | None, *, where, group_by, code):
@@ -1186,13 +1244,45 @@ class GraphRun(NamedTuple):
     elapsed_ms: int       # the Neo4j time of the kept result, never a discarded retry's
     parameters: Any       # what the kept statement ran with
     changed_answer: bool  # the first query matched nothing and a retry found something
+    #: Set when that retry was the identifier-spelling one (graph_retry.id_spelling_variant): the reply's note says
+    #: which spelling matched, in place of RETRY_CHANGED_ANSWER_NOTE.
+    spelling_note: str | None = None
+    #: Set when a scope rewrite answered and its cure changes what the result covers (graph_retry.scope_repair_note).
+    scope_repair_note: str | None = None
+    #: Set when the zero-row evidence counted a free-text word without it and the answer left it out or stayed zero
+    #: (graph_retry.WORD_LEFT_OUT_NOTE, WORD_ZERO_NOTE).
+    word_note: str | None = None
+
+
+def _with_statement(graph_plan, cypher: str, parameters: dict):
+    """``graph_plan`` with another statement and parameters (a GraphAgentPlan copy, or any object with those two
+    attributes)."""
+    if hasattr(graph_plan, "model_copy"):
+        return graph_plan.model_copy(update={"cypher": cypher, "parameters": parameters})
+    import copy
+    plan = copy.copy(graph_plan)
+    plan.cypher, plan.parameters = cypher, parameters
+    return plan
+
+
+_QUOTED = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"")  # a Cypher string literal's text
 
 
 def _bind_parameters(graph_plan, parameters_extra: dict | None):
     """The parameters ``graph_plan`` runs with: its own, plus each of ``parameters_extra`` that its Cypher names as
-    ``$name`` (over any value the model wrote for it). Its own, untouched, when none of them applies."""
-    named = {k: v for k, v in (parameters_extra or {}).items() if f"${k}" in (graph_plan.cypher or "")}
-    return {**dict(graph_plan.parameters or {}), **named} if named else graph_plan.parameters
+    ``$name`` (over any value the model wrote for it, unless that value is a list holding something the bound list
+    does not: UIDs the question names, round 2 F8; a value that only repeats bound UIDs is the model pasting what it
+    was shown). Its own, untouched, when none of them applies."""
+    own = dict(graph_plan.parameters or {})
+
+    def names_its_own(k, bound) -> bool:
+        mine = own.get(k)
+        return (isinstance(mine, list) and isinstance(bound, list)
+                and bool({str(v) for v in mine} - {str(v) for v in bound}))
+
+    named = {k: v for k, v in (parameters_extra or {}).items()
+             if f"${k}" in (graph_plan.cypher or "") and not names_its_own(k, v)}
+    return {**own, **named} if named else graph_plan.parameters
 
 
 def _run_graph_with_retries(config, question: str, entity, plan, refine: str | None,
@@ -1206,8 +1296,9 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
     (the follow-up's ``$uids``), bound into every attempt whose Cypher names them.
 
     Each attempt is timed around ``tool_neo4j_query`` alone, and ``elapsed_ms`` is the kept attempt's, so the
-    reviewer times the statement the caller keeps, never a retry it threw away. A scope refusal is final at once:
-    another statement would be refused the same way, and the graph turn falls back to graph_search.
+    reviewer times the statement the caller keeps, never a retry it threw away. A scope refusal whose every code a
+    rewrite can cure (``graph_retry.SCOPE_REPAIR_CODES``) gets one rewrite told the check's own reasons; any other
+    refusal, or a second one, is final.
     """
     parameters = _bind_parameters(graph_plan, parameters_extra)
     t_query = time.perf_counter()
@@ -1224,6 +1315,9 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
+    zero_calls: list[dict] = []   # the reads behind the zero-row retry's facts
+    scope_repair_used = False
+    repaired_codes: list = []  # the codes of the refusal the one scope rewrite answered
     # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
     timed_out_statements: set[str] = set()
     last_timeout = None  # (plan, result, parameters, ms) of the latest statement that timed out
@@ -1231,14 +1325,34 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         timed_out_statements.add(normalized_cypher(graph_plan.cypher))
         last_timeout = (graph_plan, graph_result, parameters, kept_ms)
 
+    # A zero on a free-text match of an identifier is re-run once with the separators optional (QXRT-4 finds QXRT4),
+    # by code and before the agent's retry, whose call this used to be (graph_retry.py "identifier spellings"). A
+    # quoted identifier asks for that spelling only. It is not one of the GRAPH_MAX_TRIES agent statements.
+    spelling_note = None
+    if graph_result.get("ok") and matched_nothing(graph_result) and not is_scope_refusal(graph_result):
+        variant = id_spelling_variant(graph_plan.cypher, parameters)
+        if variant is not None and not quoted_in(question, variant.term):
+            t_query = time.perf_counter()
+            spelled = tool_neo4j_query(config, variant.cypher, variant.parameters)
+            spelled_ms = _ms_since(t_query)
+            attempts.append(_graph_attempt(variant.cypher, spelled, "id_spelling", elapsed_ms=spelled_ms))
+            if spelled.get("ok") and not matched_nothing(spelled):
+                graph_plan = _with_statement(graph_plan, variant.cypher, variant.parameters)
+                graph_result, parameters, kept_ms = spelled, variant.parameters, spelled_ms
+                spelling_note = id_spelling_note(variant)
+
     for _ in range(GRAPH_MAX_TRIES - 1):
         if len(timed_out_statements) >= 2:
             break
         if is_scope_refusal(graph_result):
-            # Final: another model call can only write another query the prover cannot
-            # prove. The graph turn falls back to graph_search.
-            break
-        if not graph_result.get("ok"):
+            # One rewrite, told the check's own reasons, when every code is about how the statement is written
+            # (who-asked-2, R1: a member's study count walked down from the project). Anything else is final.
+            retry_ctx = None if scope_repair_used else scope_repair_context(graph_result)
+            if retry_ctx is None:
+                break
+            scope_repair_used, reason = True, "scope_repair"
+            repaired_codes = list((graph_result.get("scope") or {}).get("codes") or ())
+        elif not graph_result.get("ok"):
             neo4j_error = graph_result.get("error", "Unknown error")
             print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
             if timed_out(graph_result):
@@ -1255,7 +1369,8 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
             print("[GRAPH] Query ran but matched nothing, retrying once with that context")
             # The wording, and why it no longer says "use the closest value", is in
             # graph_retry.py: the CC aggregate op retries a zero part in the same words.
-            retry_ctx = zero_row_retry_context(graph_plan.cypher)
+            zero_facts, zero_calls = zero_row_evidence(config, graph_plan.cypher, parameters)
+            retry_ctx = zero_row_retry_context(graph_plan.cypher, zero_facts)
             reason = "zero_rows"
         else:
             break
@@ -1278,6 +1393,8 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, retry_parameters)
         retry_ms = _ms_since(t_query)
         attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
+        if reason == "zero_rows":
+            attempts[-1]["evidence"] = {"facts": zero_facts, "calls": zero_calls}
         if timed_out(retry_result):
             timed_out_statements.add(normalized_cypher(graph_plan_retry.cypher))
             last_timeout = (graph_plan_retry, retry_result, retry_parameters, retry_ms)
@@ -1293,9 +1410,25 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         parameters = retry_parameters
         kept_ms = retry_ms
 
+    # A free-text word the evidence counted without: told to the reply, since query_scope never lists it.
+    word_note = None
+    counted = [c for c in zero_calls if c.get("kind") == "without_text" and (c.get("total") or 0) > 0]
+    if counted and graph_result.get("ok"):
+        if matched_nothing(graph_result):
+            word_note = WORD_ZERO_NOTE.format(term=counted[0]["term"], n=counted[0]["total"])
+        else:
+            # the statement's quoted values and its parameter values, never its property or variable names ("rna" is
+            # in "internal_assay_title"); a word moved into a field filter is kept (round 2 F10)
+            kept = " ".join([*(a or b for a, b in _QUOTED.findall(graph_plan.cypher or "")),
+                             json.dumps(list((parameters or {}).values()), default=str)]).lower()
+            gone = [c for c in counted if c["term"].lower() not in kept]
+            if gone:
+                word_note = WORD_LEFT_OUT_NOTE.format(term=gone[0]["term"])
     return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,
                     parameters=parameters,
-                    changed_answer=first_ok_empty and not matched_nothing(graph_result))
+                    changed_answer=first_ok_empty and not matched_nothing(graph_result),
+                    spelling_note=spelling_note, word_note=word_note,
+                    scope_repair_note=scope_repair_note(repaired_codes) if graph_result.get("ok") else None)
 
 
 #: The chatter's note for a graph result the reviewer flagged (graph_review.py): the review's facts, to be stated
@@ -1609,7 +1742,7 @@ def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any]
         config=config, session=session, user_text=user_text, entity_result=entity_result, plan=plan,
         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event, debug_payload=debug_payload,
         t_total_start=t_total_start, refine_context=refine, note_agent=note_agent, offer_suggestions=False,
-        graph_plan=graph_plan,
+        graph_plan=graph_plan, count_stop=False,
     )
     if isinstance(outcome, GraphScopeFallback):
         print("[DEBUG][SUGGEST] the clicked chip's statement was refused for this scope; running the full pipeline")
@@ -1623,6 +1756,12 @@ def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any]
 CATALOG_SCOPE_REPLY = (
     "I can't read the attribute catalog for your account. Ask about one sample type by name and I can list its "
     "attributes."
+)
+#: A count or breakdown the scope refused, after its one rewrite when it had one (who-asked-2, R1). Never the sample
+#: search: it counts the records that mention a word, which is another number.
+COUNT_SCOPE_REPLY = (
+    "I could not count that within your projects, so I have no number for it. Asking about the samples that hold "
+    "what you want counted may work."
 )
 #: Ruling 7, review F3: a member's "which sample types have samples" is answered from the samples in their own
 #: projects; the member scope wraps this statement like any other.
@@ -1687,6 +1826,19 @@ def _fall_back_to_graph_search(plan: ParserPlan) -> tuple[ParserPlan, str, list[
     return plan, "new_search", [SCOPE_FALLBACK_NOTE]
 
 
+def _subject_check(config, user_text: str, plan, debug_payload: dict, *, skip: bool = False):
+    """``(note for the graph agent, notes for the reply, plan)`` for a question about one named subject that is not a
+    UID (``helpers/subject_check.py``): the name is resolved to its record before the agent writes a query, and the
+    plan is anchored on the record's UID. Nothing, and the same plan, for any other turn or a chip's own statement."""
+    check = None if skip else check_subject(config, user_text, plan, run=tool_neo4j_query)
+    if check is None:
+        return None, [], plan
+    debug_payload["subject_check"] = {"term": check.term, "types": list(check.types),
+                                      "roots": [r["uuid"] for r in check.roots], "truncated": check.truncated}
+    agent_note, reply_notes = subject_notes(check)
+    return agent_note, reply_notes, plan_with_subject(plan, check)
+
+
 def _execute_graph_turn(
     *,
     config: ChatConfig,
@@ -1703,8 +1855,14 @@ def _execute_graph_turn(
     note_agent: Callable[[str], None] | None = None,
     offer_suggestions: bool = True,
     graph_plan: GraphAgentPlan | None = None,
+    count_stop: bool = True,
+    parameters_extra: dict | None = None,
+    tree_by_retrieve: bool = False,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
+
+    ``count_stop`` False (a chip click): a refused count goes back to the caller as a fallback, so the clicked text
+    runs the full pipeline, which applies the count rule itself.
 
     ``offer_suggestions`` is False on a turn that is itself a click on a chip: it offers no chip of its own.
 
@@ -1735,7 +1893,31 @@ def _execute_graph_turn(
     plan = plan_with_stored_uids(plan, uid_checks)  # R4: the parser's filters.uids carry the stored spelling
     if uid_agent_note:
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
-    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
+    subject_agent_note, subject_reply_notes, plan = _subject_check(config, user_text, plan, debug_payload,
+                                                                   skip=graph_plan is not None)
+    roots = (debug_payload.get("subject_check") or {}).get("roots") or []
+    if tree_by_retrieve and graph_plan is None and len(roots) == 1:
+        root = str(roots[0])
+        root_type = root.partition("-")[0]
+        if (asks_for_tree_of(user_text, debug_payload["subject_check"]["term"])
+                and not adds_a_condition(plan, root_type, None, None)):
+            debug_payload["subject_tree_by_retrieve"] = root
+            send_event("agent_complete", {"agent": "graph", "summary": None})  # the progress panel closes the step
+            return SubjectTree(plan=plan.model_copy(update={
+                "mode": "new_search", "target_endpoint": "/nextseek_api/samples/retrieve/",
+                "filters": plan.filters.model_copy(update={"uids": [root], "keywords": []})}),
+                notes=tuple(subject_reply_notes))
+    # Who a lab code names is read from the Scientist values on the code's samples, for a question that asks
+    # for a person: the lab record alone can hold only a surname.
+    lab_agent_note, lab_reply_notes = None, []
+    turn_lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+    if turn_lab_codes and graph_plan is None and asks_lab_person(user_text):  # a chip's statement is already written
+        people = lab_people(config, turn_lab_codes, run=tool_neo4j_query)
+        lab_agent_note, lab_reply_notes = lab_people_notes(people)
+        if lab_agent_note:
+            debug_payload["lab_people"] = {code: [list(v) for v in values] for code, values in people.items()}
+    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note, subject_agent_note, lab_agent_note)
+                                if part) or None
 
     if graph_plan is None:
         print("\n[GRAPH] Running graph agent...")
@@ -1743,6 +1925,8 @@ def _execute_graph_turn(
     else:
         print("\n[GRAPH] Running the chip's statement (no graph agent)...")
     debug_payload["graph_context"] = graph_plan.context_mode
+    if graph_plan.fields_named:
+        debug_payload["fields_named"] = graph_plan.fields_named
     # A fallback's reason and capture date: the harness reads the payload, the debug panel the summary line.
     schema_fallback = _schema_fallback_line(graph_plan.context_fallback)
     if schema_fallback:
@@ -1764,7 +1948,22 @@ def _execute_graph_turn(
              "executed_cypher": None, "scope_decision": None, "elapsed_ms": None}
             for cypher, reason in ((graph_plan.attempted_cypher, "initial"), (graph_plan.repaired_cypher, "repair"))
             if cypher]
-        reply = refusal_reply(graph_plan.refusal_kinds) or GRAPH_REFUSAL_REPLY
+        reply = refusal_reply(graph_plan.refusal_kinds)
+        why = (graph_plan.explanation or "").strip()
+        if reply is None and why and not graph_plan.refusal_kinds and not why.startswith("Graph agent "):
+            # The agent's own reasoned refusal (graph prompt: "If the question cannot be answered ..."): its reason is
+            # internal words, so the reply writer says it plainly. A guard's refusal and an exception keep the fixed
+            # reply (24506e9de).
+            _on("chatter")
+            reply = chatter_agent_answer(
+                config, user_text, entity_result.model_dump(), plan.model_dump(),
+                graph_plan=graph_plan.model_dump(),
+                graph_result={"ok": False, "data": [], "count": None, "total": None, "error": "No search was run."},
+                log_dir=log_dir, session=session,
+                query_notes=[*uid_reply_notes, *subject_reply_notes, *lab_reply_notes, GRAPH_NO_QUERY_NOTE])
+        reply = reply or GRAPH_REFUSAL_REPLY
+        append_turn(session, user_query=user_text, mode="graph_query", intent_summary=plan.intent_summary,
+                    entity_result=entity_result, assistant_reply=reply)
         session["last_debug"] = debug_payload
         send_event("agent_complete", {"agent": "graph",
                                       "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
@@ -1779,7 +1978,7 @@ def _execute_graph_turn(
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     # The retry loop (a Cypher error, a zero-row result) is shared with the follow-up loop's queries.
-    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, None,
+    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, parameters_extra,
                                   graph_plan=graph_plan)
     graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
     elapsed_ms = run.elapsed_ms
@@ -1806,6 +2005,13 @@ def _execute_graph_turn(
             session["last_debug"] = debug_payload
             send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
             return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
+        if count_stop and asks_for_a_count(user_text, graph_plan.cypher):
+            debug_payload["graph_plan"] = graph_plan.model_dump()
+            debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+            debug_payload["graph_refusal"] = "scope refused a count; it is not answered by the sample search"
+            session["last_debug"] = debug_payload
+            send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
+            return _emit_query_complete(send_event, COUNT_SCOPE_REPLY, debug_payload, None)
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
     # Nothing used to inspect a graph result that ran, so confidently wrong numbers reached the reply (98
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
@@ -1815,14 +2021,25 @@ def _execute_graph_turn(
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]
+    if graph_result.get("ok") and graph_result.get("truncated"):
+        # A list cut at its cap is described by counts over the WHOLE result, not by the rows returned (3b).
+        inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
+        breakdown = whole_result_breakdown(config, graph_plan.cypher, inp.parameters, inp.rows, elapsed_ms=elapsed_ms)
+        if breakdown:
+            graph_result = {**graph_result, "breakdown": breakdown}
+            debug_payload["graph_breakdown"] = breakdown
     # A number found by a changed filter may not mean what the question asked, so the
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
-    query_notes: list[str] = list(uid_reply_notes) + catalog_notes
+    query_notes: list[str] = list(uid_reply_notes) + subject_reply_notes + lab_reply_notes + catalog_notes
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
-        query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
+        query_notes.append(run.spelling_note or RETRY_CHANGED_ANSWER_NOTE)
+    if run.scope_repair_note:
+        query_notes.append(run.scope_repair_note)
+    if run.word_note:
+        query_notes.append(run.word_note)
     # A lab the question misspells resolves to no code, by design, and used to leave the
     # turn with a keyword and a confident zero ("There are no samples associated with the
     # Engleward lab", 2026-09-22). The near record is a note, so the reply can ask.
@@ -1891,9 +2108,17 @@ def _execute_graph_turn(
     )
     if rows_entry:
         result_files.append(rows_entry)
+    # A graph turn stores the plan the agent wrote. UIDs bound by code (the agent never wrote them) are stored too, so
+    # the next link of a follow-up chain still has the list.
+    # ponytail: the real list is stored, as when the agent writes it itself (a 5,000-UID list is about 100 KB of
+    # results_history). Switch to a pointer if a session row grows too large.
+    plan_dump = graph_plan.model_dump()
+    bound_uids = (run.parameters or {}).get("uids") if parameters_extra else None
+    if isinstance(bound_uids, list):
+        plan_dump["parameters"] = {**(plan_dump.get("parameters") or {}), "uids": bound_uids}
     bundle = build_metadata_bundle(
         bundle_id=bundle_id, mode="graph_query", user_query=user_text,
-        parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),
+        parser_plan=plan.model_dump(), graph_plan=plan_dump,
         graph_result=graph_result, terminal_reply=None,
         search_context={"endpoint": "neo4j"}, files=result_files,
         paths={"graph_debug_path": graph_debug_path},
@@ -2170,6 +2395,13 @@ GRAPH_REFUSAL_REPLY = (
     "you mean, or ask it a different way."
 )
 
+#: A query note for the reply writer when the graph agent itself declined to write a query (its reason is internal).
+GRAPH_NO_QUERY_NOTE = (
+    "No search was run for this question: the step that writes searches stopped, and its note says why. Say in plain "
+    "words what is missing or not recorded, then the one thing the user can give or ask that would let a search run "
+    "(for example, pasting the UIDs). Give no number and no result."
+)
+
 #: What a user is told when the parser routes a turn to "unsupported". The parser's own notes
 #: are routing prose ("No downstream path supports ...", "not a data query ... system_question")
 #: and stay in the debug payload; printing them after "Reason from parser:" showed the user the
@@ -2179,6 +2411,13 @@ UNSUPPORTED_REPLY = (
     "samples through their lineage, build reports and submission workbooks, and explain what "
     "NExtSEEK holds. If you tell me what you're after in those terms, I'll try again."
 )
+
+#: D1 (operator, 2026-11-20): an export of every sample stays refused, and says what to narrow.
+UNSCOPED_EXPORT_REPLY = (
+    "That would be every sample in NExtSEEK, too many for one file. Narrow it to the samples you want, such as a "
+    "project, a lab, a sample type or a list of UIDs, and ask again: I'll make the file for those."
+)
+
 
 
 def unsupported_reply(plan) -> str:
@@ -2199,6 +2438,8 @@ def unsupported_reply(plan) -> str:
         return PLANNER_TIMEOUT_REPLY
     if failure:
         return PLANNER_UNUSABLE_REPLY
+    if BULK_EXPORT_NOTE in (plan.notes or ""):
+        return UNSCOPED_EXPORT_REPLY
     return UNSUPPORTED_REPLY
 
 
@@ -2474,6 +2715,7 @@ def run_query(
                          "count": (q.get("result") or {}).get("count"),
                          "uids_applied": (q.get("result") or {}).get("uids_applied"),
                          "seed_mode": (q.get("result") or {}).get("seed_mode"),
+                         "error": (q.get("result") or {}).get("error"),
                          "review_verdict": _review_verdict(q.get("result"))}
                         for q in followup_outcome.get("queries") or []
                     ],
@@ -2547,6 +2789,9 @@ def run_query(
             _t0 = time.perf_counter()
             reporter_plan = reporter_agent(config, user_text, plan)
             print(f"[TIMING][REPORTER] {time.perf_counter() - _t0:.2f}s")
+            if SOP_RECORDS_NOTE in (plan.notes or ""):  # the bare SOP count is the protocols report, not a model pick
+                reporter_plan = reporter_plan.model_copy(
+                    update={"reporter_mode": "summary", "summary_mode": "protocols"})
             debug_payload["reporter_plan"] = reporter_plan.model_dump()
             reporter_mode = reporter_plan.reporter_mode or plan.report_mode or "summary"
             if reporter_mode == "summary_sql":  # legacy alias
@@ -2792,7 +3037,15 @@ def run_query(
             current_agent = "system"
             send_event("agent_started", {"agent": "system", "mode": mode})
             _t0 = time.perf_counter()
-            sys_output = system_agent(config, user_text, entity_result, plan, session=session)
+            # Who a lab code names is read here too (Lane C read the graph turn only): the parser sends most
+            # "who is / full name for code X" questions to this agent, whose lab record can hold only a surname.
+            people = None
+            turn_lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+            if turn_lab_codes and asks_lab_person(user_text):
+                people = lab_people(config, turn_lab_codes, run=tool_neo4j_query)
+                debug_payload["lab_people"] = (
+                    {code: [list(v) for v in values] for code, values in people.items()} if people is not None else None)
+            sys_output = system_agent(config, user_text, entity_result, plan, session=session, lab_people=people)
             print(f"[TIMING][SYSTEM] {time.perf_counter() - _t0:.2f}s")
             print(f"[DEBUG][SYSTEM] mode={sys_output.mode}")
             print(f"[DEBUG][SYSTEM] entities_consulted={sys_output.entities_consulted}")
@@ -2832,11 +3085,18 @@ def run_query(
         # A graph query refused for its project scope is answered by graph_search through
         # the REST branch below; these notes go to its chatter and set the reply's footer.
         scope_notes: list[str] = []
+        subject_notes_: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
             followup = _followup_graph_context(session, user_text, plan)
+            seed = None
             if followup:
-                debug_payload["followup_context"] = followup[1]
+                record = dict(followup[1])
+                uids = record.pop("uids", None)
+                if uids:
+                    record["uids_bound"] = len(uids)
+                    seed = {"uids": uids}
+                debug_payload["followup_context"] = record
             outcome = _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
@@ -2844,10 +3104,14 @@ def run_query(
                 debug_payload=debug_payload, t_total_start=_t_total_start,
                 refine_context=followup[0] if followup else None,
                 note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
+                parameters_extra=seed, tree_by_retrieve=True,
             )
-            if not isinstance(outcome, GraphScopeFallback):
+            if isinstance(outcome, SubjectTree):
+                plan, mode, subject_notes_ = outcome.plan, "new_search", list(outcome.notes)
+            elif not isinstance(outcome, GraphScopeFallback):
                 return outcome
-            plan, mode, scope_notes = _fall_back_to_graph_search(plan)
+            if not isinstance(outcome, SubjectTree):
+                plan, mode, scope_notes = _fall_back_to_graph_search(plan)
 
         if mode in ("new_search", "refine_last_search"):
             # Graph-origin refines re-run the graph path (with prior Cypher as context);
@@ -3091,7 +3355,7 @@ def run_query(
                 debug_payload["error_context"],
                 log_dir=log_dir,
                 session=session,
-                query_notes=scope_notes or None,
+                query_notes=(scope_notes + subject_notes_) or None,
             )
             if scope_notes:
                 answer = f"{answer}\n\n{SCOPE_FALLBACK_FOOTER}"

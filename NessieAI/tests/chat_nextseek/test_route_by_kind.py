@@ -14,6 +14,7 @@ from chat_nextseek.agents.parser import (
     _apply_multi_parser_guardrails,
     _apply_parser_guardrails,
     _route_by_kind,
+    TREE_BY_UID_NOTE,
 )
 from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.schemas import EntityAgentOutput, MultiParserPlan, ParserCandidate, ParserFilters, ParserPlan
@@ -48,9 +49,61 @@ def test_sample_type_list_count_goes_to_the_system_agent(q):
 
 
 @pytest.mark.parametrize("uid", ["ZZZ-990101ABC-1-PUB", "QQQ-990202XYZ-4-PUB"])
-def test_tree_goes_to_the_graph_and_keeps_the_uid(uid):
+def test_tree_goes_to_retrieve_and_keeps_the_uid(uid):
     out = route(f"Show me the tree of {uid}", plan(endpoint=f"/nextseek_api/sample-tree/{uid}/tree/"))
-    assert out.mode == "graph_query" and out.filters.uids == [uid]
+    assert out.mode == "new_search" and out.target_endpoint == RETRIEVE and out.filters.uids == [uid]
+
+
+# P6 T2: a tree or lineage question about ONE UID, with no other condition, is answered by samples/retrieve.
+# "Derived from", "children of" and "descendants of" stay on the graph (operator 2026-11-20).
+def _lookup_plan(uid, **filters):
+    return ParserPlan(mode="graph_query", intent_summary="x", filters=ParserFilters(uids=[uid], **filters),
+                      resolved=EntityAgentOutput(keywords=[uid]))
+
+
+@pytest.mark.parametrize("q,uid", [
+    ("Show me the sample tree for ZZZ-990101ABC-1-PUB", "ZZZ-990101ABC-1-PUB"),
+    ("ZZZ-990101ABC-1-PUB's lineage", "ZZZ-990101ABC-1-PUB"),
+    ("What is the lineage of ZZZ-990101ABC-1?", "ZZZ-990101ABC-1"),
+    ("ZZZ-990101ABC-1 sample tree", "ZZZ-990101ABC-1"),
+])
+def test_the_tree_of_one_uid_is_its_lineage_lookup(q, uid):
+    out = route(q, _lookup_plan(uid))
+    assert out.mode == "new_search" and out.target_endpoint == RETRIEVE
+    assert out.filters.uids == [uid] and out.filters.keywords == []
+    assert TREE_BY_UID_NOTE in out.notes
+
+
+def test_the_tree_of_a_dotted_prefix_uid_is_its_lineage_lookup():
+    q, uid = "Can you retrieve the full sample tree for Q.XYZ-990202ABC-4", "Q.XYZ-990202ABC-4"
+    out = route(q, _lookup_plan(uid, sampletype_code="Q.XYZ"))
+    assert out.mode == "new_search" and out.target_endpoint == RETRIEVE and out.filters.uids == [uid]
+    assert TREE_BY_UID_NOTE in out.notes
+
+
+@pytest.mark.parametrize("q", ["Show me everything derived from ZZZ-990101ABC-1-PUB.", "children of ZZZ-990101ABC-1-PUB",
+                               "descendants of ZZZ-990101ABC-1-PUB", "What is ZZZ-990101ABC-1-PUB derived from?"])
+def test_derived_children_and_descendants_of_one_uid_stay_on_the_graph(q):
+    out = route(q, _lookup_plan("ZZZ-990101ABC-1-PUB"))
+    assert out.mode == "graph_query" and TREE_BY_UID_NOTE not in (out.notes or "")
+
+
+def test_a_tree_question_with_any_other_condition_stays_on_the_graph():
+    u = "ZZZ-990101ABC-1-PUB"
+    two = route("Show me the tree for ZZZ-990101ABC-1-PUB and QQQ-990202XYZ-4-PUB", _lookup_plan(u))
+    typed = route(f"Show me the tissue samples in the tree of {u}", _lookup_plan(u, sampletype_code="TIS"))
+    kw = route(f"Show me the tree of {u} for lung", ParserPlan(
+        mode="graph_query", filters=ParserFilters(uids=[u]), resolved=EntityAgentOutput(keywords=[u, "lung"])))
+    proj = route(f"Show me the tree of {u}", ParserPlan(
+        mode="graph_query", filters=ParserFilters(uids=[u]), resolved=EntityAgentOutput(projects=["Zeta"])))
+    assert [x.mode for x in (two, typed, kw, proj)] == ["graph_query"] * 4
+
+
+def test_a_multi_plan_candidate_is_not_rerouted_by_the_tree_words():
+    cand = ParserCandidate(mode="graph_query", filters=ParserFilters(uids=["ZZZ-990101ABC-1-PUB"]))
+    multi = MultiParserPlan(candidates=[cand], resolved=EntityAgentOutput())
+    out = _apply_multi_parser_guardrails("Show me the tree of ZZZ-990101ABC-1-PUB", multi, config=ADMIN)
+    assert all(c.mode == "graph_query" for c in out.candidates)
 
 
 def test_investigation_and_project_lists_go_to_the_graph():
@@ -117,8 +170,7 @@ def test_catalog_count_on_the_graph_moves_but_a_sample_count_stays():
     assert route("How many Raw samples are there?", p) is p
 
 
-def test_sop_list_and_search_go_to_the_graph():
-    assert route("What SOPs are on file?", plan(endpoint=SOPS, keywords=["SOP"])).mode == "graph_query"
+def test_sop_search_goes_to_the_graph():
     assert route("Which SOPs mention fixation?", plan(endpoint=SOPS, keywords=["fixation"])).mode == "graph_query"
 
 
@@ -230,9 +282,9 @@ def _listed(q, mode="graph_query", endpoint=None, keywords=(), resolved=()):
     return route(q, p)
 
 
-@pytest.mark.parametrize("q,keywords", [("What SOPs are on file?", ["SOPs"]), ("What SOPs are on file?", ["SOP"]),
-                                        ("Which protocols are recorded?", ["protocols"]),
-                                        ("List the SOP protocols", ["SOP protocols"])])
+@pytest.mark.parametrize("q,keywords", [("What SOPs did the samples use?", ["SOPs"]), ("What SOPs did the samples use?", ["SOP"]),
+                                        ("Which protocols were used on the samples?", ["protocols"]),
+                                        ("List the SOP protocols the samples followed", ["SOP protocols"])])
 def test_the_kind_being_listed_is_never_a_graph_filter(q, keywords):
     """A word that names the kind being listed is not a filter term: the plan lists every protocol title."""
     out = _listed(q, keywords=keywords, resolved=keywords)
@@ -240,7 +292,7 @@ def test_the_kind_being_listed_is_never_a_graph_filter(q, keywords):
 
 
 def test_the_kind_word_leaves_a_rerouted_sop_list_too():
-    out = _listed("What SOPs are on file?", mode="new_search", endpoint=SOPS, keywords=["SOP"], resolved=["SOP"])
+    out = _listed("What SOPs did the samples use?", mode="new_search", endpoint=SOPS, keywords=["SOP"], resolved=["SOP"])
     assert (out.mode, out.filters.keywords, out.resolved.keywords) == ("graph_query", [], [])
 
 
@@ -254,10 +306,96 @@ def test_a_real_term_next_to_the_kind_word_stays():
 def test_a_plan_mode_candidate_loses_the_kind_word_too():
     mp = MultiParserPlan(intent_summary="x", candidates=[ParserCandidate(mode="graph_query", tool_query="x",
                                                                          filters=ParserFilters(keywords=["protocols"]))])
-    assert _apply_multi_parser_guardrails("Which protocols are recorded?", mp, ADMIN).candidates[0].filters.keywords == []
+    assert _apply_multi_parser_guardrails("Which protocols were used on the samples?", mp, ADMIN).candidates[0].filters.keywords == []
 
 
-def test_the_graph_prompt_lists_sops_as_distinct_protocol_titles():
+def test_the_graph_prompt_lists_the_protocols_samples_used_as_distinct_titles():
     text = (CATALOG.parent.parent / "prompts" / "graph_agent.txt").read_text(encoding="utf-8")
-    assert ("Listing the SOPs or protocols on file is the distinct protocol titles, never a text filter on the word "
-            "SOP or protocol") in " ".join(text.split())
+    assert ("Listing the protocols samples used is the distinct protocol titles on the edges, never a text filter on the "
+            "word SOP or protocol") in " ".join(text.split())
+
+
+# ---------------------------------------------------------------- SOP records on file (round 2, P4) ---------------
+@pytest.mark.parametrize("q", ["How many SOPs are on file?", "What SOPs are on file?", "How many protocols are on file?"])
+def test_sops_on_file_go_to_the_protocols_report(q):
+    for p in (plan("graph_query"), plan(endpoint=SOPS, keywords=["SOP"])):
+        out = route(q, p)
+        assert out.mode == "reporter" and out.report_mode == "summary", q
+
+
+def test_which_protocols_are_registered_go_to_the_protocols_report():
+    out = route("Which protocols are registered?", plan("graph_query"))
+    assert out.mode == "reporter" and out.report_mode == "summary"
+
+
+def test_protocols_samples_used_stay_on_the_graph():
+    out = route("Which protocols did the tissue samples use?", plan("graph_query"))
+    assert out.mode == "graph_query"
+
+
+def test_one_named_sops_file_stays_rest():
+    out = route("Download SOP 142", plan(endpoint=SOPS))
+    assert (out.mode, out.target_endpoint) == ("new_search", SOPS)
+
+
+def test_a_projects_sops_stay_with_the_project_report():
+    out = route("How many SOPs are on file for Zeta?", plan("graph_query", projects=["Zeta"]))
+    assert out.mode == "graph_query" or out.report_mode == "summary"
+    assert "SOP records on file" not in (out.notes or "")
+
+
+def test_a_word_search_of_sop_titles_is_not_routed():
+    for q in ("Which SOPs have staining in the title?", "Which SOPs mention fixation?"):
+        assert route(q, plan("graph_query")).mode == "graph_query", q
+
+
+def test_a_named_project_or_investigation_is_a_condition_even_when_unresolved():
+    for q in ("How many protocols are registered for the Zeta investigation?", "What protocols exist for the Zeta project"):
+        assert route(q, plan("graph_query")).mode == "graph_query", q
+
+
+# A topic is a condition (D4, 2026-11-20): only the bare count or list of SOPs on file goes to the protocols report.
+@pytest.mark.parametrize("q", ["Which SOP covers shipping on dry ice?", "What SOPs are there for biosafety?",
+                               "List the SOPs for freezer storage", "What protocols are there for animal handling?",
+                               "Which SOPs exist for BSL3 work?", "Which biosafety SOPs exist?",
+                               "For biosafety, which SOPs exist?", "Which SOPs exist, for freezer storage?",
+                               "How many SOPs are on file, and which SOPs cover biosafety?"])
+def test_an_sop_topic_question_stays_on_the_graph(q):
+    out = route(q, plan("graph_query"))
+    assert out.mode == "graph_query", q
+    assert "SOP records on file" not in (out.notes or ""), q
+
+
+@pytest.mark.parametrize("q", ["How many SOPs are on file, and are any of them test artifacts?",
+                               "What SOPs do we have?", "How many protocols are there in total?"])
+def test_a_bare_sop_count_or_list_still_goes_to_the_protocols_report(q):
+    out = route(q, plan("graph_query"))
+    assert out.mode == "reporter" and out.report_mode == "summary", q
+
+
+def test_the_routing_prompt_says_a_topic_keeps_sops_on_the_graph():
+    core = Path(__file__).resolve().parents[2] / "chat_nextseek/src/chat_nextseek/prompts/parser_core_routing.txt"
+    text = " ".join(core.read_text(encoding="utf-8").split())
+    assert "with no other condition (a topic or a title word is a condition: graph_query)" in text
+    assert ("Which protocols samples used, and SOPs about a topic or a word, are graph_query; which SOPs exist or how "
+            "many, with no other condition, and the SOPs registered to a project are reporter.") in text
+    assert "with no sample condition" not in text
+
+
+# The parser model may pick reporter for the bare SOP count itself: the plan still carries the note, which makes the
+# orchestrator run the protocols report (test_sop_count_runs_the_protocols_report.py).
+@pytest.mark.parametrize("report_mode", [None, "summary"])
+def test_a_bare_sop_count_the_model_sent_to_the_reporter_carries_the_note(report_mode):
+    from chat_nextseek.agents.parser import SOP_RECORDS_NOTE
+
+    p = ParserPlan(mode="reporter", report_mode=report_mode, intent_summary="x")
+    out = route("How many SOPs are on file?", p)
+    assert (out.mode, out.report_mode) == ("reporter", "summary")
+    assert SOP_RECORDS_NOTE in out.notes
+
+
+def test_a_reporter_plan_for_an_sop_topic_or_a_report_is_left_alone():
+    for q, p in (("Which biosafety SOPs exist?", ParserPlan(mode="reporter", report_mode="summary", intent_summary="x")),
+                 ("How many SOPs are on file?", ParserPlan(mode="reporter", report_mode="report_generation",
+                                                           intent_summary="x"))):
+        assert "SOP records on file" not in (route(q, p).notes or ""), q

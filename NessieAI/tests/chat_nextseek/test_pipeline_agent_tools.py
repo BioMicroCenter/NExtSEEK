@@ -1002,3 +1002,48 @@ def test_a_plain_accession_download_is_not_an_atlas_miss(monkeypatch):
         config=_Cfg(), session={}, state=state, name="resolve_samples",
         tool_input={"kind": "accessions", "accessions": ["SRR222"]}, log_dir="/tmp"))
     assert "atlas_miss" not in out
+
+
+def _gdc_and_local_bundle():
+    return {"ok": True, "data": {"data": [{"sample_type": "D.SEQ", "samples": [
+        {"uuid": "D.SEQ-1-PUB", "metadata": {"UID": "D.SEQ-1-PUB", "File_PrimaryData": "a_gdc_realn.bam",
+                                             "Link_PrimaryData": "https://api.gdc.cancer.gov/data/abc"}},
+        {"uuid": "D.SEQ-2-PUB", "metadata": {"UID": "D.SEQ-2-PUB", "File_PrimaryData": "b.bam",
+                                             "Link_PrimaryData": "/net/bmc/b.bam"}},
+    ]}]}}
+
+
+def _patch_bundle(monkeypatch, raw):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", lambda c, u: raw)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+
+
+def test_resolve_leaves_out_a_gdc_hosted_record_and_says_why(monkeypatch):
+    _patch_bundle(monkeypatch, _gdc_and_local_bundle())
+    state = {}
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, state, {"kind": "explicit_uids", "uids": ["D.SEQ-1-PUB", "D.SEQ-2-PUB"]}, "rnaseq"))
+    assert [row["uid"] for row in out["leaves"]] == ["D.SEQ-2-PUB"]
+    assert out["excluded_gdc_bams"]["count"] == 1
+    assert out["excluded_gdc_bams"]["example_uids"] == ["D.SEQ-1-PUB"]
+    assert state["resolved"]["uids"] == ["D.SEQ-2-PUB"]  # so write_samplesheet refuses the excluded one
+
+
+def test_resolve_of_only_gdc_records_explains_it_is_not_a_type_mismatch(monkeypatch):
+    raw = _gdc_and_local_bundle()
+    raw["data"]["data"][0]["samples"].pop()
+    _patch_bundle(monkeypatch, raw)
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "explicit_uids", "uids": ["D.SEQ-1-PUB"]}, "rnaseq"))
+    assert out["leaf_count"] == 0
+    assert "controlled-access" in out["no_leaf_hint"]
+    assert "https://gdc.cancer.gov/content/how-can-i-access-gdc-sequencing-data-fastq-format" in out["no_leaf_hint"]
+    assert "lineage" not in out["no_leaf_hint"]
+
+
+def test_resolve_counts_gdc_records_out_before_the_size_cap(monkeypatch):
+    big = [{"uid": f"D.SEQ-{i}-PUB", "sample_type": "D.SEQ", "assay": "", "source_uid": "X-1-PUB",
+            "metadata": {"Link_PrimaryData": "https://api.gdc.cancer.gov/data/x"}} for i in range(200)]
+    _patch_bundle(monkeypatch, {"ok": True, "data": {"data": []}})
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.enumerate_lineage_leaves", lambda ann, accepted_types: big)
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "explicit_uids", "uids": ["X-1-PUB"]}, "rnaseq"))
+    assert out["ok"] is True
+    assert out["excluded_gdc_bams"]["count"] == 200

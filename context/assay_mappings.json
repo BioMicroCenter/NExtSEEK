@@ -81,6 +81,26 @@
   },
   {
     "action": "create_internal",
+    "internal_assay_title": "ATAC-Seq"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "RNA-Seq"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "WGS"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "WXS"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "miRNA-Seq"
+  },
+  {
+    "action": "create_internal",
     "internal_assay_title": "Genome Assembly"
   },
   {

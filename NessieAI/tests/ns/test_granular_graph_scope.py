@@ -56,14 +56,14 @@ class GraphOpScopeTests(SimpleTestCase):
         self.build = MagicMock(return_value=_api_plan())
         self.rest = MagicMock(return_value=GRAPH_SEARCH_ROWS)
 
-    def _run(self, config, cypher="MATCH (s:T_TIS) RETURN count(s) AS n", **kw):
+    def _run(self, config, cypher="MATCH (s:T_TIS) RETURN s.uuid AS uid", query="which tissue samples", **kw):
         with patch("chat_nextseek.portable.entity_agent", return_value=_dumpable({})), \
              patch("chat_nextseek.portable.parser_agent", return_value=self.parser_plan), \
              patch("chat_nextseek.portable.graph_agent",
                    return_value=_dumpable({"cypher": cypher, "parameters": {}})), \
              patch("chat_nextseek.portable.api_agent_build_request", self.build), \
              patch("chat_nextseek.helpers.tool_nextseek_api_request", self.rest):
-            return run_op("graph", {"query": "how many tissue samples"}, config=config, session=SimpleNamespace(),
+            return run_op("graph", {"query": query}, config=config, session=SimpleNamespace(),
                           write_gate=self.write_gate, **kw)
 
     def test_a_scope_refusal_is_answered_through_graph_search(self):
@@ -235,3 +235,94 @@ class GraphOpScopeTests(SimpleTestCase):
         self.assertIs(out["result"], write)
         self.assertNotIn("fallback", out)
         self.build.assert_not_called()
+
+
+class GraphOpRewriteTests(SimpleTestCase):
+    """Lane B (who-asked-2, R1): the graph op rewrites a curable refusal once, told the check's own reasons, and a
+    count it still cannot run is never answered by the word search. The refusals come from the real scope check
+    under a member scope; entities are invented."""
+
+    def setUp(self):
+        self.build = MagicMock(return_value=_api_plan())
+        self.rest = MagicMock(return_value=GRAPH_SEARCH_ROWS)
+        self.contexts = []
+
+    def _run(self, query, cyphers, rows=({"n": 3},)):
+        from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
+        config = with_scope(SimpleNamespace(), GraphScope.for_projects((7,), source="test"))
+        executed = []
+        script = iter(cyphers)
+
+        def graph(cfg, q, entity_out, parser_plan, retry_context=None, refine_context=None):
+            self.contexts.append(retry_context)
+            return _dumpable({"cypher": next(script), "parameters": {}})
+
+        def exec_fn(cfg, cypher, params):
+            executed.append(cypher)
+            result = tool_neo4j_query(cfg, cypher, params)
+            if result["scope"]["decision"] == "refused":
+                return result
+            return {"ok": True, "data": list(rows), "count": len(rows), "total": len(rows), "truncated": False,
+                    "scope": result["scope"]}
+
+        with patch("chat_nextseek.portable.entity_agent", return_value=_dumpable({})), \
+             patch("chat_nextseek.portable.parser_agent", return_value=ParserPlan(mode="graph_query")), \
+             patch("chat_nextseek.portable.graph_agent", side_effect=graph), \
+             patch("chat_nextseek.portable.api_agent_build_request", self.build), \
+             patch("chat_nextseek.helpers.tool_nextseek_api_request", self.rest):
+            out = run_op("graph", {"query": query}, config=config, session=SimpleNamespace(),
+                         write_gate=MagicMock(), neo4j_exec=exec_fn)
+        return out, executed
+
+    def test_every_stored_property_with_a_hidden_one_is_rewritten_and_runs(self):
+        hidden = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.parent_titles AS parents, z.Colour AS colour"
+        named = "MATCH (z:T_ZEB) RETURN z.uuid AS uid, z.Colour AS colour"
+        out, executed = self._run("every stored property of the zebra samples", [hidden, named],
+                                  rows=({"uid": "ZEB-1", "colour": "red"},))
+
+        self.assertEqual(executed, [hidden, named], "a second statement runs")
+        self.assertTrue(out["result"]["ok"])
+        self.assertNotIn("fallback", out)
+        self.assertIn("parent_titles is hidden", self.contexts[1])
+        self.rest.assert_not_called()
+        self.assertNotIn("notes", out, "a hidden property's rewrite changes no meaning: no note")
+
+    def test_a_properties_dump_on_another_type_is_rewritten_the_same_way(self):
+        dump = "MATCH (q:T_QUO) RETURN properties(q) AS p"
+        named = "MATCH (q:T_QUO) RETURN q.uuid AS uid, q.Shade AS shade"
+        out, executed = self._run("all metadata for the quoll samples", [dump, named],
+                                  rows=({"uid": "QUO-1", "shade": "grey"},))
+        self.assertEqual(executed, [dump, named])
+        self.assertTrue(out["result"]["ok"])
+        self.assertIn("properties()", self.contexts[1])
+
+    def test_a_kept_study_rewrite_tells_the_reply_what_it_counts(self):
+        """Review F4: the CC graph op's notes say the rewritten count reaches studies through visible samples."""
+        from chat_nextseek.graph_retry import scope_repair_note
+        walk = ("MATCH (st:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(p:Project) "
+                "WHERE p.title = 'Quill' RETURN count(DISTINCT st) AS n")
+        from_samples = ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'Quill' "
+                        "MATCH (s)-[:IN_STUDY]->(st:Study) RETURN count(DISTINCT st) AS n")
+        out, executed = self._run("How many studies does Quill have?", [walk, from_samples])
+        self.assertEqual(executed, [walk, from_samples])
+        self.assertIn(scope_repair_note(["unjoined_node"]), out.get("notes") or [])
+
+    def test_a_tree_with_a_count_column_refused_for_good_still_gets_the_word_search(self):
+        """Review F3: the count rule reads the question (or a RETURN of aggregates only), not a count column."""
+        walk = "MATCH (z:T_ZEB)-[:OF_TYPE]->(t:SampleType) RETURN t.title AS type, count(z) AS n"  # not curable
+        out, executed = self._run("show me the zebra tree", [walk])
+        self.assertEqual(executed, [walk])
+        self.assertIn("fallback", out)
+        self.rest.assert_called_once()
+
+    def test_a_count_refused_after_its_rewrite_makes_no_word_search(self):
+        walk = ("MATCH (st:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(p:Project) "
+                "WHERE p.title = 'Quill' RETURN count(DISTINCT st) AS n")
+        out, executed = self._run("How many studies does Quill have?", [walk, walk])
+
+        self.assertEqual(len(executed), 2)
+        self.assertEqual(out["result"]["scope"]["decision"], "refused")
+        self.assertNotIn("fallback", out)
+        self.build.assert_not_called()
+        self.rest.assert_not_called()
+        self.assertIn("could not be counted", out["result"]["error"])

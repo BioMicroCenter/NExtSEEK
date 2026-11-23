@@ -146,10 +146,10 @@ def test_a_call_subquery_never_reaches_the_driver(driver):
     assert driver.session.statements == []
     assert calls[q] == 2  # the one shape repair, refused again
     part = out["parts"][0]
-    assert part["status"] == "fallback"
+    assert part["status"] == "refused"  # lane B: a count is never answered by the word search
     assert "call_subquery" in part["scope"]["codes"]
-    assert part["sum_of_group_counts"] == 4 and part["groups"] == []
-    rest.assert_called_once()
+    assert part["sum_of_group_counts"] is None and part["groups"] == []
+    rest.assert_not_called()
 
 
 def test_with_no_scope_every_part_is_refused_and_nothing_runs(driver):
@@ -160,7 +160,7 @@ def test_with_no_scope_every_part_is_refused_and_nothing_runs(driver):
     for part in out["parts"]:
         assert part["scope"]["decision"] == "refused"
         assert part["scope"]["codes"] == ["no_scope"]
-        assert part["status"] in ("fallback", "refused")
+        assert part["status"] == "refused"
 
 
 def test_an_admins_statement_runs_unchanged(driver):
@@ -187,3 +187,21 @@ def test_the_op_never_builds_or_widens_a_scope():
     for name in ("with_scope", "GraphScope.admin", "operator_scope_from_env"):
         assert name not in source, f"aggregate.py names {name}"
         assert name not in chain, f"run_graph_question names {name}"
+
+
+def test_a_members_hidden_property_part_is_rewritten_once_and_answers(driver):
+    """Lane B (who-asked-2, R1), through the real scope check: the first statement reads a hidden property and is
+    refused; the rewrite the check's reason asks for is proven, runs, and the part is ok."""
+    q = "Break the ZEB samples down by colour."
+    hidden = "MATCH (z:T_ZEB) RETURN z.parent_titles AS parents, count(DISTINCT z) AS n"
+    named = "MATCH (z:T_ZEB) RETURN z.Colour AS colour, count(DISTINCT z) AS n"
+    driver.session.rows = [{"colour": "red", "n": 3}, {"colour": None, "n": 1}]
+    out, calls, rest = _run(_config(MEMBER), {q: [hidden, named]}, query=q)
+
+    assert calls[q] == 2
+    ((cypher, _),) = driver.session.statements
+    assert cypher.startswith("MATCH (z:T_ZEB)") and "parent_titles" not in cypher
+    part = out["parts"][0]
+    assert part["status"] == "ok" and part["sum_of_group_counts"] == 4
+    assert [a["reason"] for a in part["attempts"]] == ["initial", "scope_repair"]
+    rest.assert_not_called()

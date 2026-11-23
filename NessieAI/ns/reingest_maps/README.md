@@ -8,7 +8,8 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 (each map against its run fixture), `test_doc_only_maps.py` (maps written from the docs alone), and
 `test_replicate_samples.py` (replicate handling), `test_methylseq_map.py` (methylseq's tiers against its variant
 fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables), `test_cutandrun_map.py`
-(cutandrun's group samplesheet, MultiQC folder, primary-caller QC and consensus parents) and
+(cutandrun's group samplesheet, MultiQC folder, primary-caller QC and consensus parents), `test_rnasplice_map.py`
+(rnasplice 2.0.0's MultiQC 1.35 columns from nf-core's AWS `test_full` run, beside 1.0.4's MultiQC 1.18 ones),
 `test_qc_completeness_dna.py` (the QC-completeness check for atacseq, chipseq, methylseq and cutandrun against every
 fixture that holds a run's MultiQC data), `test_raredisease_map.py` (raredisease's case-level VCF parents) and
 `test_eager_dsl1_run.py` (eager's DSL1 run: TSV samplesheet, versions CSV, rules), all under `NessieAI/tests/ns/reingest/`; and the link test
@@ -334,13 +335,17 @@ What blocks each row:
 | raredisease | `peddy/` (pedigree, sex and relatedness checks), `ngsbits_samplegender/` (inferred sex), `smncopynumbercaller/` (SMN1/SMN2 copy number), `gens/` (skipped) | none | type |
 | raredisease | MultiQC general-stats QC (mosdepth coverage, Picard alignment and duplication metrics, VerifyBamID contamination) | A.ALN, D.SEQ | the run fixture is an nf-test snapshot, which holds no MultiQC values, so no key is confirmed |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
-| riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
+| riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`, or 2.0.0's per-library `with_umi` samplesheet column; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
 | riboseq | `quantification/salmon/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
 | riboseq | `quantification/salmon/salmon.merged.*.SummarizedExperiment.rds` | A.GEX | ready |
 | riboseq | `quantification/salmon/<sample>/quant.sf` | A.GEX | ready |
-| riboseq | `translational_efficiency/anota2seq/<contrast>.*.anota2seq.results.tsv`, `*.Anota2seqDataSet.rds` | A.GEX | inventory, per contrast |
-| riboseq | `orf_predictions/ribotish/*_pred.txt`, `orf_predictions/ribotricer/*_translating_ORFs.tsv` (ORF calls) | none | type, inventory |
-| riboseq | `ribowaltz/*.psite.tsv`, `*.cds_coverage_psite.tsv` (P-site coverage) | none | type, inventory |
+| riboseq | `quantification/inframe_psite/gene_counts.tsv` (2.0.0, written by default under `--te_quantification_method plastid_psite`: Salmon's length-scaled RNA-seq columns with the Ribo-seq columns replaced by in-frame P-site counts) | A.GEX | inventory; choice: one matrix mixing two count definitions, which `Matrix` and `Notes` would have to say |
+| riboseq | `quantification/{salmon,kallisto}_te_pseudo/*.merged.*.te_pseudo.*` (2.0.0, `--te_quantification_method pseudo` with contrasts) | A.GEX | inventory |
+| riboseq | `translational_efficiency/anota2seq/<contrast>.*.anota2seq.results.tsv`, `*.Anota2seqDataSet.rds`; 2.0.0 adds `translational_efficiency/deltate/<contrast>.*.deltate.results.tsv` and the ORF-level `translational_efficiency/orf_level/{anota2seq,deltate,dotseq}/`. Nessie launches riboseq without a contrasts file, so its own runs write none | A.GEX | inventory, per contrast |
+| riboseq | `orf_predictions/ribotish/*_pred.txt`, `orf_predictions/ribocode/*.txt` (2.0.0 default callers), and the opt-in `orf_predictions/ribotricer/*_translating_ORFs.tsv` (default in 1.x, `--run_ribotricer` from 2.0.0), `orf_predictions/price/`, `orf_predictions/rpbp/` (ORF calls) | none | type, inventory |
+| riboseq | `orf_predictions/catalogue/*.catalogue.{bed12,tsv}` and `quantification/orf_level/orf_psite_counts.tsv` (2.0.0, `--extended_orf_analysis`). Its `orf_class` is positional only (`canonical_cds`, `uORF`, `uoORF`, `dORF`, `doORF`, `intORF`, `novel_u`, `other`) with no `smORF` class: short ORFs carry an `is_smorf` column instead (#226) | none | type, inventory |
+| riboseq | `psites/ribowaltz/*.psite.tsv`, `*.cds_coverage_psite.tsv` (P-site coverage; `ribowaltz/` in 1.2.0), and 2.0.0's `psites/plastid/` offsets and tracks | none | type, inventory |
+| riboseq | `coverage/<sample>.{forward,reverse,unstranded}.bigWig` (2.0.0) | none | type, inventory |
 | rnafusion | `fusionreport/<sample>/<sample>.fusionreport.tsv` (consensus across callers) | none (fusion calls) | type, inventory |
 | rnafusion | `arriba/`, `starfusion/`, `fusioncatcher/`, `fusioninspector/` per-caller tables | none (fusion calls) | type, inventory |
 | rnafusion | `vcf/<sample>_fusion_data.vcf` (fusions written as VCF) | A.VCF by format only | type |
@@ -353,7 +358,8 @@ What blocks each row:
 | rnasplice | `*/tximport/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
 | rnasplice | `*/tximport/salmon.merged.*.rds` (tximport objects) | A.GEX | ready |
 | rnasplice | `<aligner>/dexseq_exon/counts/*.clean.count.txt` (exon-bin counts) | A.GEX | inventory |
-| rnasplice | DEXSeq, edgeR, DTU, rMATS and SUPPA2 results under `<aligner>/` | none (splicing) | type, inventory, per contrast |
+| rnasplice | DEXSeq, edgeR, DTU, rMATS and SUPPA2 results under `<aligner>/`. 2.0.0 renamed several: DEXSeq's per contrast `{contrast}.dexseq.{dataset,results,gene_qvalues}.{rds,tsv}` (1.0.4: `DEXSeqResults.{contrast}.csv` and kin), rMATS's `rmats/prep/<sample>.rmats` and `rmats/{contrast}{_paired}/` (1.0.4: `rmats/{contrast}/rmats_post/`), SUPPA's `suppa/generate_events/per_local_event/merged_events/` (1.0.4: a top-level `mergeevents/`) and `suppa/clustergroups/{local,transcript}_<contrast>_groups.txt`. A rule that spans both releases needs a `versions` override or a candidate per layout; 2.0.0's DEXSeq fold changes and SUPPA dPSI also have the opposite sign to 1.0.4's | none (splicing) | type, inventory, per contrast |
+| rnasplice | `isoformswitchanalyzer/isoformswitchanalyzer_{summary,isoformfeatures}.csv`, `switchlist.rds` (2.0.0, on by default upstream; Nessie launches it only when asked) and LeafCutter's `leafcutter/*` (2.0.0, `--leafcutter`) | none (splicing) | type, inventory |
 | rnavar | `annotation/<sample>/*.ann.vcf.gz` (snpEff/VEP/bcftools; unconfirmed names) | A.VCF | ready: a first candidate, ahead of the filtered VCF |
 | rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready: a later candidate, behind the filtered VCF |
 | rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | ready: a companion of the VCF row |

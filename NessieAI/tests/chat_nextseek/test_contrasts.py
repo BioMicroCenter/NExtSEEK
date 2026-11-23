@@ -53,6 +53,17 @@ def test_problems_return_no_rows():
         assert rows == [] and errors, answer
 
 
+def test_a_group_that_is_no_r_name_is_refused():
+    """rnasplice 2.0.0 validates the contrastsheet with assets/schema_contrasts.json: treatment
+    and control are syntactically valid R names (letters, digits, '.' and '_', starting with a
+    letter or with a '.' not followed by a digit). 1.0.4 took any name without spaces."""
+    for answer in ("1h vs 0h", "wild-type vs KO", "_EC vs FB", ".1x vs FB"):
+        rows, errors = parse_contrasts(answer)
+        assert rows == [] and any("R name" in e for e in errors), answer
+    rows, errors = parse_contrasts("WT.1 vs KO_2; .ctl vs KO_2")
+    assert errors == [] and [r["treatment"] for r in rows] == ["WT.1", ".ctl"]
+
+
 def test_only_an_absolute_path_is_the_users_own_file():
     assert is_user_path("/net/bmc-lab/contrasts.csv")
     assert not is_user_path("EC vs FB")
@@ -171,7 +182,7 @@ def test_submit_stages_the_written_contrasts_file(tmp_path, monkeypatch):
     contrasts = tmp_path / "contrasts.csv"
     contrasts.write_text("contrast,treatment,control\nEC_vs_FB,EC,FB\n")
     (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [{
-        "name": "nfcore_rnasplice", "pipeline": "nf-core/rnasplice", "revision": "1.0.4"}]}))
+        "name": "nfcore_rnasplice", "pipeline": "nf-core/rnasplice", "revision": "2.0.0"}]}))
     staged = []
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
     monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 9\n")

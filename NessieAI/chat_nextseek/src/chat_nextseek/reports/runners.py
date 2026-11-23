@@ -605,7 +605,9 @@ def run_project_protocols_report(
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     # An investigation joins through its studies; DISTINCT keeps a SOP in two of its studies or projects to one row.
-    select = "SELECT DISTINCT ps.sop_id, sop.title" if investigation_scope else "SELECT ps.project_id, ps.sop_id, sop.title"
+    # With no project given the rows run over every readable project: DISTINCT keeps a SOP filed under two of them once.
+    distinct = investigation_scope or project_id is None
+    select = "SELECT DISTINCT ps.sop_id, sop.title" if distinct else "SELECT ps.project_id, ps.sop_id, sop.title"
     study_join = _INVESTIGATION_SOP_JOIN if investigation_scope else ""
     query = f"""
     {select}

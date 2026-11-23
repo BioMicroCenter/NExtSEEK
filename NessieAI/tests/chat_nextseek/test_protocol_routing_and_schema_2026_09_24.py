@@ -35,8 +35,9 @@ def _rel(kind):
 
 def test_protocols_samples_used_are_graph_query_and_the_graph_holds_no_sop_records():
     assert "Questions about the protocols (SOPs) that samples used are sample metadata" in CORE
-    # R4, ruling 9: listing, counting or searching SOPs is the graph's too; REST only downloads one named SOP.
-    assert "The\n  SOP records and files themselves are not on the graph" in CORE
+    # Round 2, P4 (ruling 9 reversed for the no-condition list, 2026-11-20): the SOP records are not on the graph, so
+    # how many SOPs are on file, with no sample condition, is the reporter's; REST only downloads one named SOP.
+    assert "The SOP records and files\n  themselves are not on the graph" in CORE
 
 
 def test_the_reporter_keeps_only_sops_registered_to_a_project():

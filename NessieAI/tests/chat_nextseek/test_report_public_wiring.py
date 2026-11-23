@@ -73,3 +73,29 @@ def test_writer_path_cells_are_scrubbed():
         template_for_llm={"samples": [{}]}, metadata=md, report_writer_fn=writer,
         report_coder_fn=MagicMock(), log_dir="/tmp", internal_notes=["Lab-only remark here"])
     assert out.report.samples[0]["description"] == "Arm: A"
+
+
+@pytest.mark.parametrize("report_type", ["GEO", "SRA"])
+def test_a_package_reply_names_its_samples_when_the_writer_did_not(flow, report_type):
+    _, (_, _, _, reply), _ = flow(report_type)
+    assert "This draft was built for D.1, D.2." in reply
+
+
+def test_a_narrative_that_names_them_gets_no_second_list(flow, monkeypatch):
+    monkeypatch.setattr(outputs, "_produce_report_output", lambda **kw: SimpleNamespace(
+        model_dump=lambda: {"report_type": "GEO", "report": {}, "narrative": "Draft for D.1 and D.2."}))
+    _, (_, _, _, reply), _ = flow("GEO")
+    assert "Draft for D.1 and D.2." in reply and "This draft was built for" not in reply
+
+
+def test_a_uid_named_without_its_suffix_counts_and_a_prefix_does_not():
+    assert outputs._names_uid("covers D.SEQ-000101XYZ-1.", "D.SEQ-000101XYZ-1-PUB")
+    assert not outputs._names_uid("covers D.SEQ-000101XYZ-10", "D.SEQ-000101XYZ-1")
+
+
+def test_a_pride_package_names_its_ms_samples(flow, monkeypatch):
+    monkeypatch.setattr(outputs, "fetch_reporter_metadata", lambda c, u: {"ok": True, "data": {"data": [
+        {"sample_type": "D.MSP", "samples": [{"uuid": "D.MSP-000101XYZ-3", "metadata": {"UID": "D.MSP-000101XYZ-3"}}]},
+        {"sample_type": "D.SEQ", "samples": [{"uuid": "D.SEQ-000101XYZ-1", "metadata": {"UID": "D.SEQ-000101XYZ-1"}}]}]}})
+    _, (_, _, _, reply), _ = flow("PRIDE")
+    assert "This draft was built for D.MSP-000101XYZ-3." in reply and "D.SEQ-000101XYZ-1" not in reply

@@ -133,12 +133,43 @@ def has_answered_engine_turn(history: Iterable[Any] | None) -> bool:
     return False
 
 
+#: A NExtSEEK sample UID: the grammar of chat_nextseek's helpers/uid_check.py UID_RE, written out because this
+#: module imports nothing.
+_UID = r"[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?"
+#: A message that is only UIDs: one per line, or separated by commas, semicolons or list bullets.
+# ponytail: UIDs only; numeric SEEK ids or a lead-in line ("here they are:") leave the turn to the router.
+_INPUTS_ONLY = re.compile(rf"[\s,;*•-]*(?:{_UID}[\s,;*•-]*)+", re.IGNORECASE)
+
+
+def supplies_inputs_only(query: str | None) -> bool:
+    """True when the message is nothing but sample UIDs: the inputs an earlier turn asked for."""
+    return bool(_INPUTS_ONLY.fullmatch(str(query or "")))
+
+
+def _newest_turn_completed_cc(history: list) -> bool:
+    """True when the newest turn of ``history`` ran on container_cc and completed (legacy dicts as above)."""
+    if not history:
+        return False
+    last = history[-1]
+    choice = _get(last, "router_choice")
+    if choice is None and isinstance(last, dict):
+        choice = _ROUTE_CC if last.get("mode") == "cc" else _ROUTE_NS
+    return choice == _ROUTE_CC and (_get(last, "status") or "completed") == "completed"
+
+
 def followup_reason(query: str | None, history: Iterable[Any] | None) -> str | None:
-    """Why this turn is a follow-up (the cue's label), or None when it is not one."""
+    """Why this turn is a follow-up (the cue's label), or None when it is not one.
+
+    A message that is only UIDs, right after a completed container_cc turn, supplies what that turn asked for:
+    it refers back with no words ("inputs-only"). After any other turn it is left to the router.
+    """
     history = list(history or [])
     if not has_answered_engine_turn(history):
         return None
-    return followup_cue(query)
+    cue = followup_cue(query)
+    if cue is None and supplies_inputs_only(query) and _newest_turn_completed_cc(history):
+        return "inputs-only"
+    return cue
 
 
 # ------------------------------------------------------------------------------------------------

@@ -128,6 +128,22 @@
     "Child_SampleTypes": "A.GANN, A.FSCR, A.PANG"
   },
   {
+    "ID": null,
+    "SampleType": "A.ATAC",
+    "Name": "ATAC-seq Analysis",
+    "Description": "An ATAC-seq file contains reads or results from an assay of open chromatin, in which a transposase inserts sequencing adapters into accessible DNA. It represents where the genome of one sample or library is accessible, for studying regulatory elements. Each file typically corresponds to a single sequencing library.\nTypical file types: .bam, .bigWig, .bed\nThe TCGA records link to controlled-access BAM files at GDC, with no FASTQ available.",
+    "Tags": "ATAC-seq, ATACseq, ATAC-seq analysis, assay for transposase-accessible chromatin, chromatin accessibility, open chromatin, accessible chromatin, Tn5, regulatory element analysis, peak calling, MACS2, nf-core/atacseq, A.ATAC",
+    "Required Metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
+    "Standard Metadata": "Name, SampleCreationDate, Protocol, Type, DataType, Genome, Aligner, Software, Repository, RepositoryID, Publish_uri, Checksum_PrimaryType, Notes, Instrument, ReadLength, PairedEnd, LibraryName, LibrarySelection, SequencingCenter, ReadGroupCount, TotalReads, AverageReadLength, AverageInsertSize, AverageBaseQuality, ProportionReadsMapped, ProportionReadsDuplicated",
+    "Possible Metadata Fields": "File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Pipeline, FRiPPercent, PeakCount, TSSEnrichment, DOI, PMID",
+    "Clade": "Analyzed",
+    "SampleType File Link": null,
+    "Associated Assay Parents": "ATAC-Seq",
+    "Associated Assay Children": null,
+    "Parent_SampleTypes": "DNA, D.SEQ",
+    "Child_SampleTypes": null
+  },
+  {
     "ID": 85,
     "SampleType": "A.CCE",
     "Name": "Cancer Cell Extravasation Assay Analysis",
@@ -163,8 +179,8 @@
     "ID": 133,
     "SampleType": "A.CHRM",
     "Name": "Chromatin Sequencing Analysis",
-    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv",
-    "Tags": "chromatin sequencing analysis, ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ATACseq analysis, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2",
+    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset.\nTypical file types: .bam, .bigWig, .csv\nATAC-seq files are A.ATAC, not A.CHRM.",
+    "Tags": "chromatin sequencing analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis, A.CHRM, ChIPseq analysis, CUT&RUN analysis, CUT&Tag analysis, peak calling, MACS2",
     "Required Metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
     "Standard Metadata": "Protocol, Type, Repository, RepositoryID, RepositoryLink, DataType, Assembly, Pipeline",
     "Possible Metadata Fields": "DOI, PMID, FRiPPercent, PeakCount, Name, Antibody, File_SecondaryData, Link_SecondaryData, Notes",
@@ -748,7 +764,7 @@
     "SampleType File Link": null,
     "Associated Assay Parents": "Variant Call Filtering",
     "Associated Assay Children": null,
-    "Parent_SampleTypes": "A.ALN",
+    "Parent_SampleTypes": "A.ALN, D.SEQ",
     "Child_SampleTypes": null
   },
   {
@@ -1395,17 +1411,17 @@
     "ID": 33,
     "SampleType": "D.SEQ",
     "Name": "Sequencing Data",
-    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz",
+    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz\nSome records link to a controlled-access BAM at the data source instead, with no FASTQ available.",
     "Tags": "sequencing data, FASTQ, raw reads, NGS data, next-generation sequencing, short-read sequencing, Illumina data, RNA-seq raw, WGS, whole genome sequencing, WES, whole exome sequencing, long-read sequencing, Oxford Nanopore, D.SEQ",
     "Required Metadata": "UID, File_PrimaryData, Link_PrimaryData, Checksum_PrimaryData, Scientist, Parent",
     "Standard Metadata": "Sequencer, SequencingType, F_bp, R_bp, LibraryStrategy, LibrarySource, LibrarySelection, ExtractedMolecule, LibraryDesign",
-    "Possible Metadata Fields": "Name, SampleCreationDate, Protocol, DataType, QCPlatform, QCAssay, ClusterDate, AnalyzedDate, CompleteDate, IndexInlineStartNT, IndexInlineLength, NumReads, NumReadsUnits, MaxReads, TotalReads, NumAligned, 20mers, Primer, FlowLane, PrepUser, Contamination, Notes, ReagentManufacturer, ReagentCatalogNum, Publish_uri, ExpressionKit, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Genome, ReadLanePct, UnalignedReads, ContamPercent, MappedPercent, CDSPercent, UTRPercent, IntronPercent, IntergenicPercent, ExonIntronRatio, 5_3UTR, ExonIntergenicRatio, SenseAntisenseRatio, rRNAPercent, Top30CountPercent, GenesDetected, GenesDetectedPercent, Accession, Repository, Link_Reviewer, File_TertiaryData, Link_TertiaryData, Checksum_TertiaryData, Checksum_PrimaryType, RepositoryLink, Checksum_SecondaryType, RepositoryID, N50, N50Units, Yield, YieldUnits, ModCall, MiniKnowVersion, Mode, FlowCellType, Link_QC, Link_Contamination, Link_SRA, Checksum_TertiaryType, SequencingFacility, SequencingFacilityLocation, SequencingFacilityLink, DOI, PMID, DuplicationPercent, Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent, GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent, ValidBarcodesPercent, NSC, RSC, FingerprintJSD, TSSEnrichment",
+    "Possible Metadata Fields": "Name, SampleCreationDate, Protocol, DataType, QCPlatform, QCAssay, ClusterDate, AnalyzedDate, CompleteDate, IndexInlineStartNT, IndexInlineLength, NumReads, NumReadsUnits, MaxReads, TotalReads, NumAligned, 20mers, Primer, FlowLane, PrepUser, Contamination, Notes, ReagentManufacturer, ReagentCatalogNum, Publish_uri, ExpressionKit, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Genome, ReadLanePct, UnalignedReads, ContamPercent, MappedPercent, CDSPercent, UTRPercent, IntronPercent, IntergenicPercent, ExonIntronRatio, 5_3UTR, ExonIntergenicRatio, SenseAntisenseRatio, rRNAPercent, Top30CountPercent, GenesDetected, GenesDetectedPercent, Accession, Repository, Link_Reviewer, File_TertiaryData, Link_TertiaryData, Checksum_TertiaryData, Checksum_PrimaryType, RepositoryLink, Checksum_SecondaryType, RepositoryID, N50, N50Units, Yield, YieldUnits, ModCall, MiniKnowVersion, Mode, FlowCellType, Link_QC, Link_Contamination, Link_SRA, Checksum_TertiaryType, SequencingFacility, SequencingFacilityLocation, SequencingFacilityLink, DOI, PMID, DuplicationPercent, Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent, GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent, ValidBarcodesPercent, NSC, RSC, FingerprintJSD, TSSEnrichment, LibraryName, LibraryPrepKit, LibraryPrepKitVendor, TargetCaptureKit, TargetCaptureKitVendor, SequencingDate, ReadGroupCount, Aligner, Software, WGSCoverage, MeanCoverage, AverageReadLength, AverageInsertSize, AverageBaseQuality, ProportionCoverage10x, ProportionCoverage30x, MSIScore, MSIStatus, TumorPurity, TumorPloidy, GDCAnnotation, GDCAnnotationNotes",
     "Clade": "Raw",
     "SampleType File Link": null,
-    "Associated Assay Parents": "Short Read Sequencing, Bulk DNA Sequencing, Long-Read Sequencing, Single Cell Sequencing",
-    "Associated Assay Children": "Gene Expression Analysis, Single Cell Expression Analysis, Genome Alignment, Spatial Transcriptomics, Chromatin Sequencing Analysis, Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix), Mutational Spectra Analysis, Copy Number Variation Analysis, CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
-    "Parent_SampleTypes": "DNA",
-    "Child_SampleTypes": "A.GEX, A.SCXP, A.CNV, A.ALN, A.CHRM, A.SPTX, A.DBMM, A.MUSP"
+    "Associated Assay Parents": "Short Read Sequencing, Bulk DNA Sequencing, Long-Read Sequencing, Single Cell Sequencing, WGS, WXS, RNA-Seq, miRNA-Seq",
+    "Associated Assay Children": "Gene Expression Analysis, Single Cell Expression Analysis, Genome Alignment, Spatial Transcriptomics, Chromatin Sequencing Analysis, Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix), Mutational Spectra Analysis, Copy Number Variation Analysis, CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing), Variant Call Filtering, ATAC-Seq",
+    "Parent_SampleTypes": "DNA, RNA",
+    "Child_SampleTypes": "A.GEX, A.SCXP, A.CNV, A.ALN, A.CHRM, A.SPTX, A.DBMM, A.MUSP, A.VCF, A.ATAC"
   },
   {
     "ID": 128,
@@ -1579,9 +1595,9 @@
     "Clade": "Processed",
     "SampleType File Link": null,
     "Associated Assay Parents": "Library Creation, DNA Extraction, cDNA Synthesis",
-    "Associated Assay Children": "Short Read Sequencing, Single Cell Sequencing, Library Creation, Bulk DNA Sequencing, GPT Assay, Mass Spectrometry, DNA Extraction, Long-Read Sequencing, Single Cell Expression Analysis, Polymerase Chain Reaction (PCR)",
+    "Associated Assay Children": "Short Read Sequencing, Single Cell Sequencing, Library Creation, Bulk DNA Sequencing, GPT Assay, Mass Spectrometry, DNA Extraction, Long-Read Sequencing, Single Cell Expression Analysis, Polymerase Chain Reaction (PCR), WGS, WXS, ATAC-Seq",
     "Parent_SampleTypes": "CEL, RNA, DNA, TIS, BAC, ABP",
-    "Child_SampleTypes": "D.SEQ, DNA, D.GPT, D.SPC, A.SCXP, D.PCR"
+    "Child_SampleTypes": "D.SEQ, DNA, D.GPT, D.SPC, A.SCXP, D.PCR, A.ATAC"
   },
   {
     "ID": 144,
@@ -1787,9 +1803,9 @@
     "Clade": "Processed",
     "SampleType File Link": null,
     "Associated Assay Parents": "RNA Extraction",
-    "Associated Assay Children": "Library Creation, cDNA Synthesis, Polymerase Chain Reaction (PCR)",
+    "Associated Assay Children": "Library Creation, cDNA Synthesis, Polymerase Chain Reaction (PCR), RNA-Seq, miRNA-Seq",
     "Parent_SampleTypes": "TIS, CEL, BAC, OOC",
-    "Child_SampleTypes": "DNA, D.PCR"
+    "Child_SampleTypes": "DNA, D.PCR, D.SEQ"
   },
   {
     "ID": 110,

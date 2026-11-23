@@ -220,10 +220,20 @@ def _upload_to_tower_dataset(
 # aborts the run at samplesheet validation, AFTER the reads have been downloaded.
 #
 # Checked across every catalogued pipeline at its pinned revision on 2026-08-05:
-# ampliseq is the only one. Keep this map minimal rather than sanitising globally —
-# a mangled id that did not need mangling is a traceability loss for no gain.
-PIPELINE_SAMPLE_ID_RULES: dict[str, dict[str, str]] = {
+# ampliseq was the only one. rnasplice 2.0.0 joined it: its assets/schema_input.json
+# makes `sample` a valid R name (`^(?!\.\.\d+)(?!\.$)[a-zA-Z.]([a-zA-Z0-9._]*)?$`, and
+# not an R reserved word), so the hyphens of a UID fail it. Its rule starts the name
+# with a letter (the stricter half of that pattern, which a UID already meets), and a
+# reserved word gets a trailing '_'. Keep this map minimal rather than sanitising
+# globally — a mangled id that did not need mangling is a traceability loss for no gain.
+PIPELINE_SAMPLE_ID_RULES: dict[str, dict[str, Any]] = {
     "ampliseq": {"column": "sampleID", "pattern": r"^[a-zA-Z][a-zA-Z0-9_]+$"},
+    "rnasplice": {"column": "sample", "pattern": r"^[a-zA-Z][a-zA-Z0-9._]*$",
+                  # The words of the schema's `not` enum that the pattern lets through.
+                  "reserved": frozenset({
+                      "if", "else", "repeat", "while", "function", "for", "in", "next",
+                      "break", "TRUE", "FALSE", "NULL", "Inf", "NaN", "NA", "NA_integer_",
+                      "NA_real_", "NA_complex_", "NA_character_"})},
 }
 # Column carrying the untouched UID whenever the id had to be rewritten, so a result
 # can still be traced back. Every affected schema tolerates extra columns.
@@ -234,7 +244,7 @@ SAMPLE_ID_PROVENANCE_COLUMN = "nextseek_uid"
 # this order, empty where a row has no value. `if_used` follows them, in order, only when
 # some row fills one of its columns, and is left out otherwise. Every other catalogued
 # pipeline reads its sheet by column name (nf-schema samplesheetToList, nf-validation
-# fromSamplesheet, or a DictReader checker such as rnasplice's). `exact` writes only those
+# fromSamplesheet, or a DictReader checker such as rnasplice 1.0.4's; 2.0.0 uses nf-schema). `exact` writes only those
 # columns: a checker that counts each row's fields refuses any extra one.
 PIPELINE_HEADER_PREFIX: dict[str, dict[str, Any]] = {
     # atacseq 2.1.2: four columns, then control/control_replicate only with --with_control.
@@ -393,7 +403,7 @@ def sanitize_sample_id(value: str, pattern: str) -> str:
         return text
     # The rules we support are character-class patterns; derive the allowed set from
     # the pattern itself so this cannot drift from what the pipeline declares.
-    body = re.search(r"\[([^\]]+)\]\+?\$?$", pattern)
+    body = re.search(r"\[([^\]]+)\][+*]?\$?$", pattern)
     allowed = body.group(1) if body else r"A-Za-z0-9_"
     cleaned = re.sub(rf"[^{allowed}]", "_", text)
     head = re.match(r"\^\[([^\]]+)\]", pattern)
@@ -412,10 +422,27 @@ def _apply_sample_id_rule(row: dict[str, Any], pipeline: str) -> dict[str, Any]:
     if not original:
         return row
     safe = sanitize_sample_id(original, rule["pattern"])
+    if safe in rule.get("reserved", ()):
+        safe += "_"
     if safe != original:
         row[col] = safe
         row.setdefault(SAMPLE_ID_PROVENANCE_COLUMN, original)
     return row
+
+
+def _note_nfcore_sample(cohort_row: dict[str, Any], csv_row: Mapping[str, Any],
+                        pipeline: str) -> None:
+    """Record in the cohort row the sample name nf-core sees, when the id rule rewrote it.
+
+    The run's files and MultiQC rows carry that name, and reingest matches the
+    samplesheet's `sample` to the launch record's `nfcore_sample`; the original UID
+    stays the cohort entry's `d_seq_uid`."""
+    rule = PIPELINE_SAMPLE_ID_RULES.get(pipeline)
+    if not rule:
+        return
+    seen = str(csv_row.get(rule["column"]) or "")
+    if seen and seen != str(cohort_row.get("sample") or ""):
+        cohort_row["nfcore_sample"] = seen
 
 
 def _remap_row_for_pipeline(row: Mapping[str, Any], pipeline: str) -> dict[str, Any]:
@@ -693,7 +720,8 @@ def _write_cohort_sidecar(samplesheet_path: Path, rows: Sequence[Mapping[str, An
     entries = [
         {
             "d_seq_uid": _cohort_uid(row),
-            "nfcore_sample": str(row.get("sample") or ""),
+            # The id rule's rewrite when there was one (_note_nfcore_sample), else `sample`.
+            "nfcore_sample": str(row.get("nfcore_sample") or row.get("sample") or ""),
             "fastq_1": str(row.get("fastq_1") or ""),
             "fastq_2": str(row.get("fastq_2") or "") or None,
         }
@@ -1167,6 +1195,9 @@ def emit_nfcore_artifacts(
         # is keyed on the standard names, and this may have renamed them away.
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+    # Every branch above appends one cohort row and one CSV row, so the two lists pair up.
+    for cohort_row, csv_row in zip(cohort_rows, keep_rows):
+        _note_nfcore_sample(cohort_row, csv_row, pipeline)
 
     columns = _positional_columns(pipeline, keep_rows,
                                   _ensure_columns(keep_rows, required, enrichment))

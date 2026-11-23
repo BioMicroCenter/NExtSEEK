@@ -17,6 +17,7 @@ from ..helpers import (
     build_recent_results_summary,
 )
 from ..helpers.query_scope import PEOPLE_KIND_WORDS, names_only_the_kind
+from ..helpers.subject_check import tree_named_at
 from ..llm_clients import LLMTimeoutError, model_traits
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
@@ -84,6 +85,11 @@ def _filters_have_any_value(filters: ParserFilters | dict | None) -> bool:
         filters.get(key) not in (None, "", [], {})
         for key in ("sampletype_code", "assay_codes", "keywords", "uids")
     )
+
+
+#: The note the bulk-export guard leaves on its unsupported plan; the reply for it names what to narrow (D1).
+BULK_EXPORT_NOTE = ("Unscoped bulk export/download is unsupported without filters, UIDs, project-reporting scope, or a "
+                    "supported report-generation target.")
 
 
 def _is_unscoped_bulk_export_request(user_query: str, mode: str, filters: ParserFilters | dict | None) -> bool:
@@ -805,6 +811,52 @@ def _to(plan, mode: str, note: str, **extra):
     return plan.model_copy(update={"mode": mode, "target_endpoint": None, field: (old + " | " if old else "") + note, **extra})
 
 
+#: A tree or lineage question about ONE sample named by its UID, with no other condition, is answered by
+#: samples/retrieve: the whole tree the tree page draws, each relative marked above or below (results.py lineage).
+#: Operator 2026-11-19, narrowed 2026-11-20: only the words "tree" and "lineage" (``tree_named_at``); other asks about
+#: one UID stay on the graph. Two or more UIDs stay on the graph (_force_graph_for_uid_lineage), and so does any
+#: condition. Single-plan path only: a multi-step plan's candidates are not rerouted on the whole question's words.
+TREE_BY_UID_NOTE = "sent to retrieve: the tree of one named UID is its lineage lookup"
+
+
+def adds_a_condition(plan, sample_type: str | None, lab: str | None, own: str | None) -> bool:
+    """Anything besides the one sample: an assay, a keyword other than ``own`` (any spelling), a lab other than
+    ``lab``, a sample type other than ``sample_type``, a resolved project or scientist."""
+    def norm(text) -> str:
+        return re.sub(r"pub\d*$", "", re.sub(r"[^a-z0-9]", "", str(text).lower()))
+
+    f, r = plan.filters, plan.resolved
+    if f.assay_codes or r.assays or r.projects or r.scientists or r.category_types or r.house_types:
+        return True
+    if any(norm(k) != norm(own or "") for k in [*f.keywords, *r.keywords]):
+        return True
+    labs = {c.upper() for c in [*f.lab_codes, *r.lab_codes, *(m.code for m in r.lab_matches)]}
+    if labs - {(lab or "").upper()}:
+        return True
+    types = {t.upper() for t in [f.sampletype_code, *(i.code for i in r.sampletypes)] if t}
+    return bool(types - {(sample_type or "").upper()})
+
+
+def _tree_by_uid(user_query: str, plan: ParserPlan) -> ParserPlan:
+    """Send the tree or lineage of one named UID to samples/retrieve (see TREE_BY_UID_NOTE)."""
+    if plan.mode not in ("new_search", "graph_query"):
+        return plan
+    query = user_query or ""
+    hits = list(_WELL_FORMED_ANY_UID.finditer(query))
+    if len({re.sub(r"-PUB\d*$", "", m.group().upper()) for m in hits}) != 1:
+        return plan
+    hit = hits[0]
+    if not tree_named_at(query, hit.start(), hit.end()):
+        return plan
+    uid = hit.group().upper()
+    prefix, _, rest = re.sub(r"-PUB\d*$", "", uid).partition("-")
+    lab = re.match(r"\d{6}([A-Z]{3})", rest)
+    if adds_a_condition(plan, prefix, lab.group(1) if lab else None, uid):
+        return plan
+    return _to(plan, "new_search", TREE_BY_UID_NOTE, target_endpoint="/nextseek_api/samples/retrieve/",
+               filters=plan.filters.model_copy(update={"uids": [uid], "keywords": []}))
+
+
 def _route_by_kind(user_query: str, plan, config=None, resolved=None):
     """Hold each question to the engine that answers its KIND, whatever endpoint the model picked.
 
@@ -845,10 +897,75 @@ def _without_kind_keywords(plan):
     return plan.model_copy(update=update) if update else plan
 
 
+#: NExtSEEK page names a user may type on their own, as the user docs (``themes/NextSeek/docs``) name them
+#: (``test_page_words.py`` holds each to the docs). Sidebar words that are also data ("Projects", "Home") are left out.
+#: ponytail: a short hand list checked against the docs; read it from the docs when pages are added often.
+PAGE_NAMES = ("sample tree", "sample page", "sample info", "sample search", "advanced sample search",
+              "search by uid", "data entry", "data query", "assay sheet upload", "data file query", "protocol query")
+_PAGE_KEYS = frozenset(re.sub(r"[\W_]+", "", n) for n in PAGE_NAMES)
+PAGE_WORD_NOTE = "a turn that is only a page name is never searched as data"
+
+
+def _page_key(text) -> str:
+    return re.sub(r"[\W_]+", "", str(text or "").lower())
+
+
+def _page_word_turn(q: str, plan, resolved):
+    """A turn that is only a NExtSEEK page name ("Sampletree", "sample search"): the name leaves the keywords. With a
+    subject left in the plan (the parser read the turn with the previous question) it is that subject's graph
+    question; with none it is a how-to about the page. Production 2026-11-16: the word stayed a keyword and the graph
+    step searched every record for "Sampletree". None for any other turn."""
+    if _page_key(q) not in _PAGE_KEYS or plan.mode not in ("new_search", "graph_query", "system_question"):
+        return None
+    filters = plan.filters
+    kept = [k for k in filters.keywords or [] if _page_key(k) not in _PAGE_KEYS]
+    update = {"filters": filters.model_copy(update={"keywords": kept})}
+    holder = getattr(plan, "resolved", None)  # a ParserCandidate has none
+    if holder is not None:
+        update["resolved"] = holder.model_copy(update={
+            "keywords": [k for k in holder.keywords or [] if _page_key(k) not in _PAGE_KEYS]})
+    subject = (kept or filters.uids or filters.sampletype_code or filters.lab_codes
+               or getattr(resolved, "projects", None))
+    if subject:
+        return _to(plan, "graph_query", f"{PAGE_WORD_NOTE}: the previous subject's question", **update)
+    return _to(plan, "system_question", f"{PAGE_WORD_NOTE}: a how-to about the page", **update)
+
+
+#: "How many SOPs are on file", "which protocols are registered": the SOP records, which the protocols report counts
+#: over every project the caller reads. What samples used, or one named SOP's file, is not this.
+_SOP_RECORDS = re.compile(r"\b(?:sops?|protocols?)\b", re.I)
+_SOP_LIST_ASK = re.compile(r"\b(?:how\s+many|number\s+of|count|list|which|what|on\s+file|registered|exist\w*)\b", re.I)
+# a word search of titles ("with", "named", "containing", "about", "in the title", a quoted word), samples' use of a
+# protocol, or a named project, investigation, study or lab is not "no condition": it is not routed here
+_SOP_USE = re.compile(r"\b(?:follow\w*|use[sd]?|using|applied|appl(?:y|ies)|ran|run|process\w*|with|named|called|titled|contain\w*|about"
+                      r"|mention\w*|in\s+(?:the\s+)?(?:titles?|names?)|projects?|investigations?|stud(?:y|ies)|labs?)\b|['\"\u201c]", re.I)
+SOP_RECORDS_NOTE = "sent to reporter: the SOP records on file are counted by the protocols report over every project the caller reads"
+# a bare count or list of the SOPs on file: every clause holds only the kind word, ask words and stopwords, except a
+# second question after the first SOP clause ("..., and are any of them test artifacts?"). Anything else left (a topic,
+# a title word, before or after) is a condition, so "Which biosafety SOPs exist?" stays on the graph (D4).
+_SOP_ASK_WORDS = re.compile(r"\b(?:sops?|protocols?|how\s+many|number\s+of|count|list|show|which|what|on\s+file"
+                            r"|registered|exist\w*|available)\b", re.I)
+_SOP_STOPWORDS = frozenset("a an the all any of in me us i we you can could please give tell are is there do does have "
+                           "has nextseek currently now so far total".split())
+
+
+def _bare_sop_ask(q: str) -> bool:
+    clauses = [c for c in re.split(r"[,;:?!.]", q) if c.strip()]
+    first = next((i for i, c in enumerate(clauses) if _SOP_RECORDS.search(c)), None)
+    if first is None:
+        return False
+    held = [c for i, c in enumerate(clauses)
+            if i <= first or _SOP_RECORDS.search(c) or not re.match(r"\s*(?:and|or|but|also)\b", c, re.I)]
+    return all(w in _SOP_STOPWORDS for c in held for w in re.findall(r"[a-z0-9]+", _SOP_ASK_WORDS.sub(" ", c).lower()))
+
+
 def _route_by_kind_steps(user_query, plan, config, resolved):
     from ..graph_scope import sees_all
 
     q = user_query or ""
+    page = _page_word_turn(q, plan, resolved)
+    if page is not None:
+        return page
     has_sample = bool(_SAMPLE_WORD.search(q))
     filters = plan.filters
     projects = list(getattr(resolved, "projects", None) or [])
@@ -862,6 +979,16 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
     if (plan.mode in ("new_search", "graph_query") and not has_sample and not named and not projects
             and _CATALOG_COUNT.search(q)):
         return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
+    # "How many SOPs are on file", "which protocols are registered": the SOP records, which the protocols report counts
+    # over every project the caller reads. What samples used, one named SOP's file, a word search or a topic is not this.
+    # A reporter plan the model picked itself gets the note too, which makes the orchestrator run the protocols report.
+    sop_mode = plan.mode in ("new_search", "graph_query") or (
+        plan.mode == "reporter" and getattr(plan, "report_mode", None) != "report_generation")
+    if (sop_mode and _SOP_RECORDS.search(q) and _SOP_LIST_ASK.search(q)
+            and not has_sample and not named and not projects and not _SOP_USE.search(q)
+            and not filters.sampletype_code and not filters.assay_codes and not sop_id_in(q)
+            and not (sop_ref_in(q) and _SOP_FILE_WORD.search(q)) and _bare_sop_ask(q)):
+        return _to(plan, "reporter", SOP_RECORDS_NOTE, report_mode="summary")
     if plan.mode in ("new_search", "graph_query") and _WHICH_ATTRIBUTES_RE.search(q) and _SAMPLE_WORD_RE.search(q):
         if not sees_all(config):
             return _to(plan, "system_question", ATTRIBUTE_CATALOG_NOTE + " (the system agent answers from the catalog for this caller)")
@@ -886,7 +1013,7 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
                 return plan.model_copy(update={"filters": filters.model_copy(update={"keywords": [ref]})})
             if projects:
                 return _to(plan, "reporter", "sent to reporter: the SOPs registered to a project are the project report's", report_mode="summary")
-            return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
+            return _to(plan, "graph_query", "sent to graph_query: which protocols samples used is read on the graph; REST only downloads one named SOP")
         elif ep == PEOPLE_PATH:
             # Keywords alone are names to find on the list, matched in code (review F8); anything else is a
             # condition the list cannot hold.
@@ -941,6 +1068,7 @@ def _apply_parser_guardrails(
     plan = _seen("mode_aliases", plan, _normalise_mode_aliases(plan))
     plan = _seen("refine_without_bundle", plan, _note_refine_without_bundle(session, plan))
     plan = _seen("uid_lineage", plan, _force_graph_for_uid_lineage(user_query, plan))
+    plan = _seen("tree_by_uid", plan, _tree_by_uid(user_query, plan))
     before_bulk = plan
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         plan = ParserPlan(
@@ -953,13 +1081,18 @@ def _apply_parser_guardrails(
             endpoint_candidates=[],
             notes=(
                 (plan.notes + " | ") if plan.notes else ""
-            ) + "Unscoped bulk export/download is unsupported without filters, UIDs, project-reporting scope, or a supported report-generation target.",
+            ) + BULK_EXPORT_NOTE,
             metadata=plan.metadata,
             previous_api_plan=plan.previous_api_plan,
             previous_user_query=plan.previous_user_query,
             report_mode=None,
             report_type=None,
         )
+    elif (plan.mode == "unsupported" and not (plan.metadata or {}).get("failure")
+          and BULK_EXPORT_NOTE not in (plan.notes or "")
+          and _is_unscoped_bulk_export_request(user_query, "new_search", plan.filters)):
+        # the routing prompt tells the model to refuse it itself: the same note, so the reply names what to narrow (D1)
+        plan = plan.model_copy(update={"notes": ((plan.notes + " | ") if plan.notes else "") + BULK_EXPORT_NOTE})
     plan = _seen("unscoped_bulk_export", before_bulk, plan)
     plan = _seen("retired_sample_search", plan, _route_retired_sample_search(session, plan))
     plan = _seen("route_by_kind", plan, _route_by_kind(user_query, plan, config))

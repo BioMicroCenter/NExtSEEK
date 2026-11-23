@@ -411,6 +411,12 @@ LOGGING = {
             'handlers': ['logfile_warnings'],
             'propagate': True,
         },
+        # Container-CC turn warnings (the SEEK project check's reason). Root's handler depends on the web server
+        # (daphne: stderr; gunicorn: a file in the container layer), and both are lost when the container is rebuilt.
+        'NessieAI.cc': {
+            'handlers': ['logfile_warnings'],
+            'propagate': True,
+        },
         'dmac': {
             'handlers':['nextseekfile'],
             'propagate': True,

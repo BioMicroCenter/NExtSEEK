@@ -213,6 +213,58 @@ def test_a_larger_complete_result_returns_a_column_summary_over_every_row():
     assert described["columns_omitted"] == 0
 
 
+def _lookup_bundle():
+    """A REST retrieve body: records of 2 invented types, each with 40 wide metadata fields."""
+    def meta(i, tag, score):
+        m = {f"F{k}": f"value-{k}-of-row-{i:03d}-".ljust(40, "z") for k in range(26)}
+        m.update({f"N{k}": None for k in range(10)})
+        m.update({"Tag": tag, "Score": score, "Site": f"site-{i:03d}".ljust(40, "z"), "Extra": "e" * 40})
+        return m
+    aaa = [{"id": i, "uuid": f"AAA-200101XYZ-{i}", "metadata": meta(i, None, f"s{i}")} for i in range(50)]
+    bbb = [{"id": 100 + i, "uuid": f"BBB-200101XYZ-{i}",
+            "metadata": meta(100 + i, f"t{i}" if i < 20 else None, None)} for i in range(30)]
+    flat = aaa + bbb
+    body = {"data": {"total_samples": 80, "data": [
+        {"sample_type": "AAA", "n_samples": 50, "samples": aaa},
+        {"sample_type": "BBB", "n_samples": 30, "samples": bbb}]}}
+    return {"id": 1, "mode": "new_search", "user_query": "retrieve", "memory_payload": body}, flat
+
+
+def test_a_record_column_that_does_not_fit_by_value_is_summarized_by_field():
+    bundle, flat_rows = _lookup_bundle()
+    assert len(json.dumps([r["metadata"] for r in flat_rows[:5]], separators=(",", ":"))) > FOLLOWUP_ROWS_CHARS
+    described = describe_stored_result(bundle)
+
+    entry = described["column_summary"]["metadata"]
+    assert entry["fields"]["Tag"] == 20
+    assert entry["fields"]["Score"] == 50
+    assert entry["fields_empty"] == 10
+    assert "N0" not in entry["fields"]
+    assert described["columns_omitted"] == 0
+
+
+def test_a_graph_result_with_a_props_column_is_summarized_by_field_too():
+    rows = [{"uid": f"CCC-200101XYZ-{i}", "props": {f"K{k}": f"v{k}-{i}".ljust(40, "z") for k in range(30)}}
+            for i in range(60)]
+    described = describe_stored_result(_graph_bundle(rows))
+    entry = described["column_summary"]["props"]
+    assert entry["fields"]["K0"] == 60 and entry["fields_empty"] == 0
+
+
+def test_cut_stored_rows_come_with_a_summary_of_every_row():
+    rows = [{"uid": f"CCC-200101XYZ-{i}", "site": ("S1", "S2", "S3")[i % 3], "note": "n" * 900}
+            for i in range(30)]
+    described = describe_stored_result(_graph_bundle(rows))
+    assert described["rows_truncated"] is True
+    assert described["column_summary"]["site"]["distinct"] == 3
+    assert sum(c for _v, c in described["column_summary"]["site"]["top"]) == 30
+
+
+def test_a_small_complete_result_gets_no_summary():
+    described = describe_stored_result(_graph_bundle(_records(5)))
+    assert "column_summary" not in described
+
+
 def _labs(counts):
     """Rows whose lab values are interleaved, not grouped or sorted, in the given counts."""
     pending = dict(counts)

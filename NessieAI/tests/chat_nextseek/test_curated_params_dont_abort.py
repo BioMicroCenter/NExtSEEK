@@ -189,6 +189,9 @@ def test_ampliseq_sample_ids_are_sanitised_and_traceable(tmp_path):
 
 
 _ID_RULES_CONFIRMED_BY_HAND = {"ampliseq"}
+# Rules that use the stricter half of their schema's pattern on purpose (the emitter's comment
+# above PIPELINE_SAMPLE_ID_RULES says why): what they write must still pass the schema's own.
+_ID_RULES_NARROWER_THAN_SCHEMA = {"rnasplice"}
 
 
 def test_only_pipelines_that_need_it_get_their_ids_rewritten(tmp_path):
@@ -209,6 +212,10 @@ def test_only_pipelines_that_need_it_get_their_ids_rewritten(tmp_path):
         fixture = FIXTURES / f"{key}.schema_input.json"
         assert fixture.exists(), f"{key}: commit its pinned schema_input.json fixture to prove its id rule"
         declared = json.loads(fixture.read_text())["items"]["properties"][rule["column"]]["pattern"]
+        if key in _ID_RULES_NARROWER_THAN_SCHEMA:
+            from chat_nextseek.seqera.emitter import sanitize_sample_id
+            assert _re.fullmatch(declared, sanitize_sample_id(uid, rule["pattern"])), key
+            continue
         assert declared == rule["pattern"], (key, declared, rule["pattern"])
     for key in ("rnaseq", "detaxizer", "seqinspector"):
         out = tmp_path / key
@@ -218,6 +225,64 @@ def test_only_pipelines_that_need_it_get_their_ids_rewritten(tmp_path):
             accession_metadata={uid: {"Link_PrimaryData": "/net/x/a_R1.fastq.gz"}})
         row = next(iter(csv.DictReader((out / "samplesheet.csv").open(newline=""))))
         assert row["sample"] == uid, f"{key} rewrote an id it did not need to"
+
+
+def _rnasplice_sample_schema():
+    return json.loads((FIXTURES / "rnasplice.schema_input.json").read_text())["items"]["properties"]["sample"]
+
+
+@pytest.mark.parametrize("uid", ["D.SEQ-230512FOR-287-PUB", "NA"])
+def test_rnasplice_sample_ids_are_r_names_and_traceable(tmp_path, uid):
+    """rnasplice 2.0.0's assets/schema_input.json makes `sample` a valid R name: a letter or '.'
+    first, then only letters, digits, '.' and '_', and no R reserved word. A NExtSEEK UID fails
+    on its hyphens, and nf-schema would abort the run at samplesheet validation. The UID stays
+    in nextseek_uid, and cohort.json records the name nf-core sees, which is the name the run's
+    files and MultiQC rows carry when reingest matches them to the launch record."""
+    import csv
+    import re as _re
+    from chat_nextseek.seqera.emitter import SAMPLE_ID_PROVENANCE_COLUMN, emit_nfcore_artifacts
+
+    emit_nfcore_artifacts(
+        tmp_path, pipeline="rnasplice",
+        samplesheet_rows=[{"sample": uid, "accession": "D.SEQ-230512FOR-287-PUB",
+                           "strandedness": "reverse", "condition": "EC"}],
+        resolutions=[], launch_plan=None, tower_env=None,
+        accession_metadata={"D.SEQ-230512FOR-287-PUB": {"Link_PrimaryData": "/net/x/a_R1.fastq.gz"},
+                            uid: {"Link_PrimaryData": "/net/x/a_R1.fastq.gz"}})
+    row = next(iter(csv.DictReader((tmp_path / "samplesheet.csv").open(newline=""))))
+    spec = _rnasplice_sample_schema()
+    assert _re.search(spec["pattern"], row["sample"]), row["sample"]
+    assert row["sample"] not in spec["not"]["enum"], row["sample"]
+    assert row[SAMPLE_ID_PROVENANCE_COLUMN] == uid
+    (entry,) = json.loads((tmp_path / "cohort.json").read_text())
+    assert entry["nfcore_sample"] == row["sample"]
+    assert entry["d_seq_uid"] == "D.SEQ-230512FOR-287-PUB"
+
+
+def test_rnasplice_defaults_pass_the_pinned_schema():
+    """2.0.0 removed max_cpus, max_memory and max_time (process.resourceLimits caps a task;
+    Luria writes it in luria.config). The menu names only params 2.0.0 declares, and the
+    catalog, template and schema name the same required columns. Which analyses run is set
+    from the question; unsteered, IsoformSwitchAnalyzeR follows 2.0.0 (on) and LeafCutter
+    stays off."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    revision = NFCORE_PIPELINE_CATALOG["rnasplice"]["default_revision"]
+    assert revision == "2.0.0"
+    schema = json.loads((FIXTURES / "rnasplice.nextflow_schema.json").read_text())
+    params = launched("rnasplice")
+    errors, skipped = check_params("rnasplice", revision, params, required=True,
+                                   schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and errors == []
+    template = json.loads((TEMPLATES / "rnasplice.json").read_text())
+    errors, _ = check_params("rnasplice", revision, {n: None for n in template["params"]},
+                             required=False, schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert errors == []
+    assert not {"max_cpus", "max_memory", "max_time"} & set(params)
+    assert params["isoformswitchanalyzer"] is True and params["leafcutter"] is False
+    items = json.loads((FIXTURES / "rnasplice.schema_input.json").read_text())["items"]
+    assert (set(NFCORE_PIPELINE_CATALOG["rnasplice"]["required_columns"]) - {"fastq_2"}
+            == set(template["pipeline"]["required_columns"]) - {"fastq_2"}
+            == set(items["required"]))
 
 
 def _state(tmp_path):
@@ -745,3 +810,20 @@ def test_the_curated_menu_validates_against_the_pinned_schema(key):
     """denovotranscript's menu offered transcript_length and skip_assembly_qc, which 1.2.1's
     nextflow_schema.json does not declare, so check_params refused every curated build."""
     curated(key)
+
+
+def test_scrnaseq_defaults_pass_the_pinned_schema():
+    """4.0.0 renamed the alevin aligner to simpleaf, and 4.2.0 marks skip_emptydrops
+    deprecated (cellbender replaced emptydrops in 3.0.0): nf-schema refuses both, so a
+    curated default naming either aborts the run before a task starts."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    from chat_nextseek.seqera.schema_check import schema_properties
+    revision = NFCORE_PIPELINE_CATALOG["scrnaseq"]["default_revision"]
+    assert revision == "4.2.0"
+    schema = json.loads((FIXTURES / "scrnaseq.nextflow_schema.json").read_text())
+    params = launched("scrnaseq")
+    errors, skipped = check_params("scrnaseq", revision, params, required=True,
+                                   schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and errors == []
+    props = schema_properties(schema)
+    assert [k for k in params if props.get(k, {}).get("deprecated")] == []

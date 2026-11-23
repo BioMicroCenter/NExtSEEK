@@ -192,6 +192,46 @@ def test_the_seam_reports_the_total_beside_a_capped_preview(monkeypatch, tmp_pat
     assert payload["rows_shown"] == len(payload["rows"]) <= followup_mod.FOLLOWUP_ROWS_MAX
 
 
+def _seam_payload(monkeypatch, tmp_path, rows):
+    monkeypatch.setattr(orch, "graph_agent",
+                        lambda *a, **k: GraphAgentPlan(cypher=SEEDED_CYPHER, context_mode="catalog"))
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: _neo4j_result(rows))
+    captured = {}
+
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
+        captured["payload"] = run_query(question="q", seed_uids=PRIOR_UIDS)
+        return {"reply": "x", "queries": [], "tool_calls": []}
+
+    monkeypatch.setattr(orch, "run_followup", fake_followup)
+    orch._run_followup_agent(MagicMock(), session={}, user_text="q", bundle=_prior_bundle(), log_dir=str(tmp_path))
+    return captured["payload"]
+
+
+def test_rows_the_model_cannot_all_see_come_with_a_summary_of_every_row(monkeypatch, tmp_path):
+    rows = [{"uuid": f"AAA-200101XYZ-{i}", "site": ("S1", "S2", "S3")[i % 3], "note": "x" * 900}
+            for i in range(32)]
+    payload = _seam_payload(monkeypatch, tmp_path, rows)
+
+    assert payload["rows_shown"] < 32
+    assert payload["column_summary"]["site"]["distinct"] == 3
+    assert sum(c for _v, c in payload["column_summary"]["site"]["top"]) == 32
+
+
+def test_a_breakdown_that_fits_whole_gets_no_summary(monkeypatch, tmp_path):
+    payload = _seam_payload(monkeypatch, tmp_path, TYPE_ROWS)
+
+    assert "column_summary" not in payload
+    assert payload["rows_shown"] == 23
+
+
+def test_the_query_tool_says_the_table_holds_every_row():
+    tools = {t["name"]: t for t in followup_mod.build_followup_tool_schemas()}
+    description = " ".join(tools["run_new_query"]["description"].split())
+
+    assert "column_summary" in description and "attaches every row" in description
+    assert "\u2014" not in description
+
+
 # --------------------------------------------------------------------------- #
 # Defect B: a follow-up that queried attaches its own rows, as a graph turn does
 # --------------------------------------------------------------------------- #
@@ -234,6 +274,18 @@ def test_the_turn_debug_records_each_computation(tmp_path):
     assert c["source"] == "stored" and c["ok"] is True and c["count"] == 40
     assert c["review_verdict"] == "ok" and c["artifact"]
     assert payload["bundle_id"] == 1, "a computation makes no bundle of its own"
+
+
+def test_the_turn_debug_keeps_a_failed_query_s_error(tmp_path):
+    failed = {"ok": False, "error": "no query could be generated for that question", "seed_mode": "uids"}
+
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
+        return {"reply": "x", "caveats": [], "computes": [],
+                "queries": [{"question": "q", "seeded": True, "result": failed}],
+                "tool_calls": ["run_new_query", "answer"]}
+
+    payload, _session, _ = _run_followup_turn(tmp_path, fake_followup)
+    assert payload["debug"]["followup"]["queries"][0]["error"] == failed["error"]
 
 
 def test_a_follow_up_that_queried_attaches_the_rows_of_its_last_successful_query(tmp_path):

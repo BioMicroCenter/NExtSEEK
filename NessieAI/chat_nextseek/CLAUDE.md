@@ -28,7 +28,9 @@ without an error at the point of the change.
   orchestrator as `graph_scope`, and the single-operator surfaces (CLI, MCP server, app,
   evaluator) are admin only with `CHAT_NEXTSEEK_GRAPH_ADMIN=1` or `--graph-admin`. A caller who
   is not an admin runs only what `cypher_scope.scope_cypher` proves, with the scope inserted;
-  a refused graph question falls back to graph_search. A new path that runs Cypher any other
+  a refused statement gets one rewrite told the check's reasons when every code is curable
+  (`graph_retry.SCOPE_REPAIR_CODES`), and a question still refused falls back to graph_search, except a
+  count or breakdown, which says it could not be counted (`asks_for_a_count`). A new path that runs Cypher any other
   way, or builds its own config, bypasses the scope or refuses every graph query
   (spec `docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`). The same scope decides
   what the catalog's vocabulary reads (`graph_catalog.get_vocabulary`, and the committed
