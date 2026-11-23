@@ -439,6 +439,7 @@ def test_the_context_carries_the_graph_prompt_the_look_rules_and_the_question(mo
     ctx = gs._context(Cfg(), "how many ZZZ hold StatusFoo 1", {}, {"mode": "graph_query"}, refine="UID CHECK: none")
     assert "You are the Graph Agent" in ctx.system
     assert "look, then answer" in ctx.system and str(gs.MAX_STEPS) in ctx.system and "{max_steps}" not in ctx.system
+    assert "any record above the samples" in ctx.system  # a qualifier or an organism may sit on an ancestor
     assert "STRUCTURE" in ctx.system and "ZZZ: StatusFoo" not in ctx.system  # the resolved types vary: opening
     assert "ZZZ: StatusFoo" in ctx.opening and "Alpha Cohort" in ctx.opening and "UID CHECK" in ctx.opening
     assert ctx.opening.endswith("how many ZZZ hold StatusFoo 1")

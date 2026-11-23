@@ -12,6 +12,7 @@ Everything above still holds, with three changes.
 
 Rules for looking:
 - Look only at what the question needs: one or two looks are usually enough, and a simple question needs none. Call independent looks together in one turn.
+- **A word or an organism can sit on any record above the samples, not only on their own type.** Before you drop a word that the samples' own type does not hold, or decide which records count as an organism (human, mouse, monkey), look at the types above them in the lineage: run `find_word` over those types too (the subject a sample came from, its visits, its animal), and count which source types sit above the samples (`run_query` grouped by the ancestor's `type`). Then filter on the word wherever it is recorded, and count every source type of that organism, not only one.
 - Never look at every type or every field. Name the types (`find_word` takes at most {word_types} at a time).
 - The explanation describes the final query only: what it matches and where, and which filters you checked against stored values. Never narrate the looks.
 - Call `finish` alone, after you have read your looks; a finish sent beside looks is sent back.
