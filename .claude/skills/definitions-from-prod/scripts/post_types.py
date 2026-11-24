@@ -4,7 +4,9 @@
 
 The box's own ~/.config/nextseek/ci.env holds CI_WRITE_USER / CI_WRITE_PASS; the password goes to curl through a
 config on a file descriptor (never argv, never printed). Each answer is printed as status + title + new id only.
-A non-2xx stops the script: a 5xx or timeout may still have created the type, so look it up before posting again.
+A non-2xx prints SEEK's answer (it holds no secret) and stops the script: a 5xx or timeout may still have created the
+type, so look it up before posting again. A 422 "Can only associate projects that you are an active member of" means
+the account is not a member of the target project: pick a project it belongs to.
 """
 import base64
 import json
@@ -26,8 +28,10 @@ lines = ["set -euo pipefail",
          "post(){ code=$(curl -sS -m 300 -o /tmp/defsync_resp.json -w '%{http_code}' "
          "--config <(printf 'user = \"%s:%s\"\\n' \"$(esc \"$U\")\" \"$(esc \"$P\")\") "
          "-H 'Content-Type: application/json' -X POST \"http://127.0.0.1:$PORT/nextseek_api/sample_types/\" --data @-); "
-         "echo \"$code $1 $(python3 -c 'import json;d=json.load(open(\"/tmp/defsync_resp.json\"));print((d.get(\"data\") or {}).get(\"id\",\"\"), json.dumps(d.get(\"errors\",\"\"))[:300])' 2>/dev/null)\"; "
-         "rm -f /tmp/defsync_resp.json; case $code in 2*) ;; *) echo STOP; exit 1;; esac; }"]
+         "id=$(python3 -c 'import json;print((json.load(open(\"/tmp/defsync_resp.json\")).get(\"data\") or {}).get(\"id\",\"\"))' 2>/dev/null); "
+         "echo \"$code $1 ${id:-no id}\"; "
+         "case $code in 2*) rm -f /tmp/defsync_resp.json;; *) echo \"body: $(head -c 800 /tmp/defsync_resp.json)\"; "
+         "rm -f /tmp/defsync_resp.json; echo STOP; exit 1;; esac; }"]
 for b in bodies:
     t = b["data"]["attributes"]["title"]
     lines.append(f"echo {base64.b64encode(json.dumps(b).encode()).decode()} | base64 -d | post {json.dumps(t)}")
