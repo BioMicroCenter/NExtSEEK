@@ -87,13 +87,32 @@ def target_order(prod: list[str], dev: list[str], permute: bool = True) -> list[
 
 
 def _ordered(attrs):
-    """Titles in the attribute API's order: position, NULL last, ties by row id (``_id``, this box's own)."""
-    return [a["title"] for a in sorted(attrs, key=lambda a: (a.get("pos") is None, a.get("pos") or 0,
-                                                             a.get("_id") or 0, a["title"]))]
+    """Titles in the attribute API's order: a positive position first, NULL or non-positive last, ties by row id
+    (``_id``, this box's own)."""
+    def key(a):
+        pos = a.get("pos")
+        good = isinstance(pos, int) and pos > 0
+        return (not good, pos if good else 0, a.get("_id") or 0, a["title"])
+    return [a["title"] for a in sorted(attrs, key=key)]
+
+
+def _text(v):
+    """Text as the box should hold it: stripped, blank as NULL (never ``norm``'s canonical JSON)."""
+    return (v.strip() or None) if isinstance(v, str) else v
 
 
 def _api_value(col, v):
-    return bool(v) if col in ("required", "is_title") else norm(v) if col == "description" else v
+    return bool(v) if col in ("required", "is_title") else _text(v) if col == "description" else v
+
+
+def _list(v) -> list[str]:
+    """A comma list as ``context_catalog.parse_list`` reads it."""
+    return [x.strip() for x in str(v).split(",") if x.strip()] if v else []
+
+
+def _numeric(title) -> bool:
+    """The attribute API reads a title of only digits as a row id, so such a title cannot be named."""
+    return isinstance(title, str) and title.strip().isdigit()
 
 
 def duplicates(b) -> dict:
@@ -109,18 +128,29 @@ def duplicates(b) -> dict:
     return out
 
 
+TIERS = ("required_metadata", "standard_metadata")
+
+
 def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
-    held = _held(hold)
+    held, used = _held(hold), set()
 
     def is_held(table, key, column="*"):
-        return (table, tuple(key), "*") in held or (table, tuple(key), column) in held
+        for cand in ((table, tuple(key), "*"), (table, tuple(key), column)):
+            if cand in held:
+                used.add(cand)
+                return True
+        return False
 
-    out = {"seek_types": [], "seek_type_text": [], "attributes": {}, "internal_assays": [], "clades": [],
+    def hold_it(table, key, column="*"):
+        out["held"].append({"table": table, "key": list(key), "column": column})
+
+    out = {"seek_types": [], "attributes": {}, "internal_assays": [], "clades": [],
            "meanings": [], "context_sample_types": {"create": [], "update": {}},
            "context_assays": {"create": [], "update": {}},
            "waiting": {"attributes": {}, "context_sample_types": [], "clades": []}, "blocked": [], "held": [],
            "expected": {"dev_only": {}, "prod_only": {}, "derived_cells": [], "case_only": [], "seek_own": {},
-                        "api_refuses": [], "duplicate_keys": {"prod": duplicates(prod), "dev": duplicates(dev)}}}
+                        "api_refuses": [], "duplicate_keys": {"prod": duplicates(prod), "dev": duplicates(dev)},
+                        "seek_type_text": [], "tier_titles_missing": [], "unused_holds": []}}
     exp = out["expected"]
     for table in KEYS:
         p, d = _index(prod, table), _index(dev, table)
@@ -136,22 +166,36 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     for a in _rows(dev, "seek.sample_attributes"):
         d_attrs.setdefault(a["sample_type"], []).append(a)
     dev_titles = {k[0] for k in dt}
+    dev_fold = {}
+    for t in dev_titles:
+        dev_fold.setdefault(fold(t), []).append(t)
+    # A type the attribute API cannot name on dev: two dev titles alike under _ci, or a title of only digits.
+    unnamable = {t for ts in dev_fold.values() if len(ts) > 1 for t in ts} | {t for t in dev_titles if _numeric(t)}
+    unnamable |= {k[0] for k in exp["duplicate_keys"]["dev"].get("seek.sample_types", [])}
     for (title,), row in sorted(pt.items()):
         if is_held("seek.sample_types", [title]):
-            out["held"].append({"table": "seek.sample_types", "key": [title], "column": "*"})
+            hold_it("seek.sample_types", [title])
             continue
         if (title,) not in dt:
+            if fold(title) in dev_fold:
+                exp["case_only"].append(["seek.sample_types", title, dev_fold[fold(title)][0]])
+                continue
             ta = next((a for a in p_attrs.get(title, []) if a.get("is_title")), None)
-            out["seek_types"].append({"title": title, "description": norm(row.get("description")),
-                                      "title_attribute": None if ta is None else {
+            if ta is None or _numeric(title):
+                out["blocked"].append({"table": "seek.sample_types", "key": [title], "reason":
+                                       "no title attribute on production" if ta is None else "a title of only digits"})
+                continue
+            out["seek_types"].append({"title": title, "description": _text(row.get("description")),
+                                      "title_attribute": {
                                           "title": ta["title"], "sample_attribute_type": ta["attribute_type"],
-                                          "required": bool(ta["required"]), "description": norm(ta.get("description"))}})
-            rest = len(p_attrs.get(title, [])) - (ta is not None)
+                                          "required": bool(ta["required"]), "description": _text(ta.get("description"))}})
+            rest = len(p_attrs.get(title, [])) - 1
             if rest:
                 out["waiting"]["attributes"][title] = rest
             continue
         if norm(row.get("description")) != norm(dt[(title,)].get("description")):
-            out["seek_type_text"].append({"title": title, "description": norm(row.get("description"))})
+            # SEEK's own text: changed through SEEK (PATCH /nextseek_api/sample_types/<id>/), not by this command.
+            exp["seek_type_text"].append({"title": title, "description": _text(row.get("description"))})
         for col in ("uploaded_template",):
             if norm(row.get(col)) != norm(dt[(title,)].get(col)):
                 exp["seek_own"][col] = exp["seek_own"].get(col, 0) + 1
@@ -160,15 +204,27 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     present = {t: {k[0] for k in _index(dev, t)} for t in ATTR_REFS.values()}   # units: by title
     present["seek.sample_attribute_types"] = {k[0] for k in _index(dev, "seek.sample_attribute_types")}
     dup_types = {k[0] for side in ("prod", "dev") for k in exp["duplicate_keys"][side].get("seek.sample_attributes", [])}
+    what = {"vocab": "vocabulary", "unit": "unit", "linked_sample_type": "sample type", "attribute_type": "attribute type"}
+
+    def lacks(a, cols):
+        out_ = [(c, a[c]) for c in cols if c in ATTR_REFS and a.get(c) and a[c] not in present[ATTR_REFS[c]]]
+        if "attribute_type" in cols and a.get("attribute_type") not in present["seek.sample_attribute_types"]:
+            out_.append(("attribute_type", a.get("attribute_type")))
+        return "; ".join(f"needs the {what[c]} {v!r}, which dev lacks" for c, v in out_)
+
+    will_exist = {}   # type -> the attribute titles it has once this run's creates land
     for t in sorted(set(p_attrs) & dev_titles):
         if is_held("seek.sample_types", [t]):
             continue
-        if t in dup_types:
-            out["blocked"].append({"table": "seek.sample_attributes", "key": [t],
-                                   "reason": "two attributes of this type share a title"})
+        if t in dup_types or t in unnamable:
+            out["blocked"].append({"table": "seek.sample_attributes", "key": [t], "reason":
+                                   "two attributes of this type share a title" if t in dup_types else
+                                   "the attribute API cannot name this type on dev (a title of only digits, or "
+                                   "another type alike but for case or spacing)"})
             continue
         pa = {a["title"]: a for a in p_attrs[t]}
         da = {a["title"]: a for a in d_attrs.get(t, [])}
+        da_fold = {fold(x): x for x in da}
         patches, creates = [], []
         for title in sorted(set(pa) & set(da)):
             changes = {}
@@ -176,10 +232,15 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
                 if norm(pa[title].get(col)) == norm(da[title].get(col)):
                     continue
                 if is_held("seek.sample_attributes", [t, title], col):
-                    out["held"].append({"table": "seek.sample_attributes", "key": [t, title], "column": col})
+                    hold_it("seek.sample_attributes", [t, title], col)
                     continue
                 if title == "UID" and col in UID_LOCKED:
                     exp["api_refuses"].append([t, title, col])
+                    continue
+                reason = lacks(pa[title], (col,))
+                if reason or _numeric(title):
+                    out["blocked"].append({"table": "seek.sample_attributes", "key": [t, title, col],
+                                           "reason": reason or "a title of only digits"})
                     continue
                 changes[API_FIELD.get(col, col)] = _api_value(col, pa[title].get(col))
             for col in ("template_column_index", "original_accessor_name", "pid", "isa_tag", "allow_cv_free_text"):
@@ -192,16 +253,19 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
         for title in _ordered(p_attrs[t]):
             if title in da:
                 continue
-            missing = [(c, pa[title][c]) for c in ATTR_REFS if pa[title].get(c) and pa[title][c] not in present[ATTR_REFS[c]]]
-            if pa[title]["attribute_type"] not in present["seek.sample_attribute_types"]:
-                missing.append(("attribute_type", pa[title]["attribute_type"]))
-            if missing:
-                what = {"vocab": "vocabulary", "unit": "unit", "linked_sample_type": "sample type",
-                        "attribute_type": "attribute type"}
-                out["blocked"].append({"table": "seek.sample_attributes", "key": [t, title], "reason": "; ".join(
-                    f"needs the {what[c]} {v!r}, which dev lacks" for c, v in missing)})
+            if fold(title) in da_fold:   # the API would refuse it as the same title (_ci)
+                exp["case_only"].append(["seek.sample_attributes", f"{t}/{title}", f"{t}/{da_fold[fold(title)]}"])
+                continue
+            if is_held("seek.sample_attributes", [t, title]):
+                hold_it("seek.sample_attributes", [t, title])
+                continue
+            reason = lacks(pa[title], ("attribute_type",) + tuple(ATTR_REFS)) or ("a title of only digits"
+                                                                                   if _numeric(title) else "")
+            if reason:
+                out["blocked"].append({"table": "seek.sample_attributes", "key": [t, title], "reason": reason})
                 continue
             creatable.append(title)
+        will_exist[t] = set(da) | set(creatable)
         prod_order = [x for x in _ordered(p_attrs[t]) if x in da or x in creatable]
         order = target_order(prod_order, dev_order)
         existing_order = [x for x in order if x in da]
@@ -217,7 +281,7 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
         for title in creatable:
             a = pa[title]
             creates.append({"title": title, "sample_attribute_type": a["attribute_type"], "required": bool(a["required"]),
-                            "is_title": bool(a.get("is_title")), "description": norm(a.get("description")),
+                            "is_title": bool(a.get("is_title")), "description": _text(a.get("description")),
                             "unit": a.get("unit"), "sample_controlled_vocab": a.get("vocab"),
                             "linked_sample_type": a.get("linked_sample_type"), "pos": order.index(title) + 1})
         creates.sort(key=lambda c: c["pos"])
@@ -239,10 +303,12 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     for title in sorted(set(p_ia) - set(d_ia)):
         if fold(title) in d_fold:
             exp["case_only"].append(["dmac.internal_assays", title, d_fold[fold(title)]])
+        elif is_held("dmac.internal_assays", [title]):
+            hold_it("dmac.internal_assays", [title])
         else:
             out["internal_assays"].append(title)
     if exp["case_only"]:
-        kept = {c[2] for c in exp["case_only"]}
+        kept = {c[2] for c in exp["case_only"] if c[0] == "dmac.internal_assays"}
         rest = [k for k in exp["dev_only"].get("dmac.internal_assays", []) if k[0] not in kept]
         exp["dev_only"]["dmac.internal_assays"] = rest
     ia_after = set(d_ia) | set(out["internal_assays"])
@@ -252,7 +318,9 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     for (t,), row in sorted(pc.items()):
         if row.get("clade") is None or norm(row.get("clade")) == norm((dc.get((t,)) or {}).get("clade")):
             continue
-        if t not in dev_titles:
+        if is_held("dmac.sample_types_clades", [t]):
+            hold_it("dmac.sample_types_clades", [t])
+        elif t not in dev_titles:
             out["waiting"]["clades"].append(t)
         else:
             out["clades"].append({"sample_type": t, "clade": row["clade"]})
@@ -261,31 +329,59 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     pm, dm = _index(prod, "dmac.sample_attributes_unique"), _index(dev, "dmac.sample_attributes_unique")
     for key, row in sorted(pm.items(), key=str):
         if key not in dm or norm(row.get("meaning")) != norm(dm[key].get("meaning")):
+            if is_held("dmac.sample_attributes_unique", list(key)):
+                hold_it("dmac.sample_attributes_unique", list(key))
+                continue
             out["meanings"].append({"sample_type": key[0], "field_name": key[1], "meaning": row.get("meaning")})
 
     # --- context rows ------------------------------------------------------------------------------------------
+    def tiers_here(code, row):
+        """Production's tier lists without the titles this type will not have on dev (the page refuses those)."""
+        out_ = {}
+        for c in TIERS:
+            have = will_exist.get(code)
+            vals = _list(row.get(c))
+            gone = [x for x in vals if have is not None and x not in have]
+            if gone:
+                exp["tier_titles_missing"].append([code, c, gone])
+            out_[c] = [x for x in vals if x not in gone]
+        return out_
+
     def context(table, key_col, hand, derived, bucket, exists):
         p, d = _index(prod, table), _index(dev, table)
         dup = {k[0] for side in ("prod", "dev") for k in exp["duplicate_keys"][side].get(table, [])}
+        d_fold = {fold(k[0]): k[0] for k in d}
         for (code,), row in sorted(p.items()):
             if code in dup:
                 out["blocked"].append({"table": table, "key": [code], "reason": "more than one row has this key"})
                 continue
+            tiers = tiers_here(code, row) if table == "dmac.sample_types_context" else {}
             if (code,) not in d:
+                if fold(code) in d_fold:   # the Definitions page refuses a near-duplicate row
+                    exp["case_only"].append([table, code, d_fold[fold(code)]])
+                    continue
+                if is_held(table, [code]):
+                    hold_it(table, [code])
+                    continue
                 if not exists(code):
                     out["waiting"][bucket].append(code)
                     continue
-                cells = {key_col: code, **{c: row[c] for c in hand if norm(row.get(c)) is not None}}
+                cells = {key_col: code, **{c: (", ".join(tiers[c]) if c in tiers else row[c]) for c in hand
+                                           if norm(row.get(c)) is not None}}
                 out[bucket]["create"].append(cells)
                 continue
             cells = {}
             for c in hand:
-                if norm(row.get(c)) == norm(d[(code,)].get(c)):
+                if c in tiers:
+                    if tiers[c] == _list(d[(code,)].get(c)):
+                        continue
+                elif norm(row.get(c)) == norm(d[(code,)].get(c)):
                     continue
                 if is_held(table, [code], c):
-                    out["held"].append({"table": table, "key": [code], "column": c})
+                    hold_it(table, [code], c)
                     continue
-                cells[c] = row.get(c)
+                # A NULL on production clears dev's cell: the page functions store a blank as NULL.
+                cells[c] = ", ".join(tiers[c]) if c in tiers else (row.get(c) if row.get(c) is not None else "")
             for c in derived:
                 if norm(row.get(c)) != norm(d[(code,)].get(c)):
                     exp["derived_cells"].append([table, code, c])
@@ -297,13 +393,14 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
             lambda code: code in dev_titles)
     context("dmac.assay_context", "assay_name", ASSAY_HAND, (), "context_assays",
             lambda name: name in ia_after)
+    exp["unused_holds"] = [h for h in hold or [] if (h["table"], tuple(h["key"]), h.get("column", "*")) not in used]
     out["counts"] = counts(out)
     return out
 
 
 def counts(p: dict) -> dict:
     a = p["attributes"].values()
-    return {"seek_types": len(p["seek_types"]), "seek_type_text": len(p["seek_type_text"]),
+    return {"seek_types": len(p["seek_types"]),
             "attribute_creates": sum(len(x["creates"]) for x in a),
             "attribute_patches": sum(len(x["patches"]) for x in a),
             "attribute_types_touched": len(p["attributes"]), "internal_assays": len(p["internal_assays"]),
@@ -353,5 +450,5 @@ def simulate(p: dict, dev: dict) -> dict:
         rows = {r[key]: r for r in T[table]}
         T[table] += [dict(c) for c in p[bucket]["create"]]
         for code, cells in p[bucket]["update"].items():
-            rows[code].update(cells)
+            rows[code].update({c: (v or None) for c, v in cells.items()})
     return b

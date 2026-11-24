@@ -58,15 +58,15 @@ def type_payloads(p: dict, project: str | None) -> list[dict]:
     out = []
     for t in p["seek_types"]:
         ta = t["title_attribute"]
-        attrs = [] if ta is None else [{"title": ta["title"], "sample_attribute_type": {"title": ta["sample_attribute_type"]},
-                                         "required": ta["required"], "is_title": True, "pos": 1,
-                                         **({"description": ta["description"]} if ta["description"] else {})}]
+        attrs = [{"title": ta["title"], "sample_attribute_type": {"title": ta["sample_attribute_type"]},
+                  "required": ta["required"], "is_title": True, "pos": 1,
+                  **({"description": ta["description"]} if ta["description"] else {})}]
         body = {"data": {"type": "sample_types",
                          "attributes": {"title": t["title"], "sample_attributes": attrs,
                                         **({"description": t["description"]} if t["description"] else {})},
                          "relationships": {"projects": {"data": [{"id": project or "<project id>",
                                                                   "type": "projects"}]}}}}
-        if project and ta is not None:
+        if project:
             SampleTypeCreateRequest.model_validate(body)
         out.append(body)
     return out
@@ -81,8 +81,9 @@ class Command(BaseCommand):
         parser.add_argument("--seek-login", metavar="NAME", help="the operator's login: a Django superuser bound to "
                                                                  "one SEEK person")
         parser.add_argument("--project", metavar="TITLE", help="the project new SEEK sample types join on this box")
-        parser.add_argument("--wait", type=float, default=4 * 3600, metavar="S",
-                            help="seconds to wait for an attribute job before reporting it as still running")
+        parser.add_argument("--wait", type=float, default=0, metavar="S",
+                            help="seconds to wait for an attribute job (default 0: report its id and return; the "
+                                 "job goes on in the app's worker)")
         parser.add_argument("--json", action="store_true", help="the full report as JSON on stdout")
 
     def handle(self, *args, **o):
@@ -112,7 +113,11 @@ class Command(BaseCommand):
 
         plan = sync.plan(prod, read_box(), hold)
         report = {"mode": "apply" if o["apply"] else "dry_run", "prod_exported_at": prod.get("exported_at"),
-                  "plan": plan, "seek_type_payloads": type_payloads(plan, project_id(project))}
+                  "plan": plan}
+        try:
+            report["seek_type_payloads"] = type_payloads(plan, project_id(project))
+        except ValueError as exc:   # pydantic's ValidationError: a body the proxy would refuse
+            report["seek_type_payloads"], report["seek_type_payload_error"] = [], str(exc)
         failed = False
         if o["apply"]:
             report["applied"] = applier.apply(plan, person=person, wait_s=o["wait"], log=log)
@@ -134,7 +139,7 @@ def _failed(applied: dict) -> bool:
     for part in applied.values():
         if not isinstance(part, dict):
             continue
-        if part.get("errors"):
+        if part.get("errors") or part.get("skipped"):
             return True
         for name in ("text", "rules", "create"):
             r = part.get(name)
@@ -163,7 +168,11 @@ def _text(r: dict) -> str:
         [f"dev only {t} {len(v)}" for t, v in e["dev_only"].items()]
         + [f"production only {t} {len(v)}" for t, v in e["prod_only"].items()]
         + [f"derived context cells {len(e['derived_cells'])}", f"case-only names {len(e['case_only'])}"]
-        + [f"SEEK's own {k} {v}" for k, v in e["seek_own"].items()]))
+        + [f"SEEK's own {k} {v}" for k, v in e["seek_own"].items()]
+        + [f"{k.replace('_', ' ')} {len(e[k])}" for k in ("api_refuses", "seek_type_text", "tier_titles_missing")
+           if e.get(k)]))
+    if e.get("unused_holds"):
+        lines.append(f"hold entries this plan never read (check the key): {json.dumps(e['unused_holds'])}")
     for key in ("preview", "applied"):
         if key in r:
             lines.append(f"{key}: {json.dumps(r[key], default=str)[:4000]}")

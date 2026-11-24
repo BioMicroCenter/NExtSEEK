@@ -338,3 +338,143 @@ def test_new_type_payload_is_one_the_proxy_accepts():
     body = cmd.type_payloads(sync.plan(prod, dev), "7")[0]
     assert body["data"]["attributes"]["sample_attributes"][0]["is_title"] is True
     assert body["data"]["relationships"]["projects"]["data"] == [{"id": "7", "type": "projects"}]
+
+
+# --- review round: the writers run unmocked, and the plan's new rules ---------------------------------------------
+
+
+@pytest.fixture
+def catalog_tables():
+    """The dmac and SEEK tables these writers touch, made on each SQLite test database that lacks them."""
+    from django.db import connections, router
+    from seek.models import Clades, Internal_assays, Sample_types, Sample_types_clades
+
+    made = []
+    for m in (Sample_types, Clades, Sample_types_clades, Internal_assays):
+        conn = connections[router.db_for_write(m)]
+        if m._meta.db_table not in conn.introspection.table_names():
+            with conn.schema_editor() as editor:
+                editor.create_model(m)
+            made.append((conn, m))
+    yield
+    for conn, m in reversed(made):
+        with conn.schema_editor() as editor:
+            editor.delete_model(m)
+
+
+def test_every_name_apply_imports_lazily_resolves():
+    from nextseek_api.attributes.auth import AuthenticatedSeekPerson  # noqa: F401
+    from nextseek_api.attributes.models_db import AttributeMutationJob  # noqa: F401
+    from nextseek_api.attributes.schemas import CREATE_REQUEST_ADAPTER, PATCH_REQUEST_ADAPTER  # noqa: F401
+    from nextseek_api.attributes.service import AttributeServices  # noqa: F401
+    from nextseek_api.models import (DefinitionAssayUpdateRequest, DefinitionSampleTypeUpdateRequest,  # noqa: F401
+                                     DefinitionTiers)
+    from nextseek_api.services import definitions_admin as da
+    from nextseek_api.services.context_catalog import parse_list  # noqa: F401
+    from seek.models import Clades, Internal_assays, Sample_types, Sample_types_clades  # noqa: F401
+
+    assert all(callable(getattr(da, f)) for f in ("create_sample_type", "update_sample_type", "sample_type_row",
+                                                   "_write_sample_type", "create_assay", "update_assay",
+                                                   "_write_assay", "stored_tiers"))
+
+
+@pytest.mark.django_db(transaction=True, databases="__all__")
+def test_clades_and_internal_assays_write_through_their_models(catalog_tables):
+    from seek.models import Clades, Internal_assays, Sample_types, Sample_types_clades
+
+    def seek_type(title):
+        from django.utils import timezone
+        now = timezone.now()
+        return Sample_types.objects.create(title=title, uuid=title, created_at=now, updated_at=now, first_letter="T",
+                                           description="", contributor_id=1, deleted_contributor="", template_id=0,
+                                           other_creators="")
+
+    tis = seek_type("TIS")
+    seek_type("tis")       # alike under _ci; the exact title wins
+    Clades.objects.create(title="Source", color="#000", order=1)
+    Clades.objects.create(title="Processed", color="#111", order=2)
+    assert applier.internal_assays(["Molecular Cloning"], log=lambda m: None) == {"created": 1, "errors": []}
+    assert list(Internal_assays.objects.values_list("internal_assay_title", flat=True)) == ["Molecular Cloning"]
+    assert applier.clades([{"sample_type": "TIS", "clade": "Source"}])["written"] == 1
+    assert applier.clades([{"sample_type": "TIS", "clade": "Processed"}])["written"] == 1   # updates, no twin
+    rows = list(Sample_types_clades.objects.values_list("sample_type_id", "clade_id"))
+    assert rows == [(tis.id, Clades.objects.get(title="Processed").id)]
+    assert applier.clades([{"sample_type": "PTN", "clade": "Source"}])["errors"]
+
+
+def test_attribute_titles_alike_but_for_case_are_listed_not_created():
+    prod, dev = base()
+    prod["tables"]["seek.sample_attributes"].append(attr("TIS", "Cell Count", 4))
+    dev["tables"]["seek.sample_attributes"].append(attr("TIS", "cell count", 4))
+    prod["tables"]["seek.sample_types"].append({"title": "Rna"})
+    p = sync.plan(prod, dev)
+    assert "TIS" not in p["attributes"] and p["seek_types"] == []
+    assert ["seek.sample_attributes", "TIS/Cell Count", "TIS/cell count"] in p["expected"]["case_only"]
+    assert ["seek.sample_types", "Rna", "RNA"] in p["expected"]["case_only"]
+
+
+def test_a_type_the_api_cannot_name_is_blocked():
+    prod, dev = base()
+    for b in (prod, dev):
+        b["tables"]["seek.sample_types"].append({"title": "tis"})
+    prod["tables"]["seek.sample_attributes"].append(attr("TIS", "Lot", 4))
+    p = sync.plan(prod, dev)
+    assert "TIS" not in p["attributes"]
+    assert any(b["key"] == ["TIS"] for b in p["blocked"])
+
+
+def test_holds_reach_every_kind_of_write_and_unread_holds_are_listed():
+    prod, dev = base()
+    prod["tables"]["seek.sample_attributes"].append(attr("RNA", "Lot", 3))
+    prod["tables"]["dmac.internal_assays"].append({"internal_assay_title": "Molecular Cloning"})
+    prod["tables"]["dmac.sample_attributes_unique"].append({"sample_type": "", "field_name": "DOI", "meaning": "d"})
+    dev["tables"]["dmac.sample_types_clades"] = []
+    hold = [{"table": "seek.sample_attributes", "key": ["RNA", "Lot"], "column": "*"},
+            {"table": "dmac.internal_assays", "key": ["Molecular Cloning"], "column": "*"},
+            {"table": "dmac.sample_attributes_unique", "key": ["", "DOI"], "column": "*"},
+            {"table": "dmac.sample_types_clades", "key": ["TIS"], "column": "*"},
+            {"table": "dmac.sample_types_context", "key": ["NOPE"], "column": "description"}]
+    p = sync.plan(prod, dev, hold)
+    assert "RNA" not in p["attributes"] and p["internal_assays"] == [] and p["meanings"] == []
+    assert p["clades"] == [{"sample_type": "RNA", "clade": "Processed"}]
+    assert p["expected"]["unused_holds"] == [hold[-1]]
+
+
+def test_null_on_production_clears_dev_and_tiers_compare_as_lists():
+    prod, dev = base()
+    dev["tables"]["dmac.sample_types_context"][0]["Tags"] = "old tag"
+    dev["tables"]["dmac.sample_types_context"][1]["required_metadata"] = "UID,Kit"
+    prod["tables"]["dmac.sample_types_context"][1]["required_metadata"] = "UID, Kit"
+    p = sync.plan(prod, dev)
+    assert p["context_sample_types"]["update"] == {"TIS": {"Tags": ""}}
+    assert no_actions(sync.plan(prod, sync.simulate(p, dev)))
+
+
+def test_tier_titles_the_type_lacks_on_dev_are_listed_not_sent():
+    prod, dev = base()
+    prod["tables"]["dmac.sample_types_context"][0]["required_metadata"] = "UID, Ghost"
+    p = sync.plan(prod, dev)
+    assert p["expected"]["tier_titles_missing"] == [["TIS", "required_metadata", ["Ghost"]]]
+    assert "TIS" not in p["context_sample_types"]["update"]
+
+
+def test_seek_type_text_is_listed_for_seek_not_counted():
+    prod, dev = base()
+    prod["tables"]["seek.sample_types"][0]["description"] = "newer"
+    p = sync.plan(prod, dev)
+    assert no_actions(p) and p["expected"]["seek_type_text"] == [{"title": "TIS", "description": "newer"}]
+
+
+def test_patch_naming_something_dev_lacks_is_blocked():
+    prod, dev = base()
+    prod["tables"]["seek.sample_controlled_vocabs"].append({"title": "Kits"})
+    for a in prod["tables"]["seek.sample_attributes"]:
+        if a["title"] == "Kit":
+            a["vocab"] = "Kits"
+    p = sync.plan(prod, dev)
+    assert "RNA" not in p["attributes"]
+    assert p["blocked"][0]["key"] == ["RNA", "Kit", "vocab"]
+
+
+def test_a_skipped_attribute_write_fails_the_run():
+    assert cmd._failed({"attributes": {"skipped": "attribute jobs still running", "jobs": ["j (running)"]}})

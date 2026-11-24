@@ -59,8 +59,8 @@ def running_jobs() -> list[str]:
     """Attribute jobs that have not ended: a second create while one runs would plan the same attributes again."""
     from nextseek_api.attributes.models_db import AttributeMutationJob
 
-    return [str(j) for j in AttributeMutationJob.objects.filter(terminal_result__isnull=True)
-            .values_list("job_id", flat=True)]
+    return [f"{j} ({state})" for j, state in AttributeMutationJob.objects.filter(terminal_result__isnull=True)
+            .values_list("job_id", "state")]
 
 
 def wait_for_job(job_id, timeout_s: float, log) -> dict | None:
@@ -133,32 +133,42 @@ def attributes(p: dict, *, dry_run: bool, person, wait_s: float, log) -> dict:
 
 
 def internal_assays(titles: list[str], log) -> dict:
-    from dmac.dbtable_internalassays import DBtable_internalassays
+    """As the Assay map's save does (``DBtable_internalassays.new``): one row per title, through its model."""
+    from seek.models import Internal_assays
 
     done, errors = [], []
-    db = DBtable_internalassays()
     for title in titles:
         try:
-            db.new(internal_assay_title=title)
+            Internal_assays(internal_assay_title=title).save()
             done.append(title)
         except Exception as exc:   # noqa: BLE001 -- reported, the next title goes on
             errors.append({"title": title, "error": str(exc)})
     return {"created": len(done), "errors": errors}
 
 
-def clades(rows: list[dict]) -> dict:
-    from dmac.dbtable_sampletypesclades import DBtable_stc
-    from seek.models import Clades, Sample_types
+def _exact_id(model, field: str, value: str):
+    """The lowest id whose ``field`` equals ``value`` exactly: MySQL's _ci match narrowed in Python."""
+    ids = sorted(i for i, v in model.objects.filter(**{field: value}).values_list("id", field) if v == value)
+    if not ids:
+        raise LookupError(f"no {model.__name__} row with {field} {value!r}")
+    return ids[0]
 
-    stc, done, errors = DBtable_stc(), 0, []
+
+def clades(rows: list[dict]) -> dict:
+    """As the Clades page does (``DBtable_stc.update``, ``syncSampleTypes``): one row per sample type, by model."""
+    from seek.models import Clades, Sample_types, Sample_types_clades
+
+    done, errors = 0, []
     for r in rows:
         try:
-            st_id = Sample_types.objects.filter(title=r["sample_type"]).order_by("id").values_list("id", flat=True)[0]
-            clade_id = Clades.objects.get(title=r["clade"]).id
-            if stc.tablemodel.objects.filter(sample_type_id=st_id).exists():
-                stc.update(st_id, clade_id)
+            st_id = _exact_id(Sample_types, "title", r["sample_type"])
+            clade_id = _exact_id(Clades, "title", r["clade"])
+            row = Sample_types_clades.objects.filter(sample_type_id=st_id).first()
+            if row is None:
+                Sample_types_clades.objects.create(sample_type_id=st_id, clade_id=clade_id)
             else:
-                stc.tablemodel.objects.create(sample_type_id=st_id, clade_id=clade_id)
+                row.clade_id = clade_id
+                row.save()
             done += 1
         except Exception as exc:   # noqa: BLE001
             errors.append({**r, "error": str(exc)})
@@ -190,26 +200,40 @@ def _tiers(prod_cells: dict, row: dict) -> dict:
 
 
 def context_sample_types(work: dict) -> dict:
+    """Through the Definitions page's functions: the text, then the tiers in their own call (a refused tier list
+    must not take the text with it), then the columns the page does not edit. A new row also gets this box's
+    ``sampletype_id`` (what the context step would set; a NULL id leaves the row unjoined)."""
     from nextseek_api.models import DefinitionSampleTypeUpdateRequest, DefinitionTiers
     from nextseek_api.services import definitions_admin as da
+    from seek.models import Sample_types
 
     done, errors = [], []
     items = [(c["sample_type"], {k: v for k, v in c.items() if k != "sample_type"}, True) for c in work["create"]]
     items += [(code, cells, False) for code, cells in sorted(work["update"].items())]
     for code, cells, new in items:
+        step = "row"
         try:
             row = da.create_sample_type(code) if new else da.sample_type_row(code)
+            if row is None:
+                raise LookupError(f"no sample_types_context row {code!r}")
+            if new:
+                da._write_sample_type(row["id"], {"sampletype_id": _exact_id(Sample_types, "title", code)})
+            step = "text"
             text = {f: cells[col] for f, col in da.SAMPLE_TYPE_TEXT.items() if col in cells}
-            if {"required_metadata", "standard_metadata"} & cells.keys():
-                text["tiers"] = DefinitionTiers(**_tiers(cells, row))
             if text:
                 da.update_sample_type(row["sample_type"], DefinitionSampleTypeUpdateRequest(**text))
-            other = {c: cells[c] for c in ("repository_attributes", "sampletype_file_link") if c in cells}
+            step = "other"
+            other = {c: (cells[c] or None) for c in ("repository_attributes", "sampletype_file_link") if c in cells}
             if other:
                 da._write_sample_type(row["id"], other)
+            step = "tiers"
+            if {"required_metadata", "standard_metadata"} & cells.keys():
+                row = da.sample_type_row(code)
+                da.update_sample_type(row["sample_type"],
+                                      DefinitionSampleTypeUpdateRequest(tiers=DefinitionTiers(**_tiers(cells, row))))
             done.append(code)
         except Exception as exc:   # noqa: BLE001 -- the page's refusals (Invalid, FileExistsError) included
-            errors.append({"sample_type": code, "error": str(exc)})
+            errors.append({"sample_type": code, "step": step, "error": str(exc)})
     return {"written": done, "errors": errors}
 
 
@@ -229,6 +253,9 @@ def context_assays(work: dict) -> dict:
         try:
             if new:
                 ids = [da.create_assay(name)["id"]]
+                # this box's internal assay id, as the context step would set it: a NULL id gives no Assay node
+                from seek.models import Internal_assays
+                da._write_assay(ids[0], {"internal_assay_id": _exact_id(Internal_assays, "internal_assay_title", name)})
             else:
                 with connections[settings.NEXTSEEK_DATABASE].cursor() as cur:
                     cur.execute("SELECT id, assay_name FROM assay_context WHERE assay_name = %s", [name])
@@ -238,7 +265,7 @@ def context_assays(work: dict) -> dict:
             api = {f: cells[c] for c, f in _ASSAY_API.items() if c in cells}
             if api:
                 da.update_assay(ids[0], DefinitionAssayUpdateRequest(**api))
-            other = {c: v for c, v in cells.items() if c not in _ASSAY_API}
+            other = {c: (v or None) for c, v in cells.items() if c not in _ASSAY_API}
             if other:
                 da._write_assay(ids[0], other)
             done.append(name)
@@ -251,21 +278,23 @@ def apply(p: dict, *, person, wait_s: float, log) -> dict:
     """Every write, in the order each depends on: internal assays before the assay rows that name them,
     attributes before the tiers that list them, then the graph rows once."""
     report = {}
-    if p["internal_assays"]:
-        report["internal_assays"] = internal_assays(p["internal_assays"], log)
-    if p["attributes"]:
-        report["attributes"] = attributes(p, dry_run=False, person=person, wait_s=wait_s, log=log)
-    if p["clades"]:
-        report["clades"] = clades(p["clades"])
-    if p["meanings"]:
-        report["meanings"] = meanings(p["meanings"])
-    if p["context_sample_types"]["create"] or p["context_sample_types"]["update"]:
-        report["context_sample_types"] = context_sample_types(p["context_sample_types"])
-    if p["context_assays"]["create"] or p["context_assays"]["update"]:
-        report["context_assays"] = context_assays(p["context_assays"])
-    # The paths above that queue nothing themselves (the page functions, the table helpers) are caught here,
-    # as their own pages do after a save.
-    for kind in ("catalog", "assay_map", "context"):
-        hooks.enqueue(kind, "*")
-    report["enqueued"] = ["catalog", "assay_map", "context"]
+    try:
+        if p["internal_assays"]:
+            report["internal_assays"] = internal_assays(p["internal_assays"], log)
+        if p["attributes"]:
+            report["attributes"] = attributes(p, dry_run=False, person=person, wait_s=wait_s, log=log)
+        if p["clades"]:
+            report["clades"] = clades(p["clades"])
+        if p["meanings"]:
+            report["meanings"] = meanings(p["meanings"])
+        if p["context_sample_types"]["create"] or p["context_sample_types"]["update"]:
+            report["context_sample_types"] = context_sample_types(p["context_sample_types"])
+        if p["context_assays"]["create"] or p["context_assays"]["update"]:
+            report["context_assays"] = context_assays(p["context_assays"])
+    finally:
+        # The paths above that queue nothing themselves (the page functions, the table helpers) are caught here,
+        # as their own pages do after a save; whatever landed before a failure is caught too.
+        for kind in ("catalog", "assay_map", "context"):
+            hooks.enqueue(kind, "*")
+        report["enqueued"] = ["catalog", "assay_map", "context"]
     return report
