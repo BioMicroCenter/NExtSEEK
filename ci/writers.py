@@ -543,6 +543,15 @@ WRITERS: tuple[Writer, ...] = (
            note="the Definitions admin page: one row's hand columns (name, description, Tags, tiers; an assay's "
                 "text and designed connections) or a bare new row; queues context, plus catalog when a column the "
                 "SampleType node reads changed and assay_map after an assay write"),
+    Writer(id="WR-38",
+           sites=("nextseek_api/definitions_sync/apply.py::meanings",),
+           tables=("sample_attributes_unique",),
+           how=("sql",),
+           hook="hooks.enqueue",
+           hook_site=("nextseek_api/definitions_sync/apply.py::apply",),
+           note="manage.py definitions_sync --apply: production's attribute meanings copied onto this box; the same "
+                "run writes through the attribute API, the Definitions page's functions and the Assay map and Clades "
+                "table helpers, then queues catalog, assay_map and context once"),
 )
 
 
