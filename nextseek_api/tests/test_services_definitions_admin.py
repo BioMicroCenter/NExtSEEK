@@ -334,3 +334,12 @@ def test_a_bad_similar_entry_on_an_assay_is_422(tables, similar):
 def test_the_rows_are_returned_with_both_columns_even_when_unset(tables):
     assert _patch_type("BAC", {"name": "x"}).data["row"]["similar_types"] is None
     assert "when_to_use" in _patch_assay(3, {"description": "d"}).data["row"]
+
+
+def test_a_line_break_in_differs_is_folded_so_the_page_keeps_one_look_alike_per_line(tables):
+    r = _patch_type("BAC", {"similar_types": [{"code": "TIS", "differs": " a tissue\npiece,\r\n  not a strain "}]})
+    assert r.status_code == 200
+    assert r.data["row"]["similar_types"] == [{"code": "TIS", "differs": "a tissue piece, not a strain"}]
+    with connection.cursor() as cur:
+        cur.execute("SELECT similar_types FROM sample_types_context WHERE sample_type = 'BAC'")
+        assert da.similar_text(cur.fetchone()[0]) == "TIS | a tissue piece, not a strain"

@@ -3319,10 +3319,11 @@ class DefinitionSimilarType(BaseModel):
 
     @field_validator('code', 'differs')
     @classmethod
-    def _not_blank(cls, v):
+    def _not_blank(cls, v, info):
         if not v.strip():
             raise ValueError("must not be blank")
-        return v.strip()
+        # differs is one line: the page edits the list as one `code | differs` line per entry.
+        return " ".join(v.split()) if info.field_name == "differs" else v.strip()
 
 
 _WHEN_TO_USE_DESC = 'plain text: "Use this when ...; use X instead when ..."'
