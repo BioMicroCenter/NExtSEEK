@@ -283,7 +283,7 @@ def test_attribute_creates_are_not_sent_after_failed_patches():
         return ({"overall_status": "failed", "outcomes": []}, 409) if kind == "patch" else ({}, 200)
 
     with mock.patch.object(applier, "_attribute_call", side_effect=fake), \
-            mock.patch.object(applier, "running_jobs", return_value=[]):
+            mock.patch.object(applier, "running_jobs", return_value=([], [])):
         report = applier.attributes(p, dry_run=False, person="p", wait_s=0, log=lambda m: None)
     assert calls == ["patch"] and report["text"]["http_status"] == 409
 
@@ -292,7 +292,7 @@ def test_no_attribute_write_while_an_attribute_job_runs():
     prod, dev = base()
     prod["tables"]["seek.sample_attributes"].append(attr("RNA", "Lot", 3))
     with mock.patch.object(applier, "_attribute_call") as call, \
-            mock.patch.object(applier, "running_jobs", return_value=["j1"]):
+            mock.patch.object(applier, "running_jobs", return_value=(["j1"], [])):
         report = applier.attributes(sync.plan(prod, dev), dry_run=False, person="p", wait_s=0, log=lambda m: None)
     assert not call.called and report["jobs"] == ["j1"]
 
@@ -478,3 +478,24 @@ def test_patch_naming_something_dev_lacks_is_blocked():
 
 def test_a_skipped_attribute_write_fails_the_run():
     assert cmd._failed({"attributes": {"skipped": "attribute jobs still running", "jobs": ["j (running)"]}})
+
+
+@pytest.mark.django_db
+def test_only_a_live_attribute_job_holds_the_sync_back():
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from nextseek_api.attributes.models_db import AttributeMutationJob
+
+    now = timezone.now()
+    fields = {f.name for f in AttributeMutationJob._meta.get_fields()}
+    with mock.patch.object(AttributeMutationJob.objects, "filter") as q:
+        q.return_value.values_list.return_value = [
+            ("old", "running", now - timedelta(days=48), now - timedelta(days=48)),   # crashed run, never closed
+            ("held", "running", now + timedelta(minutes=2), now - timedelta(days=1)),  # lease still held
+            ("new", "queued", None, now - timedelta(minutes=5)),                       # not claimed yet
+        ]
+        live, stale = applier.running_jobs(now)
+    assert {"lease_expires_at", "created_at", "terminal_result"} <= fields
+    assert [x.split()[0] for x in live] == ["held", "new"] and [x.split()[0] for x in stale] == ["old"]

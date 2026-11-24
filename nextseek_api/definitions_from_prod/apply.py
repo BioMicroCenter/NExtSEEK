@@ -6,6 +6,7 @@ reported and the run goes on. ``dry_run`` asks the attribute API for its own pre
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 from types import SimpleNamespace
 
 from django.conf import settings
@@ -55,12 +56,24 @@ def _attribute_call(kind: str, targets: list[dict], dry_run: bool, person) -> tu
     return AttributeServices.build().mutate(kind, payload, dry_run, request)
 
 
-def running_jobs() -> list[str]:
-    """Attribute jobs that have not ended: a second create while one runs would plan the same attributes again."""
+STALE_AFTER = timedelta(hours=6)
+
+
+def running_jobs(now=None) -> tuple[list[str], list[str]]:
+    """Unfinished attribute jobs, split into live ones (a lease still held, or made in the last six hours: a second
+    create now would plan the same attributes again) and stale ones (lease long expired, nothing beating: a crashed
+    run the recovery loop never closed). Only live ones hold the sync back; stale ones are reported."""
+    from django.utils import timezone
+
     from nextseek_api.attributes.models_db import AttributeMutationJob
 
-    return [f"{j} ({state})" for j, state in AttributeMutationJob.objects.filter(terminal_result__isnull=True)
-            .values_list("job_id", "state")]
+    now = now or timezone.now()
+    live, stale = [], []
+    for j, state, lease, made in (AttributeMutationJob.objects.filter(terminal_result__isnull=True)
+                                  .values_list("job_id", "state", "lease_expires_at", "created_at")):
+        alive = (lease is not None and lease > now) or (made is not None and now - made < STALE_AFTER)
+        (live if alive else stale).append(f"{j} ({state}, made {made:%Y-%m-%d %H:%M} UTC)" if made else f"{j} ({state})")
+    return live, stale
 
 
 def wait_for_job(job_id, timeout_s: float, log) -> dict | None:
@@ -115,10 +128,13 @@ def requests_for(p: dict) -> list[tuple[str, str, list[dict]]]:
 def attributes(p: dict, *, dry_run: bool, person, wait_s: float, log) -> dict:
     report = {}
     if not dry_run:
-        busy = running_jobs()
+        busy, stale = running_jobs()
+        if stale:
+            report["stale_jobs"] = stale
+            log(f"stale attribute jobs, not waited for (their leases expired long ago): {', '.join(stale)}")
         if busy:
             log(f"attribute jobs still running ({', '.join(busy)}): attribute writes skipped; run again when they end")
-            return {"skipped": "attribute jobs still running", "jobs": busy}
+            return {**report, "skipped": "attribute jobs still running", "jobs": busy}
     for name, kind, targets in requests_for(p):
         body, code = _attribute_call(kind, targets, dry_run, person)
         report[name] = _summary(body, code)
