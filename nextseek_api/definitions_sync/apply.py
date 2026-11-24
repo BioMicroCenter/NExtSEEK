@@ -42,13 +42,27 @@ def actor(login: str):
 
 
 def _attribute_call(kind: str, targets: list[dict], dry_run: bool, person) -> tuple[dict, int]:
+    from pydantic import ValidationError
+
     from nextseek_api.attributes.schemas import CREATE_REQUEST_ADAPTER, PATCH_REQUEST_ADAPTER
     from nextseek_api.attributes.service import AttributeServices
 
     adapter = CREATE_REQUEST_ADAPTER if kind == "create" else PATCH_REQUEST_ADAPTER
-    payload = adapter.validate_python({"targets": targets, "dry_run": dry_run})
+    try:
+        payload = adapter.validate_python({"targets": targets, "dry_run": dry_run})
+    except ValidationError as exc:   # the API's own 422: nothing sent
+        return {"errors": [{"code": "request_validation_error", "message": e["msg"],
+                            "field": ".".join(str(x) for x in e["loc"])} for e in exc.errors(include_url=False)]}, 422
     request = SimpleNamespace(_attribute_seek_identity=person)
     return AttributeServices.build().mutate(kind, payload, dry_run, request)
+
+
+def running_jobs() -> list[str]:
+    """Attribute jobs that have not ended: a second create while one runs would plan the same attributes again."""
+    from nextseek_api.attributes.models_db import AttributeMutationJob
+
+    return [str(j) for j in AttributeMutationJob.objects.filter(terminal_result__isnull=True)
+            .values_list("job_id", flat=True)]
 
 
 def wait_for_job(job_id, timeout_s: float, log) -> dict | None:
@@ -76,27 +90,47 @@ def _summary(body: dict, code: int) -> dict:
     return {k: v for k, v in out.items() if v is not None}
 
 
+RULE_FIELDS = ("required", "sample_attribute_type", "is_title", "unit", "sample_controlled_vocab", "linked_sample_type")
+
+
+def requests_for(p: dict) -> list[tuple[str, str, list[dict]]]:
+    """The attribute API requests, in order: text and positions (definition-only, no sample rewritten), then the
+    rule changes on their own (a refusal fails its whole sample type, so it must not take the text with it), then
+    the creates (each type's samples rewritten once, a job past the API's threshold)."""
+    text, rules, creates = [], [], []
+    for t, w in sorted(p["attributes"].items()):
+        tx = [{"attribute": x["attribute"], "changes": {k: v for k, v in x["changes"].items() if k not in RULE_FIELDS}}
+              for x in w["patches"]]
+        rl = [{"attribute": x["attribute"], "changes": {k: v for k, v in x["changes"].items() if k in RULE_FIELDS}}
+              for x in w["patches"]]
+        if any(x["changes"] for x in tx):
+            text.append({"sample_type": t, "attributes": [x for x in tx if x["changes"]]})
+        if any(x["changes"] for x in rl):
+            rules.append({"sample_type": t, "attributes": [x for x in rl if x["changes"]]})
+        if w["creates"]:
+            creates.append({"sample_type": t, "attributes": [{k: v for k, v in c.items() if v is not None}
+                                                             for c in w["creates"]]})
+    return [(n, k, tg) for n, k, tg in (("text", "patch", text), ("rules", "patch", rules), ("create", "create", creates))
+            if tg]
+
+
 def attributes(p: dict, *, dry_run: bool, person, wait_s: float, log) -> dict:
-    """One patch request for every type (definition-only: no sample is rewritten), then one create request for
-    every type (each type's samples rewritten once, as a job when they pass the API's threshold)."""
     report = {}
-    patch_targets = [{"sample_type": t, "attributes": w["patches"]} for t, w in sorted(p["attributes"].items())
-                     if w["patches"]]
-    create_targets = [{"sample_type": t, "attributes": [{k: v for k, v in c.items() if v is not None}
-                                                        for c in w["creates"]]}
-                      for t, w in sorted(p["attributes"].items()) if w["creates"]]
-    for kind, targets in (("patch", patch_targets), ("create", create_targets)):
-        if not targets:
-            continue
+    if not dry_run:
+        busy = running_jobs()
+        if busy:
+            log(f"attribute jobs still running ({', '.join(busy)}): attribute writes skipped; run again when they end")
+            return {"skipped": "attribute jobs still running", "jobs": busy}
+    for name, kind, targets in requests_for(p):
         body, code = _attribute_call(kind, targets, dry_run, person)
-        report[kind] = _summary(body, code)
-        if kind == "patch" and not dry_run and code >= 400:
-            log("attribute patches failed; creates not sent, so positions cannot shift under them")
+        report[name] = _summary(body, code)
+        if name == "text" and not dry_run and code >= 400:
+            log("attribute text and position patches failed; creates not sent, so positions cannot shift under them")
             break
         if body.get("job_id") and not dry_run and wait_s > 0:
-            log(f"attribute {kind} job {body['job_id']} accepted; waiting up to {int(wait_s)} s")
+            log(f"attribute {name} job {body['job_id']} accepted; waiting up to {int(wait_s)} s")
             result = wait_for_job(body["job_id"], wait_s, log)
-            report[kind]["result"] = None if result is None else _summary(result, result.get("http_status", 0))
+            report[name]["result"] = None if result is None else _summary(result, result.get("http_status", 0))
     return report
 
 

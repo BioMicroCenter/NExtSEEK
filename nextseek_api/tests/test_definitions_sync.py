@@ -282,9 +282,53 @@ def test_attribute_creates_are_not_sent_after_failed_patches():
         calls.append(kind)
         return ({"overall_status": "failed", "outcomes": []}, 409) if kind == "patch" else ({}, 200)
 
-    with mock.patch.object(applier, "_attribute_call", side_effect=fake):
+    with mock.patch.object(applier, "_attribute_call", side_effect=fake), \
+            mock.patch.object(applier, "running_jobs", return_value=[]):
         report = applier.attributes(p, dry_run=False, person="p", wait_s=0, log=lambda m: None)
-    assert calls == ["patch"] and report["patch"]["http_status"] == 409
+    assert calls == ["patch"] and report["text"]["http_status"] == 409
+
+
+def test_no_attribute_write_while_an_attribute_job_runs():
+    prod, dev = base()
+    prod["tables"]["seek.sample_attributes"].append(attr("RNA", "Lot", 3))
+    with mock.patch.object(applier, "_attribute_call") as call, \
+            mock.patch.object(applier, "running_jobs", return_value=["j1"]):
+        report = applier.attributes(sync.plan(prod, dev), dry_run=False, person="p", wait_s=0, log=lambda m: None)
+    assert not call.called and report["jobs"] == ["j1"]
+
+
+def test_every_request_the_plan_makes_is_one_the_attribute_api_accepts():
+    from nextseek_api.attributes.schemas import CREATE_REQUEST_ADAPTER, PATCH_REQUEST_ADAPTER
+
+    prod, dev = base()
+    prod["tables"]["seek.sample_controlled_vocabs"].append({"title": "Kits"})
+    dev["tables"]["seek.sample_controlled_vocabs"].append({"title": "Kits"})
+    for a in prod["tables"]["seek.sample_attributes"]:
+        if a["title"] == "Kit":
+            a.update(attribute_type="Text", vocab="Kits", required=1, description="the kit")
+    prod["tables"]["seek.sample_attributes"].append(attr("RNA", "Lot", 3, required=1, description="lot"))
+    reqs = applier.requests_for(sync.plan(prod, dev))
+    assert [n for n, _, _ in reqs] == ["text", "rules", "create"]
+    for name, kind, targets in reqs:
+        adapter = CREATE_REQUEST_ADAPTER if kind == "create" else PATCH_REQUEST_ADAPTER
+        adapter.validate_python({"targets": targets, "dry_run": True})
+    rules = reqs[1][2][0]["attributes"][0]["changes"]
+    assert rules == {"sample_attribute_type": "Text", "sample_controlled_vocab": "Kits", "required": True}
+
+
+def test_uid_stays_required_the_api_refuses_otherwise():
+    prod, dev = base()
+    for a in prod["tables"]["seek.sample_attributes"]:
+        if (a["sample_type"], a["title"]) == ("TIS", "UID"):
+            a.update(required=0, description="the id")
+    p = sync.plan(prod, dev)
+    assert p["attributes"]["TIS"]["patches"] == [{"attribute": "UID", "changes": {"description": "the id"}}]
+    assert p["expected"]["api_refuses"] == [["TIS", "UID", "required"]]
+
+
+def test_a_partly_refused_request_fails_the_run():
+    assert cmd._failed({"attributes": {"text": {"http_status": 207, "errors": [{"code": "x"}]}}})
+    assert not cmd._failed({"attributes": {"text": {"http_status": 200}}})
 
 
 def test_new_type_payload_is_one_the_proxy_accepts():

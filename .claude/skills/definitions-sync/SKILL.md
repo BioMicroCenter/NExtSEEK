@@ -80,9 +80,14 @@ sending it again. Then dry-run again (step 3): the new types' attributes, clades
 
 ## 5. Apply
 
+The first run against real tables is step 3's dry run with `--seek-login`: it reads this box, binds the login and
+runs the attribute API's own preview on every type, writing nothing. Apply only after a clean preview (no
+`errors`; `affected_samples` what the operator expects).
+
 Step 3's command with `--apply --wait 0`. Creates past the attribute API's threshold run as one job in the app's
-worker; `--wait 0` returns at once and the job goes on. Wait, then dry-run again; while actions remain (a job still
-running, a context row whose fields that job creates), apply again: every run is idempotent.
+worker; `--wait 0` returns at once and the job goes on. Then dry-run again later (no polling loop); while actions
+remain, apply again: every run is idempotent, and a run that finds an attribute job still going writes no
+attributes and names the job. A context row whose fields that job creates lands on the run after it ends.
 
 ## 6. Prove it
 

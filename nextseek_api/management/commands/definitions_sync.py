@@ -130,14 +130,15 @@ class Command(BaseCommand):
 
 
 def _failed(applied: dict) -> bool:
+    """Any refusal: a row the page functions refused, an attribute request answered 4xx, or a 207 with errors."""
     for part in applied.values():
         if not isinstance(part, dict):
             continue
         if part.get("errors"):
             return True
-        for kind in ("patch", "create"):
-            r = part.get(kind)
-            if r and (r.get("http_status", 200) >= 400 or (r.get("result") or {}).get("errors")):
+        for name in ("text", "rules", "create"):
+            r = part.get(name)
+            if r and (r.get("http_status", 200) >= 400 or r.get("errors") or (r.get("result") or {}).get("errors")):
                 return True
     return False
 

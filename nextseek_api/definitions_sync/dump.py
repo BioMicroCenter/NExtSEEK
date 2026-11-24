@@ -77,7 +77,7 @@ def bundle(q, dmac: str, seek: str) -> dict:
           "unit_id": ("unit", un), "isa_tag_id": ("isa_tag", tg)}
     attrs = []
     for r in table(S, "sample_attributes"):
-        row = {"_created_at": r.get("created_at"), "_updated_at": r.get("updated_at")}
+        row = {"_id": r.get("id"), "_created_at": r.get("created_at"), "_updated_at": r.get("updated_at")}
         for k, v in r.items():
             if k in ("id", "created_at", "updated_at", "template_attribute_id"):
                 continue

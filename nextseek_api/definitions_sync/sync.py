@@ -19,6 +19,10 @@ import json
 import re
 
 ATTR_PATCHABLE = ("description", "required", "attribute_type", "is_title", "unit", "vocab", "linked_sample_type")
+# The attribute API's field for each bundle column (the rest are spelled alike); required and is_title go as booleans.
+API_FIELD = {"attribute_type": "sample_attribute_type", "vocab": "sample_controlled_vocab"}
+# Changes the attribute API always refuses (planner.enforce_uid_protection): UID stays required and the title.
+UID_LOCKED = ("required", "is_title")
 ATTR_REFS = {"vocab": "seek.sample_controlled_vocabs", "unit": "seek.units", "linked_sample_type": "seek.sample_types"}
 ST_HAND = ("name", "description", "Tags", "required_metadata", "standard_metadata", "repository_attributes",
            "sampletype_file_link")
@@ -29,7 +33,7 @@ ASSAY_HAND = ("Description", "Tags", "Alternative_Assay_Names", "Required_Parent
               "AssaySheet_Link", "AssociatedRepository", "Critical_Attributes", "Protocols_Phrases", "Protocols_UIDs")
 KEYS = {"seek.sample_types": ("title",), "seek.sample_attributes": ("sample_type", "title"),
         "seek.sample_attribute_types": ("title",), "seek.sample_controlled_vocabs": ("title",),
-        "seek.sample_controlled_vocab_terms": ("vocab", "label"), "seek.units": ("title",),
+        "seek.sample_controlled_vocab_terms": ("vocab", "label"), "seek.units": ("title", "symbol"),
         "dmac.sample_types_context": ("sample_type",), "dmac.assay_context": ("assay_name",),
         "dmac.internal_assays": ("internal_assay_title",), "dmac.clades": ("title",),
         "dmac.sample_types_clades": ("sample_type",), "dmac.sample_attributes_unique": ("sample_type", "field_name")}
@@ -83,7 +87,26 @@ def target_order(prod: list[str], dev: list[str], permute: bool = True) -> list[
 
 
 def _ordered(attrs):
-    return [a["title"] for a in sorted(attrs, key=lambda a: (a.get("pos") is None, a.get("pos") or 0, a["title"]))]
+    """Titles in the attribute API's order: position, NULL last, ties by row id (``_id``, this box's own)."""
+    return [a["title"] for a in sorted(attrs, key=lambda a: (a.get("pos") is None, a.get("pos") or 0,
+                                                             a.get("_id") or 0, a["title"]))]
+
+
+def _api_value(col, v):
+    return bool(v) if col in ("required", "is_title") else norm(v) if col == "description" else v
+
+
+def duplicates(b) -> dict:
+    """Keys more than one row of a table share on this box: the sync acts on none of them."""
+    out = {}
+    for table, key in KEYS.items():
+        seen, dup = set(), set()
+        for r in _rows(b, table):
+            k = tuple(r.get(c) for c in key)
+            (dup if k in seen else seen).add(k)
+        if dup:
+            out[table] = sorted((list(k) for k in dup), key=str)
+    return out
 
 
 def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
@@ -96,7 +119,8 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
            "meanings": [], "context_sample_types": {"create": [], "update": {}},
            "context_assays": {"create": [], "update": {}},
            "waiting": {"attributes": {}, "context_sample_types": [], "clades": []}, "blocked": [], "held": [],
-           "expected": {"dev_only": {}, "prod_only": {}, "derived_cells": [], "case_only": [], "seek_own": {}}}
+           "expected": {"dev_only": {}, "prod_only": {}, "derived_cells": [], "case_only": [], "seek_own": {},
+                        "api_refuses": [], "duplicate_keys": {"prod": duplicates(prod), "dev": duplicates(dev)}}}
     exp = out["expected"]
     for table in KEYS:
         p, d = _index(prod, table), _index(dev, table)
@@ -133,10 +157,15 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
                 exp["seek_own"][col] = exp["seek_own"].get(col, 0) + 1
 
     # --- attributes --------------------------------------------------------------------------------------------
-    present = {t: {k[0] for k in _index(dev, t)} for t in ATTR_REFS.values()}
+    present = {t: {k[0] for k in _index(dev, t)} for t in ATTR_REFS.values()}   # units: by title
     present["seek.sample_attribute_types"] = {k[0] for k in _index(dev, "seek.sample_attribute_types")}
+    dup_types = {k[0] for side in ("prod", "dev") for k in exp["duplicate_keys"][side].get("seek.sample_attributes", [])}
     for t in sorted(set(p_attrs) & dev_titles):
         if is_held("seek.sample_types", [t]):
+            continue
+        if t in dup_types:
+            out["blocked"].append({"table": "seek.sample_attributes", "key": [t],
+                                   "reason": "two attributes of this type share a title"})
             continue
         pa = {a["title"]: a for a in p_attrs[t]}
         da = {a["title"]: a for a in d_attrs.get(t, [])}
@@ -149,7 +178,10 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
                 if is_held("seek.sample_attributes", [t, title], col):
                     out["held"].append({"table": "seek.sample_attributes", "key": [t, title], "column": col})
                     continue
-                changes[col] = norm(pa[title].get(col)) if col == "description" else pa[title].get(col)
+                if title == "UID" and col in UID_LOCKED:
+                    exp["api_refuses"].append([t, title, col])
+                    continue
+                changes[API_FIELD.get(col, col)] = _api_value(col, pa[title].get(col))
             for col in ("template_column_index", "original_accessor_name", "pid", "isa_tag", "allow_cv_free_text"):
                 if norm(pa[title].get(col)) != norm(da[title].get(col)):
                     exp["seek_own"][col] = exp["seek_own"].get(col, 0) + 1
@@ -234,7 +266,11 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     # --- context rows ------------------------------------------------------------------------------------------
     def context(table, key_col, hand, derived, bucket, exists):
         p, d = _index(prod, table), _index(dev, table)
+        dup = {k[0] for side in ("prod", "dev") for k in exp["duplicate_keys"][side].get(table, [])}
         for (code,), row in sorted(p.items()):
+            if code in dup:
+                out["blocked"].append({"table": table, "key": [code], "reason": "more than one row has this key"})
+                continue
             if (code,) not in d:
                 if not exists(code):
                     out["waiting"][bucket].append(code)
@@ -289,8 +325,9 @@ def simulate(p: dict, dev: dict) -> dict:
     for t, work in p["attributes"].items():
         rows = {a["title"]: a for a in T["seek.sample_attributes"] if a["sample_type"] == t}
         working = _ordered(rows.values())
+        back = {v: k for k, v in API_FIELD.items()}
         for patch in work["patches"]:      # as the attribute API applies them: one after another
-            ch = dict(patch["changes"])
+            ch = {back.get(k, k): (int(v) if k in ("required", "is_title") else v) for k, v in patch["changes"].items()}
             if "pos" in ch:
                 working.remove(patch["attribute"])
                 working.insert(ch.pop("pos") - 1, patch["attribute"])
