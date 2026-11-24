@@ -69,7 +69,7 @@ as `lineage_complete: false`, never the requested samples.
 `definitions/export` (`DefinitionsExportViewSet` in `nextseek_api/services/definitions_export.py`)
 is the whole sample type and assay catalog in one call. `definitions/sample_types` and
 `definitions/assays` (`nextseek_api/services/definitions_admin.py`) are the Definitions admin
-page's superuser writes: one row's hand columns, never a column graph_sync's context step derives;
+page's superuser writes: one row's hand columns (including `when_to_use` and `similar_types`, added by migration 0036 and read with raw SQL, not on the Django model), never a column graph_sync's context step derives;
 the same module's `attention` builds the page's Needs attention list without reading the graph.
 
 *The chat pair*: `nextseek_api/services/assistant.py:276` with 18 actions, and

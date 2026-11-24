@@ -12,6 +12,12 @@ The catalog context NExtSEEK's tables are built from. Two rules, by table:
   `--emit update --snapshot-copy`; without that flag the update refuses these two tables.
   Before the first snapshot, the rows git holds that production lacks land there once, with a
   signed-off `--emit update --snapshot-copy`.
+- **Two hand columns on both tables, `when_to_use` and `similar_types`.** `when_to_use` is plain text
+  ("Use this when ...; use X instead when ..."); `similar_types` is a list of `{"code", "differs"}`
+  (JSON text in the table, parsed in these files; sample type codes, or assay names). Both are written on the
+  Definitions page, added to a box by `nextseek_api` migration 0036 (`--emit update` adds them too), and `null`
+  here until production holds text. Nothing in Nessie reads them yet. `--emit snapshot` keeps each file's key
+  order and appends a column the file lacks.
 - **`projects.json` and `assay_mappings.json` are still hand-owned here.** Edit these files; do not
   edit their tables directly. Whatever is in these files is what the database will hold.
 
