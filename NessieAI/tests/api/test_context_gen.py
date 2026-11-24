@@ -101,8 +101,12 @@ def test_columns_match_the_fixtures_that_define_them():
     are independent of `cg.DDL`. `test_every_column_is_one_the_runtime_actually_reads`,
     below, checks the same columns against the consumer.
     """
-    guide = {"when_to_use", "similar_types"}       # hand columns of migration 0036, on neither fixture
-    assert set(cg.COLUMNS["assays"]) == _assay_seed_columns() | guide
+    guide = {"when_to_use", "similar_types"}       # hand columns of migration 0036, not on the model
+    # The installer creates assay_context when a box lacks it, possibly after 0036 has run, so it carries them too,
+    # as does the script that writes it.
+    assert set(cg.COLUMNS["assays"]) == _assay_seed_columns()
+    assert set(_ddl_columns(_repo(Path("scripts/generate_assay_context_seed.py")), "assay_context")) == \
+        _assay_seed_columns()
     assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"} | guide
     assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns()
     # Everything the fixtures do not name is declared as new, with a reason.

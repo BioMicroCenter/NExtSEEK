@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS assay_context (
   Protocols_Phrases            TEXT         NULL,
   Protocols_UIDs               TEXT         NULL,
   internal_assay_id            INT          NULL,
+  when_to_use                  TEXT         NULL,
+  similar_types                TEXT         NULL,
   KEY idx_assay_name (assay_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
