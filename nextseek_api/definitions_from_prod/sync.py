@@ -24,13 +24,17 @@ API_FIELD = {"attribute_type": "sample_attribute_type", "vocab": "sample_control
 # Changes the attribute API always refuses (planner.enforce_uid_protection): UID stays required and the title.
 UID_LOCKED = ("required", "is_title")
 ATTR_REFS = {"vocab": "seek.sample_controlled_vocabs", "unit": "seek.units", "linked_sample_type": "seek.sample_types"}
+# Hand columns dev may hold before production does: a source bundle without them skips them, and a null or empty
+# source value never blanks dev's text (it is listed as a dev-only cell instead).
+GUIDE = ("when_to_use", "similar_types")
 ST_HAND = ("name", "description", "Tags", "required_metadata", "standard_metadata", "repository_attributes",
-           "sampletype_file_link")
+           "sampletype_file_link", *GUIDE)
 ST_DERIVED = ("clade", "possible_metadata_fields", "parent_sampletypes", "child_sampletypes",
               "associated_assay_parents", "associated_assay_children")
 ASSAY_HAND = ("Description", "Tags", "Alternative_Assay_Names", "Required_Parent_Sample_Types",
               "Optional_Parent_Sample_Types", "Children_Sample_Types", "Parent_Clade_Type", "Child_Clade_Type",
-              "AssaySheet_Link", "AssociatedRepository", "Critical_Attributes", "Protocols_Phrases", "Protocols_UIDs")
+              "AssaySheet_Link", "AssociatedRepository", "Critical_Attributes", "Protocols_Phrases", "Protocols_UIDs",
+              *GUIDE)
 KEYS = {"seek.sample_types": ("title",), "seek.sample_attributes": ("sample_type", "title"),
         "seek.sample_attribute_types": ("title",), "seek.sample_controlled_vocabs": ("title",),
         "seek.sample_controlled_vocab_terms": ("vocab", "label"), "seek.units": ("title", "symbol"),
@@ -148,7 +152,7 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
            "meanings": [], "context_sample_types": {"create": [], "update": {}},
            "context_assays": {"create": [], "update": {}},
            "waiting": {"attributes": {}, "context_sample_types": [], "clades": []}, "blocked": [], "held": [],
-           "expected": {"dev_only": {}, "prod_only": {}, "derived_cells": [], "case_only": [], "seek_own": {},
+           "expected": {"dev_only": {}, "prod_only": {}, "derived_cells": [], "dev_only_cells": [], "case_only": [], "seek_own": {},
                         "api_refuses": [], "duplicate_keys": {"prod": duplicates(prod), "dev": duplicates(dev)},
                         "seek_type_text": [], "tier_titles_missing": [], "unused_holds": []}}
     exp = out["expected"]
@@ -374,6 +378,10 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
                 continue
             cells = {}
             for c in hand:
+                if c in GUIDE and (c not in row or norm(row[c]) is None):
+                    if c in row and norm(d[(code,)].get(c)) is not None:
+                        exp["dev_only_cells"].append([table, code, c])
+                    continue
                 if c in tiers:
                     if tiers[c] == _list(d[(code,)].get(c)):
                         continue

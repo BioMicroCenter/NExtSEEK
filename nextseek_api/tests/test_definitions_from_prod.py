@@ -509,3 +509,71 @@ def test_a_seek_title_with_a_trailing_space_still_counts_for_the_tiers():
     p = sync.plan(prod, dev)
     assert p["expected"]["tier_titles_missing"] == []
     assert p["context_sample_types"]["update"] == {"TIS": {"standard_metadata": "Maker"}}
+
+
+# --- when_to_use and similar_types: hand columns that dev may hold before production does -------------------------
+
+GUIDE = {"when_to_use": "Use this when a strain.", "similar_types": '[{"code": "TIS", "differs": "a tissue"}]'}
+
+
+def test_a_guide_column_the_source_bundle_lacks_is_skipped_and_one_it_has_is_copied():
+    prod, dev = base()
+    dev["tables"]["dmac.sample_types_context"][0].update(GUIDE)     # prod rows carry no such key at all
+    p = sync.plan(prod, dev)
+    assert p["context_sample_types"]["update"] == {} and p["expected"]["dev_only_cells"] == []
+    prod["tables"]["dmac.sample_types_context"][0].update(when_to_use="Use this when tissue.")
+    prod["tables"]["dmac.assay_context"][0]["similar_types"] = GUIDE["similar_types"]
+    p = sync.plan(prod, dev)
+    assert p["context_sample_types"]["update"] == {"TIS": {"when_to_use": "Use this when tissue."}}
+    assert p["context_assays"]["update"] == {"RNA Extraction": {"similar_types": GUIDE["similar_types"]}}
+
+
+def test_a_null_or_empty_source_never_blanks_dev_and_is_listed_as_a_dev_only_cell():
+    prod, dev = base()
+    dev["tables"]["dmac.sample_types_context"][0].update(GUIDE)
+    dev["tables"]["dmac.assay_context"][0]["when_to_use"] = "dev text"
+    prod["tables"]["dmac.sample_types_context"][0].update(when_to_use=None, similar_types="  ")
+    prod["tables"]["dmac.assay_context"][0]["when_to_use"] = ""
+    p = sync.plan(prod, dev)
+    assert p["context_sample_types"]["update"] == {} and p["context_assays"]["update"] == {}
+    assert p["expected"]["dev_only_cells"] == [["dmac.sample_types_context", "TIS", "when_to_use"],
+                                               ["dmac.sample_types_context", "TIS", "similar_types"],
+                                               ["dmac.assay_context", "RNA Extraction", "when_to_use"]]
+    assert no_actions(p)
+    # a null on both sides is nothing; the other hand columns still clear on a null (test above)
+    prod, dev = base()
+    prod["tables"]["dmac.sample_types_context"][0]["when_to_use"] = None
+    assert sync.plan(prod, dev)["expected"]["dev_only_cells"] == []
+
+
+def test_guide_columns_create_with_a_new_row_and_the_plan_settles_after_it_lands():
+    prod, dev = base()
+    prod["tables"]["dmac.sample_types_context"][0].update(GUIDE)
+    prod["tables"]["dmac.assay_context"][0]["when_to_use"] = "Use this when DNA."
+    p = sync.plan(prod, dev)
+    assert p["context_sample_types"]["update"] == {"TIS": GUIDE}
+    assert no_actions(sync.plan(prod, sync.simulate(p, dev)))
+    prod["tables"]["dmac.sample_types_context"].append(ctx("PTN", **GUIDE))
+    for b in (prod, dev):
+        b["tables"]["seek.sample_types"].append({"title": "PTN"})
+    created = sync.plan(prod, dev)["context_sample_types"]["create"]
+    assert created[0]["when_to_use"] == GUIDE["when_to_use"] and created[0]["similar_types"] == GUIDE["similar_types"]
+
+
+def test_apply_writes_the_guide_columns_for_both_tables(db, monkeypatch):
+    from nextseek_api.graph_sync import sources
+    from nextseek_api.tests.test_services_definitions_admin import SEEK_ATTRS, SEEK_TYPES, make_tables
+    from django.db import connection
+    make_tables()
+    monkeypatch.setattr(sources, "sample_types", lambda: SEEK_TYPES)
+    monkeypatch.setattr(sources, "sample_attributes", lambda: SEEK_ATTRS)
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO sample_types_context (sample_type) VALUES ('BAC')")
+        cur.execute("INSERT INTO assay_context (id, assay_name) VALUES (3, 'DNA Extraction')")
+    assert applier.context_sample_types({"create": [], "update": {"BAC": GUIDE}})["errors"] == []
+    assert applier.context_assays({"create": [], "update": {"DNA Extraction": GUIDE}})["errors"] == []
+    with connection.cursor() as cur:
+        cur.execute("SELECT when_to_use, similar_types FROM sample_types_context")
+        assert cur.fetchone() == (GUIDE["when_to_use"], GUIDE["similar_types"])
+        cur.execute("SELECT when_to_use, similar_types FROM assay_context")
+        assert cur.fetchone() == (GUIDE["when_to_use"], GUIDE["similar_types"])

@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import connections, transaction
 
+from nextseek_api.definitions_from_prod.sync import GUIDE
 from nextseek_api.graph_sync import hooks
 
 JOB_POLL_S = 30
@@ -239,7 +240,7 @@ def context_sample_types(work: dict) -> dict:
             if text:
                 da.update_sample_type(row["sample_type"], DefinitionSampleTypeUpdateRequest(**text))
             step = "other"
-            other = {c: (cells[c] or None) for c in ("repository_attributes", "sampletype_file_link") if c in cells}
+            other = {c: (cells[c] or None) for c in ("repository_attributes", "sampletype_file_link", *GUIDE) if c in cells}
             if other:
                 da._write_sample_type(row["id"], other)
             step = "tiers"
