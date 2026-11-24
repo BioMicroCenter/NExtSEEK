@@ -12,7 +12,7 @@ from .attributes.models_db import (  # noqa: F401
 # Pydantic models for API request/response validation (JSON:API + SOPs)
 from typing import Any, Dict, List, Optional, Literal, Union, Callable
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 # Import SOP DB helper to resolve NExtSEEK UID -> SEEK id when provided in payloads
 from seek.dbtable_sops import DBtable_sops
@@ -3310,19 +3310,42 @@ class DefinitionTiers(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
+class DefinitionSimilarType(BaseModel):
+    """One look-alike of a definition row: its code (a sample type title, or an assay name) and how it differs."""
+    code: str = Field(min_length=1, max_length=255)
+    differs: str = Field(description="one plain sentence on how this one differs from the row")
+
+    model_config = ConfigDict(extra='forbid')
+
+    @field_validator('code', 'differs')
+    @classmethod
+    def _not_blank(cls, v):
+        if not v.strip():
+            raise ValueError("must not be blank")
+        return v.strip()
+
+
+_WHEN_TO_USE_DESC = 'plain text: "Use this when ...; use X instead when ..."'
+_SIMILAR_TYPES_DESC = ("look-alikes as a list of {code, differs}; [] clears it. For a sample type each code is a "
+                       "SEEK sample type title, for an assay an assay name; none may be the row itself")
+
+
 class DefinitionSampleTypeUpdateRequest(BaseModel):
     """Hand text of one sample_types_context row; a field left out is left as it is."""
     name: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     tags: Optional[str] = Field(default=None, description="comma-separated, as the Tags column holds them")
     tiers: Optional[DefinitionTiers] = None
+    when_to_use: Optional[str] = Field(default=None, description=_WHEN_TO_USE_DESC)
+    similar_types: Optional[List[DefinitionSimilarType]] = Field(default=None, description=_SIMILAR_TYPES_DESC)
 
     model_config = ConfigDict(extra='forbid')
 
     @model_validator(mode='after')
     def _something(self):
-        if all(getattr(self, f) is None for f in ("name", "description", "tags", "tiers")):
-            raise ValueError("send at least one of name, description, tags, tiers")
+        if all(getattr(self, f) is None for f in ("name", "description", "tags", "tiers", "when_to_use",
+                                                  "similar_types")):
+            raise ValueError("send at least one of name, description, tags, tiers, when_to_use, similar_types")
         return self
 
 
@@ -3340,6 +3363,8 @@ class DefinitionAssayUpdateRequest(BaseModel):
     required_parents: Optional[str] = Field(default=None, description="sample type codes, e.g. 'TIS or CEL, AB'")
     optional_parents: Optional[str] = None
     children: Optional[str] = None
+    when_to_use: Optional[str] = Field(default=None, description=_WHEN_TO_USE_DESC)
+    similar_types: Optional[List[DefinitionSimilarType]] = Field(default=None, description=_SIMILAR_TYPES_DESC)
 
     model_config = ConfigDict(extra='forbid')
 

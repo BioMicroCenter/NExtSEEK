@@ -11,7 +11,8 @@ from nextseek_api.services import definitions_admin as da
 from seek.models import Sample_types_context
 
 ASSAY_COLS = ("assay_name", "internal_assay_id", "Description", "Tags", "Alternative_Assay_Names",
-              "Required_Parent_Sample_Types", "Optional_Parent_Sample_Types", "Children_Sample_Types")
+              "Required_Parent_Sample_Types", "Optional_Parent_Sample_Types", "Children_Sample_Types",
+              "when_to_use", "similar_types")
 SEEK_TYPES = [{"id": 7, "title": "BAC"}, {"id": 8, "title": "TIS"}, {"id": 9, "title": "D.BSRA"},
               {"id": 10, "title": "A.ATAC"}, {"id": 11, "title": "DNA"}, {"id": 12, "title": "CEL"}]
 SEEK_ATTRS = [{"sample_type_id": 7, "title": "UID", "required": True},
@@ -24,7 +25,9 @@ def make_tables():
     cols = ", ".join(f"{f.column} {f.db_type(connection)}" for f in Sample_types_context._meta.concrete_fields
                      if not f.primary_key)
     with connection.cursor() as cur:
-        cur.execute(f"CREATE TABLE IF NOT EXISTS sample_types_context (id INTEGER PRIMARY KEY, {cols})")
+        # when_to_use and similar_types are hand columns the model does not carry (migration 0036 adds them on a box).
+        cur.execute("CREATE TABLE IF NOT EXISTS sample_types_context (id INTEGER PRIMARY KEY, "
+                    f"{cols}, when_to_use TEXT, similar_types TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS assay_context (id INTEGER PRIMARY KEY, "
                     + ", ".join(f"{c} TEXT" for c in ASSAY_COLS) + ")")
         cur.execute("CREATE TABLE IF NOT EXISTS internal_assays (id INTEGER PRIMARY KEY, internal_assay_title TEXT)")
@@ -261,3 +264,73 @@ def test_would_drop_covers_every_removal_and_says_why():
     assert drops[("child_sampletypes", "RNA")] == "no definition or data backs it"
     assert drops[("standard_metadata", "Gone")] == "SEEK no longer has this field"
     assert ("standard_metadata", "Species") not in drops and ("possible_metadata_fields", "Notes") not in drops
+
+
+# --- when_to_use and similar_types -------------------------------------------------------------------------------
+
+SIMILAR = [{"code": "TIS", "differs": "tissue is the bulk piece, not a cultured strain"}]
+
+
+def test_a_sample_type_saves_when_to_use_and_similar_types_and_queues_context_only(tables):
+    r = _patch_type("BAC", {"when_to_use": "Use this when a strain is the sample; use TIS instead for a tissue.",
+                            "similar_types": SIMILAR})
+    assert r.status_code == 200
+    assert r.data["row"]["when_to_use"].startswith("Use this when")
+    assert r.data["row"]["similar_types"] == SIMILAR
+    with connection.cursor() as cur:
+        cur.execute("SELECT similar_types FROM sample_types_context WHERE sample_type = 'BAC'")
+        assert cur.fetchone()[0] == '[{"code": "TIS", "differs": "tissue is the bulk piece, not a cultured strain"}]'
+    assert tables == [("context", "*")]            # the SampleType node reads neither column
+
+
+def test_similar_types_keep_non_ascii_and_an_empty_list_clears(tables):
+    r = _patch_type("BAC", {"similar_types": [{"code": "TIS", "differs": "TGF-β treated, −1 to 1"}]})
+    assert r.data["row"]["similar_types"][0]["differs"] == "TGF-β treated, −1 to 1"
+    with connection.cursor() as cur:
+        cur.execute("SELECT similar_types FROM sample_types_context WHERE sample_type = 'BAC'")
+        assert "β" in cur.fetchone()[0]            # ensure_ascii=False
+    r = _patch_type("BAC", {"similar_types": [], "when_to_use": "  "})
+    assert r.data["row"]["similar_types"] is None and r.data["row"]["when_to_use"] is None
+
+
+@pytest.mark.parametrize("similar", [
+    [{"code": "TIS"}],                                           # differs missing
+    [{"code": "TIS", "differs": "   "}],                         # differs blank
+    [{"code": "TIS", "differs": "x", "extra": "y"}],             # unknown key
+    [{"differs": "x"}],                                          # code missing
+    ["TIS"],                                                     # not an object
+    [{"code": "BAC", "differs": "itself"}],                      # names the row itself
+    [{"code": "MOUSE", "differs": "not a SEEK title"}],          # not a SEEK sample type title
+])
+def test_a_bad_similar_entry_on_a_sample_type_is_422(tables, similar):
+    r = _patch_type("BAC", {"similar_types": similar})
+    assert r.status_code == 422 and tables == []
+
+
+def test_an_assay_saves_when_to_use_and_similar_types_by_assay_name_or_internal_title(tables):
+    sim = [{"code": "Library Prep", "differs": "prep makes libraries, this extracts DNA"},
+           {"code": "DNA Extraction", "differs": "x"}]
+    r = _patch_assay(3, {"when_to_use": "Use this when DNA is pulled from cells.", "similar_types": sim[:1]})
+    assert r.status_code == 200 and r.data["row"]["similar_types"] == sim[:1]       # an internal assay title
+    assert r.data["row"]["when_to_use"] == "Use this when DNA is pulled from cells."
+    assert tables == [("context", "*"), ("assay_map", "*")]
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO assay_context (id, assay_name) VALUES (4, 'Bacterial Extraction')")
+    r = _patch_assay(3, {"similar_types": [{"code": "Bacterial Extraction", "differs": "other starting material"}]})
+    assert r.status_code == 200                                                      # an assay_context name
+
+
+@pytest.mark.parametrize("similar", [
+    [{"code": "Library Prep"}], [{"code": "Library Prep", "differs": " "}],
+    [{"code": "Library Prep", "differs": "x", "why": "y"}],
+    [{"code": "DNA Extraction", "differs": "itself"}],                # the row's own name
+    [{"code": "Nothing", "differs": "no such assay"}],
+])
+def test_a_bad_similar_entry_on_an_assay_is_422(tables, similar):
+    r = _patch_assay(3, {"similar_types": similar})
+    assert r.status_code == 422 and tables == []
+
+
+def test_the_rows_are_returned_with_both_columns_even_when_unset(tables):
+    assert _patch_type("BAC", {"name": "x"}).data["row"]["similar_types"] is None
+    assert "when_to_use" in _patch_assay(3, {"description": "d"}).data["row"]

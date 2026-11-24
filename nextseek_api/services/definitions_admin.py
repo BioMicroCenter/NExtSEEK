@@ -16,6 +16,9 @@ Rules this module keeps:
   stays required.
 - **Codes are SEEK titles on this box.** Every code a designed column names must be a SEEK sample type title.
 - **Assays are keyed by row id**, not name: ``assay_context`` carries the same name on more than one row.
+- **Look-alikes are checked.** ``similar_types`` (JSON text, a list of ``{code, differs}``) names SEEK sample type
+  titles on a sample type row and assay names (``assay_context`` or ``internal_assays``) on an assay row, never the
+  row itself. ``when_to_use`` is plain text. Neither is read by the SampleType node, so neither queues ``catalog``.
 - **After the commit, queue the syncs.** ``context`` always; ``catalog`` when a column the SampleType node reads
   changed (name, description, Tags); ``assay_map`` after any assay edit, because the Assay nodes and their catalog
   edges are built from ``assay_context``.
@@ -23,6 +26,7 @@ Rules this module keeps:
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 
 from django.conf import settings
@@ -60,6 +64,8 @@ TIER_COLUMNS = {"required": "required_metadata", "standard": "standard_metadata"
 ASSAY_TEXT = {"description": "Description", "tags": "Tags", "alternative_names": "Alternative_Assay_Names",
               "required_parents": "Required_Parent_Sample_Types",
               "optional_parents": "Optional_Parent_Sample_Types", "children": "Children_Sample_Types"}
+# Hand columns the Django model does not carry (migration 0036 adds them); read and written with raw SQL.
+GUIDE_COLUMNS = ("when_to_use", "similar_types")
 ASSAY_CODE_FIELDS = ("required_parents", "optional_parents", "children")
 
 
@@ -78,17 +84,50 @@ def _one(sql: str, params) -> dict | None:
         return dict(zip([d[0] for d in cur.description], row)) if row else None
 
 
-_ST_COLS = ", ".join(["id", "sample_type"] + list(SAMPLE_TYPE_TEXT.values()) + list(TIER_COLUMNS.values()))
+_ST_COLS = ", ".join(["id", "sample_type"] + list(SAMPLE_TYPE_TEXT.values()) + list(TIER_COLUMNS.values())
+                     + list(GUIDE_COLUMNS))
+
+
+def similar_list(raw) -> list | None:
+    """The stored JSON text of ``similar_types`` as a list; None when empty or not a list."""
+    try:
+        value = json.loads(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, list) and value else None
+
+
+def _shown(row: dict | None) -> dict | None:
+    if row is not None:
+        row["similar_types"] = similar_list(row.get("similar_types"))
+    return row
+
+
+def _guide_cells(body, own: str, valid: set[str]) -> dict:
+    """The when_to_use / similar_types cells a request sets. Every code must be in ``valid`` and none the row's own."""
+    cells = {}
+    if body.when_to_use is not None:
+        cells["when_to_use"] = body.when_to_use.strip() or None
+    if body.similar_types is not None:
+        codes = [e.code for e in body.similar_types]
+        if any(_norm(c) == _norm(own) for c in codes):
+            raise Invalid(f"similar_types may not name the row itself ({own!r})")
+        unknown = sorted({c for c in codes if c not in valid})
+        if unknown:
+            raise Invalid(f"similar_types names {unknown}, which this box does not have")
+        cells["similar_types"] = (json.dumps([e.model_dump() for e in body.similar_types], ensure_ascii=False)
+                                  if codes else None)
+    return cells
 
 
 def sample_type_row(code: str) -> dict | None:
     """The row for a code. MySQL may match it in another case or with trailing spaces, so callers read the row's
     own ``sample_type`` and address it by ``id`` from here on."""
-    return _one(f"SELECT {_ST_COLS} FROM sample_types_context WHERE sample_type = %s", [code])
+    return _shown(_one(f"SELECT {_ST_COLS} FROM sample_types_context WHERE sample_type = %s", [code]))
 
 
 def _sample_type_by_id(row_id: int) -> dict | None:
-    return _one(f"SELECT {_ST_COLS} FROM sample_types_context WHERE id = %s", [row_id])
+    return _shown(_one(f"SELECT {_ST_COLS} FROM sample_types_context WHERE id = %s", [row_id]))
 
 
 def seek_attribute_titles(code: str) -> tuple[list[str], set[str]]:
@@ -102,7 +141,8 @@ def seek_attribute_titles(code: str) -> tuple[list[str], set[str]]:
 
 def assay_row(row_id: int) -> dict | None:
     cols = ", ".join(f"{c} AS {f}" for f, c in ASSAY_TEXT.items())
-    return _one(f"SELECT id, assay_name, {cols} FROM assay_context WHERE id = %s", [row_id])
+    return _shown(_one(f"SELECT id, assay_name, {cols}, {', '.join(GUIDE_COLUMNS)} FROM assay_context "
+                       "WHERE id = %s", [row_id]))
 
 
 def _bad_codes(raw, titles: set[str]) -> list[str]:
@@ -153,6 +193,7 @@ def update_sample_type(code: str, body: DefinitionSampleTypeUpdateRequest) -> tu
         seek_titles, seek_required = seek_attribute_titles(row["sample_type"])
         _check_tiers(row, tiers, seek_titles, seek_required)
         cells.update({col: _cell(tiers.get(tier, [])) for tier, col in TIER_COLUMNS.items()})
+    cells.update(_guide_cells(body, row["sample_type"], {t["title"] for t in sources.sample_types()}))
     node_changed = any(row.get(col) != cells[col] for col in SAMPLE_TYPE_TEXT.values() if col in cells)
     _write_sample_type(row["id"], cells)
     return _sample_type_by_id(row["id"]), node_changed
@@ -190,7 +231,8 @@ def create_sample_type(code: str) -> dict:
 
 
 def update_assay(row_id: int, body: DefinitionAssayUpdateRequest) -> dict:
-    if assay_row(row_id) is None:
+    current = assay_row(row_id)
+    if current is None:
         raise LookupError(row_id)
     given = {f: getattr(body, f) for f in ASSAY_TEXT if getattr(body, f) is not None}
     titles = {t["title"] for t in sources.sample_types()}
@@ -199,6 +241,9 @@ def update_assay(row_id: int, body: DefinitionAssayUpdateRequest) -> dict:
     if bad:
         raise Invalid(f"not SEEK sample type titles on this box: {bad}")
     cells = {ASSAY_TEXT[f]: (v.strip() or None) for f, v in given.items()}
+    names = (set(_column("SELECT assay_name FROM assay_context"))
+             | set(_column("SELECT internal_assay_title FROM internal_assays"))) if body.similar_types else set()
+    cells.update(_guide_cells(body, current["assay_name"], names))
     _write_assay(row_id, cells)
     return assay_row(row_id)
 
@@ -316,10 +361,12 @@ class _SuperuserViewSet(viewsets.ViewSet):
 
 _ST_ROW = {"sample_type": "BAC", "name": "Bacteria Sample", "description": "A microbial strain used in an experiment.",
            "Tags": "bacteria, pathogen", "required_metadata": "UID, Name", "standard_metadata": "Species",
-           "possible_metadata_fields": "Notes"}
+           "possible_metadata_fields": "Notes", "when_to_use": "Use this when the sample is a cultured strain.",
+           "similar_types": [{"code": "TIS", "differs": "a bulk tissue piece, not a strain"}]}
 _ASSAY_ROW = {"id": 3, "assay_name": "DNA Extraction", "description": "DNA isolated from a sample.", "tags": "dna",
               "alternative_names": None, "required_parents": "BAC or CEL", "optional_parents": None,
-              "children": "DNA"}
+              "children": "DNA", "when_to_use": "Use this when DNA is pulled from cells.",
+              "similar_types": [{"code": "Library Prep", "differs": "makes libraries from DNA this one extracts"}]}
 
 
 class DefinitionSampleTypesViewSet(_SuperuserViewSet):
@@ -336,6 +383,10 @@ class DefinitionSampleTypesViewSet(_SuperuserViewSet):
                            value={"description": "A microbial strain used in an experiment.",
                                   "tiers": {"required": ["UID", "Name"], "standard": ["Species"],
                                             "possible": ["Notes"]}}),
+            OpenApiExample("Say when to use it", request_only=True,
+                           value={"when_to_use": "Use this when the sample is a cultured strain; use TIS instead "
+                                                 "when it is a piece of tissue.",
+                                  "similar_types": [{"code": "TIS", "differs": "a bulk tissue piece, not a strain"}]}),
             OpenApiExample("Saved", response_only=True, value={"row": _ST_ROW, "enqueued": ["context", "catalog"]}),
         ],
     )
@@ -398,6 +449,11 @@ class DefinitionAssaysViewSet(_SuperuserViewSet):
         examples=[
             OpenApiExample("Allow CEL as a parent", request_only=True,
                            value={"required_parents": "BAC or CEL", "children": "DNA"}),
+            OpenApiExample("Say when to use it", request_only=True,
+                           value={"when_to_use": "Use this when DNA is pulled from cells; use Library Prep instead "
+                                                 "when the DNA is already extracted.",
+                                  "similar_types": [{"code": "Library Prep",
+                                                     "differs": "starts from extracted DNA"}]}),
             OpenApiExample("Saved", response_only=True, value={"row": _ASSAY_ROW,
                                                                "enqueued": ["context", "assay_map"]}),
         ],
