@@ -343,3 +343,9 @@ def test_a_line_break_in_differs_is_folded_so_the_page_keeps_one_look_alike_per_
     with connection.cursor() as cur:
         cur.execute("SELECT similar_types FROM sample_types_context WHERE sample_type = 'BAC'")
         assert da.similar_text(cur.fetchone()[0]) == "TIS | a tissue piece, not a strain"
+
+
+def test_the_page_text_shows_an_entry_written_outside_the_api_instead_of_failing():
+    """A raw write (the sync, `context_gen --emit update --snapshot-copy`) is not shape-checked; the page still
+    renders, and the odd entry is shown so that saving it answers 422 rather than dropping it unseen."""
+    assert da.similar_text('["TIS", {"code": "DNA", "differs": "x"}]') == "TIS\nDNA | x"
