@@ -30,6 +30,7 @@ DDL_RUNPYTHON_MIGRATIONS = [
     "nextseek_api.migrations.0025_cc_turn",
     "nextseek_api.migrations.0035_sample_type_connections",
     "nextseek_api.migrations.0034_chat_text_utf8mb4",
+    "nextseek_api.migrations.0036_definitions_guide_columns",
 ]
 
 
