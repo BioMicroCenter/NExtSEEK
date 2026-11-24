@@ -169,8 +169,8 @@ def _text(r: dict) -> str:
         + [f"production only {t} {len(v)}" for t, v in e["prod_only"].items()]
         + [f"derived context cells {len(e['derived_cells'])}", f"case-only names {len(e['case_only'])}"]
         + [f"SEEK's own {k} {v}" for k, v in e["seek_own"].items()]
-        + [f"{k.replace('_', ' ')} {len(e[k])}" for k in ("api_refuses", "seek_type_text", "tier_titles_missing")
-           if e.get(k)]))
+        + [f"{k.replace('_', ' ')} {len(e[k])}" for k in ("api_refuses", "seek_type_text", "tier_titles_missing",
+                                                         "dev_only_cells") if e.get(k)]))
     if e.get("unused_holds"):
         lines.append(f"hold entries this plan never read (check the key): {json.dumps(e['unused_holds'])}")
     for key in ("preview", "applied"):

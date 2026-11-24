@@ -580,3 +580,12 @@ def test_apply_writes_the_guide_columns_for_both_tables(db, monkeypatch):
         assert cur.fetchone() == (GUIDE["when_to_use"], GUIDE["similar_types"])
         cur.execute("SELECT when_to_use, similar_types FROM assay_context")
         assert cur.fetchone() == (GUIDE["when_to_use"], GUIDE["similar_types"])
+
+
+def test_the_dry_run_text_counts_the_dev_only_guide_cells():
+    from nextseek_api.management.commands.definitions_from_prod import _text
+    prod, dev = base()
+    dev["tables"]["dmac.sample_types_context"][0].update(GUIDE)
+    text = _text({"mode": "dry run", "prod_exported_at": "now", "plan": sync.plan(prod, dev)})
+    assert "dev only cells 2" in text
+    assert "dev only cells" not in _text({"mode": "dry run", "prod_exported_at": "now", "plan": sync.plan(*base())})

@@ -96,7 +96,8 @@ Read `dry.json` and show the operator, in plain words:
   creates rewrite.
 - `plan.blocked`, `plan.held` (every hold entry appears; `expected.unused_holds` lists the ones never read),
   `plan.waiting`, and `plan.expected` (rows only the target has, derived context columns, SEEK's own columns,
-  vocabularies, case-only names, `api_refuses`, `seek_type_text`, `tier_titles_missing`).
+  vocabularies, case-only names, `api_refuses`, `seek_type_text`, `tier_titles_missing`, and
+  `dev_only_cells`: dev's `when_to_use` / `similar_types` text that production does not hold).
 
 Stop for the operator's go.
 
