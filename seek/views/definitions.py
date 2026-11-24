@@ -20,7 +20,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from nextseek_api.graph_sync import context_derived, sources
 from nextseek_api.graph_sync.models_db import SampleTypeConnectionRow
 from nextseek_api.services.context_catalog import CLADE_ORDER, UNASSIGNED_CLADE
-from nextseek_api.services.definitions_admin import attention, stored_tiers
+from nextseek_api.services.definitions_admin import attention, similar_text, stored_tiers
 from seek.models import Sample_types_context
 
 from ..decorators import requires_seek_login_redirect, requires_supervisor
@@ -34,7 +34,7 @@ ASSAY_SQL = ("SELECT id, assay_name, internal_assay_id, Description AS descripti
              "Alternative_Assay_Names AS alternative_names, "
              "Required_Parent_Sample_Types AS Required_Parent_Sample_Types, "
              "Optional_Parent_Sample_Types AS Optional_Parent_Sample_Types, "
-             "Children_Sample_Types AS Children_Sample_Types FROM assay_context ORDER BY assay_name, id")
+             "Children_Sample_Types AS Children_Sample_Types, when_to_use, similar_types FROM assay_context ORDER BY assay_name, id")
 
 
 def _rows(sql: str) -> list[dict]:
@@ -108,8 +108,10 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
         fields += [{"title": t, "tier": "required" if t in required else "possible", "seek_required": t in required,
                     "stale": False, "new": True} for t in titles if t not in stored]
         code = row["sample_type"]
+        # The two guide columns are not on the Django model, so they come from raw SQL.
+        guide = _rows(f"SELECT when_to_use, similar_types FROM sample_types_context WHERE id = {int(row['id'])}")[0]
         ctx["type"] = {
-            "row": row,
+            "row": {**row, "when_to_use": guide["when_to_use"], "similar_text": similar_text(guide["similar_types"])},
             "fields": fields,
             "tiers": TIERS,
             "unbacked": [d for d in (needs["would_drop"] if needs else []) if d["sample_type"] == code
@@ -124,7 +126,7 @@ def load(selected_type: str | None, selected_assay: str | None) -> dict:
         }
     assay = next((a for a in assay_rows if str(a["id"]) == str(selected_assay)), None)
     if assay:
-        ctx["assay"] = {"row": assay,
+        ctx["assay"] = {"row": {**assay, "similar_text": similar_text(assay["similar_types"])},
                         "seen": sorted((c for c in conns if c["assay"] == assay["assay_name"]),
                                        key=lambda c: (c["parent"], c["child"]))}
     return ctx

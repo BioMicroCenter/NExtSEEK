@@ -153,3 +153,21 @@ def test_the_save_script_reports_drf_detail_and_the_http_status(catalog):
     html = render_page().content.decode()
     assert "res.j.detail" in html and "'Not saved (HTTP ' + res.code + ')'" in html
     assert "r.json().catch(" in html
+
+
+def test_when_to_use_and_similar_types_show_on_both_tabs_one_look_alike_per_line(catalog):
+    from django.db import connection
+    similar = '[{"code": "TIS", "differs": "a tissue piece <b>"}, {"code": "DNA", "differs": "extracted"}]'
+    with connection.cursor() as cur:
+        cur.execute("UPDATE sample_types_context SET when_to_use = 'Use this when a strain.', similar_types = %s "
+                    "WHERE sample_type = 'BAC'", [similar])
+        cur.execute("UPDATE assay_context SET when_to_use = 'Use this when DNA is pulled.', similar_types = %s "
+                    "WHERE id = 3", ['[{"code": "Library Prep", "differs": "starts from DNA"}]'])
+    html = render_page("/seek/admin/definitions/?type=BAC").content.decode()
+    assert 'name="when_to_use">Use this when a strain.</textarea>' in html
+    assert 'name="similar_types">TIS | a tissue piece &lt;b&gt;\nDNA | extracted</textarea>' in html
+    html = render_page("/seek/admin/definitions/?assay=3").content.decode()
+    assert 'name="when_to_use">Use this when DNA is pulled.</textarea>' in html
+    assert 'name="similar_types">Library Prep | starts from DNA</textarea>' in html
+    bare = render_page("/seek/admin/definitions/?type=TIS").content.decode()
+    assert 'name="when_to_use"></textarea>' in bare and 'name="similar_types"></textarea>' in bare

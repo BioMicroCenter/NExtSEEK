@@ -97,6 +97,11 @@ def similar_list(raw) -> list | None:
     return value if isinstance(value, list) and value else None
 
 
+def similar_text(raw) -> str:
+    """``similar_types`` as the page's textarea holds it: one ``code | differs`` per line."""
+    return "\n".join(f"{e.get('code', '')} | {e.get('differs', '')}" for e in similar_list(raw) or [])
+
+
 def _shown(row: dict | None) -> dict | None:
     if row is not None:
         row["similar_types"] = similar_list(row.get("similar_types"))
