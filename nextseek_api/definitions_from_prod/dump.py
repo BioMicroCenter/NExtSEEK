@@ -4,9 +4,9 @@ Two ways in, one function (``bundle``):
 - On a box whose image lacks this package (production today), fed over stdin into the app container, which holds
   the database credentials, so no secret leaves the box. Read only: one READ ONLY transaction, 60 s per statement:
 
-      timeout -k 10 300 docker exec -i nextseek /app/.venv/bin/python - < nextseek_api/definitions_sync/dump.py
+      timeout -k 10 300 docker exec -i nextseek /app/.venv/bin/python - < nextseek_api/definitions_from_prod/dump.py
 
-- In process, by ``manage.py definitions_sync``, through Django's ``default`` connection.
+- In process, by ``manage.py definitions_from_prod``, through Django's ``default`` connection.
 
 Standard library plus mysql-connector (in the app image). Foreign ids are resolved to titles on the box itself and
 dropped; fields starting with ``_`` are context (timestamps, per-box id checks, sample counts), never compared.

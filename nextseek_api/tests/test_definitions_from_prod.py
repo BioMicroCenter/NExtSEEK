@@ -1,10 +1,10 @@
-"""definitions_sync's plan: production's definitions onto dev, joined by code or title, never by id.
+"""definitions_from_prod's plan: production's definitions onto dev, joined by code or title, never by id.
 
-Synthetic bundles only (the shape ``definitions_sync.dump.bundle`` returns); no real catalog rows.
+Synthetic bundles only (the shape ``definitions_from_prod.dump.bundle`` returns); no real catalog rows.
 """
 import copy
 
-from nextseek_api.definitions_sync import sync
+from nextseek_api.definitions_from_prod import sync
 
 
 def attr(t, title, pos, **kw):
@@ -225,14 +225,14 @@ from unittest import mock
 import pytest
 from django.core.management import call_command
 
-from nextseek_api.definitions_sync import apply as applier
-from nextseek_api.management.commands import definitions_sync as cmd
+from nextseek_api.definitions_from_prod import apply as applier
+from nextseek_api.management.commands import definitions_from_prod as cmd
 
 
 def run(stdin_obj, *args):
     out, err = io.StringIO(), io.StringIO()
     with mock.patch.object(sys, "stdin", io.StringIO(json.dumps(stdin_obj))), pytest.raises(SystemExit) as ex:
-        call_command("definitions_sync", "--source", "-", *args, stdout=out, stderr=err)
+        call_command("definitions_from_prod", "--source", "-", *args, stdout=out, stderr=err)
     return ex.value.code, out.getvalue(), err.getvalue()
 
 

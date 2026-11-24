@@ -1,10 +1,10 @@
 """Copy production's definitions (sample types, attributes, the context tables, internal assays, clades, attribute
 meanings) onto this box. Dry run unless ``--apply``; a second ``--apply`` finds nothing to do.
 
-    manage.py definitions_sync --source PATH|-  [--seek-login NAME] [--project TITLE] [--json]
-    manage.py definitions_sync --source PATH|-  --apply --seek-login NAME [--wait S] [--json]
+    manage.py definitions_from_prod --source PATH|-  [--seek-login NAME] [--project TITLE] [--json]
+    manage.py definitions_from_prod --source PATH|-  --apply --seek-login NAME [--wait S] [--json]
 
-``--source`` is production's bundle as ``nextseek_api/definitions_sync/dump.py`` prints it, or
+``--source`` is production's bundle as ``nextseek_api/definitions_from_prod/dump.py`` prints it, or
 ``{"prod": <bundle>, "hold": [...], "project": "<title>"}`` with the hold list (cells that keep this box's value, each
 ``{"table", "key", "column"}``) and the project; ``-`` reads it from stdin. This box is read in process with the same function.
 
@@ -26,8 +26,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import connections
 
-from nextseek_api.definitions_sync import apply as applier
-from nextseek_api.definitions_sync import dump, sync
+from nextseek_api.definitions_from_prod import apply as applier
+from nextseek_api.definitions_from_prod import dump, sync
 
 
 def read_box() -> dict:
@@ -98,7 +98,7 @@ class Command(BaseCommand):
         prod, hold = (raw["prod"], raw.get("hold", [])) if "prod" in raw else (raw, [])
         project = o["project"] or raw.get("project")   # in the envelope, a title with spaces needs no shell quoting
         if "tables" not in prod:
-            log("refused: --source holds no bundle (no 'tables'): make it with nextseek_api/definitions_sync/dump.py")
+            log("refused: --source holds no bundle (no 'tables'): make it with nextseek_api/definitions_from_prod/dump.py")
             sys.exit(2)
         person = None
         if o["seek_login"]:
@@ -150,7 +150,7 @@ def _failed(applied: dict) -> bool:
 
 def _text(r: dict) -> str:
     p = r["plan"]
-    lines = [f"definitions_sync {r['mode']} (production read {r['prod_exported_at']})", "", "actions:"]
+    lines = [f"definitions_from_prod {r['mode']} (production read {r['prod_exported_at']})", "", "actions:"]
     lines += [f"  {k}: {v}" for k, v in p["counts"].items() if v]
     if not sync.action_count(p):
         lines.append("  none")
