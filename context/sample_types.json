@@ -14,7 +14,9 @@
     "associated_assay_parents": "Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ADCP",
@@ -31,7 +33,9 @@
     "associated_assay_parents": "Antibody-Dependent Cellular Phagocytosis Analysis, Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ADDCP",
@@ -48,7 +52,9 @@
     "associated_assay_parents": "Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ADMP",
@@ -65,7 +71,9 @@
     "associated_assay_parents": "Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ADNKA",
@@ -82,7 +90,9 @@
     "associated_assay_parents": "Antibody-Dependent NK Cell Activation Analysis, Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ADNP",
@@ -99,7 +109,9 @@
     "associated_assay_parents": "Antibody-Dependent Neutrophil Phagocytosis Analysis, Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ALN",
@@ -123,7 +135,9 @@
         "assembly": "A.ALN::Genome"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ATAC",
@@ -140,7 +154,9 @@
     "associated_assay_parents": "ATAC-Seq",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CCE",
@@ -157,7 +173,9 @@
     "associated_assay_parents": "Cancer Cell Extravasation Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CCI",
@@ -174,7 +192,9 @@
     "associated_assay_parents": "Cancer Cell Extravasation Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CHRM",
@@ -199,7 +219,9 @@
         "file checksum": "A.CHRM::Checksum_PrimaryData"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CLOT",
@@ -216,7 +238,9 @@
     "associated_assay_parents": "Clot Modeling Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CNV",
@@ -233,7 +257,9 @@
     "associated_assay_parents": "Copy Number Variation Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.COMC",
@@ -250,7 +276,9 @@
     "associated_assay_parents": "Comet Chip Analysis, CometChip Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CTSC",
@@ -267,7 +295,9 @@
     "associated_assay_parents": "PET/CT Scan Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CYCF",
@@ -284,7 +314,9 @@
     "associated_assay_parents": "cyCIF Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.CYTOF",
@@ -306,7 +338,9 @@
         "Workspace File": "A.CYTOF::File_PrimaryData"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.DBMM",
@@ -323,7 +357,9 @@
     "associated_assay_parents": "Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ELSA",
@@ -340,7 +376,9 @@
     "associated_assay_parents": "Area Under the Curve (AUC)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.FCRB",
@@ -357,7 +395,9 @@
     "associated_assay_parents": "FC Receptor Binding Analysis, Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.FLOW",
@@ -380,7 +420,9 @@
         "Workspace File": "A.FLOW::File_PrimaryData"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.FPCL",
@@ -397,7 +439,9 @@
     "associated_assay_parents": "Antibody Functional Profiling (Systems Serology)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.GEX",
@@ -422,7 +466,9 @@
         "file checksum": "A.GEX::Checksum_PrimaryData"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.HLA",
@@ -439,7 +485,9 @@
     "associated_assay_parents": "HLA Typing",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.ICM",
@@ -456,7 +504,9 @@
     "associated_assay_parents": "Ion Chromatography Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.IMG",
@@ -473,7 +523,9 @@
     "associated_assay_parents": "Imaging Analysis, MRI Analysis, Histopathology Analysis, RaDR Fluorescence Microscopy Image Machine Learning Analysis, Analyzed Spatial Proteomics",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.IMP",
@@ -498,7 +550,9 @@
         "pubmed_id": "A.IMP::PMID"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.LMX",
@@ -515,7 +569,9 @@
     "associated_assay_parents": "Luminex Data Processing",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.LUM",
@@ -532,7 +588,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.MIGR",
@@ -549,7 +607,9 @@
     "associated_assay_parents": "Migration Assay Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.MSEQ",
@@ -566,7 +626,9 @@
     "associated_assay_parents": "Methylation Calling",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.MSP",
@@ -592,7 +654,9 @@
         "pubmed_id": "A.MSP::PMID"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.MUSP",
@@ -609,7 +673,9 @@
     "associated_assay_parents": "Mutational Spectra Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.NMR",
@@ -626,7 +692,9 @@
     "associated_assay_parents": "Nuclear Magnetic Resonance Spectroscopy Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.PERM",
@@ -643,7 +711,9 @@
     "associated_assay_parents": "Permeability Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.PHP",
@@ -668,7 +738,9 @@
         "pubmed_id": "A.PHP::PMID"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.SCCL",
@@ -685,7 +757,9 @@
     "associated_assay_parents": "Single Cell Clustering Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.SCXP",
@@ -711,7 +785,9 @@
         "file checksum": "A.SCXP::Checksum_PrimaryData"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.SPC",
@@ -728,7 +804,9 @@
     "associated_assay_parents": "Spectroscopy Analysis, Mass Spectrometry Analysis",
     "associated_assay_children": "Computational Modeling",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.SPTX",
@@ -751,7 +829,9 @@
         "genome build/assembly": "A.SPTX::Link_Genome"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.TITR",
@@ -768,7 +848,9 @@
     "associated_assay_parents": "Antibody Titer Assay Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.VCF",
@@ -803,7 +885,9 @@
         "Project/Publication(s)": "A.VCF::PMID"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.VLT",
@@ -820,7 +904,9 @@
     "associated_assay_parents": "Voltammetry Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "A.WBLT",
@@ -837,7 +923,9 @@
     "associated_assay_parents": "Western Blot Analysis",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "AB",
@@ -854,7 +942,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": "Pathogen Challenge and Antibody Depletion, Flow Cytometry, Immunohistochemistry, ELISA, Bacterial Survivability Restriction Assay, Imaging, Antibody-Dependent Functional Profiling (ADFP), Device Imaging, CyTOF, Cyclic Immunofluorescence (CyCIF), Glycosylation Assay, Tissue Imaging, Multiplex Bead-Based Antibody Titer Panel Assay, Antibody-Dependent Cellular Phagocytosis (ADCP), Antibody-Dependent Complement Deposition (ADCD) Assay, Antibody-Dependent NK Cell Activation Assay, Antibody-Dependent Neutrophil Phagocytosis (ADNP)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "ABP",
@@ -871,7 +961,9 @@
     "associated_assay_parents": "Flow Cytometry, CyTOF, Cyclic Immunofluorescence (CyCIF), ELISA, Multiplex Bead-Based Antibody Titer Panel Assay, Tissue Imaging",
     "associated_assay_children": "Flow Cytometry, Library Creation, CyTOF, Cyclic Immunofluorescence (CyCIF), ELISA",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "BAC",
@@ -888,7 +980,9 @@
     "associated_assay_parents": "Bacterial Extraction, DNA Extraction",
     "associated_assay_children": "Pathogen Challenge and Antibody Depletion, DNA Extraction, Cell Culture, Bacterial Survivability Restriction Assay",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "CEL",
@@ -905,7 +999,9 @@
     "associated_assay_parents": "Cell Culture, Cell Extraction, Flow Cytometry, Cell Culture and Organoid Generation, Cell Isolation, Organ-on-a-Chip Device Fabrication, Patient-Derived Xenograft (PDX) Cell Line Generation, Cell Line Creation, Cell Sorting, iPSC Chondrogenic Differentiation and Chondronoid Formation",
     "associated_assay_children": "Cell Culture, Cell Culture and Organoid Generation, Cell Imaging, Flow Cytometry, Luminex Multiplex Immunoassay, Mass Spectrometry Proteomics, Cell Viability Assay, Cell Lysate Preparation, CometChip Assay, Organ-on-a-Chip Device Fabrication, Patient-Derived Xenograft (PDX) Cell Line Generation, DNA Extraction, Cell Isolation, RNA Extraction, ELISA, Antibody-Dependent Functional Profiling (ADFP), Bacterial Survivability Restriction Assay, Library Creation, Bacterial Extraction, Cell Extraction, CyTOF, Fourier Transform Infrared Spectroscopy (FTIR), Imaging, Immunopeptidomics, MALDI Mass Spectrometry Imaging (MALDI-MSI), Protein Extraction, SureQuant Analysis, Tissue Sectioning, Western Blot, iPSC Chondrogenic Differentiation and Chondronoid Formation",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "CEX",
@@ -922,7 +1018,9 @@
     "associated_assay_parents": "Tissue Collection, Cell Isolation, Protein Extraction, Cell Extraction",
     "associated_assay_children": "Luminex Multiplex Immunoassay, Western Blot, Mass Spectrometry Proteomics, RNA Extraction",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "CHM",
@@ -939,7 +1037,9 @@
     "associated_assay_parents": "Solid Phase Extraction (SPE), Agglutination Assay, Chemical Synthesis, Spectroscopy",
     "associated_assay_children": "Chemical Synthesis, X-ray Crystallography, Nuclear Magnetic Resonance Spectroscopy, Electron Paramagnetic Resonance (EPR) Spectroscopy, Electrochemical Sensor Assay, Gel Permeation Chromatography (GPC), Computational Chemistry Simulation Data, Spectroscopy, Mass Spectrometry, Chemical Challenge, Device Assembly, Voltammetry, Agglutination Assay, Imaging, Mass Spectrometry Proteomics, ELISA, Scanning Electron Microscopy, SureQuant Analysis, Tensiometry Assay, X-ray Photoelectron Spectroscopy",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ADCD",
@@ -956,7 +1056,9 @@
     "associated_assay_parents": "Antibody-Dependent Complement Deposition (ADCD) Assay, Antibody-Dependent Functional Profiling (ADFP)",
     "associated_assay_children": "Antibody Functional Profiling (Systems Serology)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ADCP",
@@ -973,7 +1075,9 @@
     "associated_assay_parents": "Antibody-Dependent Cellular Phagocytosis (ADCP), Antibody-Dependent Functional Profiling (ADFP)",
     "associated_assay_children": "Antibody-Dependent Cellular Phagocytosis Analysis, Antibody Functional Profiling (Systems Serology), Linear Mixed Model",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ADDCP",
@@ -990,7 +1094,9 @@
     "associated_assay_parents": "Antibody-Dependent Functional Profiling (ADFP)",
     "associated_assay_children": "Antibody Functional Profiling (Systems Serology)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ADMP",
@@ -1007,7 +1113,9 @@
     "associated_assay_parents": "Antibody-Dependent Functional Profiling (ADFP)",
     "associated_assay_children": "Antibody Functional Profiling (Systems Serology)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ADNKA",
@@ -1024,7 +1132,9 @@
     "associated_assay_parents": "Antibody-Dependent NK Cell Activation Assay, Antibody-Dependent Functional Profiling (ADFP)",
     "associated_assay_children": "Antibody-Dependent NK Cell Activation Analysis, Antibody Functional Profiling (Systems Serology)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ADNP",
@@ -1041,7 +1151,9 @@
     "associated_assay_parents": "Antibody-Dependent Neutrophil Phagocytosis (ADNP), Antibody-Dependent Functional Profiling (ADFP)",
     "associated_assay_children": "Antibody-Dependent Neutrophil Phagocytosis Analysis, Antibody Functional Profiling (Systems Serology), Linear Mixed Model",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ATM",
@@ -1058,7 +1170,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.BSRA",
@@ -1075,7 +1189,9 @@
     "associated_assay_parents": "Bacterial Survivability Restriction Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.CAD",
@@ -1092,7 +1208,9 @@
     "associated_assay_parents": "Device Design",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.CRY",
@@ -1114,7 +1232,9 @@
         "publication details": "D.CRY::DOI"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.CYTOF",
@@ -1142,7 +1262,9 @@
         "Type": "D.CYTOF::Type"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ELSA",
@@ -1159,7 +1281,9 @@
     "associated_assay_parents": "ELISA",
     "associated_assay_children": "Area Under the Curve (AUC)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.FCRB",
@@ -1185,7 +1309,9 @@
         "Expsample Description": "D.FCRB::Notes"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.FCS",
@@ -1206,7 +1332,9 @@
         "Compensation Or Control File Name(s)": "D.FCS::File_PrimaryData"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.FILE",
@@ -1223,7 +1351,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.FLOW",
@@ -1252,7 +1382,9 @@
         "Study Time Collected": "D.FLOW::Timepoint"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.GLYN",
@@ -1269,7 +1401,9 @@
     "associated_assay_parents": "Glycosylation Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.GPC",
@@ -1286,7 +1420,9 @@
     "associated_assay_parents": "Gel Permeation Chromatography (GPC)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.GPT",
@@ -1303,7 +1439,9 @@
     "associated_assay_parents": "GPT Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ICM",
@@ -1320,7 +1458,9 @@
     "associated_assay_parents": "Ion Chromatography",
     "associated_assay_children": "Ion Chromatography Analysis",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.IMG",
@@ -1345,7 +1485,9 @@
         "Study.publications": "D.IMG::DOI"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.LMX",
@@ -1375,7 +1517,9 @@
         "Expsample Description": "D.LMX::Notes"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.LUM",
@@ -1392,7 +1536,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.MBL",
@@ -1409,7 +1555,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.MSI",
@@ -1437,7 +1585,9 @@
         "Additional_Information.Supplementary": "D.MSI::Notes"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.MSP",
@@ -1469,7 +1619,9 @@
         "pubmed_id": "D.MSP::PMID"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.NMR",
@@ -1486,7 +1638,9 @@
     "associated_assay_parents": "Nuclear Magnetic Resonance Spectroscopy",
     "associated_assay_children": "Nuclear Magnetic Resonance Spectroscopy Analysis",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.ONC",
@@ -1503,7 +1657,9 @@
     "associated_assay_parents": "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.PCR",
@@ -1520,7 +1676,9 @@
     "associated_assay_parents": "Polymerase Chain Reaction (PCR)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.PEX",
@@ -1537,7 +1695,9 @@
     "associated_assay_parents": "Proximity Extension Assay (PEA)",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.PRM",
@@ -1554,7 +1714,9 @@
     "associated_assay_parents": "Electron Paramagnetic Resonance (EPR) Spectroscopy",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.SEQ",
@@ -1602,7 +1764,9 @@
         "assembly": "D.SEQ::Genome"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.SIM",
@@ -1619,7 +1783,9 @@
     "associated_assay_parents": "Computational Chemistry Simulation Data, Computational Modeling",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.SNSR",
@@ -1636,7 +1802,9 @@
     "associated_assay_parents": "Electrochemical Sensor Assay, Field Water Quality Sensor Measurement",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.SPC",
@@ -1653,7 +1821,9 @@
     "associated_assay_parents": "Spectroscopy, Mass Spectrometry, Fourier Transform Infrared Spectroscopy (FTIR)",
     "associated_assay_children": "Spectroscopy Analysis, Mass Spectrometry Analysis",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.TITR",
@@ -1680,7 +1850,9 @@
         "Expsample Description": "D.TITR::Notes"
       }
     },
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.TNSY",
@@ -1697,7 +1869,9 @@
     "associated_assay_parents": "Tensiometry Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.VIA",
@@ -1714,7 +1888,9 @@
     "associated_assay_parents": "Cell Viability Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.VLT",
@@ -1731,7 +1907,9 @@
     "associated_assay_parents": "Voltammetry",
     "associated_assay_children": "Voltammetry Analysis",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.WBLT",
@@ -1748,7 +1926,9 @@
     "associated_assay_parents": "Western Blot",
     "associated_assay_children": "Western Blot Analysis",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.WTR",
@@ -1765,7 +1945,9 @@
     "associated_assay_parents": "Water Quality Detection",
     "associated_assay_children": "Computational Modeling",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "D.XRS",
@@ -1782,7 +1964,9 @@
     "associated_assay_parents": "X-ray Photoelectron Spectroscopy",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "DNA",
@@ -1799,7 +1983,9 @@
     "associated_assay_parents": "Library Creation, DNA Extraction, cDNA Synthesis",
     "associated_assay_children": "Short Read Sequencing, Single Cell Sequencing, Library Creation, Bulk DNA Sequencing, GPT Assay, Mass Spectrometry, DNA Extraction, Long-Read Sequencing, Single Cell Expression Analysis, Polymerase Chain Reaction (PCR), WGS, WXS, ATAC-Seq",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "FLT",
@@ -1816,7 +2002,9 @@
     "associated_assay_parents": "Device Assembly",
     "associated_assay_children": "Electrochemical Filtration, Device Assembly, Scanning Electron Microscopy, Device Design",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "GAS",
@@ -1833,7 +2021,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "LOC",
@@ -1850,7 +2040,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": "Field Water Quality Sensor Measurement, Environmental sample collection",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "LYS",
@@ -1867,7 +2059,9 @@
     "associated_assay_parents": "Cell Lysate Preparation",
     "associated_assay_children": "Mass Spectrometry Proteomics",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "M.CNN",
@@ -1884,7 +2078,9 @@
     "associated_assay_parents": "Convolutional Neural Network (CNN) Assay",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "M.LMM",
@@ -1901,7 +2097,9 @@
     "associated_assay_parents": "Linear Mixed Model",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "MDL",
@@ -1918,7 +2116,9 @@
     "associated_assay_parents": "Model Validation, Computational Modeling, TransCompR Cross-Species Computational Modeling",
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "MUS",
@@ -1935,7 +2135,9 @@
     "associated_assay_parents": "Pathogen Challenge and Antibody Depletion, Chemical Challenge, Patient-Derived Xenograft (PDX) Cell Line Generation",
     "associated_assay_children": "Tissue Collection, Cell Isolation, Cell Line Creation, Intravital Microscopy",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "NHP",
@@ -1952,7 +2154,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": "Patient Visit, Tissue Collection, Flow Cytometry Analysis",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "OOC",
@@ -1969,7 +2173,9 @@
     "associated_assay_parents": "Organ-on-a-Chip Device Fabrication",
     "associated_assay_children": "Cell Extraction, RNA Extraction, Device Imaging, Computational Modeling",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "PAT",
@@ -1986,7 +2192,9 @@
     "associated_assay_parents": "Patient Visit",
     "associated_assay_children": "Patient Visit, Targeted Cancer Gene Panel Sequencing (Oncopanel)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "PAV",
@@ -2003,7 +2211,9 @@
     "associated_assay_parents": "Patient Visit, Pathogen Challenge and Antibody Depletion, Tissue Collection",
     "associated_assay_children": "Tissue Collection, PET/CT Scan, Patient Visit, Magnetic Resonance Imaging (MRI)",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "RNA",
@@ -2020,7 +2230,9 @@
     "associated_assay_parents": "RNA Extraction",
     "associated_assay_children": "Library Creation, cDNA Synthesis, Polymerase Chain Reaction (PCR), RNA-Seq, miRNA-Seq",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "SLD",
@@ -2037,7 +2249,9 @@
     "associated_assay_parents": "Tissue Sectioning",
     "associated_assay_children": "Tissue Imaging, Mass Spectrometry Proteomics, Tissue Sectioning",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "SNSR",
@@ -2054,7 +2268,9 @@
     "associated_assay_parents": "Sensor Creation",
     "associated_assay_children": "Atomic Force Microscopy (AFM), Electrochemical Sensor Assay",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "SUB",
@@ -2071,7 +2287,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": null,
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "TIS",
@@ -2088,7 +2306,9 @@
     "associated_assay_parents": "Tissue Collection, Patient Visit",
     "associated_assay_children": "Mass Spectrometry Proteomics, RNA Extraction, Bacterial Extraction, Titer Assay, Fc Receptor Binding Assay, Antibody-Dependent Functional Profiling (ADFP), Proximity Extension Assay (PEA), Immunohistochemistry, Histopathology, Imaging, Tissue Imaging, Tissue Sectioning, Flow Cytometry, CyTOF, CometChip Assay, Cell Isolation, Bacterial Survivability Restriction Assay, Spatial Transcriptomics, DNA Extraction, Spatial Proteomics, Western Blot, Cell Culture and Organoid Generation, Spatial Metabolomics, Luminex Multiplex Immunoassay, Protein Extraction, GPT Assay, ELISA, Patient-Derived Xenograft (PDX) Cell Line Generation, Antibody-Dependent Cellular Phagocytosis (ADCP), Antibody-Dependent Complement Deposition (ADCD) Assay, Antibody-Dependent NK Cell Activation Assay, Antibody-Dependent Neutrophil Phagocytosis (ADNP), Cell Extraction, Cell Line Creation, Cell Sorting, Cyclic Immunofluorescence (CyCIF), Fourier Transform Infrared Spectroscopy (FTIR), Immunopeptidomics, MALDI Mass Spectrometry Imaging (MALDI-MSI), Organ-on-a-Chip Device Fabrication",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "VIR",
@@ -2105,7 +2325,9 @@
     "associated_assay_parents": null,
     "associated_assay_children": "Pathogen Challenge and Antibody Depletion",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "sample_type": "WTR",
@@ -2122,6 +2344,8 @@
     "associated_assay_parents": "Electrochemical Filtration, Chemical Challenge, Environmental sample collection",
     "associated_assay_children": "Electrochemical Filtration, Spectroscopy, Solid Phase Extraction (SPE), Mass Spectrometry, Water Quality Detection, Ion Chromatography",
     "repository_attributes": null,
-    "sampletype_file_link": null
+    "sampletype_file_link": null,
+    "when_to_use": null,
+    "similar_types": null
   }
 ]

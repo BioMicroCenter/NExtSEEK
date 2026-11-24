@@ -105,12 +105,21 @@ def load_source(path: Path) -> list[dict]:
 # matter and nowhere the test lane can see, and a four-byte character then answers
 # `ERROR 1366 Incorrect string value` there and nowhere else. `json_text` passes
 # one through raw (`ensure_ascii=False`) and `literal` accepts it.
+_TEXT_UTF8MB4 = "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL"
+
+# `when_to_use` (plain text) and `similar_types` (JSON text, a list of {"code", "differs"}) are hand columns of both
+# tables, written on the Definitions admin page; nextseek_api migration 0036 adds them to a box, `--emit update`
+# adds them to a database it is run against, and no Nessie reader names them yet.
+_GUIDE_COLUMNS = {"when_to_use": _TEXT_UTF8MB4, "similar_types": _TEXT_UTF8MB4}
+
 ADDED_COLUMNS = {
     "sample_types": {
         # Curated in context/sample_types.json; see context/README.md
         # "repository_attributes". Absent from the 2026-09-11 production pull.
-        "repository_attributes": "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL",
+        "repository_attributes": _TEXT_UTF8MB4,
+        **_GUIDE_COLUMNS,
     },
+    "assays": dict(_GUIDE_COLUMNS),
 }
 
 
@@ -158,8 +167,9 @@ TABLES = {
             "parent_sampletypes", "child_sampletypes",
             "associated_assay_parents", "associated_assay_children",
             "repository_attributes", "sampletype_file_link",
+            "when_to_use", "similar_types",
         ),
-        json_columns=("repository_attributes",),
+        json_columns=("repository_attributes", "similar_types"),
         int_columns=("sampletype_id",),
     ),
     "assays": Table(
@@ -172,7 +182,9 @@ TABLES = {
             "Children_Sample_Types", "Parent_Clade_Type", "Child_Clade_Type",
             "AssaySheet_Link", "AssociatedRepository", "Critical_Attributes",
             "Protocols_Phrases", "Protocols_UIDs", "internal_assay_id",
+            "when_to_use", "similar_types",
         ),
+        json_columns=("similar_types",),
         int_columns=("internal_assay_id",),
     ),
     # Keyed on the pair: the real CSBC and MetNet investigations share their exact
@@ -1243,6 +1255,8 @@ CREATE TABLE IF NOT EXISTS sample_types_context (
   associated_assay_children TEXT         NULL,
   repository_attributes     TEXT         NULL,
   sampletype_file_link      VARCHAR(255) NULL,
+  when_to_use               TEXT         NULL,
+  similar_types             TEXT         NULL,
   UNIQUE KEY `uq_sample_types_context_sample_type` (`sample_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """,
@@ -1289,6 +1303,8 @@ CREATE TABLE IF NOT EXISTS assay_context (
   Protocols_Phrases            TEXT         NULL,
   Protocols_UIDs               TEXT         NULL,
   internal_assay_id            INT          NULL,
+  when_to_use                  TEXT         NULL,
+  similar_types                TEXT         NULL,
   UNIQUE KEY `uq_assay_context_assay_name` (`assay_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """,
@@ -2337,7 +2353,7 @@ def emit_snapshot(export_path, out=None) -> int:
     The database is the source of truth for these two tables (decided 2026-11-23): their hand text is edited on
     the site and their derived columns are kept by graph_sync's context step, so git holds a snapshot of
     production's rows, taken from ``GET /nextseek_api/definitions/export/``. Each row gets every column of its
-    table, in the order the file already uses (else ``TABLES``' order), absent ones null, so a snapshot diff shows
+    table, in the order the file already uses with columns it lacks appended last (else ``TABLES``' order), absent ones null, so a snapshot diff shows
     only changed values (the first snapshot also re-sorts ``assays.json``, whose rows were never fully sorted); JSON
     columns parsed back to objects, rows sorted by their key
     case-folded, written as the files always are. A column the table does not list is refused, so git never drops
@@ -2352,8 +2368,8 @@ def emit_snapshot(export_path, out=None) -> int:
         order = spec.columns
         if path.exists():
             first = (json.loads(path.read_text(encoding="utf-8")) or [{}])[0]
-            if set(first) == set(spec.columns):
-                order = tuple(first)
+            if first and set(first) <= set(spec.columns):       # the file's own order, new columns last
+                order = tuple(first) + tuple(c for c in spec.columns if c not in first)
         rows = []
         for source in doc[table]:
             unknown = sorted(set(source) - set(spec.columns) - {"id"})

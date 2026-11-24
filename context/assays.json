@@ -14,7 +14,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Analyzed Spatial Proteomics",
@@ -31,7 +33,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody Functional Profiling (Systems Serology)",
@@ -48,7 +52,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody Titer Assay Analysis",
@@ -65,7 +71,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent Cellular Phagocytosis (ADCP)",
@@ -82,7 +90,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent Cellular Phagocytosis Analysis",
@@ -99,7 +109,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent Complement Deposition (ADCD) Assay",
@@ -116,7 +128,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent Functional Profiling (ADFP)",
@@ -133,7 +147,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent Neutrophil Phagocytosis (ADNP)",
@@ -150,7 +166,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent Neutrophil Phagocytosis Analysis",
@@ -167,7 +185,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent NK Cell Activation Analysis",
@@ -184,7 +204,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Antibody-Dependent NK Cell Activation Assay",
@@ -201,7 +223,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Area Under the Curve (AUC)",
@@ -218,7 +242,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Atomic Force Microscopy (AFM)",
@@ -235,7 +261,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Bacterial Extraction",
@@ -252,7 +280,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Bacterial Survivability Restriction Assay",
@@ -269,7 +299,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Bulk DNA Sequencing",
@@ -286,7 +318,9 @@
     "AssociatedRepository": "SRA",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cancer Cell Extravasation Analysis",
@@ -303,7 +337,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "cDNA Synthesis",
@@ -320,7 +356,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Culture",
@@ -337,7 +375,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Culture and Organoid Generation",
@@ -354,7 +394,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Extraction",
@@ -371,7 +413,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Imaging",
@@ -388,7 +432,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Isolation",
@@ -405,7 +451,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Line Creation",
@@ -422,7 +470,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Lysate Preparation",
@@ -439,7 +489,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Sorting",
@@ -456,7 +508,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cell Viability Assay",
@@ -473,7 +527,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Chemical Challenge",
@@ -490,7 +546,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Chemical Synthesis",
@@ -507,7 +565,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Chromatin Sequencing Analysis",
@@ -524,7 +584,9 @@
     "AssociatedRepository": "GEO",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
@@ -541,7 +603,9 @@
     "AssociatedRepository": "GEO",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Clot Modeling Analysis",
@@ -558,7 +622,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Comet Chip Analysis",
@@ -575,7 +641,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "CometChip Assay",
@@ -592,7 +660,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Computational Chemistry Simulation Data",
@@ -609,7 +679,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Computational Modeling",
@@ -626,7 +698,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Convolutional Neural Network (CNN) Assay",
@@ -643,7 +717,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Copy Number Variation Analysis",
@@ -660,7 +736,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "cyCIF Analysis",
@@ -677,7 +755,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Cyclic Immunofluorescence (CyCIF)",
@@ -694,7 +774,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "CyTOF",
@@ -711,7 +793,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "CyTOF Analysis",
@@ -728,7 +812,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Dendritic Cell Preparation",
@@ -745,7 +831,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Device Assembly",
@@ -762,7 +850,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Device Design",
@@ -779,7 +869,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Device Imaging",
@@ -796,7 +888,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix)",
@@ -813,7 +907,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "DNA Extraction",
@@ -830,7 +926,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Electrochemical Filtration",
@@ -847,7 +945,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Electrochemical Sensor Assay",
@@ -864,7 +964,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Electron Paramagnetic Resonance (EPR) Spectroscopy",
@@ -881,7 +983,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "ELISA",
@@ -898,7 +1002,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Environmental sample collection",
@@ -915,7 +1021,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "FC Receptor Binding Analysis",
@@ -932,7 +1040,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Fc Receptor Binding Assay",
@@ -949,7 +1059,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Field Water Quality Sensor Measurement",
@@ -966,7 +1078,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Flow Cytometry",
@@ -983,7 +1097,9 @@
     "AssociatedRepository": "ImmPort",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Flow Cytometry Analysis",
@@ -1000,7 +1116,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Fourier Transform Infrared Spectroscopy (FTIR)",
@@ -1017,7 +1135,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Gel Permeation Chromatography (GPC)",
@@ -1034,7 +1154,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Gene Expression Analysis",
@@ -1051,7 +1173,9 @@
     "AssociatedRepository": "GEO",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Genome Alignment",
@@ -1068,7 +1192,9 @@
     "AssociatedRepository": "GEO, SRA",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Glycosylation Assay",
@@ -1085,7 +1211,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "GPT Assay",
@@ -1102,7 +1230,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Hierarchical Clustering",
@@ -1119,7 +1249,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Histopathology",
@@ -1136,7 +1268,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Histopathology Analysis",
@@ -1153,7 +1287,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Imaging",
@@ -1170,7 +1306,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Imaging Analysis",
@@ -1187,7 +1325,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Immunohistochemistry",
@@ -1204,7 +1344,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Immunopeptidomics",
@@ -1221,7 +1363,9 @@
     "AssociatedRepository": "PRIDE",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Intravital Microscopy",
@@ -1238,7 +1382,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Ion Chromatography",
@@ -1255,7 +1401,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Ion Chromatography Analysis",
@@ -1272,7 +1420,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "iPSC Chondrogenic Differentiation and Chondronoid Formation",
@@ -1289,7 +1439,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Library Creation",
@@ -1306,7 +1458,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Linear Mixed Model",
@@ -1323,7 +1477,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Long-Read Sequencing",
@@ -1340,7 +1496,9 @@
     "AssociatedRepository": "GEO, SRA",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Luminex Data Processing",
@@ -1357,7 +1515,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Luminex Multiplex Immunoassay",
@@ -1374,7 +1534,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Magnetic Resonance Imaging (MRI)",
@@ -1391,7 +1553,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "MALDI Mass Spectrometry Imaging (MALDI-MSI)",
@@ -1408,7 +1572,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Mass Spectrometry",
@@ -1425,7 +1591,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Mass Spectrometry Analysis",
@@ -1442,7 +1610,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Mass Spectrometry Proteomics",
@@ -1459,7 +1629,9 @@
     "AssociatedRepository": "PRIDE",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Mass Spectrometry Proteomics Analysis",
@@ -1476,7 +1648,9 @@
     "AssociatedRepository": "PRIDE",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Migration Assay Analysis",
@@ -1493,7 +1667,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Model Validation",
@@ -1510,7 +1686,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "MRI Analysis",
@@ -1527,7 +1705,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Multiplex Bead-Based Antibody Titer Panel Assay",
@@ -1544,7 +1724,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Mutational Spectra Analysis",
@@ -1561,7 +1743,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Necropsy",
@@ -1578,7 +1762,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Nuclear Magnetic Resonance Spectroscopy",
@@ -1595,7 +1781,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Nuclear Magnetic Resonance Spectroscopy Analysis",
@@ -1612,7 +1800,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Organ-on-a-Chip Device Fabrication",
@@ -1629,7 +1819,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Pathogen Challenge and Antibody Depletion",
@@ -1646,7 +1838,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Patient Visit",
@@ -1663,7 +1857,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Patient-Derived Xenograft (PDX) Cell Line Generation",
@@ -1680,7 +1876,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Permeability Analysis",
@@ -1697,7 +1895,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "PET/CT Scan",
@@ -1714,7 +1914,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "PET/CT Scan Analysis",
@@ -1731,7 +1933,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Polymerase Chain Reaction (PCR)",
@@ -1748,7 +1952,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Protein Extraction",
@@ -1765,7 +1971,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Proximity Extension Assay (PEA)",
@@ -1782,7 +1990,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "RaDR Fluorescence Microscopy Image Machine Learning Analysis",
@@ -1799,7 +2009,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "RNA Extraction",
@@ -1816,7 +2028,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Sample Processing",
@@ -1833,7 +2047,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Scanning Electron Microscopy",
@@ -1850,7 +2066,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Sensor Creation",
@@ -1867,7 +2085,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Short Read Sequencing",
@@ -1884,7 +2104,9 @@
     "AssociatedRepository": "GEO, SRA",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Single Cell Clustering Analysis",
@@ -1901,7 +2123,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Single Cell Expression Analysis",
@@ -1918,7 +2142,9 @@
     "AssociatedRepository": "GEO",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Single Cell Sequencing",
@@ -1935,7 +2161,9 @@
     "AssociatedRepository": "GEO, SRA",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Single-Nucleus RNA Sequencing (snRNA-seq)",
@@ -1952,7 +2180,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Solid Phase Extraction (SPE)",
@@ -1969,7 +2199,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Spatial Metabolomics",
@@ -1986,7 +2218,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Spatial Proteomics",
@@ -2003,7 +2237,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Spatial Transcriptomics",
@@ -2020,7 +2256,9 @@
     "AssociatedRepository": "GEO",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Spectroscopy",
@@ -2037,7 +2275,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Spectroscopy Analysis",
@@ -2054,7 +2294,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "SureQuant Analysis",
@@ -2071,7 +2313,9 @@
     "AssociatedRepository": "PRIDE",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
@@ -2088,7 +2332,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Tensiometry Assay",
@@ -2105,7 +2351,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Tissue Collection",
@@ -2122,7 +2370,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Tissue Imaging",
@@ -2139,7 +2389,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Tissue Lysis",
@@ -2156,7 +2408,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Tissue Sectioning",
@@ -2173,7 +2427,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Titer Assay",
@@ -2190,7 +2446,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "TransCompR Cross-Species Computational Modeling",
@@ -2207,7 +2465,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Variant Call Filtering",
@@ -2224,7 +2484,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Voltammetry",
@@ -2241,7 +2503,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Voltammetry Analysis",
@@ -2258,7 +2522,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Water Quality Detection",
@@ -2275,7 +2541,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Western Blot",
@@ -2292,7 +2560,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Western Blot Analysis",
@@ -2309,7 +2579,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "X-ray Crystallography",
@@ -2326,7 +2598,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "X-ray Photoelectron Spectroscopy",
@@ -2343,7 +2617,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "HLA Typing",
@@ -2360,7 +2636,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Gene Fusion Detection",
@@ -2377,7 +2655,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Differential Splicing Analysis",
@@ -2394,7 +2674,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Ribosome Profiling Analysis",
@@ -2411,7 +2693,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Transcriptome Assembly",
@@ -2428,7 +2712,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "miRNA Discovery Analysis",
@@ -2445,7 +2731,9 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "ATAC-Seq",
@@ -2462,7 +2750,9 @@
     "AssociatedRepository": "GDC, GEO",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "RNA-Seq",
@@ -2479,7 +2769,9 @@
     "AssociatedRepository": "GDC",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "WGS",
@@ -2496,7 +2788,9 @@
     "AssociatedRepository": "GDC",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "WXS",
@@ -2513,7 +2807,9 @@
     "AssociatedRepository": "GDC",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "miRNA-Seq",
@@ -2530,7 +2826,9 @@
     "AssociatedRepository": "GDC",
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   },
   {
     "assay_name": "Methylation Calling",
@@ -2547,6 +2845,8 @@
     "AssociatedRepository": null,
     "AssaySheet_Link": null,
     "Protocols_UIDs": null,
-    "Protocols_Phrases": null
+    "Protocols_Phrases": null,
+    "when_to_use": null,
+    "similar_types": null
   }
 ]

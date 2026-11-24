@@ -101,12 +101,14 @@ def test_columns_match_the_fixtures_that_define_them():
     are independent of `cg.DDL`. `test_every_column_is_one_the_runtime_actually_reads`,
     below, checks the same columns against the consumer.
     """
-    assert set(cg.COLUMNS["assays"]) == _assay_seed_columns()
-    assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"}
+    guide = {"when_to_use", "similar_types"}       # hand columns of migration 0036, on neither fixture
+    assert set(cg.COLUMNS["assays"]) == _assay_seed_columns() | guide
+    assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"} | guide
     assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns()
     # Everything the fixtures do not name is declared as new, with a reason.
-    assert set(cg.ADDED_COLUMNS) == {"sample_types"}
-    assert set(cg.ADDED_COLUMNS["sample_types"]) == {"repository_attributes"}
+    assert set(cg.ADDED_COLUMNS) == {"sample_types", "assays"}
+    assert set(cg.ADDED_COLUMNS["sample_types"]) == {"repository_attributes"} | guide
+    assert set(cg.ADDED_COLUMNS["assays"]) == guide
 
 
 CONFIG = Path("NessieAI/chat_nextseek/src/chat_nextseek/config.py")
@@ -143,8 +145,9 @@ def test_every_column_is_one_the_runtime_actually_reads():
     `pi_names` column, which nothing read, is retired (spec 2026-09-18, section 8),
     and `present_on` is a generator-only key, never a column.
     """
-    unread = {"projects": set(), "sample_types": {"repository_attributes"},
-              "assays": set()}
+    # when_to_use and similar_types are hand columns no Nessie mapper reads yet (a separate approval wires them).
+    unread = {"projects": set(), "sample_types": {"repository_attributes", "when_to_use", "similar_types"},
+              "assays": {"when_to_use", "similar_types"}}
     for table, mapper in (("sample_types", "map_sampletype"), ("assays", "map_assay"),
                           ("projects", "map_project")):
         reads = _reader_columns(mapper)
@@ -882,6 +885,20 @@ def test_a_column_added_to_a_live_table_carries_its_own_charset():
             assert "COLLATE utf8mb4_unicode_ci" in definition
     sql = cg.render_update("sample_types", _rows_for("sample_types"))
     assert "ADD COLUMN `repository_attributes` TEXT CHARACTER SET utf8mb4" in sql
+    for table in ("sample_types", "assays"):
+        sql = cg.render_update(table, _rows_for(table))
+        for column in ("when_to_use", "similar_types"):
+            assert f"ADD COLUMN `{column}` TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL" in sql
+
+
+def test_the_guide_columns_are_in_both_tables_and_similar_types_is_json():
+    for table in ("sample_types", "assays"):
+        spec = cg.TABLES[table]
+        assert spec.columns[-2:] == ("when_to_use", "similar_types")
+        assert "similar_types" in spec.json_columns and "when_to_use" not in spec.json_columns
+        ddl = cg.DDL[table]
+        assert "when_to_use" in ddl and "similar_types" in ddl
+        assert all(r["when_to_use"] is None and r["similar_types"] is None for r in _rows_for(table))
 
 
 def test_no_curated_value_needs_a_backslash():
@@ -2226,3 +2243,20 @@ def test_snapshot_writes_nothing_when_either_table_is_refused(tmp_path):
     with pytest.raises(ValueError):
         cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
     assert not (tmp_path / "context" / "sample_types.json").exists()
+
+
+def test_snapshot_keeps_the_files_own_order_and_appends_the_columns_the_file_lacks(tmp_path):
+    """A file written before a column existed keeps every key where it was; the new columns go last."""
+    import json
+    target = tmp_path / "context" / "assays.json"
+    target.parent.mkdir(parents=True)
+    old = [c for c in cg.TABLES["assays"].columns if c not in ("when_to_use", "similar_types")]
+    old = ["internal_assay_id"] + [c for c in old if c != "internal_assay_id"]
+    target.write_text(json.dumps([dict.fromkeys(old)]), encoding="utf-8")
+    export = _export(tmp_path, sample_types=[], assays=[
+        {"assay_name": "PCR", "internal_assay_id": 4, "when_to_use": "Use this when ...",
+         "similar_types": '[{"code": "qPCR", "differs": "counts cycles"}]'}])
+    cg.main(["--emit", "snapshot", "--from", str(export), "--out", str(tmp_path)])
+    row = json.loads(target.read_text(encoding="utf-8"))[0]
+    assert list(row) == old + ["when_to_use", "similar_types"]
+    assert row["similar_types"] == [{"code": "qPCR", "differs": "counts cycles"}]
