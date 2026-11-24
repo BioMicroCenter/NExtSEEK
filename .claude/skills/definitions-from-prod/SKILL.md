@@ -135,9 +135,17 @@ leave them, and tell the operator.
 Watch the box while the job runs: `free -h`, and the `nextseek` and `seek-mysql` containers in `docker stats`; if
 memory climbs toward a container's cap, stop and tell the operator.
 
+Pre-check output (memory lines, hashes) goes to stderr or its own ssh call, never into the stream that carries
+`--json`. Before the first write, note the newest drift run (`graph_sync_health`), so a red drift afterwards can be
+told apart from one that was there already.
+
 ## 6. Prove it
 
 - The last dry run's `plan.counts` are all zero; `plan.blocked` and `plan.expected` list only what step 3 showed.
-- The graph caught up: `manage.py graph_sync_health` (the outbox drained) and
+- Re-read the target with `dump.py` and compare it with the production bundle: every differing cell is one the
+  plan's `expected` names (a title with a trailing space in SEEK is the same title to the tiers).
+- The graph caught up: `manage.py graph_sync_health` (the outbox drained: the outbox is first in, first out, so
+  the `catalog` row the sync queues waits behind the attribute job's `samples_of_type` rows, which re-read every
+  sample of each touched type and can take hours; the new types' attributes reach the graph when it is reached) and
   `manage.py graph_sync --context --dry-run --json` (read-only: the derived columns the context step would set).
 - Hand the operator the counts and the expected list; the next session needs the target-only rows.
