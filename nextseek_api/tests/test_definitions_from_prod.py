@@ -499,3 +499,13 @@ def test_only_a_live_attribute_job_holds_the_sync_back():
         live, stale = applier.running_jobs(now)
     assert {"lease_expires_at", "created_at", "terminal_result"} <= fields
     assert [x.split()[0] for x in live] == ["held", "new"] and [x.split()[0] for x in stale] == ["old"]
+
+
+def test_a_seek_title_with_a_trailing_space_still_counts_for_the_tiers():
+    prod, dev = base()
+    for b in (prod, dev):
+        b["tables"]["seek.sample_attributes"].append(attr("TIS", "Maker ", 4))
+    prod["tables"]["dmac.sample_types_context"][0]["standard_metadata"] = "Maker"
+    p = sync.plan(prod, dev)
+    assert p["expected"]["tier_titles_missing"] == []
+    assert p["context_sample_types"]["update"] == {"TIS": {"standard_metadata": "Maker"}}

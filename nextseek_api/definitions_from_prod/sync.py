@@ -338,8 +338,10 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
     def tiers_here(code, row):
         """Production's tier lists without the titles this type will not have on dev (the page refuses those)."""
         out_ = {}
+        have = will_exist.get(code)
+        if have is not None:   # tier lists are stripped; SEEK keeps some titles with a trailing space
+            have = {x.strip() for x in have}
         for c in TIERS:
-            have = will_exist.get(code)
             vals = _list(row.get(c))
             gone = [x for x in vals if have is not None and x not in have]
             if gone:
