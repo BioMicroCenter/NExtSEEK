@@ -57,6 +57,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
 | `nextseek-create-endpoint` | adding or changing an API endpoint (a `nextseek_api` ViewSet); finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-create-endpoint/SKILL.md` | auto |
 | `share-samples` | sharing samples of one project into another project's existing study through the superuser-only sample-shares endpoint: dry run, plan, apply, verify | `.claude/skills/share-samples/SKILL.md` | auto |
+| `definitions-sync` | copying production's sample types, assays and attributes onto dev: read prod, dry run, operator creates missing SEEK types, apply, prove | `.claude/skills/definitions-sync/SKILL.md` | auto |
 | `nessie-run-review` | the Nessie run report: triaging a nessie_tests run or real users' questions into an HTML review | `.claude/skills/nessie-run-review/SKILL.md` | auto |
 | `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `.claude/skills/nessie-bayes-report/SKILL.md` | auto |
 | `clean_up` | a box disk filling or low, old images or rollback tags, build cache to prune; surveys read-only, hands back command blocks the operator approves | `.claude/skills/clean_up/SKILL.md` | auto |

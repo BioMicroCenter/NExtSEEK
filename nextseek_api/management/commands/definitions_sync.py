@@ -5,8 +5,8 @@ meanings) onto this box. Dry run unless ``--apply``; a second ``--apply`` finds 
     manage.py definitions_sync --source PATH|-  --apply --seek-login NAME [--wait S] [--json]
 
 ``--source`` is production's bundle as ``nextseek_api/definitions_sync/dump.py`` prints it, or
-``{"prod": <bundle>, "hold": [...]}`` with the hold list (cells that keep this box's value, each
-``{"table", "key", "column"}``); ``-`` reads it from stdin. This box is read in process with the same function.
+``{"prod": <bundle>, "hold": [...], "project": "<title>"}`` with the hold list (cells that keep this box's value, each
+``{"table", "key", "column"}``) and the project; ``-`` reads it from stdin. This box is read in process with the same function.
 
 The dry run prints the plan, every difference it leaves on purpose, the attribute API's own preview of its writes
 (with ``--seek-login``) and, for each SEEK sample type this box lacks, the body to ``POST /nextseek_api/sample_types/``
@@ -95,6 +95,7 @@ class Command(BaseCommand):
             log(f"refused: cannot read --source: {exc}")
             sys.exit(2)
         prod, hold = (raw["prod"], raw.get("hold", [])) if "prod" in raw else (raw, [])
+        project = o["project"] or raw.get("project")   # in the envelope, a title with spaces needs no shell quoting
         if "tables" not in prod:
             log("refused: --source holds no bundle (no 'tables'): make it with nextseek_api/definitions_sync/dump.py")
             sys.exit(2)
@@ -111,7 +112,7 @@ class Command(BaseCommand):
 
         plan = sync.plan(prod, read_box(), hold)
         report = {"mode": "apply" if o["apply"] else "dry_run", "prod_exported_at": prod.get("exported_at"),
-                  "plan": plan, "seek_type_payloads": type_payloads(plan, project_id(o["project"]))}
+                  "plan": plan, "seek_type_payloads": type_payloads(plan, project_id(project))}
         failed = False
         if o["apply"]:
             report["applied"] = applier.apply(plan, person=person, wait_s=o["wait"], log=log)
