@@ -15,7 +15,7 @@ SEEK keeps a permission lookup per type that only SEEK's own create fills. Run a
 attributes, clade and context row follow.
 
 Exit status: 0 done (or nothing to do), 1 a write was refused or failed (the report says which), 2 refused before
-any write (bad source, login not a superuser bound to one SEEK admin).
+any write (bad source, login not a superuser bound to one SEEK person).
 """
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ class Command(BaseCommand):
         parser.add_argument("--source", required=True, help="production's bundle (dump.py), or - for stdin")
         parser.add_argument("--apply", action="store_true", help="write; without it nothing is written")
         parser.add_argument("--seek-login", metavar="NAME", help="the operator's login: a Django superuser bound to "
-                                                                 "one SEEK person with SEEK's admin role")
+                                                                 "one SEEK person")
         parser.add_argument("--project", metavar="TITLE", help="the project new SEEK sample types join on this box")
         parser.add_argument("--wait", type=float, default=4 * 3600, metavar="S",
                             help="seconds to wait for an attribute job before reporting it as still running")

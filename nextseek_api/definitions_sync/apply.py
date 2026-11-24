@@ -22,9 +22,9 @@ class Refused(Exception):
 
 
 def actor(login: str):
-    """The operator's SEEK person, for the attribute API's job provenance: a Django superuser bound to exactly one
-    SEEK person with SEEK's admin role (the same binding the API's token path proves)."""
-    from nextseek_api.attributes.auth import AuthenticatedSeekPerson, _query_admin_role
+    """The operator's SEEK person, for the attribute API's job provenance: a Django superuser (the API's own admin
+    gate) bound to exactly one SEEK person by login (the binding the API's token path proves)."""
+    from nextseek_api.attributes.auth import AuthenticatedSeekPerson
 
     user = get_user_model().objects.filter(username=login).first()
     if user is None or not user.is_superuser:
@@ -35,8 +35,6 @@ def actor(login: str):
         rows = cur.fetchall()
     if len(rows) != 1:
         raise Refused(f"{login!r} is not bound to exactly one SEEK person")
-    if not _query_admin_role(int(rows[0][0])):
-        raise Refused(f"{login!r} has no SEEK admin role")
     return AuthenticatedSeekPerson(person_id=int(rows[0][0]), django_user_id=int(user.pk), login=login,
                                    scheme="command")
 
