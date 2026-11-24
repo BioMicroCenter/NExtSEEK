@@ -92,3 +92,22 @@ def test_the_schema_documents_the_route_and_its_models():
     assert op["operationId"] == "Export Definitions"
     assert op["responses"]["200"]["content"]["application/json"]["examples"]
     assert {"DefinitionsExportResponse", "DefinitionsLicensedConnection"} <= set(schema["components"]["schemas"])
+
+
+def test_the_export_carries_when_to_use_and_similar_types_as_stored(catalog):
+    """Both hand columns come out of SELECT * untouched, and the response model keeps them."""
+    from nextseek_api.models import DefinitionsExportResponse
+    similar = '[{"code": "TIS", "differs": "a tissue piece"}]'
+    with connection.cursor() as cur:
+        for table in ("sample_types_context", "assay_context"):
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN when_to_use TEXT")
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN similar_types TEXT")
+        cur.execute("UPDATE sample_types_context SET when_to_use = 'Use this when a strain.', similar_types = %s "
+                    "WHERE sample_type = 'BAC'", [similar])
+        cur.execute("UPDATE assay_context SET when_to_use = 'Use this when DNA is pulled.', similar_types = %s",
+                    [similar])
+    out = DefinitionsExportResponse.model_validate(build_export(graph_reader=_graph)).model_dump()
+    bac = next(r for r in out["sample_types"] if r["sample_type"] == "BAC")
+    assert (bac["when_to_use"], bac["similar_types"]) == ("Use this when a strain.", similar)
+    assay = out["assays"][0]
+    assert (assay["when_to_use"], assay["similar_types"]) == ("Use this when DNA is pulled.", similar)
