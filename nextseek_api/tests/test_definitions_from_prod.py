@@ -520,7 +520,10 @@ def test_a_guide_column_the_source_bundle_lacks_is_skipped_and_one_it_has_is_cop
     prod, dev = base()
     dev["tables"]["dmac.sample_types_context"][0].update(GUIDE)     # prod rows carry no such key at all
     p = sync.plan(prod, dev)
-    assert p["context_sample_types"]["update"] == {} and p["expected"]["dev_only_cells"] == []
+    assert p["context_sample_types"]["update"] == {}
+    # production not rebuilt yet: every dev cell holding text is dev-only, and the dry run says so
+    assert p["expected"]["dev_only_cells"] == [["dmac.sample_types_context", "TIS", "when_to_use"],
+                                               ["dmac.sample_types_context", "TIS", "similar_types"]]
     prod["tables"]["dmac.sample_types_context"][0].update(when_to_use="Use this when tissue.")
     prod["tables"]["dmac.assay_context"][0]["similar_types"] = GUIDE["similar_types"]
     p = sync.plan(prod, dev)

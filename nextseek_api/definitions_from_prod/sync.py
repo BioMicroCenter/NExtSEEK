@@ -24,8 +24,8 @@ API_FIELD = {"attribute_type": "sample_attribute_type", "vocab": "sample_control
 # Changes the attribute API always refuses (planner.enforce_uid_protection): UID stays required and the title.
 UID_LOCKED = ("required", "is_title")
 ATTR_REFS = {"vocab": "seek.sample_controlled_vocabs", "unit": "seek.units", "linked_sample_type": "seek.sample_types"}
-# Hand columns dev may hold before production does: a source bundle without them skips them, and a null or empty
-# source value never blanks dev's text (it is listed as a dev-only cell instead).
+# Hand columns dev may hold before production does: a source value that is absent (a bundle without the column), null
+# or empty never blanks dev's text; dev's cell is listed as a dev-only cell instead.
 GUIDE = ("when_to_use", "similar_types")
 ST_HAND = ("name", "description", "Tags", "required_metadata", "standard_metadata", "repository_attributes",
            "sampletype_file_link", *GUIDE)
@@ -378,8 +378,8 @@ def plan(prod: dict, dev: dict, hold: list[dict] | None = None) -> dict:
                 continue
             cells = {}
             for c in hand:
-                if c in GUIDE and (c not in row or norm(row[c]) is None):
-                    if c in row and norm(d[(code,)].get(c)) is not None:
+                if c in GUIDE and norm(row.get(c)) is None:      # absent (production not rebuilt), null or blank
+                    if norm(d[(code,)].get(c)) is not None:
                         exp["dev_only_cells"].append([table, code, c])
                     continue
                 if c in tiers:
